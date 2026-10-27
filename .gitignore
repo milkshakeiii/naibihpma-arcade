@@ -1,0 +1,13 @@
+# Build artifacts
+/target/
+
+# Exclude all song & audio files
+/assets/music/
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.aac
+*.opus
+*.wma

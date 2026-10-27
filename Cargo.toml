@@ -1,0 +1,17 @@
+[package]
+name = "naibihpma_arcade"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winapi = { version = "0.3.9", features = [
+    "winuser",
+    "wingdi",
+    "libloaderapi",
+    "mmsystem",
+    "synchapi",
+    "minwindef",
+    "windef",
+    "wingdi",
+] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
