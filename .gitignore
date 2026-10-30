@@ -4,6 +4,7 @@
 
 # Exclude all song & audio files
 **/assets/music/
+**/music_previews/
 *.wav
 *.mp3
 *.flac
