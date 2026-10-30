@@ -8,7 +8,7 @@ A 15 FPS, 64-color VGA pixel-pure (`400x300` logical canvas presented at exact `
 
 See:
 - [docs/18_level_progression.md](docs/18_level_progression.md) for the full 18-level, 3-act campaign blueprint.
-- [docs/visual_and_rendering_principles.md](docs/visual_and_rendering_principles.md) for the `400x300` 64-color VGA rendering, exact integer scaling, CRT scanline (`[F2]`), and 15 FPS simulation specifications.
+- [../visual_and_rendering_principles.md](../visual_and_rendering_principles.md) for the `400x300` 64-color VGA rendering, exact integer scaling, CRT scanline (`[F2]`), and 15 FPS simulation specifications.
 
 ## Building & Running
 

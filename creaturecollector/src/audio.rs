@@ -96,6 +96,7 @@ impl ArcadeAudio {
         let mut tracks = Vec::new();
         let search_dirs = [
             r"assets\music",
+            r"creaturecollector\assets\music",
             r"C:\Users\User\Desktop\theenchantedforestofnaibihpma",
         ];
         for dir in &search_dirs {

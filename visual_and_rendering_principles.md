@@ -1,15 +1,13 @@
 # Visual, Rendering, & Simulation Principles
 
-This document codifies the core technical and aesthetic principles of **`naibihpma_arcade`** so that all rendering, level design, UI, and animation work remains strictly faithful to early-1990s DOS/VGA pixel art (inspired by classics such as *Cosmo's Cosmic Adventure*) while displaying cleanly on modern high-resolution monitors.
+This document codifies the core technical and aesthetic principles shared across projects in this repository so that all rendering, level design, UI, and animation work remains strictly faithful to early-1990s DOS/VGA pixel art (inspired by classics such as *Cosmo's Cosmic Adventure*) while displaying cleanly on modern high-resolution monitors.
 
 ---
 
 ## 1. Native `400×300` Logical Canvas (4:3 Square-Pixel Grid)
 
-- **Logical Resolution:** `400×300` pixels (`FB_W = 400`, `FB_H = 300` in [`src/framebuffer.rs`](../src/framebuffer.rs)).
-  - **Playfield Viewport:** `400×236` (`PLAY_H = 236` in [`src/game.rs`](../src/game.rs)).
-  - **Beveled Status Bar:** `400×64` along the bottom edge (`y = 236..300`), housing controls hints, character portrait, $\text{O}_2$ / tranq readout, album track display, gold/cargo counters, and the 6-slot specimen pack.
-- **World Tile Grid:** `24×24` pixel tiles (`TILE_SZ = 24` in [`src/sprites.rs`](../src/sprites.rs)), arranged in `80×22` tile stages (`1920×528` logical pixels).
+- **Logical Resolution:** `400×300` pixels (`FB_W = 400`, `FB_H = 300`) — a crisp 4:3 square-pixel logical grid (typically split between an active playfield viewport and a classic beveled Apogee-style status/HUD panel along the bottom edge).
+- **Integer Tile & Sprite Grids:** Tiles and grounded sprites use exact `1:1` integer pixel dimensions (e.g., `20×20` or `24×24`), with grounded character/creature feet planted strictly on the bottom-most row (`row = h - 1`, zero empty transparent rows underneath) and snapped directly to `tile_row * tile_size - sprite_h`.
 
 ---
 
@@ -26,7 +24,7 @@ This document codifies the core technical and aesthetic principles of **`naibihp
 
 To prevent uneven `3px`/`4px` pixel widths and scrolling shimmer on modern flat-panel displays, the window never stretches the framebuffer by a fractional ratio:
 
-1. **DPI-Aware Physical Query:** On startup, [`src/main.rs`](../src/main.rs) calls `SetProcessDPIAware()` so Windows reports true physical monitor pixels rather than virtualized DPI-scaled coordinates.
+1. **DPI-Aware Physical Query:** On startup, the window layer calls `SetProcessDPIAware()` so Windows reports true physical monitor pixels rather than virtualized DPI-scaled coordinates.
 2. **Largest Integer Multiple (`N×`):** Each frame, `Framebuffer::integer_scale_for_viewport(cw, ch)` selects the largest integer scale factor $N \ge 1$ that fits inside the monitor:
    $$N = \max\!\left(1,\; \min\!\left(\left\lfloor \frac{W_{\text{screen}}}{400} \right\rfloor,\; \left\lfloor \frac{H_{\text{screen}}}{300} \right\rfloor\right)\right)$$
 
@@ -53,15 +51,15 @@ To prevent uneven `3px`/`4px` pixel widths and scrolling shimmer on modern flat-
 
 ## 5. Authentic 64-Color 6-Bit VGA Hardware Palette
 
-- **64-Entry Indexed LUT:** Every pixel in [`Framebuffer`](../src/framebuffer.rs) holds an index in `0..63` (`0` = sprite transparency, `1` = `1px` dark hull outline).
-- **18-Bit (`6-Bit-Per-Channel`) VGA DAC Quantization:** In [`VgaPalette::update_cycler`](../src/palette.rs), all RGB channels are masked with `& 0xFC` (64 discrete steps per channel), matching IBM VGA hardware DAC precision.
+- **64-Entry Indexed LUT:** Every pixel in the logical `Framebuffer` holds an index in `0..63` (`0` = sprite transparency, `1` = `1px` dark hull outline).
+- **18-Bit (`6-Bit-Per-Channel`) VGA DAC Quantization:** All palette RGB channels are masked with `& 0xFC` (64 discrete steps per channel), matching IBM VGA hardware DAC precision.
 - **Moody Readability & Zero Flashing UI:**
-  - Foreground sprites enforce a `1px` dark hull outline (index `1`) against recessed, darker twilight playfield backdrops (`make_recessed_playfield_bg`) so characters, terrain edges, and hazards remain unmistakable.
-  - UI text, borders, and prompts **never strobe or flash**; hardware palette cycling is reserved solely for slow, atmospheric background bioluminescence (`Bank A: 48..51`).
+  - Foreground sprites enforce a `1px` dark hull outline (index `1`) against recessed, darker twilight playfield backdrops so characters, terrain edges, and hazards remain unmistakable.
+  - UI text, borders, and prompts **never strobe or flash**; hardware palette cycling is reserved solely for slow, atmospheric background ambience.
 
 ---
 
 ## 6. Discrete 15 FPS Cadence with 250 Hz Input Latching
 
-- **15 FPS Simulation & Render Tick (`66.667 ms`):** All physics, creature AI, animations, camera steps, and frame blits advance in discrete `15 Hz` ticks (`GameState::update_15fps_tick`), preserving the crisp, deliberate frame cadence of early-1990s DOS shareware platformers.
-- **250 Hz Input Edge Polling (`4 ms`):** Between `15 FPS` ticks, [`src/main.rs`](../src/main.rs) polls keyboard state every `4 ms` and latches rising-edge presses (`InputState`) until the next tick fires, ensuring quick taps are never missed.
+- **15 FPS Simulation & Render Tick (`66.667 ms`):** All physics, AI, animations, camera steps, and frame blits advance in discrete `15 Hz` ticks, preserving the crisp, deliberate frame cadence of early-1990s DOS shareware games.
+- **250 Hz Input Edge Polling (`4 ms`):** Between `15 FPS` ticks, the main loop polls keyboard state every `4 ms` and latches rising-edge presses (`InputState`) until the next tick fires, ensuring quick taps are never missed.

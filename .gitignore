@@ -1,8 +1,9 @@
-# Build artifacts
-/target/
+# Build artifacts & local run saves
+**/target/
+**/bestiary_save.cfg
 
 # Exclude all song & audio files
-/assets/music/
+**/assets/music/
 *.wav
 *.mp3
 *.flac

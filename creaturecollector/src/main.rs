@@ -1,15 +1,16 @@
 mod audio;
+mod battle;
+mod data;
 mod framebuffer;
 mod game;
 mod palette;
 mod sprites;
 
-use audio::ArcadeAudio;
+use audio::{ArcadeAudio, Sfx};
+use battle::{BattleCmd, BattlePhase, BattleState, PopBadge, Side, VisualArc};
+use data::{ArtifactId, CreatureInstance, SpeciesId, SpellGemId};
 use framebuffer::Framebuffer;
-use game::{
-    AirborneMode, BagItem, FloatingText, GameMode, GameState, IngKind, InputState, PatronStage,
-    PrepState, RestaurantUpgrade, STOOL_X,
-};
+use game::{GameMode, GameState, InputState, SquadSubMode, TS};
 use palette::VgaPalette;
 use sprites::AssetBank;
 use std::ffi::OsStr;
@@ -39,7 +40,7 @@ fn main() {
         SetProcessDPIAware();
 
         let hinstance = GetModuleHandleW(null_mut());
-        let class_name: Vec<u16> = OsStr::new("NaibihpmaArcadeWindowClass")
+        let class_name: Vec<u16> = OsStr::new("NaibihpmaRogueWindowClass")
             .encode_wide()
             .chain(Some(0))
             .collect();
@@ -60,11 +61,10 @@ fn main() {
 
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
-
         let style = WS_POPUP | WS_VISIBLE;
 
         let title: Vec<u16> = OsStr::new(
-            "INTERSTELLAR FORAGER: THE ENCHANTED FOREST OF NAIBIHPMA [400x300 64-COLOR VGA]",
+            "NAIBIHPMA: XENOBIOLOGY ROGUELIKE [400x300 64-COLOR VGA | 15 FPS]",
         )
         .encode_wide()
         .chain(Some(0))
@@ -104,30 +104,34 @@ fn main() {
         let mut game = GameState::new();
         let mut fb = Framebuffer::new();
         let mut out_scaled: Vec<u32> = Vec::new();
+        let mut sfx_buf: Vec<Sfx> = Vec::with_capacity(8);
 
-        // High-frequency input edge trackers (sampled every 4ms so a tap is NEVER missed between 15 FPS ticks!)
+        // 250 Hz high-frequency edge trackers so quick taps are never dropped between 15 FPS ticks!
         let mut prev_left = false;
         let mut prev_right = false;
         let mut prev_up = false;
         let mut prev_down = false;
-        let mut prev_jump = false;
-        let mut prev_action = false;
-        let mut prev_bomb = false;
-        let mut prev_extract = false;
+        let mut prev_confirm = false;
+        let mut prev_cancel = false;
+        let mut prev_special = false;
+        let mut prev_squad = false;
         let mut prev_help = false;
+        let mut prev_retry = false;
+        let mut prev_esc = false;
+        let mut prev_y = false;
         let mut prev_mute = false;
         let mut prev_f2 = false;
         let mut prev_lbracket = false;
         let mut prev_rbracket = false;
-        let mut prev_num = [false; 6];
+        let mut prev_num = [false; 3];
 
-        // Latched events accumulated until the next 15 FPS game tick
         let mut latched = InputState::default();
 
-        // Classic DOS / Apogee 15 FPS discrete tick duration (~66.6ms)
         let tick_dur = Duration::from_micros(66_667);
         let poll_sleep = Duration::from_millis(4);
-        let mut last_tick = Instant::now().checked_sub(tick_dur).unwrap_or_else(Instant::now);
+        let mut last_tick = Instant::now()
+            .checked_sub(tick_dur)
+            .unwrap_or_else(Instant::now);
         let mut msg: MSG = zeroed();
 
         'running: loop {
@@ -139,11 +143,7 @@ fn main() {
                 DispatchMessageW(&msg);
             }
 
-            if key_down(VK_ESCAPE) {
-                break 'running;
-            }
-
-            // Sample immediate buttons (F2, Mute, Track Skip)
+            // Immediate display & audio toggles (F2 scanlines, M mute SFX, [ / ] track skip)
             let f2 = key_down(VK_F2);
             if f2 && !prev_f2 {
                 game.crt_scanlines = !game.crt_scanlines;
@@ -168,16 +168,24 @@ fn main() {
             }
             prev_rbracket = rbr;
 
-            // Sample gameplay keys at 250Hz and latch rising edges for the next 15 FPS tick!
+            // Sample gameplay keys at 250 Hz (both Arrows + Z/X/C and WASD + Enter/Space/E/Tab!)
             let left_now = key_down(VK_LEFT) || key_down('A' as i32);
             let right_now = key_down(VK_RIGHT) || key_down('D' as i32);
             let up_now = key_down(VK_UP) || key_down('W' as i32);
             let down_now = key_down(VK_DOWN) || key_down('S' as i32);
-            let jump_now = key_down(VK_SPACE) || key_down('Z' as i32);
-            let action_now = key_down('X' as i32) || key_down('J' as i32);
-            let bomb_now = key_down('C' as i32) || key_down('K' as i32);
-            let extract_now = key_down('E' as i32) || key_down(VK_RETURN);
+            let confirm_now = key_down(VK_RETURN)
+                || key_down(VK_SPACE)
+                || key_down('Z' as i32)
+                || key_down('E' as i32)
+                || key_down('J' as i32);
+            let cancel_now =
+                key_down('X' as i32) || key_down(VK_BACK) || key_down('K' as i32);
+            let special_now = key_down('T' as i32) || key_down('C' as i32);
+            let squad_now = key_down(VK_TAB) || key_down('P' as i32);
             let help_now = key_down('H' as i32) || key_down(VK_F1);
+            let retry_now = key_down('R' as i32);
+            let esc_now = key_down(VK_ESCAPE);
+            let y_now = key_down('Y' as i32);
 
             if left_now && !prev_left {
                 latched.left_pressed = true;
@@ -191,32 +199,39 @@ fn main() {
             if down_now && !prev_down {
                 latched.down_pressed = true;
             }
-            if jump_now && !prev_jump {
-                latched.jump_pressed = true;
+            if confirm_now && !prev_confirm {
+                latched.confirm_pressed = true;
             }
-            if action_now && !prev_action {
-                latched.action_pressed = true;
+            if cancel_now && !prev_cancel {
+                latched.cancel_pressed = true;
             }
-            if bomb_now && !prev_bomb {
-                latched.bomb_pressed = true;
+            if special_now && !prev_special {
+                latched.special_pressed = true;
             }
-            if extract_now && !prev_extract {
-                latched.extract_pressed = true;
+            if squad_now && !prev_squad {
+                latched.squad_pressed = true;
             }
             if help_now && !prev_help {
                 latched.help_pressed = true;
             }
+            if retry_now && !prev_retry {
+                latched.retry_pressed = true;
+            }
+            if esc_now && !prev_esc {
+                latched.esc_pressed = true;
+            }
+            if y_now && !prev_y {
+                latched.quit_yes_pressed = true;
+            }
 
-            // Number keys 1..6 to warp directly to Tutorial Step 1..6
-            for i in 0..6 {
+            for i in 0..3 {
                 let num_down = key_down(('1' as i32) + i as i32);
                 if num_down && !prev_num[i] {
-                    latched.warp_step = Some(i + 1);
+                    latched.warp_zone = Some(i + 1);
                 }
                 prev_num[i] = num_down;
             }
 
-            // Also latch held states if pressed at any point during the tick window
             if left_now {
                 latched.left = true;
             }
@@ -229,33 +244,44 @@ fn main() {
             if down_now {
                 latched.down = true;
             }
-            if jump_now {
-                latched.jump_held = true;
-            }
 
             prev_left = left_now;
             prev_right = right_now;
             prev_up = up_now;
             prev_down = down_now;
-            prev_jump = jump_now;
-            prev_action = action_now;
-            prev_bomb = bomb_now;
-            prev_extract = extract_now;
+            prev_confirm = confirm_now;
+            prev_cancel = cancel_now;
+            prev_special = special_now;
+            prev_squad = squad_now;
             prev_help = help_now;
+            prev_retry = retry_now;
+            prev_esc = esc_now;
+            prev_y = y_now;
 
-            // Execute 15 FPS discrete tick when 66.6ms has elapsed!
+            // Advance discrete 15 FPS simulation tick every 66.667 ms
             if last_tick.elapsed() >= tick_dur {
                 last_tick = Instant::now();
 
-                // Combine currently held keys with latched presses from the 66ms window
                 latched.left = latched.left || left_now;
                 latched.right = latched.right || right_now;
                 latched.up = latched.up || up_now;
                 latched.down = latched.down || down_now;
-                latched.jump_held = latched.jump_held || jump_now;
 
-                game.update_15fps_tick(&latched, &mut audio, &mut pal);
+                sfx_buf.clear();
+                game.update(&latched, &mut sfx_buf);
                 latched = InputState::default();
+
+                if game.should_exit_app {
+                    break 'running;
+                }
+
+                if let Some(track_idx) = game.desired_bgm_track.take() {
+                    audio.set_track(track_idx);
+                }
+                for sfx in sfx_buf.drain(..) {
+                    audio.play_sfx(sfx);
+                }
+                pal.update_cycler(game.tick_count);
 
                 let track_title = audio.current_track_title();
                 game.render(&mut fb, &assets, &track_title);
@@ -265,7 +291,6 @@ fn main() {
                 let cw = (client_rect.right - client_rect.left).max(1);
                 let ch = (client_rect.bottom - client_rect.top).max(1);
 
-                // Exact integer-multiple scaling of the 400x300 VGA canvas (e.g. 3x = 1200x900 on 1080p)
                 let scale = Framebuffer::integer_scale_for_viewport(cw, ch);
                 let (scaled_w, scaled_h) =
                     fb.present_integer_scaled(&mut out_scaled, scale, &pal, game.crt_scanlines);
@@ -278,7 +303,6 @@ fn main() {
                 bmi.bmiHeader.biWidth = dst_w;
                 bmi.bmiHeader.biHeight = -dst_h;
 
-                // Clear black CRT bezel borders (top/bottom letterbox + left/right pillarbox)
                 if dst_y > 0 {
                     PatBlt(hdc, 0, 0, cw, dst_y, BLACKNESS);
                 }
@@ -294,7 +318,6 @@ fn main() {
                     PatBlt(hdc, right_x, dst_y.max(0), cw - right_x, dst_h.min(ch), BLACKNESS);
                 }
 
-                // 1:1 device-pixel blit (src_w == dst_w && src_h == dst_h -> zero fractional resampling!)
                 StretchDIBits(
                     hdc,
                     dst_x,
@@ -344,138 +367,117 @@ fn export_verification_screenshots() {
     let assets = AssetBank::load_and_compile(&pal);
     let mut game = GameState::new();
     let mut fb = Framebuffer::new();
-    let track_label = "1/6 THE UNDERBRUSH";
-
     pal.update_cycler(16);
-    game.mode = GameMode::TitleAttractor;
-    game.render(&mut fb, &assets, track_label);
-    fb.save_png_800x600(
-        Path::new("screenshots/01_title_attractor.png"),
-        &pal,
-        true,
-    );
 
-    // Level 1: The Underbrush (Shadow Alcoves, Bubble-Reed O2 Vent, Sluice Lever & Skittish Newt!)
-    game.stage_num = 1;
-    game.build_stage_for_current_level();
-    game.mode = GameMode::PlanetaryDrop;
-    game.px = 23 * 24;
-    game.py = 10 * 24 - 44;
-    game.air_mode = AirborneMode::Grounded;
-    game.cam_x = (game.px + 20 - 200).clamp(0, 80 * 24 - 400);
-    game.cam_y = (game.py + 22 - 118).clamp(0, 22 * 24 - 236);
+    // 1. Roguelike Starter Draft Screen (Pick 1 of 3 unlocked Bestiary specimens!)
+    game.draft_species_offers = [
+        SpeciesId::DewNewt,
+        SpeciesId::SporeMorel,
+        SpeciesId::VoltaicEel,
+    ];
+    game.render(&mut fb, &assets, "1/6 THE UNDERBRUSH");
+    fb.save_png_800x600(Path::new("screenshots/01_starter_draft.png"), &pal, true);
+
+    // 2. Side-View Pokemon Habitat Exploration (Fern Underbrush, Star-Pond Shallows & Crystal Grotto!)
+    game.squad[0] = Some({
+        let mut c = CreatureInstance::new(SpeciesId::BriarToad, 4, false);
+        c.artifact = Some(ArtifactId::IronbarkBuckler);
+        c.heal_full();
+        c
+    });
+    game.squad[1] = Some(CreatureInstance::new(SpeciesId::DewNewt, 4, false));
+    game.squad[3] = Some({
+        let mut c = CreatureInstance::new(SpeciesId::SporeMorel, 4, false);
+        c.artifact = Some(ArtifactId::SporeCrown);
+        c.heal_full();
+        c
+    });
+    game.squad[4] = Some(CreatureInstance::new(SpeciesId::VoltaicEel, 4, false));
+    game.reserve[0] = Some(CreatureInstance::new(SpeciesId::RuneBeetle, 4, false));
+
+    game.load_zone(1);
+    game.mode = GameMode::SideWorld;
+    game.px = 14 * TS;
+    game.py = 6 * TS;
+    game.cam_x = 6 * TS;
+    game.encounter_meter = 64;
     game.render(&mut fb, &assets, "1/6 THE UNDERBRUSH");
     fb.save_png_800x600(
-        Path::new("screenshots/02_naibihpma_harvest.png"),
+        Path::new("screenshots/02_sideview_habitats.png"),
         &pal,
         true,
     );
 
-    // Level 2: Daot the Enchanter (Enchanter Toad firing Spore-Orb, Shadow Alcove & Grapple Cliff!)
-    game.stage_num = 2;
-    game.build_stage_for_current_level();
-    game.mode = GameMode::PlanetaryDrop;
-    game.px = 7 * 24;
-    game.py = 14 * 24 - 44;
-    game.air_mode = AirborneMode::Grounded;
-    game.orbs.push(game::SporeOrb {
-        x: 11 * 24,
-        y: 14 * 24 - 18,
-        vx: -9,
-        vy: 0,
-        life: 18,
+    // 3. 3x2 vs 3x2 Siralim Ultimate Cascading Trait-Chain Battle + <=40% HP Tactical Capture Window!
+    let mut enemies: [Option<CreatureInstance>; 6] = [None, None, None, None, None, None];
+    enemies[0] = Some(CreatureInstance::new(SpeciesId::LanternCrab, 4, false));
+    enemies[1] = Some(CreatureInstance::new(SpeciesId::CrownSalamander, 5, true)); // +2 Lv Alpha!
+    enemies[3] = Some(CreatureInstance::new(SpeciesId::DewFrog, 4, false));
+    enemies[4] = Some(CreatureInstance::new(SpeciesId::GloomMoth, 4, false));
+
+    let mut bs = BattleState::new(
+        &game.squad,
+        enemies,
+        false,
+        1,
+        "ALPHA GROVE PACK".to_string(),
+        99,
+    );
+    // Showcase Alpha Crown Salamander chipped down to 31% HP (<=40% Capture Ready!) + active chain arc!
+    if let Some(eu) = bs.unit_mut(Side::Enemy, 1) {
+        eu.cur_hp = (eu.max_hp * 31) / 100;
+        eu.poison = 2;
+    }
+    if let Some(au) = bs.unit_mut(Side::Ally, 3) {
+        au.defending_hold_fire = true;
+    }
+    bs.chain_depth = 3;
+    bs.log_line_1 = "> [SOOTHING DEW] HEALS MOREL +11 HP!".to_string();
+    bs.log_line_2 = "> [MYCELIAL BLOOM] DEALS 14 DMG + PSN TO *CRNSALM!".to_string();
+    bs.arcs.push(VisualArc {
+        from: (Side::Ally, 1),
+        to: (Side::Ally, 3),
+        col: 25,
+        ticks: 5,
     });
-    game.cam_x = (game.px + 20 - 200).clamp(0, 80 * 24 - 400);
-    game.cam_y = (game.py + 22 - 118).clamp(0, 22 * 24 - 236);
-    game.render(&mut fb, &assets, "2/6 DAOT THE ENCHANTER");
-    fb.save_png_800x600(
-        Path::new("screenshots/03_level2_daot_enchanter.png"),
-        &pal,
-        true,
-    );
-
-    let dummy_audio = ArcadeAudio::new_muted();
-    game.upgrades.push(RestaurantUpgrade::TwinBurnerHearth);
-    game.backpack = vec![
-        BagItem {
-            kind: IngKind::DewNewt,
-            prep: PrepState::Fresh,
-            ionized: true,
-        },
-        BagItem {
-            kind: IngKind::SporeLotus,
-            prep: PrepState::CharSeared,
-            ionized: false,
-        },
-        BagItem {
-            kind: IngKind::VocalRoe,
-            prep: PrepState::Tenderized,
-            ionized: false,
-        },
-        BagItem {
-            kind: IngKind::ReedEel,
-            prep: PrepState::Fresh,
-            ionized: true,
-        },
-    ];
-    game.enter_menu_prep(&dummy_audio);
-    let dish1 = game.combine_pair_into_dish(game.backpack[0], game.backpack[1]);
-    game.menu_dishes.push(dish1);
-    game.backpack.drain(0..2);
-    game.selected_first_ing = Some(0);
-    game.prep_cursor = 1;
+    bs.arcs.push(VisualArc {
+        from: (Side::Ally, 3),
+        to: (Side::Enemy, 1),
+        col: 30,
+        ticks: 5,
+    });
+    bs.pops.push(PopBadge {
+        side: Side::Enemy,
+        slot: 1,
+        text: "-14".to_string(),
+        col: 15,
+        ticks: 9,
+    });
+    bs.cmd_cursor = 4; // Highlight CAPTURE (4)
+    bs.target_cursor = 1;
+    bs.phase = BattlePhase::WaitingEnemyTarget {
+        ally_slot: 1,
+        cmd: BattleCmd::Capture,
+    };
+    game.active_battle = Some(bs);
+    game.mode = GameMode::Battle;
     game.render(&mut fb, &assets, "3/6 STAR POND");
     fb.save_png_800x600(
-        Path::new("screenshots/03_menu_prep.png"),
+        Path::new("screenshots/03_siralim_battle_chain.png"),
         &pal,
         true,
     );
 
-    // Phase 2B: Dave the Diver-style Side-View Tavern Service
-    game.start_live_tavern_service(&dummy_audio);
-    // Advance patrons onto stools and put 1 dish on the pass & 1 in Cosmo's hands
-    for (i, p) in game.patrons.iter_mut().enumerate() {
-        p.x = STOOL_X[p.stool_idx];
-        p.stage = if i == 0 {
-            PatronStage::Eating(6)
-        } else {
-            PatronStage::SeatedOrdering
-        };
-    }
-    if let Some(d) = game.cooking_queue.pop() {
-        game.carried_dish = Some(d.clone());
-        game.ready_pass_dishes.push(d.clone());
-        game.active_cook_dish = Some(d);
-        game.cook_progress = 7;
-    }
-    game.chef_bar_x = STOOL_X[1] - 6;
-    game.chef_facing_right = true;
-    game.gold = 215;
-    game.night_earnings = 215;
-    game.dishes_served_tonight = 1;
-    game.popups.push(FloatingText {
-        text: "+$215 SERVED!".to_string(),
-        x: STOOL_X[0] - 18,
-        y: 112,
-        col: 15,
-        life: 40,
-    });
-    game.render(&mut fb, &assets, "4/6 DOAT THE ENCHANTER");
-    fb.save_png_800x600(
-        Path::new("screenshots/04_orbital_galley.png"),
-        &pal,
-        true,
-    );
+    // 4. 3x2 Formation, 2-Slot Reserve & Pre-Loaded Gear Manager ([TAB])
+    game.gem_bag = vec![SpellGemId::PrecisionDart, SpellGemId::StarlightChoir];
+    game.artifact_bag = vec![ArtifactId::TrapperLens, ArtifactId::CopperDynamo];
+    game.mode = GameMode::SquadMenu {
+        cursor: 0,
+        sub: SquadSubMode::BrowseSlots,
+        bag_cursor: 0,
+    };
+    game.render(&mut fb, &assets, "1/6 THE UNDERBRUSH");
+    fb.save_png_800x600(Path::new("screenshots/04_squad_and_gear.png"), &pal, true);
 
-    // Phase 3: Restaurant Upgrade Shop
-    game.mode = GameMode::UpgradeShop;
-    game.shop_cursor = 1;
-    game.render(&mut fb, &assets, "5/6 ANCIENT MAGIC");
-    fb.save_png_800x600(
-        Path::new("screenshots/05_upgrade_shop.png"),
-        &pal,
-        true,
-    );
-
-    println!("Exported 15 FPS tutorial & Dave-the-Diver Galley screenshots to screenshots/");
+    println!("Exported Roguelike Siralim x Side-View Pokemon verification screenshots to screenshots/");
 }
