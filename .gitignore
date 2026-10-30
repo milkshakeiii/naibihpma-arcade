@@ -1,6 +1,7 @@
 # Build artifacts & local run saves
 **/target/
 **/bestiary_save.cfg
+**/starpond_best.txt
 
 # Exclude all song & audio files
 **/assets/music/

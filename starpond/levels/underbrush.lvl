@@ -1,0 +1,50 @@
+# Star Pond level: s3-01 "The Underbrush" (The Enchanted Forest of Naibihpma)
+# Section times are transcribed from music_listening_notes.md.
+#
+# section <start> <mood> <dew> <echo-of> <NAME>
+#   dew:     condense:<site tag> | evaporate | hold
+#   echo-of: start time of the section whose surviving dew grows here, or -
+# water <time> <row> ...   water surface (tile row) keyframes, linear between them
+# cave <x0> <y0> <x1> <y1> tiles drawn with the cavern back wall
+
+track THE_UNDERBRUSH 5:52
+music 1_the_underbrush_master.wav the_underbrush.wav
+
+section 0:00 mist     condense:c  -     CANOPY_MIST
+section 0:54 cavern   condense:v  -     CAVERN_DRONE
+section 1:59 clearing evaporate   -     HARP_CLEARING
+section 2:45 swamp    condense:r  -     SWAMP_NIGHT
+section 3:14 bog      hold        -     BOG_BASS
+section 3:55 mist     condense:c  0:00  CANOPY_LAMENT
+section 4:48 clearing evaporate   1:59  HARP_FINALE
+
+water 0:00 20  3:14 20  3:26 17  3:55 17  4:15 20
+cave 20 14 39 19
+
+# map legend: # soil   B bark   = branch (one-way)   l lily pad (one-way)
+#             f fronds (shade)  w reeds   c/v/r dew sites   S start
+map
+B.........fff............fff.......................ff......B
+B.ffffff..fff............fffffffff.................ffffffffB
+B.ffffff................c.c.ffffff.c..............c.cffffffB
+B...BB..c..c....c.....=======BB=======.........==========BBB
+B...BB=======.======.........BB..........................BBB
+B...BB................c......BB.......c...............c..BBB
+B...BB......c.....=========..BB=========....=============BBB
+B...BB...=========...........BB..........................BBB
+B...BB...................c...BB.............c............BBB
+B...BB...............========BB========.=========........BBB
+B===BB============...........BB..........................BBB
+B...BB.......................BB..c.....c.................BBB
+B...BB..............#####################...========.....BBB
+B...BB=======.......#####################................BBB
+B...BB...............v.....v...v.....v..#................BBB
+B...BB..................................#........========BBB
+B...BB====.............v...........v....#................BBB
+B...BB................###...##....###...#............rwr.BBB
+B...BB....S.................##................rwr....###.BBB
+##################..v.....v.##..v.....v....r..###.r..###.BBB
+#########################################..ll.###.ll.###.BB#
+#########################################.....###....###.BB#
+############################################################
+############################################################
