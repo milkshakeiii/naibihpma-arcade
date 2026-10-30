@@ -3724,7 +3724,7 @@ impl GameState {
             ("C OR K :", "DROP BAIT-NET TRAP (3*) / POUR SPORE-TEA"),
             ("SHADOW ALCOVE :", "STAND IN DARK ARCHWAY TO HIDE FROM PREY"),
             ("KEYS 1 TO 6 :", "1:LV1  2:LV2  3:GATE  4:PREP  5:BAR  6:SHOP"),
-            ("[ AND ] / M :", "[ ] SKIP ALBUM TRACK   M: MUTE SFX"),
+            ("F2 / [ ] / M :", "F2: CRT SCANLINES  [ ]: TRACK  M: SFX"),
         ];
         for (i, (k, v)) in lines.iter().enumerate() {
             let y = 56 + (i as i32) * 18;

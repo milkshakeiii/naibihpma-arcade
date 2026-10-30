@@ -269,52 +269,78 @@ impl Framebuffer {
         self.draw_text(text, center_x - total_w / 2, y, col, shadow_col, s);
     }
 
-    /// Resolves the 400x300 8-bit indexed framebuffer through the 64-color VGA LUT
-    /// into the 800x600 32-bit RGB window buffer (exact 2x2 integer blocks + optional CRT scanlines).
-    pub fn present_to_800x600(
+    /// Computes the largest exact integer multiple `N >= 1` of the `400x300` logical canvas
+    /// that fits inside a physical `(client_w, client_h)` display viewport.
+    pub fn integer_scale_for_viewport(client_w: i32, client_h: i32) -> usize {
+        let sx = client_w / (FB_W as i32);
+        let sy = client_h / (FB_H as i32);
+        sx.min(sy).max(1) as usize
+    }
+
+    /// Resolves the `400x300` 8-bit indexed framebuffer through the 64-color 6-bit VGA LUT
+    /// into an exact `(400 * scale) x (300 * scale)` 32-bit RGB buffer.
+    /// Every logical pixel maps to an exact `scale x scale` physical pixel block (zero fractional
+    /// resampling), with optional uniform CRT scanlines darkened on the bottom physical sub-row.
+    pub fn present_integer_scaled(
         &self,
-        out_800x600: &mut [u32],
+        out_buf: &mut Vec<u32>,
+        scale: usize,
         pal: &VgaPalette,
         crt_scanlines: bool,
-    ) {
+    ) -> (usize, usize) {
+        let s = scale.max(1);
+        let out_w = FB_W * s;
+        let out_h = FB_H * s;
+        out_buf.resize(out_w * out_h, 0xFF00_0000);
+
         let sx_off = self.shake_x;
         let sy_off = self.shake_y;
 
         for y in 0..FB_H {
             let src_y = (y as i32 + sy_off).clamp(0, FB_H as i32 - 1) as usize;
             let src_row = src_y * FB_W;
-            let dst_row_even = (y * 2) * WIN_W;
-            let dst_row_odd = (y * 2 + 1) * WIN_W;
+            let base_dst_y = y * s;
+            let row0_start = base_dst_y * out_w;
 
             for x in 0..FB_W {
                 let src_x = (x as i32 + sx_off).clamp(0, FB_W as i32 - 1) as usize;
                 let idx = (self.indices[src_row + src_x] & 63) as usize;
                 let argb = pal.active_argb[idx];
+                let dx = row0_start + x * s;
+                out_buf[dx..dx + s].fill(argb);
+            }
 
-                let dx = x * 2;
-                out_800x600[dst_row_even + dx] = argb;
-                out_800x600[dst_row_even + dx + 1] = argb;
-
-                if crt_scanlines {
-                    // Authentic arcade CRT 240p/300p scanline: darken odd physical line by ~22%
+            if crt_scanlines && s >= 2 {
+                for sub_y in 1..(s - 1) {
+                    let dst_start = (base_dst_y + sub_y) * out_w;
+                    out_buf.copy_within(row0_start..row0_start + out_w, dst_start);
+                }
+                // Authentic CRT phosphor scanline gap on the bottom physical sub-row (~22% darkened)
+                let scan_start = (base_dst_y + s - 1) * out_w;
+                for x in 0..FB_W {
+                    let argb = out_buf[row0_start + x * s];
                     let r = (((argb >> 16) & 0xFF) * 198) >> 8;
                     let g = (((argb >> 8) & 0xFF) * 198) >> 8;
                     let b = ((argb & 0xFF) * 204) >> 8;
                     let scan_argb = 0xFF00_0000 | (r << 16) | (g << 8) | b;
-                    out_800x600[dst_row_odd + dx] = scan_argb;
-                    out_800x600[dst_row_odd + dx + 1] = scan_argb;
-                } else {
-                    out_800x600[dst_row_odd + dx] = argb;
-                    out_800x600[dst_row_odd + dx + 1] = argb;
+                    let dx = scan_start + x * s;
+                    out_buf[dx..dx + s].fill(scan_argb);
+                }
+            } else {
+                for sub_y in 1..s {
+                    let dst_start = (base_dst_y + sub_y) * out_w;
+                    out_buf.copy_within(row0_start..row0_start + out_w, dst_start);
                 }
             }
         }
+
+        (out_w, out_h)
     }
 
-    /// Exports an exact 800x600 PNG screenshot for verification
+    /// Exports an exact 2x (`800x600`) integer-scaled PNG screenshot for verification
     pub fn save_png_800x600(&self, path: &Path, pal: &VgaPalette, crt_scanlines: bool) {
-        let mut buf32 = vec![0u32; WIN_W * WIN_H];
-        self.present_to_800x600(&mut buf32, pal, crt_scanlines);
+        let mut buf32 = Vec::with_capacity(WIN_W * WIN_H);
+        self.present_integer_scaled(&mut buf32, 2, pal, crt_scanlines);
         let mut rgba = vec![0u8; WIN_W * WIN_H * 4];
         for (i, &px) in buf32.iter().enumerate() {
             rgba[i * 4] = ((px >> 16) & 0xFF) as u8;
@@ -392,5 +418,50 @@ fn glyph_8x8(ch: char) -> [u8; 8] {
         '\'' => [0x20, 0x20, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00],
         '~' => [0x6C, 0xFE, 0xFE, 0xFE, 0x7C, 0x38, 0x10, 0x00], // Crisp 7x7 Arcade Heart Icon!
         _ => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_integer_scale_for_common_displays() {
+        assert_eq!(Framebuffer::integer_scale_for_viewport(800, 600), 2);
+        assert_eq!(Framebuffer::integer_scale_for_viewport(1280, 720), 2);
+        assert_eq!(Framebuffer::integer_scale_for_viewport(1366, 768), 2);
+        assert_eq!(Framebuffer::integer_scale_for_viewport(1920, 1080), 3);
+        assert_eq!(Framebuffer::integer_scale_for_viewport(1920, 1200), 4);
+        assert_eq!(Framebuffer::integer_scale_for_viewport(2560, 1440), 4);
+        assert_eq!(Framebuffer::integer_scale_for_viewport(2560, 1600), 5);
+        assert_eq!(Framebuffer::integer_scale_for_viewport(3840, 2160), 7);
+    }
+
+    #[test]
+    fn test_present_integer_scaled_exact_blocks_and_scanlines() {
+        let pal = VgaPalette::new_naibihpma();
+        let mut fb = Framebuffer::new();
+        fb.clear(2);
+        fb.pset(10, 20, 15);
+
+        let mut out = Vec::new();
+        let (w, h) = fb.present_integer_scaled(&mut out, 3, &pal, false);
+        assert_eq!((w, h), (1200, 900));
+
+        // Without scanlines, every logical pixel is a completely uniform 3x3 physical block
+        let expected = pal.active_argb[15];
+        for dy in 0..3 {
+            for dx in 0..3 {
+                assert_eq!(out[(20 * 3 + dy) * w + (10 * 3 + dx)], expected);
+            }
+        }
+
+        // With CRT scanlines at 3x, sub-rows 0 and 1 are full brightness and sub-row 2 is darkened
+        fb.present_integer_scaled(&mut out, 3, &pal, true);
+        for dx in 0..3 {
+            assert_eq!(out[(20 * 3 + 0) * w + (10 * 3 + dx)], expected);
+            assert_eq!(out[(20 * 3 + 1) * w + (10 * 3 + dx)], expected);
+            assert_ne!(out[(20 * 3 + 2) * w + (10 * 3 + dx)], expected);
+        }
     }
 }

@@ -5,7 +5,7 @@ mod palette;
 mod sprites;
 
 use audio::ArcadeAudio;
-use framebuffer::{Framebuffer, WIN_H, WIN_W};
+use framebuffer::Framebuffer;
 use game::{
     AirborneMode, BagItem, FloatingText, GameMode, GameState, IngKind, InputState, PatronStage,
     PrepState, RestaurantUpgrade, STOOL_X,
@@ -64,7 +64,7 @@ fn main() {
         let style = WS_POPUP | WS_VISIBLE;
 
         let title: Vec<u16> = OsStr::new(
-            "INTERSTELLAR FORAGER: 15 FPS TUTORIAL & VERTICAL SLICE [800x600 VGA]",
+            "INTERSTELLAR FORAGER: THE ENCHANTED FOREST OF NAIBIHPMA [400x300 64-COLOR VGA]",
         )
         .encode_wide()
         .chain(Some(0))
@@ -94,8 +94,6 @@ fn main() {
 
         let mut bmi: BITMAPINFO = zeroed();
         bmi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-        bmi.bmiHeader.biWidth = WIN_W as i32;
-        bmi.bmiHeader.biHeight = -(WIN_H as i32);
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
@@ -105,7 +103,7 @@ fn main() {
         let mut audio = ArcadeAudio::new();
         let mut game = GameState::new();
         let mut fb = Framebuffer::new();
-        let mut out_800x600 = vec![0u32; WIN_W * WIN_H];
+        let mut out_scaled: Vec<u32> = Vec::new();
 
         // High-frequency input edge trackers (sampled every 4ms so a tap is NEVER missed between 15 FPS ticks!)
         let mut prev_left = false;
@@ -129,13 +127,8 @@ fn main() {
         // Classic DOS / Apogee 15 FPS discrete tick duration (~66.6ms)
         let tick_dur = Duration::from_micros(66_667);
         let poll_sleep = Duration::from_millis(4);
-        let mut last_tick = Instant::now();
+        let mut last_tick = Instant::now().checked_sub(tick_dur).unwrap_or_else(Instant::now);
         let mut msg: MSG = zeroed();
-
-        // Render initial frame immediately
-        let track_title = audio.current_track_title();
-        game.render(&mut fb, &assets, &track_title);
-        fb.present_to_800x600(&mut out_800x600, &pal, game.crt_scanlines);
 
         'running: loop {
             while PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
@@ -266,34 +259,53 @@ fn main() {
 
                 let track_title = audio.current_track_title();
                 game.render(&mut fb, &assets, &track_title);
-                fb.present_to_800x600(&mut out_800x600, &pal, game.crt_scanlines);
 
                 let mut client_rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut client_rect);
                 let cw = (client_rect.right - client_rect.left).max(1);
                 let ch = (client_rect.bottom - client_rect.top).max(1);
 
-                // Preserve crisp 4:3 square pixels at 100% monitor height, centered with black pillarboxes
-                let dst_h = ch;
-                let dst_w = ((ch * 4) / 3).min(cw);
-                let dst_x = (cw - dst_w) / 2;
+                // Exact integer-multiple scaling of the 400x300 VGA canvas (e.g. 3x = 1200x900 on 1080p)
+                let scale = Framebuffer::integer_scale_for_viewport(cw, ch);
+                let (scaled_w, scaled_h) =
+                    fb.present_integer_scaled(&mut out_scaled, scale, &pal, game.crt_scanlines);
 
+                let dst_w = scaled_w as i32;
+                let dst_h = scaled_h as i32;
+                let dst_x = (cw - dst_w) / 2;
+                let dst_y = (ch - dst_h) / 2;
+
+                bmi.bmiHeader.biWidth = dst_w;
+                bmi.bmiHeader.biHeight = -dst_h;
+
+                // Clear black CRT bezel borders (top/bottom letterbox + left/right pillarbox)
+                if dst_y > 0 {
+                    PatBlt(hdc, 0, 0, cw, dst_y, BLACKNESS);
+                }
+                let bottom_y = dst_y + dst_h;
+                if bottom_y < ch {
+                    PatBlt(hdc, 0, bottom_y, cw, ch - bottom_y, BLACKNESS);
+                }
                 if dst_x > 0 {
-                    PatBlt(hdc, 0, 0, dst_x, ch, BLACKNESS);
-                    PatBlt(hdc, dst_x + dst_w, 0, cw - (dst_x + dst_w), ch, BLACKNESS);
+                    PatBlt(hdc, 0, dst_y.max(0), dst_x, dst_h.min(ch), BLACKNESS);
+                }
+                let right_x = dst_x + dst_w;
+                if right_x < cw {
+                    PatBlt(hdc, right_x, dst_y.max(0), cw - right_x, dst_h.min(ch), BLACKNESS);
                 }
 
+                // 1:1 device-pixel blit (src_w == dst_w && src_h == dst_h -> zero fractional resampling!)
                 StretchDIBits(
                     hdc,
                     dst_x,
-                    0,
+                    dst_y,
                     dst_w,
                     dst_h,
                     0,
                     0,
-                    WIN_W as i32,
-                    WIN_H as i32,
-                    out_800x600.as_ptr() as *const _,
+                    dst_w,
+                    dst_h,
+                    out_scaled.as_ptr() as *const _,
                     &bmi,
                     DIB_RGB_COLORS,
                     SRCCOPY,
