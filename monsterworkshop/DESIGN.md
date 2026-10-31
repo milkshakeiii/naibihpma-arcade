@@ -77,8 +77,20 @@ Henry composes the soundtrack. The arcade's Star Pond already streams WAV music,
 
 ## Features
 
+### Routines that scale (accepted 2026-10-31)
+Literally replaying a recorded routine works for two monsters and turns into traffic management at ten: two loops meeting in a one-tile lane wait for each other forever, and wagons and the ferry make it worse. The macro game, planning the economy, should be the focus, not keeping recorded routes from colliding.
+- **Teaching stays the same:** you show a monster the job once by doing it. What changes is what gets recorded: the job's goals, not its keystrokes. "Take slivers from the bench's output mat, deliver them to the spinnery's pad, use the spinnery, take the thread to the loom house." On replay the monster pursues those goals however it can: it walks around others, plans its own pushes (and the occasional slow pull), and rides the ferry as a timed step. When something it needs isn't there, it waits and says so: "I'M WAITING FOR THREAD."
+- **Planning is deterministic** (fixed tie-breaking), so saves and a persistent world still replay exactly. A monster only ever plans the one item it's moving, which is easy; pulling means no item is ever truly stuck.
+- **Not tied to skills.** Every monster plans equally well.
+- **Sokoban stays a small element:** in your own hands-on play, and in how efficiently a layout lets loops run. That's enough. A separate puzzle-heavy side zone is an option for later.
+- **No extra tie-in visualization for now.** Monsters waiting and saying what for, and goods visibly piling up, may make it plain enough how loops connect.
+- **Phases:**
+  1. Walking only: the stretches of a recording where a monster just walks become "go to this tile", pathfound around others; pushes still replay as recorded. Before wagons.
+  2. Goal-based pushes: "move this good from here to there", planned around obstacles.
+  3. General sources: a goal can take its good from wherever it waits, not one particular mat, and loops that want the same thing take turns.
+
 ### Pushing and pulling
-Pushing is the game: goods move by being pushed, so laying out a workshop is a small Sokoban puzzle. Pulling exists to get out of a stuck spot, such as a good pushed into a corner, not to replace pushing. Hold **Shift** and step away from the good in front of you: the monster backs up and drags it along, at **2 seconds a tile** (ten times slower than a push), straining and kicking up dust. Pushing a good that no push could ever move says "STUCK! HOLD SHIFT AND STEP BACK TO PULL IT." Recorded loops can pull too, and pay the same two seconds every cycle, so solving the puzzle stays the better way for automation as well. You can't pull a good that is being worked on, or onto a work spot.
+Goods move by being pushed, so laying out a workshop is a small Sokoban puzzle; once loops plan their own pushes (see Routines that scale), it stays a small element of hands-on play and of layout efficiency. Pulling exists to get out of a stuck spot, such as a good pushed into a corner, not to replace pushing. Hold **Shift** and step away from the good in front of you: the monster backs up and drags it along, at **2 seconds a tile** (ten times slower than a push), straining and kicking up dust. Pushing a good that no push could ever move says "STUCK! HOLD SHIFT AND STEP BACK TO PULL IT." Recorded loops can pull too, and pay the same two seconds every cycle, so solving the puzzle stays the better way for automation as well. You can't pull a good that is being worked on, or onto a work spot.
 
 ### Recipes
 There is no recipe menu. What's on a workshop's pads decides what it makes. When several recipes fit, the one that uses the most of what's on the pads wins (built): lay out a hammer's ingot, fuel, rope and sticks and you get the hammer, not a knife from the ingot and fuel alone. The tech tree has 115 such overlaps. When two recipes still fit equally well (16 pairs take identical ingredients, such as clay and fuel for tiles, bricks or molds), a signboard on the workshop wall shows the current one, and walking into the board switches it; a loop records the switch like any step. The signboard comes with the first workshop that has a real tie. Empty pads show a dithered ghost of what belongs there, as they do in the prototype.
@@ -225,7 +237,7 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 Built in four playable stages:
 1. **The east road:** the wilderness and Tanglemere on the map, the rope ferry and its project board, signposts, edge markers, the Tab roster strip.
 2. **Tanglemere's dye works:** the indigo chain, ending in dyed fabric at the cloth hall. At first you push fabric east by hand.
-3. **Wagons:** hitching, loading, recorded wagon trips, hauling learned by doing. After stage 2 you'll have felt the long walk.
+3. **Loops that walk around each other, then wagons:** walking pathfinding for recorded loops (phase 1 of "Routines that scale" below), then hitching, loading, recorded wagon trips, hauling learned by doing. After stage 2 you'll have felt the long walk.
 4. **Frontier building:** blueprints, ghost outlines, built quality, wear and repair, workbenches.
 
 ### The east road (M2 stage 1)
@@ -248,6 +260,19 @@ Built in four playable stages:
 - **M4, ship:** itch.io build and outside playtesters.
 - **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
+### Tanglemere's dye works (M2 stage 2)
+- **The indigo chain runs in three town workshops,** each laid out so every pad can be loaded by pushes from the door and every output pushed back out of it:
+  - **The kiln** (two pads) burns ramie stalks with fuel into lye, or limestone with fuel into quicklime; what's on the pads decides.
+  - **The indigo house** (five pads in a row) mixes indigofera leaves, lye, two quicklime and fuel into about 3 indigo.
+  - **The dye house** (two pads and a peg) dyes fabric with indigo, using the town's medium-quality tub or a better one on the peg.
+  - **The cloth hall** takes plain and dyed fabric for renown; drop-offs can now take several goods.
+- **Materials nearby:** limestone outcrops in the Thatch Hills (heavy grey rocks that regrow like plants), ramie stalks beside the kiln, elder bushes for fuel along its path, and the indigofera field east of the lake. Cotton fabric still comes from Pinewater, across the ferry.
+- **Dyed goods take their dye's color:** indigo-dyed cloth is drawn blue (its cotton-white palette ramp swapped for the water-blue one) and named "INDIGO COTTON DYED FABRIC", the last variety added coming first.
+- **Each pad shows its own ingredient** as a faint picture, so the indigo house's five pads say leaves, lye, quicklime, quicklime, fuel.
+- **Tutorial:** after reaching Tanglemere, four steps walk through lye, quicklime, indigo, and dyed fabric at the cloth hall.
+- **Saves are version 4.**
+- A test runs the whole chain through the real workshops: lye, quicklime, three indigo, indigo cotton cloth, renown at the cloth hall.
+
 ### Decided 2026-10-31 (from the stage 2 loose ends)
 - **Tools travel with monsters.** Eventually a monster carries a tool in an item slot along with its other items, and uses it for gathering in the wild. Until then, gathering ignores tool requirements.
 - **Tools nobody can make yet still appear in recipes.** A recipe lists the tools it really needs. Towns lend permanent medium-quality versions on their workshops' pegs, as they already do; once monsters carry tools, medium-quality instances can also be placed in the world, for example at a quarry. When the tool's own chain arrives, better ones simply replace them, with nothing to redo.
@@ -265,6 +290,7 @@ Built in four playable stages:
   - **Indigo** yields about 3 per batch (rolled, base 3), since one vat dyes many cloths; each one carries the batch's inputs divided by the square root of 3.
   - A test checks that dyed fabric, indigo, lye, quicklime and the tub all resolve down to goods you can gather.
 - **Stone and hard stone.** Limestone counts as stone, ready for building and carving. The stone hammer and stone anvil now ask for hard stone, since limestone is too soft for them (a knife scratches it). A hard stone, such as river cobbles at the Tinless ford, is a future good to propose.
+- **No by-products for now.** Goods that really come from one process, such as cotton slivers and cotton seeds from ginning, stay separate recipes, chosen with the workshop's signboard. A by-product mechanic waits until there's a way to deal with unneeded by-products; the v1.5 charity drop-off could be that way.
 - **Ramie stalks make ash on purpose.** Small links between industries, like a fiber crop that also feeds the dye works' lye, are wanted over strict separate chains. Rice straw, the book's lye ash, can join it once there are paddies.
 
 ## Open questions

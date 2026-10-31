@@ -139,10 +139,11 @@ fn odds(p: f64) -> String {
     }
 }
 
-/// "COTTON THREAD": the good's name led by the varieties it carries.
+/// "INDIGO COTTON DYED FABRIC": the good's name led by the varieties it carries, the last
+/// one added first.
 pub fn display_name(g: &Game, item: &ItemData) -> String {
     let name = g.good_name(&item.good);
-    let mut words: Vec<String> = item.carried_tags.iter().map(|t| t.to_uppercase()).filter(|t| !name.contains(t.as_str())).collect();
+    let mut words: Vec<String> = item.carried_tags.iter().rev().map(|t| t.to_uppercase()).filter(|t| !name.contains(t.as_str())).collect();
     words.push(name);
     words.join(" ")
 }
@@ -235,7 +236,7 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
         first.extend(quality(q, q, q));
     }
     // Renown only means something for goods a drop-off or a project takes.
-    let wanted = g.world.bins.iter().any(|b| b.scores && b.accepts == item.good) || g.world.boards.iter().any(|b| !b.done() && b.wants == item.good);
+    let wanted = g.world.bins.iter().any(|b| b.scores && b.takes(&item.good)) || g.world.boards.iter().any(|b| !b.done() && b.wants == item.good);
     let mut details = Vec::new();
     if wanted {
         first.push(line(format!("WORTH {} RENOWN", (item.value * RENOWN_PER_VALUE).round()), TEXT).icon(Icon::Renown));
@@ -358,15 +359,20 @@ fn plant_name(good: &str) -> &'static str {
         "arrow_bamboo" => "ARROW BAMBOO",
         "ramie_stalks" => "RAMIE",
         "indigofera_leaves" => "INDIGOFERA",
+        "limestone" => "LIMESTONE OUTCROP",
         _ => "COTTON PLANT",
     }
 }
 
 fn bin_card(g: &Game, b: usize) -> Card {
     let bin = &g.world.bins[b];
-    let name = g.good_name(&bin.accepts);
-    let mut lines = vec![line(format!("{} {name}", bin.stock.len()), TEXT).icon(Icon::Good(bin.accepts.clone()))];
-    if !bin.stock.is_empty() && g.data.good(&bin.accepts).has_quality {
+    let name = g.good_name(&bin.accepts[0]);
+    let mut lines: Vec<Line> = bin
+        .accepts
+        .iter()
+        .map(|a| line(format!("{} {}", bin.stock.iter().filter(|d| &d.good == a).count(), g.good_name(a)), TEXT).icon(Icon::Good(a.clone())))
+        .collect();
+    if !bin.stock.is_empty() && bin.accepts.iter().all(|a| g.data.good(a).has_quality) {
         let qs: Vec<f64> = bin.stock.iter().map(|i| i.quality).collect();
         let avg = qs.iter().sum::<f64>() / qs.len() as f64;
         let (lo, hi) = qs.iter().fold((f64::MAX, f64::MIN), |(a, b), &q| (a.min(q), b.max(q)));

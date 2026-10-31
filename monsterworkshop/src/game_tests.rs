@@ -74,7 +74,7 @@ fn the_whole_chain_makes_cotton_fabric_with_a_full_history() {
     g.run_ticks(10);
     g.script(&bruna_chain());
     assert_eq!(g.cloth_stored(), 1, "one bolt of fabric in the cloth store");
-    let fabric = &g.world.bins.iter().find(|b| b.accepts == "fabric").unwrap().stock[0];
+    let fabric = &g.world.bins.iter().find(|b| b.takes("fabric")).unwrap().stock[0];
     assert_eq!(fabric.good, "fabric");
     assert!(fabric.carried_tags.contains(&"cotton".to_string()), "{:?}", fabric.carried_tags);
     assert_eq!(fabric.depth, 3, "bolls, slivers, thread, fabric");
@@ -397,4 +397,43 @@ fn a_workshop_makes_the_recipe_that_uses_the_most_of_its_pads() {
     assert!(pink_fits, "pink dye's cakes and fuel are on the pads too");
     let best = g.best_recipe(bench, &["pink_dye", "crimson_dye"]).map(|(r, _)| r);
     assert_eq!(best.as_deref(), Some("crimson_dye"), "all four ingredients make crimson, not pink from two of them");
+}
+
+/// Puts goods on a workshop's pads, has Bruna work it, and lists what came out.
+fn work(g: &mut Game, spot: (i32, i32), goods: &[&str]) -> Vec<String> {
+    let s = g.world.shop_at_spot(spot.0, spot.1).expect("a workshop there");
+    let pads = g.world.shops[s].pads.clone();
+    for (k, id) in goods.iter().enumerate() {
+        g.world.items.push(Item::new(pads[k].0, pads[k].1, good_like(&g.data, id, 0.8)));
+    }
+    g.controlled = 1;
+    stand(g, spot, Dir::Up);
+    g.script("u");
+    g.run_ticks(10);
+    let shop = &g.world.shops[s];
+    let mut out: Vec<String> = shop.outs.iter().filter_map(|&(x, y)| g.world.item_at(x, y)).map(|i| g.world.items[i].good().to_string()).collect();
+    out.extend(shop.pending.iter().map(|d| d.good.clone()));
+    out
+}
+
+#[test]
+fn tanglemere_dyes_cotton_indigo_from_kiln_to_cloth_hall() {
+    let mut g = Game::new();
+    let t = |x: i32, y: i32| (125 + x, y); // Tanglemere's map starts at column 125
+    let (kiln, vats, dye_house, hall) = (t(7, 21), t(29, 2), t(16, 4), t(39, 4));
+    assert!(work(&mut g, kiln, &["ramie_stalks", "elder_sticks"]).contains(&"lye".to_string()), "ramie ash and fuel make lye");
+    assert!(work(&mut g, kiln, &["limestone", "elder_sticks"]).contains(&"quicklime".to_string()), "the same kiln burns limestone");
+    let indigo = work(&mut g, vats, &["indigofera_leaves", "lye", "quicklime", "quicklime", "elder_sticks"]);
+    assert!(indigo.iter().filter(|o| *o == "indigo").count() >= 3, "one batch of indigo is about three: {indigo:?}");
+    assert!(work(&mut g, dye_house, &["fabric", "indigo"]).contains(&"dyed_fabric".to_string()), "with the town's tub");
+
+    let k = g.world.items.iter().position(|it| it.good() == "dyed_fabric").unwrap();
+    let tags = g.world.items[k].data.carried_tags.clone();
+    assert!(tags.contains(&"indigo".to_string()) && tags.contains(&"cotton".to_string()), "indigo cotton: {tags:?}");
+    (g.world.items[k].x, g.world.items[k].y) = (hall.0, hall.1 + 1);
+    stand(&mut g, (hall.0, hall.1 + 2), Dir::Up);
+    let renown = g.renown;
+    g.script("U");
+    assert!(g.renown > renown, "the cloth hall takes dyed fabric for renown");
+    assert!(g.world.bins.iter().any(|b| b.stock.iter().any(|d| d.good == "dyed_fabric")));
 }

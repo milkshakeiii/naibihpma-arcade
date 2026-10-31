@@ -68,6 +68,9 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
             ShopKind::Spinnery => fb.blit(&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], x, y - 5, false),
             ShopKind::LoomHouse => fb.blit(&sp.loom, x, y - 5, false),
             ShopKind::Workbench => fb.blit(&sp.bench, x, y + TS - sp.bench.h - 4, false),
+            ShopKind::Kiln => fb.blit(&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], x, y - 5, false),
+            ShopKind::IndigoHouse => fb.blit(&sp.indigo_vat, x, y - 4, false),
+            ShopKind::DyeHouse => fb.blit(&sp.dye_vat, x, y - 4, false),
         }
     }
     for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
@@ -237,7 +240,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
             }
         }
         if g.world.item_at(tx, ty).is_none() {
-            if let Some(icon) = mat_hint(g, tx, ty, tile).and_then(|id| sp.icon(id)) {
+            if let Some(icon) = mat_hint(g, tx, ty, tile).and_then(|id| sp.icon(&id)) {
                 blit_ghost(fb, icon, x0 + 4, y0 + 4);
             }
         }
@@ -270,15 +273,19 @@ fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
     bounded(-1, 0) && bounded(1, 0) && bounded(0, -1) && bounded(0, 1)
 }
 
-/// What belongs on a pad (the recipe's input) or an output mat (the recipe's output).
-fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<&'static str> {
+/// What belongs on a pad (that pad's input, in recipe order) or an output mat (the output).
+/// A good the world grows or makes nearby is shown before a far-off one.
+fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<String> {
     let shop = g.world.shops.iter().find(|s| s.pads.contains(&(tx, ty)) || s.outs.contains(&(tx, ty)))?;
     let recipe = shop.default_recipe(&g.data);
     if tile == Tile::OutMat {
-        return Some(recipe);
+        return Some(recipe.to_string());
     }
-    let group = g.data.good(recipe).input_groups().next()?.1;
-    g.data.goods.iter().find(|p| crate::data::matches(&p.type_tags, group)).map(|p| leak(&p.id))
+    let k = shop.pads.iter().position(|&p| p == (tx, ty))?;
+    let group = g.data.good(recipe).input_groups().nth(k).or_else(|| g.data.good(recipe).input_groups().next())?.1;
+    let local = |id: &str| g.world.plants.iter().any(|p| p.good == id) || g.world.shops.iter().any(|s| s.kind.recipes().contains(&id));
+    let fits: Vec<&crate::data::GoodType> = g.data.goods.iter().filter(|p| crate::data::matches(&p.type_tags, group)).collect();
+    fits.iter().find(|p| local(&p.id)).or(fits.first()).map(|p| p.id.clone())
 }
 
 /// The built-in tool a peg stands in for.
@@ -286,18 +293,6 @@ fn peg_hint(g: &Game, tx: i32, ty: i32) -> Option<&'static str> {
     let shop = g.world.shops.iter().find(|s| s.pegs.contains(&(tx, ty)))?;
     let k = shop.pegs.iter().position(|&p| p == (tx, ty))?;
     shop.kind.builtin_tools().get(k).copied()
-}
-
-/// Good ids live as long as the game; this keeps hint lookups allocation-free per frame.
-fn leak(id: &str) -> &'static str {
-    match id {
-        "cotton_bolls" => "cotton_bolls",
-        "cotton_slivers" => "cotton_slivers",
-        "thread" => "thread",
-        "fabric" => "fabric",
-        "rope" => "rope",
-        _ => "",
-    }
 }
 
 /// Facing an applicant: who they are, their talents and what they cost.
@@ -343,12 +338,20 @@ fn badge(fb: &mut Framebuffer, x: i32, y: i32, n: usize) {
 
 /// A sprite brightened or dimmed by quality in half steps: odd levels shift every other
 /// pixel (ordered dither), even levels shift them all. The dark hull never changes.
-fn blit_quality(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32, level: i32) {
+/// A dyed good takes its dye's color: its cotton-white pixels move to the dye's ramp.
+fn dye_ramp(item: &crate::econ::ItemData) -> Option<u8> {
+    item.carried_tags.iter().any(|t| t == "indigo").then_some(WATER)
+}
+
+fn blit_quality(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32, level: i32, dye: Option<u8>) {
     for sy in 0..s.h {
         for sx in 0..s.w {
-            let c = s.px[(sy * s.w + sx) as usize];
+            let mut c = s.px[(sy * s.w + sx) as usize];
             if c == 0 {
                 continue;
+            }
+            if let Some(ramp) = dye.filter(|_| (COTTON..COTTON + 3).contains(&c)) {
+                c = ramp + (c - COTTON);
             }
             let half = level % 2 != 0 && (x + sx + y + sy) % 2 == 0;
             let k = level / 2 + if half { level.signum() } else { 0 };
@@ -527,8 +530,9 @@ fn blit_ghost(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32) {
 fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
     let mut named: Vec<((i32, i32), &str)> = Vec::new();
     for s in g.world.shops.iter().filter(|s| s.kind.is_building()) {
+        // Up from the work spot to the building's top wall; a door in that wall counts too.
         let (sx, mut wy) = s.spot;
-        while wy > 0 && g.world.tile(sx, wy) != Tile::Wall {
+        while wy > 0 && !matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
             wy -= 1;
         }
         named.push(((sx, wy), s.kind.label()));
@@ -536,7 +540,7 @@ fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
     named.extend(g.world.labels.iter().copied());
     for ((sx, wy), label) in named.into_iter().filter(|((x, y), _)| v.sees(*x, *y)) {
         let (mut l, mut r) = (sx, sx);
-        while g.world.tile(l - 1, wy) == Tile::Wall {
+        while matches!(g.world.tile(l - 1, wy), Tile::Wall | Tile::Door) {
             l -= 1;
         }
         while g.world.tile(r + 1, wy) == Tile::Wall || g.world.tile(r + 1, wy) == Tile::Door {
@@ -613,7 +617,7 @@ fn draw_bin(sp: &Sprites, fb: &mut Framebuffer, v: &View, b: &Bin) {
     for y in [y0 + 6, y0 + 10] {
         fb.rect_fill(x0 + 2, y, 12, 1, WOOD);
     }
-    if let Some(icon) = sp.icon(&b.accepts) {
+    if let Some(icon) = sp.icon(&b.accepts[0]) {
         fb.blit(icon, x0 + 4, y0 + 5, false);
     }
     if let Some((mx, my)) = b.mouth {
@@ -678,7 +682,7 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 // Ungraded goods have no quality to show: no tint, no twinkle.
                 let graded = g.data.try_good(it.good()).is_some_and(|gt| gt.has_quality);
                 let q = it.data.quality;
-                blit_quality(fb, s, x, y, if graded { quality_level(q) } else { 0 });
+                blit_quality(fb, s, x, y, if graded { quality_level(q) } else { 0 }, dye_ramp(&it.data));
                 if graded && q >= EXCEPTIONAL {
                     // A slow twinkle: exceptional goods every two seconds, masterworks twice as often.
                     let period = if q >= MASTERWORK { 15 } else { 30 };

@@ -21,9 +21,9 @@ pub const OUTPUT_BUFFER: usize = 9;
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
-// `q` ramie  `n` indigofera
-// Work spots: `B` workbench  `S` spinning wheel  `L` loom. Each `p` pad, `g` tool peg and
-// `o` output mat belongs to the nearest work spot.
+// `q` ramie  `n` indigofera  `l` limestone outcrop
+// Work spots: `B` workbench  `S` spinning wheel  `L` loom  `K` kiln  `I` indigo vats
+// `V` dye vat. Each `p` pad, `g` tool peg and `o` output mat belongs to the nearest work spot.
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -43,7 +43,7 @@ const REGIONS: [Region; 3] = [
     Region { map: include_str!("../data/wilderness.map"), labels: &[], signs: &[("TANGLEMERE", Dir::Right)], boards: &[("A ROPE FOR THE FERRY", "rope", 3, Project::Ferry)] },
     Region {
         map: include_str!("../data/tanglemere.map"),
-        labels: &[((11, 2), "DYE HOUSE"), ((34, 2), "CLOTH HALL"), ((4, 18), "ASH KILN")],
+        labels: &[((34, 2), "CLOTH HALL")],
         signs: &[("PINEWATER", Dir::Left)],
         boards: &[],
     },
@@ -66,6 +66,7 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'j' => "arrow_bamboo",
         'q' => "ramie_stalks",
         'n' => "indigofera_leaves",
+        'l' => "limestone",
         _ => return None,
     })
 }
@@ -215,7 +216,8 @@ impl Plant {
 pub struct Bin {
     pub x: i32,
     pub y: i32,
-    pub accepts: String,
+    /// The goods it takes.
+    pub accepts: Vec<String>,
     pub stock: Vec<ItemData>,
     pub mouth: Option<(i32, i32)>,
     pub timer: u8,
@@ -298,11 +300,21 @@ impl Ferry {
     }
 }
 
+impl Bin {
+    pub fn takes(&self, good: &str) -> bool {
+        self.accepts.iter().any(|a| a == good)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ShopKind {
     Workbench,
     Spinnery,
     LoomHouse,
+    /// Burns ash into lye, or limestone into quicklime.
+    Kiln,
+    IndigoHouse,
+    DyeHouse,
 }
 
 impl ShopKind {
@@ -311,6 +323,9 @@ impl ShopKind {
             ShopKind::Workbench => "WORKBENCH",
             ShopKind::Spinnery => "SPINNERY",
             ShopKind::LoomHouse => "LOOM HOUSE",
+            ShopKind::Kiln => "KILN",
+            ShopKind::IndigoHouse => "INDIGO HOUSE",
+            ShopKind::DyeHouse => "DYE HOUSE",
         }
     }
 
@@ -319,6 +334,9 @@ impl ShopKind {
             ShopKind::Workbench => &["cotton_slivers", "rope", "wooden_tub"],
             ShopKind::Spinnery => &["thread"],
             ShopKind::LoomHouse => &["fabric"],
+            ShopKind::Kiln => &["lye", "quicklime"],
+            ShopKind::IndigoHouse => &["indigo"],
+            ShopKind::DyeHouse => &["dyed_fabric"],
         }
     }
 
@@ -328,6 +346,8 @@ impl ShopKind {
             ShopKind::Workbench => &["cotton_gin", "cotton_bow", "saw", "metal_chisel"],
             ShopKind::Spinnery => &["spool", "spinning_wheel"],
             ShopKind::LoomHouse => &["waist_loom"],
+            ShopKind::DyeHouse => &["wooden_tub"],
+            ShopKind::Kiln | ShopKind::IndigoHouse => &[],
         }
     }
 
@@ -428,7 +448,7 @@ impl World {
                         'p' => Tile::Pad,
                         'g' => Tile::Peg,
                         'o' => Tile::OutMat,
-                        'B' | 'S' | 'L' => Tile::Spot,
+                        'B' | 'S' | 'L' | 'K' | 'I' | 'V' => Tile::Spot,
                         'C' | 'T' | 'b' => Tile::Bin,
                         'w' | 'F' => Tile::Water,
                         'Y' => Tile::Tree,
@@ -441,8 +461,8 @@ impl World {
                         plants.push(Plant { x, y, good: good.into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
                     }
                     match ch {
-                        'C' => bins.push(Bin { x, y, accepts: "cotton_bolls".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false }),
-                        'T' => bins.push(Bin { x, y, accepts: "fabric".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true }),
+                        'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false }),
+                        'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into(), "dyed_fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true }),
                         'b' => {
                             let &(title, wants, need, project) = board_specs.next().expect("a project for every board");
                             boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0 });
@@ -455,10 +475,13 @@ impl World {
                         'a' => stands.push((x, y)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
-                        'B' | 'S' | 'L' => {
+                        'B' | 'S' | 'L' | 'K' | 'I' | 'V' => {
                             let kind = match ch {
                                 'B' => ShopKind::Workbench,
                                 'S' => ShopKind::Spinnery,
+                                'K' => ShopKind::Kiln,
+                                'I' => ShopKind::IndigoHouse,
+                                'V' => ShopKind::DyeHouse,
                                 _ => ShopKind::LoomHouse,
                             };
                             shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0 })

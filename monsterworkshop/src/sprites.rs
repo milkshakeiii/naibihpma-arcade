@@ -460,6 +460,78 @@ fn make_tool_icon(id: &str) -> Sprite {
                 }
             }
         }
+        "elder_sticks" | "rhododendron_sticks" => {
+            for (k, y0) in [(0, 2), (1, 4), (2, 6)] {
+                for x in 0..=7 {
+                    s.set(x, (y0 + (x + k) / 4 - 1).clamp(0, 7), WOOD + 2 + (k == 1) as u8);
+                }
+            }
+        }
+        "hemlock_log" | "oak_log" => {
+            for y in 2..=5 {
+                for x in 0..=5 {
+                    s.set(x, y, if y == 2 { WOOD + 2 } else { WOOD + 1 });
+                }
+            }
+            circle_fill(&mut s, 6, 3, 1, [WOOD + 2, WOOD + 3, WOOD + 3]);
+        }
+        "ramie_stalks" => {
+            for x in [1, 3, 5] {
+                for y in 1..=7 {
+                    s.set(x, y, LEAF + 1);
+                    s.set(x + 1, y, LEAF + 2);
+                }
+            }
+        }
+        "indigofera_leaves" => {
+            circle_fill(&mut s, 3, 4, 2, [LEAF, LEAF + 1, LEAF + 2]);
+            circle_fill(&mut s, 5, 3, 2, [LEAF, LEAF + 1, LEAF + 2]);
+            s.set(4, 3, WATER + 1);
+        }
+        "lye" => {
+            for (x, y) in [(3, 1), (4, 1), (3, 2), (4, 2)] {
+                s.set(x, y, PATH + 2);
+            }
+            for y in 3..=6 {
+                for x in 1..=6 {
+                    s.set(x, y, if x <= 2 { PATH + 2 } else { PATH + 1 });
+                }
+            }
+        }
+        "limestone" | "quicklime" => {
+            let ramp = if id == "limestone" { STONE } else { [TEXT_DIM, COTTON + 1, COTTON + 2] };
+            circle_fill(&mut s, 2, 4, 2, ramp);
+            circle_fill(&mut s, 5, 4, 2, ramp);
+        }
+        "indigo" => {
+            for y in 2..=3 {
+                for x in 1..=6 {
+                    s.set(x, y, WATER + (y == 2) as u8);
+                }
+            }
+            for (y, x0, x1) in [(4, 0, 7), (5, 1, 6), (6, 2, 5)] {
+                for x in x0..=x1 {
+                    s.set(x, y, PATH + 1);
+                }
+            }
+        }
+        "wooden_tub" => {
+            for y in 2..=6 {
+                for x in 1..=6 {
+                    s.set(x, y, if y == 3 || y == 5 { HUD_MID } else { PLANK + 1 });
+                }
+            }
+            for x in 1..=6 {
+                s.set(x, 1, WOOD + 3);
+            }
+        }
+        "dyed_fabric" => {
+            for y in 1..=6 {
+                for x in 1..=6 {
+                    s.set(x, y, if y == 1 || x == 1 { WATER + 2 } else if y % 3 == 0 { WATER } else { WATER + 1 });
+                }
+            }
+        }
         "rope" => {
             for (x, y) in [(2, 1), (3, 1), (4, 1), (5, 1), (1, 2), (6, 2), (1, 3), (6, 3), (1, 4), (6, 4), (1, 5), (6, 5), (2, 6), (3, 6), (4, 6), (5, 6)] {
                 s.set(x, y, COTTON + 1);
@@ -587,6 +659,24 @@ fn make_wild(good: &str, stage: u8) -> Sprite {
         ("oak_log", 1) => broadleaf(&mut s, 4, light),
         ("oak_log", _) => broadleaf(&mut s, 6, light),
         ("arrow_bamboo", _) => stalks(&mut s, &[4, 8, 12], [5, 10, 15][stage as usize], true),
+        ("limestone", 0) => {
+            for (cx, cy) in [(5, 14), (10, 14)] {
+                circle_fill(&mut s, cx, cy, 1, STONE);
+            }
+        }
+        ("limestone", 1) => {
+            for (cx, cy, r) in [(5, 12, 3), (11, 13, 2)] {
+                circle_fill(&mut s, cx, cy, r, STONE);
+            }
+        }
+        ("limestone", _) => {
+            for (cx, cy, r) in [(5, 10, 4), (11, 11, 4), (8, 6, 3)] {
+                circle_fill(&mut s, cx, cy, r, STONE);
+            }
+            for x in 2..=14 {
+                s.set(x, 15, STONE[0]);
+            }
+        }
         ("ramie_stalks", _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
         (_, 0) => {
             for y in 12..=15 {
@@ -790,8 +880,134 @@ fn make_board() -> Sprite {
     s.outline()
 }
 
+/// Grey limestone, dark to light.
+const STONE: [u8; 3] = [HUD_MID, HUD_HI, TEXT_DIM];
+
+/// A clay kiln: a dome with a fire mouth; `frame` flickers the fire while it burns.
+fn make_kiln(frame: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    for y in 2..=15 {
+        for x in 1..=14 {
+            let (dx, dy) = (x - 8, (y - 9).min(0));
+            if dx * dx * 49 + dy * dy * 49 > 49 * 49 + 20 {
+                continue;
+            }
+            let c = if (y + if (y / 3) % 2 == 0 { 0 } else { 2 } + x) % 4 == 0 && y % 3 == 0 {
+                PATH
+            } else if x <= 4 {
+                PATH + 2
+            } else if x >= 12 {
+                PATH
+            } else {
+                PATH + 1
+            };
+            s.set(x, y, c);
+        }
+    }
+    for y in 10..=15 {
+        for x in 6..=9 {
+            if !(y == 10 && (x == 6 || x == 9)) {
+                s.set(x, y, OUTLINE);
+            }
+        }
+    }
+    let flames: &[(i32, i32)] = if frame == 0 { &[(7, 13), (8, 12), (7, 14), (8, 14), (6, 15), (9, 15)] } else { &[(8, 13), (7, 12), (7, 14), (8, 15), (6, 14), (9, 15)] };
+    for (k, &(x, y)) in flames.iter().enumerate() {
+        s.set(x, y, SPARK + (k % 3) as u8);
+    }
+    s.outline()
+}
+
+/// A wooden vat with dark liquid; the dye vat has a length of blue cloth over its rim.
+fn make_vat(cloth: bool) -> Sprite {
+    let mut s = Sprite::blank(16, 14);
+    for y in 3..=13 {
+        for x in 2..=13 {
+            let band = y == 5 || y == 10;
+            s.set(x, y, if band { WOOD } else if x <= 3 { PLANK + 2 } else if x >= 12 { PLANK } else { PLANK + 1 });
+        }
+    }
+    for x in 1..=14 {
+        s.set(x, 2, WOOD + 3);
+    }
+    for x in 3..=12 {
+        s.set(x, 3, if x % 3 == 0 { WATER + 1 } else { WATER });
+    }
+    if cloth {
+        for y in 2..=9 {
+            s.set(12, y, WATER + 2);
+            s.set(13, y, WATER + 1);
+        }
+        s.set(14, 9, WATER + 1);
+    }
+    s.outline()
+}
+
+/// A clay jar (lye).
+fn make_jar() -> Sprite {
+    let mut s = Sprite::blank(11, 13);
+    circle_fill(&mut s, 5, 8, 4, [PATH, PATH + 1, PATH + 2]);
+    for y in 1..=4 {
+        for x in 4..=6 {
+            s.set(x, y, if x == 4 { PATH + 2 } else { PATH + 1 });
+        }
+    }
+    for x in 3..=7 {
+        s.set(x, 1, PATH + 2);
+    }
+    for x in 3..=7 {
+        s.set(x, 12, PATH);
+    }
+    s.outline()
+}
+
+/// A heap of lumps: limestone (grey) or quicklime (white).
+fn make_lumps(ramp: [u8; 3]) -> Sprite {
+    let mut s = Sprite::blank(14, 10);
+    for (cx, cy, r) in [(4, 6, 3), (9, 6, 3), (7, 4, 2)] {
+        circle_fill(&mut s, cx, cy, r, ramp);
+    }
+    for x in 2..=11 {
+        s.set(x, 9, ramp[0]);
+    }
+    s.outline()
+}
+
+/// Indigo paste in a shallow bowl.
+fn make_indigo() -> Sprite {
+    let mut s = Sprite::blank(14, 9);
+    for y in 2..=4 {
+        for x in 3..=10 {
+            s.set(x, y, if y == 2 { WATER + 1 } else { WATER });
+        }
+    }
+    for (y, x0, x1) in [(5, 1, 12), (6, 2, 11), (7, 3, 10), (8, 4, 9)] {
+        for x in x0..=x1 {
+            s.set(x, y, if x <= x0 + 1 { PATH + 2 } else { PATH + 1 });
+        }
+    }
+    s.outline()
+}
+
+/// A wooden tub with iron-dark hoops.
+fn make_tub() -> Sprite {
+    let mut s = Sprite::blank(16, 11);
+    for y in 2..=10 {
+        let inset = (y - 2) / 4;
+        for x in 1 + inset..=14 - inset {
+            let hoop = y == 3 || y == 8;
+            s.set(x, y, if hoop { HUD_MID } else if x <= 2 + inset { PLANK + 2 } else if x >= 13 - inset { PLANK } else { PLANK + 1 });
+        }
+    }
+    for x in 2..=13 {
+        s.set(x, 1, WOOD + 3);
+        s.set(x, 2, WOOD);
+    }
+    s.outline()
+}
+
 /// Goods gathered in the wild, each with its plant.
-const WILD: [&str; 7] = ["hemlock_log", "oak_log", "elder_sticks", "rhododendron_sticks", "arrow_bamboo", "ramie_stalks", "indigofera_leaves"];
+const WILD: [&str; 8] = ["hemlock_log", "oak_log", "elder_sticks", "rhododendron_sticks", "arrow_bamboo", "ramie_stalks", "indigofera_leaves", "limestone"];
 
 pub struct Sprites {
     pub goblin: [Sprite; 4],
@@ -825,6 +1041,14 @@ pub struct Sprites {
     pub boat: Sprite,
     pub signpost: Sprite,
     pub board: Sprite,
+    pub kiln: [Sprite; 2],
+    pub indigo_vat: Sprite,
+    pub dye_vat: Sprite,
+    pub jar: Sprite,
+    pub limestone: Sprite,
+    pub quicklime: Sprite,
+    pub indigo: Sprite,
+    pub tub: Sprite,
 }
 
 impl Sprites {
@@ -839,7 +1063,7 @@ impl Sprites {
             bench: make_bench(),
             loom: make_loom(),
             crate_: make_crate(),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "indigofera_leaves"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
             wheel: [make_wheel(0), make_wheel(1)],
@@ -861,6 +1085,14 @@ impl Sprites {
             boat: make_boat(),
             signpost: make_signpost(),
             board: make_board(),
+            kiln: [make_kiln(0), make_kiln(1)],
+            indigo_vat: make_vat(false),
+            dye_vat: make_vat(true),
+            jar: make_jar(),
+            limestone: make_lumps(STONE),
+            quicklime: make_lumps([TEXT_DIM, COTTON + 1, COTTON + 2]),
+            indigo: make_indigo(),
+            tub: make_tub(),
         }
     }
 }
@@ -881,6 +1113,11 @@ impl Sprites {
             "ramie_stalks" => &self.stalk_bundle,
             "indigofera_leaves" => &self.leaves,
             "rope" => &self.rope,
+            "lye" => &self.jar,
+            "limestone" => &self.limestone,
+            "quicklime" => &self.quicklime,
+            "indigo" => &self.indigo,
+            "wooden_tub" => &self.tub,
             other => self.icon(other).unwrap_or(&self.crate_),
         }
     }
@@ -913,7 +1150,7 @@ mod tests {
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
         let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board];
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);

@@ -32,7 +32,7 @@ cargo run --release -- --windowed
 
 The game opens on a title screen listing your worlds; pick one or start a new one. Worlds save to `%APPDATA%\MonsterWorkshop\worlds\` every minute and when you quit.
 
-The world is 7×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. Pinewater, the weaving town, is in the west; the road east crosses the pine river by a rope ferry (once the town has made rope for it), passes through the wilderness, and reaches Tanglemere, the dyeing town. Monsters on other screens show as markers at the screen edge. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
+The world is 7×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. Pinewater, the weaving town, is in the west; the road east crosses the pine river by a rope ferry (once the town has made rope for it), passes through the wilderness, and reaches Tanglemere, the dyeing town, where a kiln, an indigo house and a dye house turn Pinewater's cloth indigo blue. Monsters on other screens show as markers at the screen edge. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
 
 ## How it works
 

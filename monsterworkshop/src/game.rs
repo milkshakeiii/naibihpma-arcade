@@ -785,8 +785,9 @@ impl Game {
                 self.events.push(Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else if let Some(b) = self.world.bin_at(bx, by) {
-                if self.world.bins[b].accepts != good {
-                    return StepRes::Blocked(format!("ONLY {} GOES IN THERE.", self.good_name(&self.world.bins[b].accepts)));
+                if !self.world.bins[b].takes(&good) {
+                    let names: Vec<String> = self.world.bins[b].accepts.iter().map(|a| self.good_name(a)).collect();
+                    return StepRes::Blocked(format!("ONLY {} GOES IN THERE.", names.join(" OR ")));
                 }
                 let item = self.world.items.remove(it);
                 let bin = &mut self.world.bins[b];
@@ -1015,7 +1016,7 @@ impl Game {
         }
         let t = &mut self.tutorial;
         t.steps += events.iter().filter(|e| **e == Ev::Walked).count() as u32;
-        let stored = |good: &str| self.world.bins.iter().any(|b| b.accepts == good && !b.stock.is_empty());
+        let stored = |good: &str| self.world.bins.iter().any(|b| b.stock.iter().any(|d| d.good == good));
         let playing = self.monsters.iter().filter(|m| m.playing).count();
         let has_routine = self.monsters.iter().any(|m| m.routine.is_some());
         loop {
@@ -1033,6 +1034,10 @@ impl Game {
                 10 => self.made.contains("rope"),
                 11 => self.world.ferry.as_ref().is_some_and(|f| f.rigged),
                 12 => self.monsters.iter().any(|m| area_name(m.x) == "TANGLEMERE"),
+                13 => self.made.contains("lye"),
+                14 => self.made.contains("quicklime"),
+                15 => self.made.contains("indigo"),
+                16 => stored("dyed_fabric"),
                 _ => false,
             };
             if !met || t.stage >= tutorial::DONE {
@@ -1044,7 +1049,7 @@ impl Game {
 
     /// Fabric in the cloth store: the HUD's running tally for now.
     pub fn cloth_stored(&self) -> usize {
-        self.world.bins.iter().filter(|b| b.accepts == "fabric").map(|b| b.stock.len()).sum()
+        self.world.bins.iter().flat_map(|b| &b.stock).filter(|d| d.good == "fabric" || d.good == "dyed_fabric").count()
     }
 
     /// The controlled monster's state for the HUD, and whether it is a warning.
