@@ -18,7 +18,7 @@ During play the target is zero full-screen menus. Every action gets visible and 
 
 **Cut from 1.0:** upkeep, cost multiplier, monster aging.
 
-**v1.5:** equipment, as physical crafted wearables (see below).
+**v1.5:** equipment as physical crafted wearables; charity and great-works drop-offs; and an in-world quality sorter (see below).
 
 ## Features
 
@@ -32,7 +32,7 @@ Workshops have tool pegs on the wall, which you fill by pushing tools onto them,
 There is no character-creation screen. A **hiring hall** in town holds applicants. Each one is already rolled with a monster type and 3 transferable skills. Walk up to an applicant and their bubble shows type, skills, stats and renown cost. Space hires them. You choose which applicant to hire, not which boxes to tick, and the roster refreshes over time.
 
 ### Renown and goals
-Renown is a HUD counter. You spend it in the world: hiring at the hall, and contributing to **town project boards**. A project board shows what goods it wants and a progress bar, and finished projects unlock things like the road to the second town or new workshops. A final "great work", for example a temple bell, ends 1.0.
+Renown is a HUD counter. You spend it in the world: hiring at the hall, and contributing to **town project boards**. A project board shows what goods it wants and a progress bar. In 1.0 boards count goods of any quality, so a low-quality good always has somewhere useful to go. Finished projects unlock things like the road to the second town or new workshops. A final "great work", for example a temple bell, ends 1.0.
 
 ### Delivery and shares
 Delivering a good is a small celebration. "+12 RENOWN" rises from the drop-off, then smaller credits fly to each monster that contributed ("MOGG 6, BRUNA 4"). This is how the shares system becomes visible. All renown still goes to the one commune.
@@ -70,6 +70,15 @@ Wagons are fully physical. Press Space on a wagon's handle to hitch it, and it f
 ### Equipment (v1.5)
 Gloves, glasses and the like are crafted goods from the tech tree, not bought with renown. Push one into a monster to equip it. It then shows on the sprite (a goblin in glasses), and its bonus appears on the inspect card.
 
+### Quality goals and sorting (v1.5)
+Two kinds of drop-off, after the "charity and great works" in the original rules:
+- **Great works** pay the good's value, as delivery does in 1.0. Quality matters, and lucky deep goods shine.
+- **Charity** scores every good as if its quality were average (around 0.5, tunable), whatever its real quality. Below that point charity pays more than a great work, so clearing out dim goods becomes worthwhile under the right conditions. Charity goals can also be bulk goals ("200 BRICKS FOR THE TOWN WALL").
+
+Recorded loops push whatever they find, so they can't tell good items from bad. An in-world **quality sorter** fixes that: a machine that only lets items above a set quality through, so a loop can route dim goods to charity and bright ones to the great works.
+
+Two uses for low-quality goods already exist in 1.0 without new rules: delivering them for less renown, and training. Learning doesn't depend on input quality, so junk materials are good practice for new hires.
+
 ## Crafting math (M1)
 
 These rules are ported from the Django and Python versions, with the changes agreed on 2026-10-30. All the numbers are first guesses to tune in play. If quality going a little wild now and then turns out to be fun, we keep some of it.
@@ -85,6 +94,8 @@ This runs every time a monster finishes a good that has quality, including gathe
 6. **Final** = roll, plus the WIS/STR nudge when it is below 1.
 
 **Visible tiers:** quality ≥ 1.25 sparkles as *exceptional*, and ≥ 1.5 is a *masterwork*. Below that, brightness shows quality. For an expert with a mean of 0.97, σ = 0.4 gives an exceptional result about one craft in 4 and a masterwork about one in 11.
+
+The tiers are only visual; there are no extra bonuses. The reward for quality is already built in. A better good earns more renown when delivered, and much more for deep goods: at σ = 0.4, a 2-sigma lucky depth-4 good earns +194% while an unlucky one loses 80%. A better tool improves every craft it's used in for its whole life. Durability stays at 100 for tools and 1000 for workshops, whatever their quality.
 
 ### Destabilizers
 A destabilizer is a neighboring craft whose habits misfire on this job. It is never the good's own primary or secondary skill. A monster cross-trained in neighboring crafts works streakier: more masterworks, and more flops. Prestige goods get two: palace tiles, palace bricks, palace glaze, the temple bell and the great statue. All 60 goods with quality have destabilizers in `data/good_types.json`. Examples: dyes are destabilized by Painting, clay goods by Casting, smithed tools by Casting, and Thread by Sericulture.
@@ -103,7 +114,7 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 - **M2, second town:** roads and signposts, wagons, town project boards, edge markers and the Tab roster strip.
 - **M3, content and art:** chains 2–3 and the great work. Replace placeholder sprites with final pixel art under the AGENTS.md palette rules.
 - **M4, ship:** itch.io build and outside playtesters.
-- **v1.5:** equipment.
+- **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
 ## Open questions
 
