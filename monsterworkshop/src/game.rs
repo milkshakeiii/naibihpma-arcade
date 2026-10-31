@@ -10,6 +10,8 @@ pub const WALK_TICKS: u8 = 2;
 pub const PUSH_TICKS: u8 = 3;
 const BUBBLE_TICKS: u16 = 45;
 const WAIT_BEFORE_SAYING: u16 = 12;
+/// A held direction starts walking on its own only after ~267 ms, so a tap is one tile.
+const HOLD_REPEAT_TICKS: u8 = 4;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sfx {
@@ -186,7 +188,7 @@ pub struct Game {
     pub delivered: u32,
     queued: Option<Dir>,
     queued_use: bool,
-    last_pressed: Option<Dir>,
+    hold: Option<(Dir, u8)>, // direction held since its press, and for how many ticks
     events: Vec<Ev>,
 }
 
@@ -209,7 +211,7 @@ impl Game {
             delivered: 0,
             queued: None,
             queued_use: false,
-            last_pressed: None,
+            hold: None,
             events: Vec::new(),
         }
     }
@@ -259,13 +261,20 @@ impl Game {
 
     fn player_input(&mut self, inp: &Input, sfx: &mut Vec<Sfx>) {
         let c = self.controlled;
+        let held = |d: Dir| inp.held[DIRS.iter().position(|&x| x == d).unwrap_or(0)];
         let mut fresh = None;
         for (k, d) in DIRS.iter().enumerate() {
             if inp.pressed[k] {
-                self.last_pressed = Some(*d);
                 fresh = Some(*d);
             }
         }
+        self.hold = match (fresh, self.hold) {
+            (Some(d), _) => Some((d, 0)),
+            (None, Some((d, t))) if held(d) => Some((d, t.saturating_add(1))),
+            // Released, but another direction is still down: keep walking that way.
+            (None, Some((_, t))) => DIRS.iter().copied().find(|&d| held(d)).map(|d| (d, t)),
+            (None, None) => None,
+        };
         if inp.rec_pressed {
             self.toggle_record(c, sfx);
         }
@@ -316,11 +325,8 @@ impl Game {
         }
 
         let pressed_now = self.queued.take().or(fresh);
-        let held = |d: Dir| inp.held[DIRS.iter().position(|&x| x == d).unwrap_or(0)];
-        let want = pressed_now.or_else(|| match self.last_pressed {
-            Some(d) if held(d) => Some(d),
-            _ => DIRS.iter().copied().find(|&d| held(d)),
-        });
+        let repeat = self.hold.filter(|&(_, t)| t >= HOLD_REPEAT_TICKS).map(|(d, _)| d);
+        let want = pressed_now.or(repeat);
         let Some(d) = want else { return };
         match self.try_step(c, d, sfx) {
             StepRes::Moved(pushed) => {
@@ -777,6 +783,26 @@ mod tests {
         g.script("R");
         assert_eq!((g.world.items[it].x, g.world.items[it].y), (8, 8));
         assert_eq!((g.monsters[0].x, g.monsters[0].y), (7, 8));
+    }
+
+    #[test]
+    fn a_tap_moves_one_tile_and_a_long_hold_keeps_walking() {
+        let hold = |ticks: u32| {
+            let mut g = Game::new();
+            g.script("t"); // Bruna has open grass to the north
+            let (mut req, mut sfx) = (Vec::new(), Vec::new());
+            for t in 0..ticks {
+                let mut inp = Input::default();
+                inp.held[0] = true;
+                inp.pressed[0] = t == 0;
+                g.update(&inp, &mut req, &mut sfx);
+            }
+            g.run_ticks(10);
+            g.world.starts[1].1 - g.monsters[1].y
+        };
+        assert_eq!(hold(1), 1);
+        assert_eq!(hold(HOLD_REPEAT_TICKS as u32), 1, "a ~250 ms tap must not take a second step");
+        assert!(hold(12) >= 4, "holding should keep walking");
     }
 
     #[test]

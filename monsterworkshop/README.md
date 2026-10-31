@@ -32,7 +32,7 @@ The bottom panel teaches the loop step by step: push cotton onto both pads, spin
 
 ## How it works
 
-- **Moves are answered on the tick you press.** The logical tile changes at once and a 2-tick slide (3 ticks when pushing) plays it out. A tap during a slide is buffered, and holding a key keeps walking.
+- **Moves are answered on the tick you press.** The logical tile changes at once and a 2-tick slide (3 ticks when pushing) plays it out. A tap during a slide is buffered. A held key starts walking on its own only after about a quarter second (`HOLD_REPEAT_TICKS`), so a tap is always exactly one tile.
 - **Routines are recorded actions, not positions.** Each step remembers whether it pushed something and what. On replay a monster waits (and says why) when the item it expects isn't there yet, or when something else blocks it. It never pushes something it didn't push while recording. A routine has to end on its start flag, so it always loops cleanly.
 - **Feedback:** dust when pushing, a bump and thud when blocked, a pop when harvesting, a flash and click when an item lands on a pad, fluff, a progress bar and the wheel turning while spinning, a sparkle and chime when thread appears, bins bouncing and counting deposits. Monsters you aren't steering show what they're waiting for as a small icon.
 
