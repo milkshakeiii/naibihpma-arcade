@@ -1,10 +1,14 @@
-//! Monsters, input, record/replay and the crafting rules, advanced in discrete 15 FPS ticks.
+//! Monsters, input, pushing and record/replay, advanced in discrete 15 FPS ticks. Crafting,
+//! harvesting and bins live in `work.rs`.
 //!
 //! A move updates the logical tile at once and then plays out as a short slide, so input is
 //! answered on the same tick and collisions are settled before anything is drawn.
 
+use crate::data::{Data, Stats};
+use crate::econ::{Learned, Rng, Skills};
 use crate::tutorial::{self, Tutorial};
 use crate::world::*;
+use std::collections::BTreeSet;
 
 pub const WALK_TICKS: u8 = 2;
 pub const PUSH_TICKS: u8 = 3;
@@ -77,20 +81,11 @@ pub enum Species {
     Cyclops,
 }
 
-impl Species {
-    pub fn name(self) -> &'static str {
-        match self {
-            Species::Goblin => "GOBLIN",
-            Species::Cyclops => "CYCLOPS",
-        }
-    }
-}
-
-/// One recorded action. A step remembers what it pushed so replay can tell "the cotton
-/// isn't here yet" (wait) from "something else is in the way" (also wait, but say so).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// One recorded action. A step remembers which good it pushed, so replay can tell "it isn't
+/// here yet" (wait) from "something else is in the way" (also wait, but say so).
+#[derive(Clone, PartialEq, Debug)]
 pub enum Act {
-    Step(Dir, Option<Kind>),
+    Step(Dir, Option<String>),
     Use,
 }
 
@@ -108,8 +103,12 @@ pub struct Bubble {
 }
 
 pub struct Monster {
+    pub id: u32,
     pub name: &'static str,
+    pub kind: &'static str,
     pub species: Species,
+    pub stats: Stats,
+    pub skills: Skills,
     pub x: i32,
     pub y: i32,
     pub facing: Dir,
@@ -125,15 +124,22 @@ pub struct Monster {
     pub pc: usize,
     pub paused_at: Option<(i32, i32)>,
     pub wait: u16,
-    pub wait_reason: &'static str,
+    pub wait_reason: String,
     pub loops: u32,
+    /// What the last finished job taught, for skill popups.
+    pub learned: Option<(String, Learned, u16)>,
 }
 
 impl Monster {
-    fn new(name: &'static str, species: Species, (x, y): (i32, i32)) -> Self {
+    fn new(id: u32, name: &'static str, kind: &'static str, data: &Data, (x, y): (i32, i32), skills: Skills) -> Self {
+        let species = if kind == "goblin" { Species::Goblin } else { Species::Cyclops };
         Self {
+            id,
             name,
+            kind,
             species,
+            stats: data.monster_types[kind].stats.clone(),
+            skills,
             x,
             y,
             facing: Dir::Right,
@@ -149,35 +155,47 @@ impl Monster {
             pc: 0,
             paused_at: None,
             wait: 0,
-            wait_reason: "",
+            wait_reason: String::new(),
             loops: 0,
+            learned: None,
         }
     }
 
-    fn idle(&self) -> bool {
+    pub fn idle(&self) -> bool {
         self.slide.is_none() && !self.busy
+    }
+
+}
+
+fn starting_skills(transferable: &[&str], applied: &[(&str, f64)]) -> Skills {
+    Skills {
+        transferable: transferable.iter().map(|s| s.to_string()).collect(),
+        applied: applied.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        ..Skills::default()
     }
 }
 
-enum StepRes {
-    Moved(Option<Kind>),
-    Blocked(&'static str),
+pub(crate) enum StepRes {
+    Moved(Option<String>),
+    Blocked(String),
 }
 
-enum UseRes {
+pub(crate) enum UseRes {
     Done,
-    Wait(&'static str),
+    Wait(String),
     Nothing,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Ev {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum Ev {
     Walked,
-    Delivered(Kind),
+    Made(String),
+    Delivered(String),
     Switched,
 }
 
 pub struct Game {
+    pub data: Data,
     pub world: World,
     pub monsters: Vec<Monster>,
     pub controlled: usize,
@@ -185,22 +203,28 @@ pub struct Game {
     pub crt: bool,
     pub help: bool,
     pub tutorial: Tutorial,
-    pub delivered: u32,
+    pub rng: Rng,
+    /// Goods made at least once (tutorial progress).
+    pub made: BTreeSet<String>,
     queued: Option<Dir>,
     queued_use: bool,
     hold: Option<(Dir, u8)>, // direction held since its press, and for how many ticks
-    events: Vec<Ev>,
+    pub(crate) events: Vec<Ev>,
 }
 
 impl Game {
     pub fn new() -> Self {
-        let world = World::new();
+        let data = Data::load();
+        let world = World::new(&data);
+        let mogg = starting_skills(&["handcrafts", "science", "engineering"], &[("spinning", 0.3), ("textiles", 0.3), ("weaving", 0.2)]);
+        let bruna = starting_skills(&["outdoorsmonstership", "athletics", "social"], &[("harvesting", 0.3), ("gathering", 0.3)]);
         let mut monsters = vec![
-            Monster::new("MOGG", Species::Goblin, world.starts[0]),
-            Monster::new("BRUNA", Species::Cyclops, world.starts[1]),
+            Monster::new(1, "MOGG", "goblin", &data, world.starts[0], mogg),
+            Monster::new(2, "BRUNA", "cyclops", &data, world.starts[1], bruna),
         ];
-        monsters[0].bubble = Some(Bubble { text: "HI, I'M MOGG! LET'S SPIN SOME THREAD.".into(), ttl: 60, warn: false, waiting: false });
+        monsters[0].bubble = Some(Bubble { text: "HI, I'M MOGG! LET'S MAKE SOME CLOTH.".into(), ttl: 60, warn: false, waiting: false });
         Self {
+            data,
             world,
             monsters,
             controlled: 0,
@@ -208,7 +232,8 @@ impl Game {
             crt: true,
             help: false,
             tutorial: Tutorial::default(),
-            delivered: 0,
+            rng: Rng::new(0x5EED_2026),
+            made: BTreeSet::new(),
             queued: None,
             queued_use: false,
             hold: None,
@@ -239,7 +264,8 @@ impl Game {
             }
         }
         self.advance_motion();
-        self.tick_world(sfx);
+        self.tick_work(sfx);
+        self.world.tick_particles(self.frame);
         for m in self.monsters.iter_mut() {
             if let Some(b) = m.bubble.as_mut() {
                 b.ttl = b.ttl.saturating_sub(1);
@@ -247,16 +273,26 @@ impl Game {
             if m.bubble.as_ref().is_some_and(|b| b.ttl == 0) {
                 m.bubble = None;
             }
+            if let Some((_, _, t)) = m.learned.as_mut() {
+                *t = t.saturating_sub(1);
+            }
+            if m.learned.as_ref().is_some_and(|l| l.2 == 0) {
+                m.learned = None;
+            }
         }
         self.advance_tutorial();
     }
 
-    fn say(&mut self, i: usize, text: &str, warn: bool) {
+    pub(crate) fn say(&mut self, i: usize, text: &str, warn: bool) {
         self.monsters[i].bubble = Some(Bubble { text: text.to_string(), ttl: BUBBLE_TICKS, warn, waiting: false });
     }
 
     pub fn monster_at(&self, x: i32, y: i32) -> Option<usize> {
         self.monsters.iter().position(|m| m.x == x && m.y == y)
+    }
+
+    pub fn good_name(&self, id: &str) -> String {
+        self.data.try_good(id).map_or_else(|| id.to_uppercase(), |g| g.name.to_uppercase())
     }
 
     fn player_input(&mut self, inp: &Input, sfx: &mut Vec<Sfx>) {
@@ -295,7 +331,7 @@ impl Game {
         }
         if m.busy {
             if fresh.is_some() || inp.use_pressed {
-                self.say(c, "SPINNING! TAB SWITCHES MONSTER.", false);
+                self.say(c, "WORKING! TAB SWITCHES MONSTER.", false);
             }
             return;
         }
@@ -316,7 +352,7 @@ impl Game {
                     }
                 }
                 UseRes::Wait(msg) => {
-                    self.say(c, msg, true);
+                    self.say(c, &msg, true);
                     sfx.push(Sfx::Deny);
                 }
                 UseRes::Nothing => self.say(c, "NOTHING TO USE HERE.", false),
@@ -326,8 +362,7 @@ impl Game {
 
         let pressed_now = self.queued.take().or(fresh);
         let repeat = self.hold.filter(|&(_, t)| t >= HOLD_REPEAT_TICKS).map(|(d, _)| d);
-        let want = pressed_now.or(repeat);
-        let Some(d) = want else { return };
+        let Some(d) = pressed_now.or(repeat) else { return };
         match self.try_step(c, d, sfx) {
             StepRes::Moved(pushed) => {
                 if let Some(r) = self.monsters[c].rec.as_mut() {
@@ -341,14 +376,14 @@ impl Game {
                     self.monsters[c].bump = Some((d, 3));
                     sfx.push(Sfx::Bump);
                     if !msg.is_empty() {
-                        self.say(c, msg, true);
+                        self.say(c, &msg, true);
                     }
                 }
             }
         }
     }
 
-    fn try_step(&mut self, i: usize, d: Dir, sfx: &mut Vec<Sfx>) -> StepRes {
+    pub(crate) fn try_step(&mut self, i: usize, d: Dir, sfx: &mut Vec<Sfx>) -> StepRes {
         let (dx, dy) = d.delta();
         let (x, y) = (self.monsters[i].x, self.monsters[i].y);
         let (tx, ty) = (x + dx, y + dy);
@@ -357,51 +392,44 @@ impl Game {
             self.monsters[i].flip = dx < 0;
         }
         if !self.world.tile(tx, ty).walkable() || self.monster_at(tx, ty).is_some() {
-            return StepRes::Blocked("");
+            return StepRes::Blocked(String::new());
         }
         let mut pushed = None;
         if let Some(it) = self.world.item_at(tx, ty) {
-            let kind = self.world.items[it].kind;
+            let good = self.world.items[it].good().to_string();
             if self.world.items[it].locked {
-                return StepRes::Blocked("THAT'S BEING SPUN.");
+                return StepRes::Blocked("THAT'S BEING WORKED ON.".into());
             }
             let (bx, by) = (tx + dx, ty + dy);
             if let Some(b) = self.world.bin_at(bx, by) {
-                if self.world.bins[b].kind != kind {
-                    return StepRes::Blocked(match self.world.bins[b].kind {
-                        Kind::Cotton => "ONLY COTTON GOES IN THERE.",
-                        Kind::Thread => "ONLY THREAD GOES IN THERE.",
-                    });
+                if self.world.bins[b].accepts != good {
+                    return StepRes::Blocked(format!("ONLY {} GOES IN THERE.", self.good_name(&self.world.bins[b].accepts)));
                 }
-                self.world.items.remove(it);
-                self.world.bins[b].count += 1;
-                self.world.bins[b].bounce = 4;
+                let item = self.world.items.remove(it);
+                let bin = &mut self.world.bins[b];
+                bin.stock.push(item.data);
+                bin.bounce = 4;
                 self.world.burst(bx, by, PKind::Spark, 5);
-                self.events.push(Ev::Delivered(kind));
-                if kind == Kind::Thread {
-                    self.delivered += 1;
-                }
+                self.events.push(Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else {
-                let free = self.world.tile(bx, by).item_floor()
-                    && self.world.item_at(bx, by).is_none()
-                    && self.monster_at(bx, by).is_none();
+                let free = self.world.tile(bx, by).item_floor() && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none();
                 if !free {
-                    return StepRes::Blocked("");
+                    return StepRes::Blocked(String::new());
                 }
                 let item = &mut self.world.items[it];
                 item.x = bx;
                 item.y = by;
                 item.hop = 0;
                 item.slide = Some(Slide { dir: d, left: PUSH_TICKS, total: PUSH_TICKS });
-                if let Some(p) = self.world.shop.pads.iter().position(|&pad| pad == (bx, by)) {
-                    self.world.shop.pad_flash[p] = 5;
+                if let Some((s, k)) = self.world.pad_owner(bx, by) {
+                    self.world.shops[s].pad_flash[k] = 5;
                     sfx.push(Sfx::Pad);
                 }
                 self.world.dust(tx, ty, d);
                 sfx.push(Sfx::Push);
             }
-            pushed = Some(kind);
+            pushed = Some(good);
         } else if i == self.controlled {
             sfx.push(Sfx::Step);
         }
@@ -415,46 +443,12 @@ impl Game {
     }
 
     fn try_use(&mut self, i: usize, sfx: &mut Vec<Sfx>) -> UseRes {
-        let (x, y, facing) = (self.monsters[i].x, self.monsters[i].y, self.monsters[i].facing);
-        if (x, y) == self.world.shop.wheel {
-            if self.world.shop.crafting.is_some() {
-                return UseRes::Wait("THE WHEEL IS BUSY.");
-            }
-            if !self.world.pads_full() {
-                return UseRes::Wait("NEED COTTON ON BOTH PADS.");
-            }
-            let (ox, oy) = self.world.shop.out;
-            if self.world.item_at(ox, oy).is_some() || self.monster_at(ox, oy).is_some() {
-                return UseRes::Wait("CLEAR THE OUTPUT MAT FIRST.");
-            }
-            for &(px, py) in &self.world.shop.pads {
-                if let Some(it) = self.world.item_at(px, py) {
-                    self.world.items[it].locked = true;
-                }
-            }
-            self.world.shop.crafting = Some((i, 0));
-            self.monsters[i].busy = true;
-            sfx.push(Sfx::Spin);
-            return UseRes::Done;
+        let (x, y) = (self.monsters[i].x, self.monsters[i].y);
+        if let Some(s) = self.world.shop_at_spot(x, y) {
+            return self.use_shop(i, s, sfx);
         }
         if let Some(p) = self.world.plant_at(x, y) {
-            if !self.world.plants[p].ripe() {
-                return UseRes::Wait("STILL GROWING.");
-            }
-            let (dx, dy) = facing.delta();
-            let (fx, fy) = (x + dx, y + dy);
-            let free = self.world.tile(fx, fy).item_floor()
-                && self.world.item_at(fx, fy).is_none()
-                && self.monster_at(fx, fy).is_none();
-            if !free {
-                return UseRes::Wait("NO ROOM TO DROP IT THERE.");
-            }
-            self.world.plants[p].growth = 0;
-            let slide = Some(Slide { dir: facing, left: PUSH_TICKS, total: PUSH_TICKS });
-            self.world.items.push(Item { x: fx, y: fy, kind: Kind::Cotton, slide, hop: 6, locked: false });
-            self.world.burst(x, y, PKind::Leaf, 4);
-            sfx.push(Sfx::Pop);
-            return UseRes::Done;
+            return self.use_plant(i, p, sfx);
         }
         UseRes::Nothing
     }
@@ -463,26 +457,25 @@ impl Game {
         if !self.monsters[i].idle() {
             return;
         }
-        let Some(act) = self.monsters[i].routine.as_ref().and_then(|r| r.acts.get(self.monsters[i].pc).copied()) else {
+        let Some(act) = self.monsters[i].routine.as_ref().and_then(|r| r.acts.get(self.monsters[i].pc).cloned()) else {
             self.monsters[i].playing = false;
             return;
         };
-        let outcome: Result<(), &'static str> = match act {
+        let outcome: Result<(), String> = match act {
             Act::Step(d, expect) => {
                 let (dx, dy) = d.delta();
                 let (tx, ty) = (self.monsters[i].x + dx, self.monsters[i].y + dy);
-                let here = self.world.item_at(tx, ty).map(|k| self.world.items[k].kind);
+                let here = self.world.item_at(tx, ty).map(|k| self.world.items[k].good().to_string());
                 match (expect, here) {
                     (Some(k), Some(h)) if k == h => match self.try_step(i, d, sfx) {
                         StepRes::Moved(_) => Ok(()),
-                        StepRes::Blocked(_) => Err("WAITING..."),
+                        StepRes::Blocked(_) => Err("WAITING...".into()),
                     },
-                    (Some(Kind::Cotton), None) => Err("WAITING FOR COTTON."),
-                    (Some(Kind::Thread), None) => Err("WAITING FOR THREAD."),
-                    (_, Some(_)) => Err("SOMETHING'S IN MY WAY."),
+                    (Some(k), None) => Err(format!("WAITING FOR {}.", self.good_name(&k))),
+                    (_, Some(_)) => Err("SOMETHING'S IN MY WAY.".into()),
                     (None, None) => match self.try_step(i, d, sfx) {
                         StepRes::Moved(_) => Ok(()),
-                        StepRes::Blocked(_) => Err("WAITING..."),
+                        StepRes::Blocked(_) => Err("WAITING...".into()),
                     },
                 }
             }
@@ -506,7 +499,7 @@ impl Game {
                     m.bubble = None;
                 }
                 m.wait = 0;
-                m.wait_reason = "";
+                m.wait_reason.clear();
                 m.pc += 1;
                 if m.pc >= m.routine.as_ref().map_or(0, |r| r.acts.len()) {
                     m.pc = 0;
@@ -515,10 +508,10 @@ impl Game {
             }
             Err(msg) => {
                 m.wait = m.wait.saturating_add(1);
-                m.wait_reason = msg;
                 if m.wait >= WAIT_BEFORE_SAYING {
-                    m.bubble = Some(Bubble { text: msg.to_string(), ttl: 3, warn: false, waiting: true });
+                    m.bubble = Some(Bubble { text: msg.clone(), ttl: 3, warn: false, waiting: true });
                 }
+                m.wait_reason = msg;
             }
         }
     }
@@ -615,90 +608,29 @@ impl Game {
         }
     }
 
-    fn tick_world(&mut self, sfx: &mut Vec<Sfx>) {
-        for p in self.world.plants.iter_mut() {
-            p.growth = (p.growth + 1).min(REGROW_TICKS);
-        }
-
-        for b in 0..self.world.bins.len() {
-            let bin = &self.world.bins[b];
-            let Some((mx, my)) = bin.mouth else { continue };
-            let blocked = self.world.item_at(mx, my).is_some() || self.monster_at(mx, my).is_some();
-            let bin = &mut self.world.bins[b];
-            bin.bounce = bin.bounce.saturating_sub(1);
-            if blocked || bin.count == 0 {
-                bin.timer = 0;
-                continue;
-            }
-            bin.timer += 1;
-            if bin.timer >= DISPENSE_TICKS {
-                bin.timer = 0;
-                bin.count -= 1;
-                bin.bounce = 3;
-                let dir = if my > bin.y { Dir::Down } else if my < bin.y { Dir::Up } else if mx > bin.x { Dir::Right } else { Dir::Left };
-                let slide = Some(Slide { dir, left: PUSH_TICKS, total: PUSH_TICKS });
-                let kind = bin.kind;
-                self.world.items.push(Item { x: mx, y: my, kind, slide, hop: 4, locked: false });
-                sfx.push(Sfx::Plop);
-            }
-        }
-        for b in self.world.bins.iter_mut().filter(|b| b.mouth.is_none()) {
-            b.bounce = b.bounce.saturating_sub(1);
-        }
-
-        if let Some((mi, t)) = self.world.shop.crafting {
-            let t = t + 1;
-            let pads = self.world.shop.pads.clone();
-            if t % 3 == 0 {
-                let (px, py) = pads[(t as usize / 3) % pads.len()];
-                self.world.burst(px, py, PKind::Fluff, 1);
-            }
-            if t % 6 == 0 {
-                sfx.push(Sfx::Spin);
-            }
-            if t >= CRAFT_TICKS {
-                for &(px, py) in &pads {
-                    if let Some(it) = self.world.item_at(px, py) {
-                        self.world.items.remove(it);
-                    }
-                    self.world.burst(px, py, PKind::Fluff, 5);
-                }
-                let (ox, oy) = self.world.shop.out;
-                self.world.items.push(Item { x: ox, y: oy, kind: Kind::Thread, slide: None, hop: 5, locked: false });
-                self.world.burst(ox, oy, PKind::Spark, 10);
-                self.world.shop.crafting = None;
-                self.monsters[mi].busy = false;
-                sfx.push(Sfx::Chime);
-            } else {
-                self.world.shop.crafting = Some((mi, t));
-            }
-        }
-        for f in self.world.shop.pad_flash.iter_mut() {
-            *f = f.saturating_sub(1);
-        }
-        self.world.tick_particles(self.frame);
-    }
-
     fn advance_tutorial(&mut self) {
         let events = std::mem::take(&mut self.events);
+        for e in &events {
+            if let Ev::Made(g) = e {
+                self.made.insert(g.clone());
+            }
+        }
         let t = &mut self.tutorial;
         t.steps += events.iter().filter(|e| **e == Ev::Walked).count() as u32;
-        let thread_in_bin = self.world.bins.iter().any(|b| b.kind == Kind::Thread && b.count > 0);
-        let thread_made = self.world.items.iter().any(|it| it.kind == Kind::Thread);
+        let stored = |good: &str| self.world.bins.iter().any(|b| b.accepts == good && !b.stock.is_empty());
         let playing = self.monsters.iter().filter(|m| m.playing).count();
         let has_routine = self.monsters.iter().any(|m| m.routine.is_some());
         loop {
             let met = match t.stage {
                 0 => t.steps >= 4,
-                1 => self.world.pads_full() || self.world.shop.crafting.is_some() || thread_in_bin,
-                2 => thread_made || thread_in_bin,
-                3 => thread_in_bin,
-                4 => self.monsters.iter().any(|m| m.rec.is_some()) || has_routine,
-                5 => has_routine,
-                6 => playing >= 1,
-                7 => playing >= 1 && !self.monsters[self.controlled].playing,
-                8 => events.contains(&Ev::Delivered(Kind::Cotton)) || playing >= 2,
-                9 => playing >= 2,
+                1 => self.made.contains("cotton_bolls"),
+                2 => stored("cotton_bolls") || self.made.contains("cotton_slivers"),
+                3 => self.made.contains("cotton_slivers"),
+                4 => self.made.contains("thread"),
+                5 => self.made.contains("fabric"),
+                6 => stored("fabric"),
+                7 => has_routine,
+                8 => playing >= 2,
                 _ => false,
             };
             if !met || t.stage >= tutorial::DONE {
@@ -708,12 +640,17 @@ impl Game {
         }
     }
 
+    /// Fabric in the cloth store: the HUD's running tally for now.
+    pub fn cloth_stored(&self) -> usize {
+        self.world.bins.iter().filter(|b| b.accepts == "fabric").map(|b| b.stock.len()).sum()
+    }
+
     /// The controlled monster's state for the HUD, and whether it is a warning.
     pub fn status(&self, i: usize) -> (String, bool) {
         let m = &self.monsters[i];
-        let who = format!("{} THE {}", m.name, m.species.name());
+        let who = format!("{} THE {}", m.name, m.kind.to_uppercase());
         let state = if m.busy {
-            ("SPINNING".to_string(), false)
+            ("WORKING".to_string(), false)
         } else if let Some(r) = &m.rec {
             (format!("RECORDING ({} ACTIONS)", r.acts.len()), false)
         } else if m.playing && m.wait >= WAIT_BEFORE_SAYING {
@@ -749,7 +686,7 @@ impl Game {
                 _ => continue,
             }
             self.update(&inp, &mut req, &mut sfx);
-            for _ in 0..200 {
+            for _ in 0..2000 {
                 if self.monsters[self.controlled].idle() {
                     break;
                 }
@@ -766,79 +703,25 @@ impl Game {
     }
 }
 
-/// Bruna's job from the tile left of the field row: harvest, push into the cotton bin, walk back.
-pub const BRUNA_JOB: &str = "RuRRRRLLLLL";
-
+/// Scripted routes on the Pinewater map, for tests.
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub mod routes {
+    /// Mogg, from the start west of the fields: harvest the east end of the bottom row and
+    /// push the boll into the cotton bin.
+    pub const MOGG_HARVEST: &str = "RRRRRRu RRR";
+    pub const MOGG_HOME: &str = "LLLLLLLLL";
 
-    /// Mogg's job from the start tile: two cotton runs, spin, deliver, walk home.
-    const MOGG_JOB: &str = "RRRRRDLLLLLU RRRRU u RRRRRRRR LLLLLLLL DDLLLLU";
-
-    #[test]
-    fn walking_into_cotton_pushes_it_one_tile() {
-        let mut g = Game::new();
-        let it = g.world.item_at(7, 8).expect("chute starts with a boll out");
-        g.script("R");
-        assert_eq!((g.world.items[it].x, g.world.items[it].y), (8, 8));
-        assert_eq!((g.monsters[0].x, g.monsters[0].y), (7, 8));
+    /// Bruna, from beside the chute: workbench, spinnery, loom house, cloth store.
+    pub fn bruna_chain() -> String {
+        format!("RDRRUu{}URuD{}UR{}LDuR{}", "R".repeat(15), "R".repeat(13), "D".repeat(12), "D".repeat(6))
     }
 
-    #[test]
-    fn a_tap_moves_one_tile_and_a_long_hold_keeps_walking() {
-        let hold = |ticks: u32| {
-            let mut g = Game::new();
-            g.script("t"); // Bruna has open grass to the north
-            let (mut req, mut sfx) = (Vec::new(), Vec::new());
-            for t in 0..ticks {
-                let mut inp = Input::default();
-                inp.held[0] = true;
-                inp.pressed[0] = t == 0;
-                g.update(&inp, &mut req, &mut sfx);
-            }
-            g.run_ticks(10);
-            g.world.starts[1].1 - g.monsters[1].y
-        };
-        assert_eq!(hold(1), 1);
-        assert_eq!(hold(HOLD_REPEAT_TICKS as u32), 1, "a ~250 ms tap must not take a second step");
-        assert!(hold(12) >= 4, "holding should keep walking");
-    }
-
-    #[test]
-    fn hedges_block_and_do_not_move_anything() {
-        let mut g = Game::new();
-        g.script("t");
-        g.script("L");
-        assert_eq!((g.monsters[1].x, g.monsters[1].y), (1, 10));
-    }
-
-    #[test]
-    fn manual_job_makes_and_delivers_one_thread() {
-        let mut g = Game::new();
-        g.script(MOGG_JOB);
-        assert_eq!(g.delivered, 1);
-        assert_eq!((g.monsters[0].x, g.monsters[0].y), g.world.starts[0]);
-        assert_eq!(g.tutorial.stage, 4);
-    }
-
-    #[test]
-    fn full_tutorial_leaves_both_loops_producing_thread() {
-        let mut g = Game::new();
-        g.script(MOGG_JOB);
-        g.script("r");
-        g.script(MOGG_JOB);
-        g.script("rp");
-        assert!(g.monsters[0].playing);
-        g.script("tUUUr");
-        g.script(BRUNA_JOB);
-        g.script("rp");
-        assert!(g.monsters[1].playing);
-        assert_eq!(g.tutorial.stage, tutorial::DONE);
-
-        let before = g.delivered;
-        g.run_ticks(3000);
-        assert!(g.delivered >= before + 8, "only {} thread in 200 s", g.delivered - before);
-        assert!(g.monsters.iter().all(|m| m.playing), "a loop stopped");
+    /// From the cloth store back to the flag beside the chute, staying clear of the chute.
+    pub fn bruna_home() -> String {
+        format!("{}{}D{}U", "U".repeat(18), "L".repeat(28), "L".repeat(5))
     }
 }
+
+#[cfg(test)]
+#[path = "game_tests.rs"]
+mod tests;

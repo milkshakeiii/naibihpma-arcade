@@ -1,7 +1,7 @@
 mod audio;
-#[allow(dead_code)] // wired into the game in M1 stage 2
+#[allow(dead_code)] // the schema mirrors the JSON; some fields are read in later stages
 mod data;
-#[allow(dead_code)] // wired into the game in M1 stage 2
+#[allow(dead_code)] // tiers, value, weight and the forecast feed stages 3 and 4
 mod econ;
 #[allow(dead_code)] // shared copy of the arcade framebuffer; line/circle unused here
 mod framebuffer;
@@ -10,11 +10,12 @@ mod palette;
 mod render;
 mod sprites;
 mod tutorial;
+mod work;
 mod world;
 
 use audio::Audio;
 use framebuffer::Framebuffer;
-use game::{Game, Input, Request, BRUNA_JOB};
+use game::{Game, Input, Request};
 use sprites::Sprites;
 use std::ffi::OsStr;
 use std::mem::{size_of, zeroed};
@@ -206,7 +207,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
     }
 }
 
-/// Headless scripted playthrough of the tutorial, saving 2x PNGs at key moments.
+/// Headless scripted playthrough of the Fabric chain, saving 2x PNGs at key moments.
 fn export_screenshots(dir: &Path) {
     let _ = std::fs::create_dir_all(dir);
     let sprites = Sprites::new();
@@ -220,32 +221,34 @@ fn export_screenshots(dir: &Path) {
     let use_now = |g: &mut Game| g.update(&Input { use_pressed: true, ..Input::default() }, &mut Vec::new(), &mut Vec::new());
 
     g.run_ticks(2);
-    save(&g, "01_start.png");
-    g.script("RRRR");
-    save(&g, "02_pushing_cotton.png");
-    g.script("RDLLLLLU RRRRU");
+    save(&g, "01_fields.png");
+    g.script("RRRRRR");
     use_now(&mut g);
-    g.run_ticks(22);
-    save(&g, "03_spinning.png");
+    g.run_ticks(12);
+    save(&g, "02_harvesting.png");
     g.run_ticks(30);
-    g.script("RRRR");
-    save(&g, "04_pushing_thread.png");
-    g.script("RRRR LLLLLLLL DDLLLLU r RRRRRDLLL");
-    save(&g, "05_recording.png");
-    g.script("LLU RRRRU u RRRRRRRR LLLLLLLL DDLLLLU");
-    g.script("rp");
-    g.run_ticks(20);
-    save(&g, "06_looping_waits_for_cotton.png");
-    g.script("tUUUrR");
+    g.script("RRR");
+    save(&g, "03_into_the_bin.png");
+    g.script("t");
+    g.run_ticks(10);
+    g.script("RDRRU");
     use_now(&mut g);
-    g.run_ticks(1);
-    save(&g, "07_bruna_harvests.png");
-    g.run_ticks(4);
-    g.script(&BRUNA_JOB[2..]);
-    g.script("rp");
-    g.run_ticks(900);
-    save(&g, "08_both_looping.png");
+    g.run_ticks(15);
+    save(&g, "04_workbench.png");
+    g.run_ticks(40);
+    g.script(&format!("{}UR", "R".repeat(15)));
+    use_now(&mut g);
+    g.run_ticks(30);
+    save(&g, "05_spinnery.png");
+    g.run_ticks(80);
+    g.script(&format!("D{}UR{}LD", "R".repeat(13), "D".repeat(12)));
+    use_now(&mut g);
+    g.run_ticks(200);
+    save(&g, "06_loom_house.png");
+    g.run_ticks(600);
+    g.script(&format!("R{}", "D".repeat(6)));
+    save(&g, "07_cloth_store.png");
     g.help = true;
-    save(&g, "09_help.png");
-    println!("exported screenshots to {} ({} thread delivered)", dir.display(), g.delivered);
+    save(&g, "08_help.png");
+    println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

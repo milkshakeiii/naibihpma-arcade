@@ -1,8 +1,8 @@
-# Monster Workshop — feel prototype
+# Monster Workshop
 
-A small test of whether the core of *Monster Workshop* is fun: monsters push things around a grid, craft by standing at a workstation, and learn a job by watching you do it once. This is one yard, one recipe, and two monsters, with no economy. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching.
+Monsters push goods around a grid world, craft by standing at a work spot, and learn a job by watching you do it once. The feel prototype proved that core; M1 is now building the real game on it. So far, Pinewater has the whole cotton cloth chain: harvest cotton, card it into slivers at the workbench, spin thread in the spinnery, weave fabric in the loom house. Every good carries real quality, variety, history and shares. See [`DESIGN.md`](DESIGN.md) for the full design. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching.
 
-The full design (economy, skills, tech tree, towns) lives in the `sokobanmonstermakers` and `django` repos. This prototype only covers how the game feels to play.
+The rules and tech tree came from the earlier `django` and `sokobanmonstermakers` versions; they now live here.
 
 ## Run
 
@@ -28,7 +28,7 @@ cargo run --release -- --windowed
 | F2 | CRT scanlines on/off |
 | Esc | Quit |
 
-The bottom panel teaches the loop step by step: push cotton onto both pads, spin, deliver the thread, record the job, loop it, then switch to the second monster and teach it to keep the cotton bin full.
+Pinewater is 2×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
 
 ## How it works
 
@@ -38,8 +38,11 @@ The bottom panel teaches the loop step by step: push cotton onto both pads, spin
 
 ## Files
 
-- `src/world.rs`: the yard map as data, plus items, plants, bins, the workshop and particles.
-- `src/game.rs`: monsters, input, pushing, record/replay, crafting and tutorial progress.
+- `data/good_types.json`, `data/skills.json`, `data/monster_types.json`: the tech tree, skills and monster types, embedded in the executable.
+- `data/pinewater.map`: the town as a character grid; `src/data.rs` and `src/world.rs` load them.
+- `src/econ.rs`: the crafting rules (quality, quantity, time, learning, value, shares), with `econ_tests.rs`.
+- `src/game.rs`: monsters, input, pushing, record/replay and tutorial progress, with `game_tests.rs`.
+- `src/work.rs`: timed work: harvesting, crafting at workshops, chutes and output mats.
 - `src/tutorial.rs`: objective texts and the help sheet.
 - `src/render.rs`, `src/sprites.rs`, `src/palette.rs`, `src/framebuffer.rs`: indexed rendering. Sprites are code-authored placeholders.
 - `src/audio.rs`: synthesized sound effects through waveOut.
@@ -50,7 +53,7 @@ The bottom panel teaches the loop step by step: push cotton onto both pads, spin
 cargo test
 ```
 
-One test plays the whole tutorial from a script, then runs 200 simulated seconds and checks that both looping monsters keep delivering thread.
+Tests cover the crafting rules, the whole Fabric chain played by hand, and two monsters looping it for 400 simulated seconds.
 
 ```bash
 cargo run --release -- --export-screenshots screenshots

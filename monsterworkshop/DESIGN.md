@@ -185,6 +185,12 @@ Each matching transferable skill drops the weakest secondary skill and the two l
 - **Monster aging is cut,** so ability scores don't change with age.
 - **The simulation uses its own seeded random numbers,** so a saved world replays identically.
 
+### How the rules play in the world (M1 stage 2)
+- **Pace:** fast mode runs 4 game seconds per tick, so a real second is about a game minute. Harvesting cotton takes about 2–3 seconds, spinning 3–5, and weaving 20–40, depending on the monster.
+- **Harvests keep loops exact.** A harvest gathers the whole rolled quantity at once. The plant then holds those goods and pops one out per use, and regrows once it is empty.
+- **Workshops hold finished goods** until an output mat is free, then set them out one at a time.
+- **Built-in tools show on the pegs** as faint outlines. A tool pushed onto a peg is used instead, and wears out.
+
 ### Learning and forgetting
 Unchanged from the original, plus the Python port's two fixes: skills never read below 0, and learning counts per craft rather than per whole multi-batch task. Mastery takes roughly 100–200 crafts, about 30–40 minutes of a looping monster at prototype speeds. Each monster has a single forgetting counter that drains every skill it isn't practicing, so monsters specialize.
 

@@ -1,34 +1,23 @@
-//! The yard as data: a tile map plus the things that sit on it. No monsters here; `game.rs`
-//! moves them and asks the world what is where.
+//! Pinewater as data: a tile map (`data/pinewater.map`) with its workshops, bins and plants,
+//! plus the items lying around. No monsters here; `game.rs` moves them and asks the world
+//! what is where.
+
+use crate::data::{matches, Data};
+use crate::econ::ItemData;
 
 pub const TS: i32 = 16;
-pub const MAP_W: i32 = 25;
-pub const MAP_H: i32 = 16;
-pub const REGROW_TICKS: u16 = 90; // 6 s at 15 FPS
-pub const CRAFT_TICKS: u16 = 45; // 3 s
+pub const SCREEN_W: i32 = 25;
+pub const SCREEN_H: i32 = 16;
 pub const DISPENSE_TICKS: u8 = 4;
+/// Town workshops' built-in tools, used when nothing better hangs on the peg.
+pub const BUILTIN_TOOL_QUALITY: f64 = 0.5;
+pub const TOWN_WORKSHOP_QUALITY: f64 = 0.8;
 
-// `#` hedge  `.` grass  `,` path  `W` workshop wall  `_` floor  `D` door  `p` input pad
-// `o` output mat  `S` spinning wheel  `f` cotton plant  `C` cotton bin  `m` its chute
-// `T` thread bin  `1` `2` monster starts
-const MAP: [&str; MAP_H as usize] = [
-    "#########################",
-    "#.......................#",
-    "#.......................#",
-    "#.......................#",
-    "#.......................#",
-    "#........WWWWWWWWW......#",
-    "#.fff....W_______W......#",
-    "#.fff..C.WS_o____D,T....#",
-    "#.fff.1m,D_pp____W......#",
-    "#.....,,,D_______W......#",
-    "#2.......W_______W......#",
-    "#........WWWWWWWWW......#",
-    "#.......................#",
-    "#.......................#",
-    "#.......................#",
-    "#########################",
-];
+// `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `f` cotton plant
+// `C` cotton bin and `m` its chute  `T` cloth store  `1` `2` monster starts
+// Work spots: `B` workbench  `S` spinning wheel  `L` loom. Each `p` pad, `g` tool peg and
+// `o` output mat belongs to the nearest work spot.
+const MAP: &str = include_str!("../data/pinewater.map");
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Dir {
@@ -60,8 +49,9 @@ pub enum Tile {
     Floor,
     Door,
     Pad,
+    Peg,
     OutMat,
-    Wheel,
+    Spot,
     Bin,
 }
 
@@ -70,16 +60,10 @@ impl Tile {
         !matches!(self, Tile::Hedge | Tile::Wall | Tile::Bin)
     }
 
-    /// Items slide over anything a monster can walk on except the wheel itself.
+    /// Items slide over anything a monster can walk on except a work spot.
     pub fn item_floor(self) -> bool {
-        self.walkable() && self != Tile::Wheel
+        self.walkable() && self != Tile::Spot
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Kind {
-    Cotton,
-    Thread,
 }
 
 /// A move in progress, drawn as an offset back toward the tile it came from.
@@ -107,28 +91,52 @@ impl Slide {
 pub struct Item {
     pub x: i32,
     pub y: i32,
-    pub kind: Kind,
+    pub data: ItemData,
     pub slide: Option<Slide>,
-    pub hop: u8,     // pop arc after harvest / dispense
-    pub locked: bool, // on a pad that is being spun
+    pub hop: u8,
+    pub locked: bool, // on a pad that is being worked
+}
+
+impl Item {
+    pub fn new(x: i32, y: i32, data: ItemData) -> Self {
+        Self { x, y, data, slide: None, hop: 0, locked: false }
+    }
+
+    pub fn good(&self) -> &str {
+        &self.data.good
+    }
+}
+
+/// A timed job at a plant or a work spot.
+#[derive(Clone, Debug)]
+pub struct Job {
+    pub monster: usize,
+    pub recipe: String,
+    pub t: u32,
+    pub total: u32,
 }
 
 #[derive(Clone, Debug)]
 pub struct Plant {
     pub x: i32,
     pub y: i32,
-    pub growth: u16,
+    pub good: String,
+    pub growth: u32,
+    pub regrow: u32,
+    /// Gathered goods waiting to pop out, one per use.
+    pub stock: Vec<ItemData>,
+    pub harvest: Option<Job>,
 }
 
 impl Plant {
     pub fn ripe(&self) -> bool {
-        self.growth >= REGROW_TICKS
+        self.growth >= self.regrow
     }
 
     pub fn stage(&self) -> u8 {
-        if self.ripe() {
+        if self.ripe() || !self.stock.is_empty() {
             2
-        } else if self.growth >= REGROW_TICKS / 2 {
+        } else if self.growth >= self.regrow / 2 {
             1
         } else {
             0
@@ -140,20 +148,65 @@ impl Plant {
 pub struct Bin {
     pub x: i32,
     pub y: i32,
-    pub kind: Kind,
-    pub count: u32,
+    pub accepts: String,
+    pub stock: Vec<ItemData>,
     pub mouth: Option<(i32, i32)>,
     pub timer: u8,
     pub bounce: u8,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShopKind {
+    Workbench,
+    Spinnery,
+    LoomHouse,
+}
+
+impl ShopKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ShopKind::Workbench => "WORKBENCH",
+            ShopKind::Spinnery => "SPINNERY",
+            ShopKind::LoomHouse => "LOOM HOUSE",
+        }
+    }
+
+    pub fn recipes(self) -> &'static [&'static str] {
+        match self {
+            ShopKind::Workbench => &["cotton_slivers"],
+            ShopKind::Spinnery => &["thread"],
+            ShopKind::LoomHouse => &["fabric"],
+        }
+    }
+
+    /// Basic permanent tools a town workshop provides when nothing hangs on its pegs.
+    pub fn builtin_tools(self) -> &'static [&'static str] {
+        match self {
+            ShopKind::Workbench => &["cotton_gin", "cotton_bow"],
+            ShopKind::Spinnery => &["spool", "spinning_wheel"],
+            ShopKind::LoomHouse => &["waist_loom"],
+        }
+    }
+
+    /// Walk-in workshops count as a weight-8 tool; an outdoor bench does not.
+    pub fn is_building(self) -> bool {
+        self != ShopKind::Workbench
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Shop {
-    pub wheel: (i32, i32),
+    pub kind: ShopKind,
+    pub spot: (i32, i32),
     pub pads: Vec<(i32, i32)>,
-    pub out: (i32, i32),
-    pub crafting: Option<(usize, u16)>, // (monster, ticks spun)
+    pub pegs: Vec<(i32, i32)>,
+    pub outs: Vec<(i32, i32)>,
+    pub quality: f64,
+    pub job: Option<Job>,
+    /// Finished goods waiting for a free output mat.
+    pub pending: Vec<ItemData>,
     pub pad_flash: Vec<u8>,
+    pub out_timer: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -175,26 +228,31 @@ pub struct Particle {
 }
 
 pub struct World {
+    pub w: i32,
+    pub h: i32,
     pub tiles: Vec<Tile>,
     pub items: Vec<Item>,
     pub plants: Vec<Plant>,
     pub bins: Vec<Bin>,
-    pub shop: Shop,
+    pub shops: Vec<Shop>,
     pub particles: Vec<Particle>,
     pub starts: Vec<(i32, i32)>,
     seed: u32,
 }
 
 impl World {
-    pub fn new() -> Self {
-        let mut tiles = Vec::with_capacity((MAP_W * MAP_H) as usize);
-        let (mut plants, mut bins, mut starts) = (Vec::new(), Vec::new(), vec![(0, 0); 2]);
-        let mut shop = Shop { wheel: (0, 0), pads: Vec::new(), out: (0, 0), crafting: None, pad_flash: Vec::new() };
-        let mut mouths = Vec::new();
-        for (y, row) in MAP.iter().enumerate() {
-            assert_eq!(row.len() as i32, MAP_W, "map row {y} is {} wide", row.len());
+    pub fn new(data: &Data) -> Self {
+        let rows: Vec<&str> = MAP.lines().filter(|l| !l.is_empty()).collect();
+        let (w, h) = (rows[0].len() as i32, rows.len() as i32);
+        let mut tiles = Vec::with_capacity((w * h) as usize);
+        let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), vec![(0, 0); 2]);
+        let (mut mouths, mut parts) = (Vec::new(), Vec::new());
+        let regrow = data.good("cotton_bolls").production_time;
+        for (y, row) in rows.iter().enumerate() {
+            assert_eq!(row.len() as i32, w, "map row {y} is {} wide", row.len());
             for (x, ch) in row.chars().enumerate() {
                 let (x, y) = (x as i32, y as i32);
+                let street_next = row.as_bytes().get(x as usize + 1) == Some(&b',') || (x > 0 && row.as_bytes()[x as usize - 1] == b',');
                 let tile = match ch {
                     '#' => Tile::Hedge,
                     ',' | 'm' => Tile::Path,
@@ -202,47 +260,57 @@ impl World {
                     '_' => Tile::Floor,
                     'D' => Tile::Door,
                     'p' => Tile::Pad,
+                    'g' => Tile::Peg,
                     'o' => Tile::OutMat,
-                    'S' => Tile::Wheel,
+                    'B' | 'S' | 'L' => Tile::Spot,
                     'C' | 'T' => Tile::Bin,
+                    '1' | '2' if street_next => Tile::Path,
                     _ => Tile::Grass,
                 };
                 match ch {
-                    'f' => plants.push(Plant { x, y, growth: REGROW_TICKS }),
-                    'C' => bins.push(Bin { x, y, kind: Kind::Cotton, count: 4, mouth: None, timer: 0, bounce: 0 }),
-                    'T' => bins.push(Bin { x, y, kind: Kind::Thread, count: 0, mouth: None, timer: 0, bounce: 0 }),
+                    'f' => plants.push(Plant { x, y, good: "cotton_bolls".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None }),
+                    'C' => bins.push(Bin { x, y, accepts: "cotton_bolls".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0 }),
+                    'T' => bins.push(Bin { x, y, accepts: "fabric".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0 }),
                     'm' => mouths.push((x, y)),
-                    'p' => {
-                        shop.pads.push((x, y));
-                        shop.pad_flash.push(0);
+                    'p' | 'g' | 'o' => parts.push((ch, x, y)),
+                    'B' | 'S' | 'L' => {
+                        let kind = match ch {
+                            'B' => ShopKind::Workbench,
+                            'S' => ShopKind::Spinnery,
+                            _ => ShopKind::LoomHouse,
+                        };
+                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0 })
                     }
-                    'o' => shop.out = (x, y),
-                    'S' => shop.wheel = (x, y),
                     '1' | '2' => starts[(ch as u8 - b'1') as usize] = (x, y),
                     _ => {}
                 }
-                tiles.push(if ch == '1' { Tile::Path } else { tile });
+                tiles.push(tile);
             }
         }
-        // Each chute starts with its first item already out, so the yard opens ready to push.
-        let mut items = Vec::new();
+        for (ch, x, y) in parts {
+            let shop = shops.iter_mut().min_by_key(|s| (s.spot.0 - x).abs() + (s.spot.1 - y).abs()).expect("a work spot");
+            match ch {
+                'p' => {
+                    shop.pads.push((x, y));
+                    shop.pad_flash.push(0);
+                }
+                'g' => shop.pegs.push((x, y)),
+                _ => shop.outs.push((x, y)),
+            }
+        }
         for m in mouths {
             if let Some(b) = bins.iter_mut().find(|b| (b.x - m.0).abs() + (b.y - m.1).abs() == 1) {
                 b.mouth = Some(m);
-                if b.count > 0 {
-                    b.count -= 1;
-                    items.push(Item { x: m.0, y: m.1, kind: b.kind, slide: None, hop: 0, locked: false });
-                }
             }
         }
-        Self { tiles, items, plants, bins, shop, particles: Vec::new(), starts, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), starts, seed: 0x9E37_79B9 }
     }
 
     pub fn tile(&self, x: i32, y: i32) -> Tile {
-        if x < 0 || y < 0 || x >= MAP_W || y >= MAP_H {
+        if x < 0 || y < 0 || x >= self.w || y >= self.h {
             Tile::Hedge
         } else {
-            self.tiles[(y * MAP_W + x) as usize]
+            self.tiles[(y * self.w + x) as usize]
         }
     }
 
@@ -258,8 +326,22 @@ impl World {
         self.plants.iter().position(|p| p.x == x && p.y == y)
     }
 
-    pub fn pads_full(&self) -> bool {
-        self.shop.pads.iter().all(|&(x, y)| self.item_at(x, y).is_some_and(|i| self.items[i].kind == Kind::Cotton))
+    pub fn shop_at_spot(&self, x: i32, y: i32) -> Option<usize> {
+        self.shops.iter().position(|s| s.spot == (x, y))
+    }
+
+    pub fn pad_owner(&self, x: i32, y: i32) -> Option<(usize, usize)> {
+        self.shops.iter().enumerate().find_map(|(i, s)| s.pads.iter().position(|&p| p == (x, y)).map(|k| (i, k)))
+    }
+
+    /// The tool a peg offers: an item hanging on it, if any.
+    pub fn peg_item(&self, x: i32, y: i32) -> Option<usize> {
+        self.item_at(x, y)
+    }
+
+    /// Does this item's good (with its carried tags) satisfy a tag group?
+    pub fn item_matches(&self, data: &Data, item: usize, group: &[String]) -> bool {
+        matches(&self.items[item].data.tags(data), group)
     }
 
     pub fn rand(&mut self, n: u32) -> u32 {

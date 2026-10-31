@@ -5,7 +5,7 @@ use crate::sprites::{Sprite, Sprites};
 use crate::tutorial::{self, wrap, HELP, STAGES};
 use crate::world::*;
 
-pub const VIEW_H: i32 = MAP_H * TS; // 256; the HUD fills the remaining 44 rows
+pub const VIEW_H: i32 = SCREEN_H * TS; // 256; the HUD fills the remaining 44 rows
 const HOP: [i32; 7] = [0, 2, 4, 5, 5, 4, 2];
 
 fn hash(x: i32, y: i32) -> u32 {
@@ -15,46 +15,75 @@ fn hash(x: i32, y: i32) -> u32 {
     h ^ (h >> 16)
 }
 
+/// Flip-screen camera: the top-left tile of the screen the controlled monster stands on.
+pub fn screen_of(x: i32, y: i32) -> (i32, i32) {
+    (x.div_euclid(SCREEN_W) * SCREEN_W, y.div_euclid(SCREEN_H) * SCREEN_H)
+}
+
+struct View {
+    tx: i32,
+    ty: i32,
+}
+
+impl View {
+    fn of(g: &Game) -> Self {
+        let m = &g.monsters[g.controlled];
+        let (tx, ty) = screen_of(m.x, m.y);
+        Self { tx, ty }
+    }
+
+    fn sees(&self, x: i32, y: i32) -> bool {
+        x >= self.tx && y >= self.ty && x < self.tx + SCREEN_W && y < self.ty + SCREEN_H
+    }
+
+    /// Screen pixel of a tile's top-left corner.
+    fn px(&self, x: i32, y: i32) -> (i32, i32) {
+        ((x - self.tx) * TS, (y - self.ty) * TS)
+    }
+}
+
 pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
-    for ty in 0..MAP_H {
-        for tx in 0..MAP_W {
-            draw_tile(g, sp, fb, tx, ty);
+    let v = View::of(g);
+    fb.rect_fill(0, 0, 400, VIEW_H, OUTLINE);
+    for ty in v.ty..v.ty + SCREEN_H {
+        for tx in v.tx..v.tx + SCREEN_W {
+            draw_tile(g, sp, fb, &v, tx, ty);
         }
     }
-    fb.text_centered("SPINNERY", 13 * TS + 8, 5 * TS + 5, WOOD + 3, Some(OUTLINE), 1);
-    for p in &g.world.plants {
-        fb.blit(&sp.plant[p.stage() as usize], p.x * TS, p.y * TS, false);
+    draw_building_labels(g, fb, &v);
+    for p in g.world.plants.iter().filter(|p| v.sees(p.x, p.y)) {
+        let (x, y) = v.px(p.x, p.y);
+        fb.blit(&sp.plant[p.stage() as usize], x, y, false);
     }
-    let (wx, wy) = g.world.shop.wheel;
-    let spinning = g.world.shop.crafting.is_some();
-    fb.blit(&sp.wheel[if spinning { (g.frame / 2 % 2) as usize } else { 0 }], wx * TS, wy * TS - 5, false);
-    for b in &g.world.bins {
-        draw_bin(sp, fb, b);
+    for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1)) {
+        let (x, y) = v.px(s.spot.0, s.spot.1);
+        match s.kind {
+            ShopKind::Spinnery => fb.blit(&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], x, y - 5, false),
+            ShopKind::LoomHouse => fb.blit(&sp.loom, x, y - 5, false),
+            ShopKind::Workbench => fb.blit(&sp.bench, x, y + TS - sp.bench.h - 4, false),
+        }
     }
-    draw_flags(g, sp, fb);
-    draw_bodies(g, sp, fb);
-    draw_particles(g, fb);
-    draw_markers(g, sp, fb);
+    for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
+        draw_bin(sp, fb, &v, b);
+    }
+    draw_flags(g, sp, fb, &v);
+    draw_bodies(g, sp, fb, &v);
+    draw_particles(g, fb, &v);
+    draw_markers(g, sp, fb, &v);
     // Lowest priority first, so the controlled monster's bubble ends up on top.
-    for b in layout_bubbles(g).iter().rev() {
+    for b in layout_bubbles(g, &v).iter().rev() {
         draw_bubble(fb, sp, b);
     }
-    if let Some((_, t)) = g.world.shop.crafting {
-        let (x, y) = (wx * TS - 1, wy * TS - 13);
-        let fill = (t as i32 * 16 / CRAFT_TICKS as i32).max(1);
-        fb.rect_fill(x, y, 18, 5, OUTLINE);
-        fb.rect_fill(x + 1, y + 1, 16, 3, HUD_SHADOW);
-        fb.rect_fill(x + 1, y + 1, fill, 3, SPARK + 1);
-        fb.rect_fill(x + 1, y + 1, fill, 1, SPARK + 2);
-    }
+    draw_progress(g, fb, &v);
     draw_hud(g, sp, fb);
     if g.help {
         draw_help(fb);
     }
 }
 
-fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, tx: i32, ty: i32) {
-    let (x0, y0) = (tx * TS, ty * TS);
+fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty: i32) {
+    let (x0, y0) = v.px(tx, ty);
+    let (wx, wy) = (tx * TS, ty * TS);
     let tile = g.world.tile(tx, ty);
     let ground = match tile {
         Tile::Bin => g.world.tile(tx, ty + 1),
@@ -62,9 +91,10 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, tx: i32, ty: i32) {
     };
     for y in 0..TS {
         for x in 0..TS {
-            let h = hash(x0 + x, y0 + y);
+            let h = hash(wx + x, wy + y);
             let c = match ground {
-                Tile::Grass | Tile::Bin => match h % 23 {
+                Tile::Grass | Tile::Bin => grass(h),
+                Tile::Peg | Tile::Pad | Tile::OutMat | Tile::Spot if !indoors(g, tx, ty) => match h % 23 {
                     0 => GRASS + 3,
                     1 | 2 => GRASS + 2,
                     3 => GRASS,
@@ -101,9 +131,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, tx: i32, ty: i32) {
                 _ => {
                     // Planks: a seam every 4 rows with staggered joints.
                     let row = y / 4;
-                    if y % 4 == 3 {
-                        PLANK
-                    } else if (x + row * 5 + tx * 3) % 16 == 0 {
+                    if y % 4 == 3 || (x + row * 5 + tx * 3) % 16 == 0 {
                         PLANK
                     } else if y % 4 == 0 {
                         PLANK + 2
@@ -115,7 +143,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, tx: i32, ty: i32) {
             fb.pset(x0 + x, y0 + y, c);
         }
     }
-    if ground == Tile::Grass && tile == Tile::Grass && hash(tx, ty) % 7 == 0 {
+    if ground == Tile::Grass && tile == Tile::Grass && hash(tx, ty) % 7 == 0 && g.world.plant_at(tx, ty).is_none() {
         let (fx, fy) = (x0 + 3 + (hash(ty, tx) % 9) as i32, y0 + 4 + (hash(tx + 7, ty) % 8) as i32);
         let col = FLOWER + (hash(tx, ty + 3) % 2) as u8;
         for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
@@ -136,14 +164,16 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, tx: i32, ty: i32) {
         }
     }
     if tile == Tile::Door {
-        let vertical = g.world.tile(tx, ty - 1) == Tile::Wall || g.world.tile(tx, ty + 1) == Tile::Wall;
-        if vertical {
+        if g.world.tile(tx, ty - 1) == Tile::Wall || g.world.tile(tx, ty + 1) == Tile::Wall {
             fb.rect_fill(x0 + 6, y0, 4, TS, PLANK);
             fb.rect_fill(x0 + 7, y0, 2, TS, PLANK + 2);
+        } else {
+            fb.rect_fill(x0, y0 + 6, TS, 4, PLANK);
+            fb.rect_fill(x0, y0 + 7, TS, 2, PLANK + 2);
         }
     }
-    if tile == Tile::Wheel {
-        // A red rug under the wheel so the work spot reads at a glance.
+    if tile == Tile::Spot {
+        // A rug under the work spot so it reads at a glance.
         fb.rect_fill(x0 + 1, y0 + 1, TS - 2, TS - 2, THREAD + 1);
         fb.rect_fill(x0 + 2, y0 + 2, TS - 4, TS - 4, THREAD);
         for k in (3..TS - 3).step_by(3) {
@@ -151,21 +181,76 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, tx: i32, ty: i32) {
             fb.pset(x0 + k, y0 + TS - 4, THREAD + 2);
         }
     }
-    let pad = g.world.shop.pads.iter().position(|&p| p == (tx, ty));
-    if pad.is_some() || tile == Tile::OutMat {
-        let flash = pad.is_some_and(|p| g.world.shop.pad_flash[p] > 0);
+    if matches!(tile, Tile::Pad | Tile::OutMat) {
+        let pad = g.world.pad_owner(tx, ty);
+        let flash = pad.is_some_and(|(s, k)| g.world.shops[s].pad_flash[k] > 0);
         let edge = if flash { SPARK + 2 } else if tile == Tile::OutMat { MAT + 2 } else { MAT };
         fb.rect_fill(x0 + 1, y0 + 1, TS - 2, TS - 2, edge);
         for y in 2..TS - 2 {
             for x in 2..TS - 2 {
-                let weave = ((x / 2) + (y / 2)) % 2 == 0;
-                fb.pset(x0 + x, y0 + y, if weave { MAT + 1 } else { MAT });
+                fb.pset(x0 + x, y0 + y, if ((x / 2) + (y / 2)) % 2 == 0 { MAT + 1 } else { MAT });
             }
         }
         if g.world.item_at(tx, ty).is_none() {
-            let icon = if tile == Tile::OutMat { &sp.icon_thread } else { &sp.icon_cotton };
-            blit_ghost(fb, icon, x0 + 4, y0 + 4);
+            if let Some(icon) = mat_hint(g, tx, ty, tile).and_then(|id| sp.icon(id)) {
+                blit_ghost(fb, icon, x0 + 4, y0 + 4);
+            }
         }
+    }
+    if tile == Tile::Peg {
+        fb.rect_fill(x0 + 2, y0 + 2, TS - 4, TS - 4, WOOD);
+        fb.rect_fill(x0 + 3, y0 + 3, TS - 6, TS - 6, WOOD + 1);
+        fb.rect_fill(x0 + 7, y0 + 3, 2, 2, WOOD + 3);
+        if g.world.item_at(tx, ty).is_none() {
+            if let Some(icon) = peg_hint(g, tx, ty).and_then(|id| sp.icon(id)) {
+                blit_ghost(fb, icon, x0 + 4, y0 + 5);
+            }
+        }
+    }
+}
+
+fn grass(h: u32) -> u8 {
+    match h % 23 {
+        0 => GRASS + 3,
+        1 | 2 => GRASS + 2,
+        3 => GRASS,
+        _ => GRASS + 1,
+    }
+}
+
+/// Inside a building: walls or doors in all four directions within a few tiles. Mats there
+/// sit on planks; outdoor mats sit on grass.
+fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
+    let bounded = |dx: i32, dy: i32| (1..10).any(|k| matches!(g.world.tile(tx + dx * k, ty + dy * k), Tile::Wall | Tile::Door));
+    bounded(-1, 0) && bounded(1, 0) && bounded(0, -1) && bounded(0, 1)
+}
+
+/// What belongs on a pad (the recipe's input) or an output mat (the recipe's output).
+fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<&'static str> {
+    let shop = g.world.shops.iter().find(|s| s.pads.contains(&(tx, ty)) || s.outs.contains(&(tx, ty)))?;
+    let recipe = shop.kind.recipes()[0];
+    if tile == Tile::OutMat {
+        return Some(recipe);
+    }
+    let group = g.data.good(recipe).input_groups().next()?.1;
+    g.data.goods.iter().find(|p| crate::data::matches(&p.type_tags, group)).map(|p| leak(&p.id))
+}
+
+/// The built-in tool a peg stands in for.
+fn peg_hint(g: &Game, tx: i32, ty: i32) -> Option<&'static str> {
+    let shop = g.world.shops.iter().find(|s| s.pegs.contains(&(tx, ty)))?;
+    let k = shop.pegs.iter().position(|&p| p == (tx, ty))?;
+    shop.kind.builtin_tools().get(k).copied()
+}
+
+/// Good ids live as long as the game; this keeps hint lookups allocation-free per frame.
+fn leak(id: &str) -> &'static str {
+    match id {
+        "cotton_bolls" => "cotton_bolls",
+        "cotton_slivers" => "cotton_slivers",
+        "thread" => "thread",
+        "fabric" => "fabric",
+        _ => "",
     }
 }
 
@@ -181,51 +266,74 @@ fn blit_ghost(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32) {
     }
 }
 
-fn draw_bin(sp: &Sprites, fb: &mut Framebuffer, b: &Bin) {
-    let (x0, y0) = (b.x * TS, b.y * TS - (b.bounce > 1) as i32);
+fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
+    for s in g.world.shops.iter().filter(|s| s.kind.is_building() && v.sees(s.spot.0, s.spot.1)) {
+        let (sx, mut wy) = s.spot;
+        while wy > 0 && g.world.tile(sx, wy) != Tile::Wall {
+            wy -= 1;
+        }
+        let (mut l, mut r) = (sx, sx);
+        while g.world.tile(l - 1, wy) == Tile::Wall {
+            l -= 1;
+        }
+        while g.world.tile(r + 1, wy) == Tile::Wall || g.world.tile(r + 1, wy) == Tile::Door {
+            r += 1;
+        }
+        let (x, y) = v.px(l, wy);
+        let w = (r - l + 1) * TS;
+        fb.text_centered(s.kind.label(), x + w / 2, y + 5, WOOD + 3, Some(OUTLINE), 1);
+    }
+}
+
+fn draw_bin(sp: &Sprites, fb: &mut Framebuffer, v: &View, b: &Bin) {
+    let (x0, y0) = v.px(b.x, b.y);
+    let y0 = y0 - (b.bounce > 1) as i32;
     fb.rect_bevel(x0 + 1, y0 + 2, 14, 14, WOOD + 1, WOOD + 3, WOOD);
     for y in [y0 + 6, y0 + 10] {
         fb.rect_fill(x0 + 2, y, 12, 1, WOOD);
     }
-    let icon = if b.kind == Kind::Cotton { &sp.icon_cotton } else { &sp.icon_thread };
-    fb.blit(icon, x0 + 4, y0 + 5, false);
+    if let Some(icon) = sp.icon(&b.accepts) {
+        fb.blit(icon, x0 + 4, y0 + 5, false);
+    }
     if let Some((mx, my)) = b.mouth {
-        // Chute opening on the side facing the mouth tile, with an arrow while it refills.
         if my > b.y {
             fb.rect_fill(x0 + 4, y0 + 14, 8, 2, OUTLINE);
         }
-        if b.count > 0 {
-            let (ax, ay) = (mx * TS + 8, my * TS + 3);
+        if !b.stock.is_empty() {
+            let (ax, ay) = v.px(mx, my);
             for (i, w) in [3, 2, 1].iter().enumerate() {
-                fb.rect_fill(ax - w, ay + i as i32, w * 2 + 1, 1, PATH);
+                fb.rect_fill(ax + 8 - w, ay + 3 + i as i32, w * 2 + 1, 1, PATH);
             }
         }
     }
-    let label = b.count.to_string();
-    let col = if b.count == 0 && b.mouth.is_some() { TEXT_WARN } else { TEXT };
+    let label = b.stock.len().to_string();
+    let col = if b.stock.is_empty() && b.mouth.is_some() { TEXT_WARN } else { TEXT };
     fb.text_centered(&label, x0 + 9, y0 - 8, col, Some(OUTLINE), 1);
 }
 
-fn draw_flags(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
+fn draw_flags(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     for m in &g.monsters {
         let flag = if m.species == Species::Goblin { &sp.flag_goblin } else { &sp.flag_cyclops };
         if let Some((fx, fy)) = m.rec.as_ref().or(m.routine.as_ref()).map(|r| r.flag) {
-            fb.blit(flag, fx * TS + 1, (fy + 1) * TS - flag.h, false);
+            if v.sees(fx, fy) {
+                let (x, y) = v.px(fx, fy);
+                fb.blit(flag, x + 1, y + TS - flag.h, false);
+            }
         }
     }
 }
 
-/// Items and monsters, back to front by their on-screen feet.
-fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
+/// Items and monsters on this screen, back to front by their on-screen feet.
+fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     enum Body {
         Item(usize),
         Monster(usize),
     }
     let mut bodies: Vec<(i32, Body)> = Vec::new();
-    for (i, it) in g.world.items.iter().enumerate() {
+    for (i, it) in g.world.items.iter().enumerate().filter(|(_, it)| v.sees(it.x, it.y)) {
         bodies.push((it.y * TS + Slide::offset(it.slide).1, Body::Item(i)));
     }
-    for (i, m) in g.monsters.iter().enumerate() {
+    for (i, m) in g.monsters.iter().enumerate().filter(|(_, m)| v.sees(m.x, m.y)) {
         bodies.push((m.y * TS + Slide::offset(m.slide).1 + 1, Body::Monster(i)));
     }
     bodies.sort_by_key(|b| b.0);
@@ -233,26 +341,28 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
         match b {
             Body::Item(i) => {
                 let it = &g.world.items[i];
-                let s = if it.kind == Kind::Cotton { &sp.cotton } else { &sp.spool };
+                let s = sp.item(it.good());
                 let (ox, oy) = Slide::offset(it.slide);
+                let (tx, ty) = v.px(it.x, it.y);
                 let jitter = if it.locked { (g.frame / 2 % 2) as i32 } else { 0 };
-                let x = it.x * TS + ox + (TS - s.w) / 2 + jitter;
-                let y = (it.y + 1) * TS - s.h + oy - HOP[it.hop.min(6) as usize];
-                fb.rect_checker(it.x * TS + ox + 3, (it.y + 1) * TS + oy - 2, 10, 2, SHADOW);
+                let x = tx + ox + (TS - s.w) / 2 + jitter;
+                let y = ty + TS - s.h + oy - HOP[it.hop.min(6) as usize];
+                fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
                 fb.blit(s, x, y, false);
             }
             Body::Monster(i) => {
-                let (x, y, s, flip) = monster_pose(g, sp, i);
+                let (x, y, s, flip) = monster_pose(g, sp, v, i);
                 let m = &g.monsters[i];
                 let (ox, oy) = Slide::offset(m.slide);
-                fb.rect_checker(m.x * TS + ox + 3, (m.y + 1) * TS + oy - 2, 10, 2, SHADOW);
+                let (tx, ty) = v.px(m.x, m.y);
+                fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
                 fb.blit(s, x, y, flip);
             }
         }
     }
 }
 
-fn monster_pose<'a>(g: &Game, sp: &'a Sprites, i: usize) -> (i32, i32, &'a Sprite, bool) {
+fn monster_pose<'a>(g: &Game, sp: &'a Sprites, v: &View, i: usize) -> (i32, i32, &'a Sprite, bool) {
     let m = &g.monsters[i];
     let frames = if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops };
     let frame = if m.slide.is_some() {
@@ -270,25 +380,31 @@ fn monster_pose<'a>(g: &Game, sp: &'a Sprites, i: usize) -> (i32, i32, &'a Sprit
         ox += dx * k;
         oy += dy * k;
     }
-    (m.x * TS + ox + (TS - s.w) / 2, (m.y + 1) * TS - s.h + oy, s, m.flip)
+    let (tx, ty) = v.px(m.x, m.y);
+    (tx + ox + (TS - s.w) / 2, ty + TS - s.h + oy, s, m.flip)
 }
 
-fn draw_particles(g: &Game, fb: &mut Framebuffer) {
+fn draw_particles(g: &Game, fb: &mut Framebuffer, v: &View) {
+    let (cx, cy) = (v.tx * TS, v.ty * TS);
     for p in &g.world.particles {
+        let (x, y) = (p.x - cx, p.y - cy);
+        if y >= VIEW_H {
+            continue;
+        }
         match p.kind {
-            PKind::Dust => fb.pset(p.x, p.y, DUST),
-            PKind::Leaf => fb.pset(p.x, p.y, LEAF + 2),
+            PKind::Dust => fb.pset(x, y, DUST),
+            PKind::Leaf => fb.pset(x, y, LEAF + 2),
             PKind::Fluff => {
-                fb.pset(p.x, p.y, if p.life > 4 { COTTON + 2 } else { COTTON + 1 });
+                fb.pset(x, y, if p.life > 4 { COTTON + 2 } else { COTTON + 1 });
                 if p.life > 6 {
-                    fb.pset(p.x + 1, p.y, COTTON + 1);
+                    fb.pset(x + 1, y, COTTON + 1);
                 }
             }
             PKind::Spark => {
-                fb.pset(p.x, p.y, SPARK + 2);
+                fb.pset(x, y, SPARK + 2);
                 if p.life > 6 {
                     for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                        fb.pset(p.x + dx, p.y + dy, SPARK + 1);
+                        fb.pset(x + dx, y + dy, SPARK + 1);
                     }
                 }
             }
@@ -296,11 +412,11 @@ fn draw_particles(g: &Game, fb: &mut Framebuffer) {
     }
 }
 
-fn draw_markers(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
-    for (i, m) in g.monsters.iter().enumerate() {
-        let (x, _, s, _) = monster_pose(g, sp, i);
+fn draw_markers(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    for (i, m) in g.monsters.iter().enumerate().filter(|(_, m)| v.sees(m.x, m.y)) {
+        let (x, _, s, _) = monster_pose(g, sp, v, i);
         let (_, oy) = Slide::offset(m.slide);
-        let top = m.y * TS + oy + 2;
+        let top = v.px(m.x, m.y).1 + oy + 2;
         if i == g.controlled {
             let bob = (g.frame / 8 % 2) as i32;
             fb.blit(&sp.marker, x + s.w / 2 - 3, top - 6 + bob, false);
@@ -316,6 +432,31 @@ fn draw_markers(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     }
 }
 
+fn jobs(g: &Game) -> impl Iterator<Item = ((i32, i32), &Job)> {
+    g.world
+        .shops
+        .iter()
+        .filter_map(|s| s.job.as_ref().map(|j| (s.spot, j)))
+        .chain(g.world.plants.iter().filter_map(|p| p.harvest.as_ref().map(|j| ((p.x, p.y), j))))
+}
+
+fn progress_spots(g: &Game) -> impl Iterator<Item = (i32, i32)> + '_ {
+    jobs(g).map(|(at, _)| at)
+}
+
+/// Progress bars over work spots and plants being harvested.
+fn draw_progress(g: &Game, fb: &mut Framebuffer, v: &View) {
+    for ((tx, ty), j) in jobs(g).filter(|((x, y), _)| v.sees(*x, *y)) {
+        let (x, y) = v.px(tx, ty);
+        let (x, y) = (x - 1, y - 13);
+        let fill = (j.t as i32 * 16 / j.total.max(1) as i32).clamp(1, 16);
+        fb.rect_fill(x, y, 18, 5, OUTLINE);
+        fb.rect_fill(x + 1, y + 1, 16, 3, HUD_SHADOW);
+        fb.rect_fill(x + 1, y + 1, fill, 3, SPARK + 1);
+        fb.rect_fill(x + 1, y + 1, fill, 1, SPARK + 2);
+    }
+}
+
 struct BubbleBox {
     x: i32,
     y: i32,
@@ -324,26 +465,29 @@ struct BubbleBox {
     cx: i32,
     above: bool, // bubble sits above the monster, tail points down
     lines: Vec<String>,
-    icon: Option<Kind>,
+    icon: Option<String>,
     warn: bool,
 }
 
 /// Places speech bubbles so they never cover each other: above the head if there is room,
 /// otherwise below the feet, otherwise nudged upward until clear. Controlled monster first.
-fn layout_bubbles(g: &Game) -> Vec<BubbleBox> {
+fn layout_bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
     let mut placed: Vec<BubbleBox> = Vec::new();
     let order = std::iter::once(g.controlled).chain((0..g.monsters.len()).filter(|&i| i != g.controlled));
     for i in order {
         let m = &g.monsters[i];
         let Some(b) = &m.bubble else { continue };
+        if !v.sees(m.x, m.y) {
+            continue;
+        }
         // Monsters you are not steering only show what they wait for, not a sentence.
         let compact = b.waiting && i != g.controlled;
-        let icon = match m.wait_reason {
-            r if compact && r.contains("COTTON") => Some(Kind::Cotton),
-            r if compact && r.contains("THREAD") => Some(Kind::Thread),
-            _ => None,
+        let icon = if compact {
+            g.data.goods.iter().find(|gd| m.wait_reason.contains(&gd.name.to_uppercase())).map(|gd| gd.id.clone())
+        } else {
+            None
         };
-        let lines = match (compact, icon) {
+        let lines = match (compact, &icon) {
             (false, _) => wrap(&b.text, 24),
             (true, Some(_)) => vec!["?".to_string()],
             (true, None) => vec!["...".to_string()],
@@ -352,19 +496,24 @@ fn layout_bubbles(g: &Game) -> Vec<BubbleBox> {
         let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6 + icon_w;
         let h = lines.len() as i32 * 9 + 4;
         let (ox, oy) = Slide::offset(m.slide);
-        let cx = m.x * TS + ox + 8;
-        let (head, feet) = (m.y * TS + oy + 2, (m.y + 1) * TS + oy);
+        let (mx, my) = v.px(m.x, m.y);
+        let cx = mx + ox + 8;
+        let (head, feet) = (my + oy + 2, my + TS + oy);
         let x = (cx - w / 2).clamp(2, 398 - w);
-        let bodies: Vec<(i32, i32, i32, i32)> = (g.monsters.iter().enumerate())
-            .filter(|(j, _)| *j != i)
-            .map(|(_, o)| (o.x * TS + Slide::offset(o.slide).0, o.y * TS + Slide::offset(o.slide).1, TS, TS))
+        let mut bodies: Vec<(i32, i32, i32, i32)> = (g.monsters.iter().enumerate())
+            .filter(|(j, o)| *j != i && v.sees(o.x, o.y))
+            .map(|(_, o)| {
+                let (px, py) = v.px(o.x, o.y);
+                (px + Slide::offset(o.slide).0, py + Slide::offset(o.slide).1, TS, TS)
+            })
             .collect();
+        bodies.extend(progress_spots(g).filter(|(x, y)| v.sees(*x, *y)).map(|(x, y)| {
+            let (px, py) = v.px(x, y);
+            (px - 1, py - 13, 18, 5)
+        }));
         let clear = |y: i32, placed: &[BubbleBox]| {
             let hits = |(px, py, pw, ph): (i32, i32, i32, i32)| x <= px + pw && px <= x + w && y <= py + ph && py <= y + h;
-            y >= 2
-                && y + h <= VIEW_H - 2
-                && !placed.iter().any(|p| hits((p.x, p.y, p.w, p.h)))
-                && !bodies.iter().any(|&r| hits(r))
+            y >= 2 && y + h <= VIEW_H - 2 && !placed.iter().any(|p| hits((p.x, p.y, p.w, p.h))) && !bodies.iter().any(|&r| hits(r))
         };
         let mut y = head - h - 5;
         let mut above = true;
@@ -397,8 +546,8 @@ fn draw_bubble(fb: &mut Framebuffer, sp: &Sprites, b: &BubbleBox) {
         fb.pset(cx + dx, base + dy * dir, edge);
     }
     let mut tx = b.x + 4;
-    if let Some(kind) = b.icon {
-        fb.blit(if kind == Kind::Cotton { &sp.icon_cotton } else { &sp.icon_thread }, b.x + 3, b.y + 2, false);
+    if let Some(icon) = b.icon.as_deref().and_then(|id| sp.icon(id)) {
+        fb.blit(icon, b.x + 3, b.y + 2, false);
         tx += 9;
     }
     for (k, line) in b.lines.iter().enumerate() {
@@ -417,10 +566,12 @@ fn draw_hud(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     fb.rect_fill(4, VIEW_H + 27, 392, 1, HUD_MID);
     let (status, warn) = g.status(g.controlled);
     fb.text(&status, 6, VIEW_H + 32, if warn { TEXT_WARN } else { TEXT_DIM }, Some(HUD_SHADOW), 1);
-    let count = format!("{}", g.delivered);
+    let count = format!("{}", g.cloth_stored());
     let right = 394 - Framebuffer::text_width(&count, 1);
     fb.text(&count, right, VIEW_H + 32, TEXT, Some(HUD_SHADOW), 1);
-    fb.blit(&sp.icon_thread, right - 11, VIEW_H + 31, false);
+    if let Some(icon) = sp.icon("fabric") {
+        fb.blit(icon, right - 11, VIEW_H + 31, false);
+    }
 }
 
 fn draw_help(fb: &mut Framebuffer) {
