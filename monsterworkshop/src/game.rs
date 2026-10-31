@@ -5,7 +5,7 @@
 //! answered on the same tick and collisions are settled before anything is drawn.
 
 use crate::data::{Data, Stats};
-use crate::econ::{Learned, Rng, Share, Skills};
+use crate::econ::{ItemData, Learned, Rng, Share, Skills};
 use crate::palette::{SPARK, TEXT_GOOD};
 use serde::{Deserialize, Serialize};
 use crate::tutorial::{self, Tutorial};
@@ -16,10 +16,18 @@ use std::collections::BTreeSet;
 
 pub const WALK_TICKS: u8 = 2;
 pub const PUSH_TICKS: u8 = 3;
+/// Pulling is a way out of a stuck spot, not a way to haul: two seconds a tile.
+pub const PULL_TICKS: u8 = 30;
 const BUBBLE_TICKS: u16 = 45;
 const WAIT_BEFORE_SAYING: u16 = 12;
 /// A held direction starts walking on its own only after ~267 ms, so a tap is one tile.
 const HOLD_REPEAT_TICKS: u8 = 4;
+/// The ferry waits two seconds at each bank, then takes 6 ticks per tile.
+const FERRY_DOCK_TICKS: u32 = 30;
+const FERRY_STEP_TICKS: u8 = 6;
+/// It waits up to ten more seconds for someone standing on the landing.
+const FERRY_PATIENCE_TICKS: u32 = 150;
+const BANNER_TICKS: u16 = 45;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sfx {
@@ -74,11 +82,15 @@ pub struct Input {
     pub rec_pressed: bool,
     pub play_pressed: bool,
     pub tab_pressed: bool,
+    /// Tab held down: show the roster strip.
+    pub tab_held: bool,
     pub cancel_pressed: bool,
     pub help_pressed: bool,
     pub quit_pressed: bool,
     /// E held down: examine.
     pub inspect: bool,
+    /// Shift held down: stepping away from an item drags it along.
+    pub pull: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -92,6 +104,8 @@ pub enum Species {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Act {
     Step(Dir, Option<String>),
+    /// Backing away in this direction, dragging this good from the tile in front.
+    Pull(Dir, String),
     Use,
 }
 
@@ -254,9 +268,16 @@ pub struct Game {
     pub(crate) events: Vec<Ev>,
     /// Holding E: show the inspect card for whatever the controlled monster faces.
     pub inspecting: bool,
+    /// Holding Tab: the roster strip shows every monster and what it is doing.
+    pub roster: bool,
+    /// Which page of the inspect card shows; Tab turns it while E is held.
+    pub card_page: usize,
     pub(crate) examine_hinted: bool,
     pub renown: f64,
-    /// One slot per stand in the hiring hall; empty while a new applicant is on the way.
+    /// The named area the view is in, and a banner announcing it on arrival.
+    area: &'static str,
+    pub banner: Option<(&'static str, u16)>,
+    /// One slot per stand in the gathering hall; empty while a new applicant is on the way.
     pub applicants: Vec<Option<Applicant>>,
     pub(crate) applicant_timers: Vec<u32>,
     pub(crate) roster_timer: u32,
@@ -291,8 +312,12 @@ impl Game {
             hold: None,
             events: Vec::new(),
             inspecting: false,
+            roster: false,
+            card_page: 0,
             examine_hinted: false,
             renown: 0.0,
+            area: area_name(0),
+            banner: None,
             applicants: Vec::new(),
             applicant_timers: vec![0; stands],
             roster_timer: 0,
@@ -331,7 +356,8 @@ impl Game {
         self.applicants[k].as_ref().map(|_| k)
     }
 
-    fn hire(&mut self, c: usize, k: usize, sfx: &mut Vec<Sfx>) {
+    /// An applicant joins the commune; its renown makes room for them.
+    fn welcome(&mut self, c: usize, k: usize, sfx: &mut Vec<Sfx>) {
         if self.monsters[c].rec.is_some() {
             self.say(c, "FINISH RECORDING FIRST (R).", true);
             sfx.push(Sfx::Deny);
@@ -339,7 +365,7 @@ impl Game {
         }
         let Some(a) = self.applicants[k].clone() else { return };
         if self.renown < a.cost as f64 {
-            self.say(c, &format!("NOT ENOUGH RENOWN: {} NEEDED.", a.cost), true);
+            self.say(c, &format!("THEY JOIN AT {} RENOWN.", a.cost), true);
             sfx.push(Sfx::Deny);
             return;
         }
@@ -350,7 +376,7 @@ impl Game {
         let mut m = Monster::new(self.next_id, &a.name, &a.kind, &self.data, self.world.stands[k], skills);
         self.next_id += 1;
         m.facing = Dir::Up;
-        m.bubble = Some(Bubble { text: format!("I'M {}! READY TO WORK.", a.name), ttl: BUBBLE_TICKS, warn: false, waiting: false });
+        m.bubble = Some(Bubble { text: format!("I'M {}! HAPPY TO JOIN.", a.name), ttl: BUBBLE_TICKS, warn: false, waiting: false });
         self.monsters.push(m);
         sfx.push(Sfx::RecSave);
     }
@@ -374,6 +400,90 @@ impl Game {
                     self.floaters.push(Floater { text: format!("{} +{}", m.name, credit.round()), from: (at.0, at.1 - 20), to, t: 0, total: 44, delay: 14, color: TEXT_GOOD });
                 }
             }
+        }
+    }
+
+    /// A good pushed into a project board: renown as for a delivery, and the project moves on.
+    fn contribute(&mut self, b: usize, data: ItemData, sfx: &mut Vec<Sfx>) {
+        let board = &mut self.world.boards[b];
+        board.have += 1;
+        board.bounce = 4;
+        let (bx, by, done) = (board.x, board.y, board.done());
+        self.world.burst(bx, by, PKind::Spark, 5);
+        self.score(data.value, &data.shares, bx, by);
+        if done {
+            self.finish_project(b, sfx);
+        }
+    }
+
+    fn finish_project(&mut self, b: usize, sfx: &mut Vec<Sfx>) {
+        match self.world.boards[b].project {
+            Project::Ferry => {
+                let Some(f) = self.world.ferry.as_mut() else { return };
+                f.rigged = true;
+                f.timer = 0;
+                let (y, x0, x1) = (f.y, f.west, f.east + 1);
+                for x in (x0..=x1).step_by(2) {
+                    self.world.burst(x, y, PKind::Spark, 4);
+                }
+                let at = (((x0 + x1) / 2) * TS + 8, y * TS);
+                self.floaters.push(Floater { text: "THE FERRY RUNS!".into(), from: at, to: (at.0, at.1 - 30), t: 0, total: 60, delay: 20, color: SPARK + 2 });
+            }
+        }
+        sfx.push(Sfx::Chime);
+    }
+
+    /// The ferry waits at a bank, then pulls itself across with everything on its deck.
+    fn tick_ferry(&mut self) {
+        let Some(mut f) = self.world.ferry.clone() else { return };
+        if !f.rigged {
+            return;
+        }
+        if let Some(s) = f.slide.as_mut() {
+            s.left -= 1;
+            if s.left == 0 {
+                f.slide = None;
+            }
+        }
+        f.timer += 1;
+        if f.moving {
+            if f.timer >= FERRY_STEP_TICKS as u32 {
+                f.timer = 0;
+                let dir = if f.heading > 0 { Dir::Right } else { Dir::Left };
+                let slide = Some(Slide { dir, left: FERRY_STEP_TICKS, total: FERRY_STEP_TICKS });
+                for m in self.monsters.iter_mut().filter(|m| f.on_deck(m.x, m.y)) {
+                    m.x += f.heading;
+                    m.slide = slide;
+                }
+                for it in self.world.items.iter_mut().filter(|it| f.on_deck(it.x, it.y)) {
+                    it.x += f.heading;
+                    it.slide = slide;
+                }
+                f.x += f.heading;
+                f.slide = slide;
+                if f.x == f.west || f.x == f.east {
+                    f.moving = false;
+                    f.heading = -f.heading;
+                }
+            }
+        } else {
+            let landing = f.landing();
+            let stepping = self.monsters.iter().any(|m| f.on_deck(m.x, m.y) && (m.slide.is_some() || m.busy)) || self.world.items.iter().any(|it| f.on_deck(it.x, it.y) && it.slide.is_some());
+            let waiting = self.monsters.iter().any(|m| Some((m.x, m.y)) == landing) && f.timer < FERRY_DOCK_TICKS + FERRY_PATIENCE_TICKS;
+            if f.timer >= FERRY_DOCK_TICKS && !stepping && !waiting {
+                f.moving = true;
+                f.timer = 0;
+            }
+        }
+        self.world.ferry = Some(f);
+    }
+
+    /// Why a step into water fails: at the ferry, what the ferry is up to.
+    fn water_note(&self, x: i32, y: i32) -> String {
+        match &self.world.ferry {
+            Some(f) if f.crossing(x, y) && !f.rigged => "THE FERRY NEEDS A ROPE.".into(),
+            Some(f) if f.crossing(x, y) => "WAITING FOR THE FERRY.".into(),
+            _ => String::new(),
         }
     }
 
@@ -406,8 +516,15 @@ impl Game {
         if inp.help_pressed {
             self.help = !self.help;
         }
+        if inp.inspect && !self.inspecting {
+            self.card_page = 0;
+        }
         self.inspecting = inp.inspect;
-        if inp.tab_pressed {
+        self.roster = inp.tab_held && !inp.inspect;
+        if inp.tab_pressed && self.inspecting {
+            // While examining, Tab turns the card's page instead of switching monsters.
+            self.card_page += 1;
+        } else if inp.tab_pressed {
             self.controlled = (self.controlled + 1) % self.monsters.len();
             self.queued = None;
             self.queued_use = false;
@@ -421,6 +538,7 @@ impl Game {
             }
         }
         self.advance_motion();
+        self.tick_ferry();
         self.tick_work(sfx);
         self.tick_hall();
         self.world.tick_particles(self.frame);
@@ -440,6 +558,17 @@ impl Game {
             }
             if m.learned.as_ref().is_some_and(|l| l.2 == 0) {
                 m.learned = None;
+            }
+        }
+        let c = &self.monsters[self.controlled];
+        let area = area_name(crate::render::screen_of(c.x, c.y).0);
+        if area != self.area {
+            self.area = area;
+            self.banner = Some((area, BANNER_TICKS));
+        } else if let Some((_, t)) = self.banner.as_mut() {
+            *t = t.saturating_sub(1);
+            if *t == 0 {
+                self.banner = None;
             }
         }
         self.advance_tutorial();
@@ -507,7 +636,7 @@ impl Game {
 
         if inp.use_pressed {
             if let Some(k) = self.faced_applicant() {
-                self.hire(c, k, sfx);
+                self.welcome(c, k, sfx);
                 return;
             }
         }
@@ -539,10 +668,19 @@ impl Game {
         let pressed_now = self.queued.take().or(fresh);
         let repeat = self.hold.filter(|&(_, t)| t >= HOLD_REPEAT_TICKS).map(|(d, _)| d);
         let Some(d) = pressed_now.or(repeat) else { return };
-        match self.try_step(c, d, sfx) {
-            StepRes::Moved(pushed) => {
+        // Shift with an item in front and a step away from it: pull. Otherwise Shift is ignored.
+        let pulling = inp.pull && self.pulled_item(c, d).is_some();
+        let res = if pulling { self.try_pull(c, d, sfx) } else { self.try_step(c, d, sfx) };
+        match res {
+            StepRes::Moved(moved) => {
                 if let Some(r) = self.monsters[c].rec.as_mut() {
-                    r.acts.push(Act::Step(d, pushed));
+                    r.acts.push(match (pulling, moved) {
+                        (true, Some(good)) => Act::Pull(d, good),
+                        (_, moved) => Act::Step(d, moved),
+                    });
+                }
+                if pulling {
+                    self.say(c, "HNNNG...", false);
                 }
                 self.events.push(Ev::Walked);
             }
@@ -551,12 +689,69 @@ impl Game {
                 if pressed_now.is_some() {
                     self.monsters[c].bump = Some((d, 3));
                     sfx.push(Sfx::Bump);
+                    let (dx, dy) = d.delta();
+                    let (ix, iy) = (self.monsters[c].x + dx, self.monsters[c].y + dy);
                     if !msg.is_empty() {
                         self.say(c, &msg, true);
+                    } else if !pulling && self.world.item_at(ix, iy).is_some() && self.stuck(ix, iy) {
+                        self.say(c, "STUCK! HOLD SHIFT AND STEP BACK TO PULL IT. IT'S SLOW GOING.", true);
                     }
                 }
             }
         }
+    }
+
+    /// The item a monster would drag by backing away in `d`: the one right in front of it.
+    fn pulled_item(&self, i: usize, d: Dir) -> Option<usize> {
+        let (dx, dy) = d.delta();
+        let m = &self.monsters[i];
+        self.world.item_at(m.x - dx, m.y - dy)
+    }
+
+    /// Can no push ever move this item? It needs room to stand behind it and room ahead of it,
+    /// on some side.
+    fn stuck(&self, x: i32, y: i32) -> bool {
+        !DIRS.iter().any(|d| {
+            let (dx, dy) = d.delta();
+            self.world.walkable(x - dx, y - dy) && (self.world.item_floor(x + dx, y + dy) || self.world.bin_at(x + dx, y + dy).is_some())
+        })
+    }
+
+    /// Back away in `d`, dragging the item in front into the tile you leave. Slow on purpose.
+    pub(crate) fn try_pull(&mut self, i: usize, d: Dir, sfx: &mut Vec<Sfx>) -> StepRes {
+        let (dx, dy) = d.delta();
+        let (x, y) = (self.monsters[i].x, self.monsters[i].y);
+        let (tx, ty) = (x + dx, y + dy);
+        let Some(it) = self.pulled_item(i, d) else { return StepRes::Blocked(String::new()) };
+        let m = &mut self.monsters[i];
+        m.facing = d.opposite();
+        if dx != 0 {
+            m.flip = dx > 0;
+        }
+        if self.world.items[it].locked {
+            return StepRes::Blocked("THAT'S BEING WORKED ON.".into());
+        }
+        if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) || self.world.item_at(tx, ty).is_some() {
+            return StepRes::Blocked(self.water_note(tx, ty));
+        }
+        if !self.world.item_floor(x, y) {
+            return StepRes::Blocked("I CAN'T PULL IT ONTO A WORK SPOT.".into());
+        }
+        let slide = Some(Slide { dir: d, left: PULL_TICKS, total: PULL_TICKS });
+        let item = &mut self.world.items[it];
+        let good = item.good().to_string();
+        let (ix, iy) = (item.x, item.y);
+        (item.x, item.y, item.hop, item.slide) = (x, y, 0, slide);
+        if let Some((s, k)) = self.world.pad_owner(x, y) {
+            self.world.shops[s].pad_flash[k] = 5;
+            sfx.push(Sfx::Pad);
+        }
+        self.world.dust(ix, iy, d);
+        self.world.burst(ix, iy, PKind::Dust, 3);
+        sfx.push(Sfx::Push);
+        let m = &mut self.monsters[i];
+        (m.x, m.y, m.slide, m.bump) = (tx, ty, slide, None);
+        StepRes::Moved(Some(good))
     }
 
     pub(crate) fn try_step(&mut self, i: usize, d: Dir, sfx: &mut Vec<Sfx>) -> StepRes {
@@ -567,8 +762,8 @@ impl Game {
         if dx != 0 {
             self.monsters[i].flip = dx < 0;
         }
-        if !self.world.tile(tx, ty).walkable() || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) {
-            return StepRes::Blocked(String::new());
+        if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) {
+            return StepRes::Blocked(self.water_note(tx, ty));
         }
         let mut pushed = None;
         if let Some(it) = self.world.item_at(tx, ty) {
@@ -577,7 +772,19 @@ impl Game {
                 return StepRes::Blocked("THAT'S BEING WORKED ON.".into());
             }
             let (bx, by) = (tx + dx, ty + dy);
-            if let Some(b) = self.world.bin_at(bx, by) {
+            if let Some(b) = self.world.board_at(bx, by) {
+                let board = &self.world.boards[b];
+                if board.done() {
+                    return StepRes::Blocked("THAT PROJECT IS DONE.".into());
+                }
+                if board.wants != good {
+                    return StepRes::Blocked(format!("THE BOARD WANTS {}.", self.good_name(&board.wants)));
+                }
+                let item = self.world.items.remove(it);
+                self.contribute(b, item.data, sfx);
+                self.events.push(Ev::Delivered(good.clone()));
+                sfx.push(Sfx::Deposit);
+            } else if let Some(b) = self.world.bin_at(bx, by) {
                 if self.world.bins[b].accepts != good {
                     return StepRes::Blocked(format!("ONLY {} GOES IN THERE.", self.good_name(&self.world.bins[b].accepts)));
                 }
@@ -593,9 +800,9 @@ impl Game {
                 self.events.push(Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else {
-                let free = self.world.tile(bx, by).item_floor() && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none() && !self.applicant_at(bx, by);
+                let free = self.world.item_floor(bx, by) && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none() && !self.applicant_at(bx, by);
                 if !free {
-                    return StepRes::Blocked(String::new());
+                    return StepRes::Blocked(self.water_note(bx, by));
                 }
                 let item = &mut self.world.items[it];
                 item.x = bx;
@@ -649,14 +856,25 @@ impl Game {
                 match (expect, here) {
                     (Some(k), Some(h)) if k == h => match self.try_step(i, d, sfx) {
                         StepRes::Moved(_) => Ok(()),
-                        StepRes::Blocked(_) => Err("WAITING...".into()),
+                        StepRes::Blocked(msg) => Err(if msg.is_empty() { "WAITING...".into() } else { msg }),
                     },
                     (Some(k), None) => Err(format!("WAITING FOR {}.", self.good_name(&k))),
                     (_, Some(_)) => Err("SOMETHING'S IN MY WAY.".into()),
                     (None, None) => match self.try_step(i, d, sfx) {
                         StepRes::Moved(_) => Ok(()),
-                        StepRes::Blocked(_) => Err("WAITING...".into()),
+                        StepRes::Blocked(msg) => Err(if msg.is_empty() { "WAITING...".into() } else { msg }),
                     },
+                }
+            }
+            Act::Pull(d, expect) => {
+                let here = self.pulled_item(i, d).map(|k| self.world.items[k].good().to_string());
+                match here {
+                    Some(h) if h == expect => match self.try_pull(i, d, sfx) {
+                        StepRes::Moved(_) => Ok(()),
+                        StepRes::Blocked(msg) => Err(if msg.is_empty() { "WAITING...".into() } else { msg }),
+                    },
+                    None => Err(format!("WAITING FOR {}.", self.good_name(&expect))),
+                    Some(_) => Err("THAT'S NOT WHAT I PULL.".into()),
                 }
             }
             Act::Use => match self.try_use(i, sfx) {
@@ -812,6 +1030,9 @@ impl Game {
                 7 => has_routine,
                 8 => playing >= 2,
                 9 => self.monsters.len() > 2,
+                10 => self.made.contains("rope"),
+                11 => self.world.ferry.as_ref().is_some_and(|f| f.rigged),
+                12 => self.monsters.iter().any(|m| area_name(m.x) == "TANGLEMERE"),
                 _ => false,
             };
             if !met || t.stage >= tutorial::DONE {
@@ -830,8 +1051,13 @@ impl Game {
     pub fn status(&self, i: usize) -> (String, bool) {
         let m = &self.monsters[i];
         let who = format!("{} THE {}", m.name, m.kind.to_uppercase());
+        let riding = self.world.ferry.as_ref().is_some_and(|f| f.moving && f.on_deck(m.x, m.y));
         let state = if m.busy {
             ("WORKING".to_string(), false)
+        } else if riding {
+            ("RIDING THE FERRY".to_string(), false)
+        } else if m.slide.is_some_and(|s| s.total == PULL_TICKS) {
+            ("PULLING. HEAVY GOING".to_string(), false)
         } else if let Some(r) = &m.rec {
             (format!("RECORDING ({} ACTIONS)", r.acts.len()), false)
         } else if m.playing && m.wait >= WAIT_BEFORE_SAYING {
@@ -859,6 +1085,13 @@ impl Game {
                     let k = "UDLR".find(ch).unwrap_or(0);
                     inp.pressed[k] = true;
                     inp.held[k] = true;
+                }
+                // `^ v < >`: Shift held, stepping that way (a pull, if an item is in front).
+                '^' | 'v' | '<' | '>' => {
+                    let k = "^v<>".find(ch).unwrap_or(0);
+                    inp.pressed[k] = true;
+                    inp.held[k] = true;
+                    inp.pull = true;
                 }
                 'u' => inp.use_pressed = true,
                 'r' => inp.rec_pressed = true,

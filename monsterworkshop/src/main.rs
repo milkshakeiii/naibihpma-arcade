@@ -157,9 +157,11 @@ fn run_window(audio: &mut Audio, windowed: bool) {
                 }
                 latched.use_pressed |= Edge::rose(&mut e_use, key_down(VK_SPACE) || key_down(VK_RETURN));
                 latched.inspect |= key_down('E' as i32);
+                latched.pull |= key_down(VK_SHIFT);
                 latched.rec_pressed |= Edge::rose(&mut e_rec, key_down('R' as i32));
                 latched.play_pressed |= Edge::rose(&mut e_play, key_down('P' as i32));
                 latched.tab_pressed |= Edge::rose(&mut e_tab, key_down(VK_TAB));
+                latched.tab_held |= key_down(VK_TAB);
                 latched.cancel_pressed |= Edge::rose(&mut e_cancel, key_down(VK_BACK));
                 latched.help_pressed |= Edge::rose(&mut e_f1, key_down(VK_F1));
                 latched.quit_pressed |= Edge::rose(&mut e_esc, key_down(VK_ESCAPE));
@@ -296,6 +298,9 @@ fn export_screenshots(dir: &Path) {
     g.script(&format!("{}UR", "R".repeat(15)));
     g.inspecting = true;
     save(&g, "05_spinnery_forecast.png");
+    g.card_page = 1;
+    save(&g, "05b_spinnery_details.png");
+    g.card_page = 0;
     g.inspecting = false;
     use_now(&mut g);
     g.run_ticks(84);
@@ -311,15 +316,87 @@ fn export_screenshots(dir: &Path) {
     g.monsters[g.controlled].facing = game::Dir::Left;
     g.inspecting = true;
     save(&g, "09_examine_bruna.png");
+    g.card_page = 1;
+    save(&g, "09b_bruna_details.png");
+    g.card_page = 0;
     g.inspecting = false;
     g.controlled = 0;
     let stand = g.world.stands[1];
     (g.monsters[0].x, g.monsters[0].y) = (stand.0, stand.1 - 1);
     g.monsters[0].facing = game::Dir::Down;
     g.renown = 60.0;
-    save(&g, "10_hiring_hall.png");
+    save(&g, "10_gathering_hall.png");
     g.help = true;
     save(&g, "11_help.png");
+    g.help = false;
+
+    // M2: the ferry's board, the ferry running, the wilderness and Tanglemere.
+    g.renown = 0.0;
+    let board = g.world.boards[0].clone();
+    (g.monsters[0].x, g.monsters[0].y) = (board.x, board.y + 1);
+    g.monsters[0].facing = game::Dir::Up;
+    g.world.boards[0].have = board.need - 1;
+    g.run_ticks(2);
+    g.inspecting = true;
+    save(&g, "13_ferry_board.png");
+    g.inspecting = false;
+    let stored = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric in the cloth store");
+    let mut rope = stored.clone();
+    rope.good = "rope".into();
+    g.world.items.push(world::Item::new(board.x, board.y + 1, rope));
+    (g.monsters[0].x, g.monsters[0].y) = (board.x, board.y + 2);
+    g.script("U");
+    g.run_ticks(24);
+    save(&g, "14_the_ferry_runs.png");
+    let f = g.world.ferry.clone().expect("a ferry");
+    let mut cloth = stored;
+    cloth.quality = 1.1;
+    g.world.items.push(world::Item::new(f.west - 1, f.y, cloth));
+    (g.monsters[0].x, g.monsters[0].y) = (f.west - 2, f.y);
+    g.script("RR");
+    for _ in 0..200 {
+        if g.world.ferry.as_ref().is_some_and(|f| f.moving && f.x == f.west + 2) {
+            break;
+        }
+        g.run_ticks(1);
+    }
+    save(&g, "15_ferry_crossing.png");
+    (g.monsters[0].x, g.monsters[0].y) = (80, 7);
+    g.run_ticks(3);
+    save(&g, "16_thatch_hills.png");
+    (g.monsters[0].x, g.monsters[0].y) = (106, 9);
+    g.run_ticks(60);
+    save(&g, "17_dye_meadows.png");
+    (g.monsters[0].x, g.monsters[0].y) = (164, 9);
+    g.run_ticks(3);
+    save(&g, "18_tanglemere.png");
+    g.run_ticks(60);
+    g.roster = true;
+    save(&g, "19_roster_and_edge_markers.png");
+    g.roster = false;
+
+    // Rope at the gate bench, and a pull out of a corner.
+    let mut thread = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric");
+    thread.good = "thread".into();
+    g.world.items.push(world::Item::new(40, 8, thread.clone()));
+    g.world.items.push(world::Item::new(41, 8, thread));
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (42, 8, game::Dir::Down);
+    g.run_ticks(2);
+    g.inspecting = true;
+    save(&g, "20_gate_bench.png");
+    g.inspecting = false;
+    let mut stuck = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric");
+    stuck.quality = 0.8;
+    g.world.items.push(world::Item::new(1, 1, stuck));
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (2, 1, game::Dir::Left);
+    g.script("L");
+    save(&g, "21_stuck.png");
+    let mut inp = Input { pull: true, ..Input::default() };
+    inp.pressed[3] = true;
+    inp.held[3] = true;
+    g.update(&inp, &mut Vec::new(), &mut Vec::new());
+    g.run_ticks(14);
+    save(&g, "22_pulling.png");
     render::draw_title(&mut fb, &["WORLD 2".to_string(), "WORLD 1".to_string()], 1, None);
     fb.save_png(&dir.join("12_title.png"), &pal, &pal, 0);
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());

@@ -516,6 +516,68 @@
       "value_added_shares": 5
     },
     {
+      "destabilizer_skills": [
+        "weaving"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "id": "rope",
+      "input_goods_tags_carryover": [
+        [
+          "climbing hempvine",
+          "cotton",
+          "hemp",
+          "kudzu",
+          "ramie",
+          "silk",
+          "velvetleaf"
+        ],
+        [
+          "climbing hempvine",
+          "cotton",
+          "hemp",
+          "kudzu",
+          "ramie",
+          "silk",
+          "velvetleaf"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "thread"
+        ],
+        [
+          "thread"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Rope",
+      "primary_applied_skill": "spinning",
+      "production_time": 600,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "textiles"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "athletics",
+        "outdoorsmonstership"
+      ],
+      "type_tags": [
+        "rope"
+      ],
+      "value_added_shares": 5
+    },
+    {
       "destabilizer_skills": [],
       "difficulty_rating": 16,
       "has_quality": false,

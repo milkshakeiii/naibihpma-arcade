@@ -1,6 +1,6 @@
 # Monster Workshop
 
-Monsters push goods around a grid world, craft by standing at a work spot, and learn a job by watching you do it once. The feel prototype proved that core; M1 is now building the real game on it. So far, Pinewater has the whole cotton cloth chain: harvest cotton, card it into slivers at the workbench, spin thread in the spinnery, weave fabric in the loom house. Every good carries real quality, variety, history and shares. See [`DESIGN.md`](DESIGN.md) for the full design. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching.
+Monsters push goods around a grid world, craft by standing at a work spot, and learn a job by watching you do it once. The feel prototype proved that core; M1 built the real economy on it, and M2 is adding the second town. Pinewater has the whole cotton cloth chain: harvest cotton, card it into slivers at the workbench, spin thread in the spinnery, weave fabric in the loom house. Every good carries real quality, variety, history and shares. See [`DESIGN.md`](DESIGN.md) for the full design. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching.
 
 The rules and tech tree came from the earlier `django` and `sokobanmonstermakers` versions; they now live here.
 
@@ -19,19 +19,20 @@ cargo run --release -- --windowed
 | Key | Action |
 | :-- | :-- |
 | Arrows / WASD | Walk. Walk into an item to push it one tile |
-| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, or hire the applicant you face |
-| E (hold) | Examine: a card about whatever you face, or the workshop forecast at a work spot |
+| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, or welcome the monster you face at the gathering hall |
+| E (hold) | Examine: a card about whatever you face, or the workshop forecast at a work spot. Press Tab while holding E for the details page |
+| Shift + arrow | Pull: back away from the item in front, dragging it along. Very slow; it's for getting unstuck |
 | R | Start recording a routine (a flag marks the start). Press again on the flag to save |
 | Backspace | Cancel the recording |
 | P | Loop the saved routine (start from the flag) or stop it |
-| Tab | Switch monster |
+| Tab | Switch monster. Hold it to see every monster and what it is doing |
 | F1 | Controls |
 | F2 | CRT scanlines on/off |
 | Esc | Save and quit (on the title screen: quit) |
 
 The game opens on a title screen listing your worlds; pick one or start a new one. Worlds save to `%APPDATA%\MonsterWorkshop\worlds\` every minute and when you quit.
 
-Pinewater is 2×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
+The world is 7×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. Pinewater, the weaving town, is in the west; the road east crosses the pine river by a rope ferry (once the town has made rope for it), passes through the wilderness, and reaches Tanglemere, the dyeing town. Monsters on other screens show as markers at the screen edge. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
 
 ## How it works
 
@@ -42,7 +43,7 @@ Pinewater is 2×2 flip screens: walk off an edge and the view flips to the next 
 ## Files
 
 - `data/good_types.json`, `data/skills.json`, `data/monster_types.json`: the tech tree, skills and monster types, embedded in the executable.
-- `data/pinewater.map`: the town as a character grid; `src/data.rs` and `src/world.rs` load them.
+- `data/pinewater.map`, `data/wilderness.map`, `data/tanglemere.map`: the regions as character grids, laid side by side; `src/data.rs` and `src/world.rs` load them.
 - `src/econ.rs`: the crafting rules (quality, quantity, time, learning, value, shares), with `econ_tests.rs`.
 - `src/game.rs`: monsters, input, pushing, record/replay and tutorial progress, with `game_tests.rs`.
 - `src/work.rs`: timed work: harvesting, crafting at workshops, chutes and output mats.

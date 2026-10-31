@@ -1,15 +1,19 @@
 //! Worlds saved as JSON under `%APPDATA%\MonsterWorkshop\worlds\`. Only simulation state is
 //! saved; the base map comes from the game's data. A save is written to a temporary file and
 //! renamed into place, and the two previous saves are kept as backups.
+//!
+//! While the game is in development there are no migrations: a save from another version
+//! doesn't load, and the title screen says so.
 
 use crate::econ::Rng;
 use crate::game::{Applicant, Game, Monster};
 use crate::tutorial::Tutorial;
-use crate::world::{Bin, Item, Plant, Shop};
+use crate::world::{Bin, Board, Ferry, Item, Plant, Shop};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const VERSION: u32 = 1;
+/// Bump whenever the save format or the map changes.
+pub const VERSION: u32 = 3;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -28,6 +32,8 @@ struct SaveRef<'a> {
     plants: &'a [Plant],
     bins: &'a [Bin],
     shops: &'a [Shop],
+    boards: &'a [Board],
+    ferry: &'a Option<Ferry>,
     monsters: &'a [Monster],
     applicants: &'a [Option<Applicant>],
     applicant_timers: &'a [u32],
@@ -35,10 +41,15 @@ struct SaveRef<'a> {
     next_id: u32,
 }
 
+/// Read first, so a save from another version is reported as such rather than as unreadable.
+#[derive(Deserialize)]
+struct Header {
+    version: u32,
+}
+
 /// The same fields, owned, when loading.
 #[derive(Deserialize)]
 struct SaveData {
-    version: u32,
     frame: u32,
     rng: Rng,
     renown: f64,
@@ -50,6 +61,8 @@ struct SaveData {
     plants: Vec<Plant>,
     bins: Vec<Bin>,
     shops: Vec<Shop>,
+    boards: Vec<Board>,
+    ferry: Option<Ferry>,
     monsters: Vec<Monster>,
     applicants: Vec<Option<Applicant>>,
     applicant_timers: Vec<u32>,
@@ -71,6 +84,8 @@ pub fn to_json(g: &Game) -> String {
         plants: &g.world.plants,
         bins: &g.world.bins,
         shops: &g.world.shops,
+        boards: &g.world.boards,
+        ferry: &g.world.ferry,
         monsters: &g.monsters,
         applicants: &g.applicants,
         applicant_timers: &g.applicant_timers,
@@ -81,13 +96,15 @@ pub fn to_json(g: &Game) -> String {
 }
 
 pub fn from_json(json: &str) -> Result<Game, String> {
-    let d: SaveData = serde_json::from_str(json).map_err(|e| format!("unreadable save: {e}"))?;
-    if d.version != VERSION {
-        return Err(format!("save version {} is not {VERSION}", d.version));
+    let header: Header = serde_json::from_str(json).map_err(|e| format!("UNREADABLE SAVE: {e}"))?;
+    if header.version != VERSION {
+        return Err("SAVED BY ANOTHER VERSION OF THE GAME. START A NEW WORLD.".into());
     }
+    let d: SaveData = serde_json::from_str(json).map_err(|e| format!("UNREADABLE SAVE: {e}"))?;
     let mut g = Game::new();
-    if d.plants.len() != g.world.plants.len() || d.bins.len() != g.world.bins.len() || d.shops.len() != g.world.shops.len() {
-        return Err("the save was made on a different map".into());
+    let w = &g.world;
+    if d.plants.len() != w.plants.len() || d.bins.len() != w.bins.len() || d.shops.len() != w.shops.len() || d.boards.len() != w.boards.len() {
+        return Err("THE SAVE WAS MADE ON A DIFFERENT MAP.".into());
     }
     g.frame = d.frame;
     g.rng = d.rng;
@@ -99,6 +116,8 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     g.world.plants = d.plants;
     g.world.bins = d.bins;
     g.world.shops = d.shops;
+    g.world.boards = d.boards;
+    g.world.ferry = d.ferry;
     g.monsters = d.monsters;
     g.controlled = d.controlled.min(g.monsters.len().saturating_sub(1));
     g.applicants = d.applicants;
@@ -184,6 +203,13 @@ mod tests {
         copy.run_ticks(3000);
         assert_eq!(to_json(&copy), to_json(&g), "both copies stay identical while they run");
         assert!(g.cloth_stored() > 0 && g.renown > 0.0);
+    }
+
+    #[test]
+    fn a_save_from_another_version_says_so() {
+        let json = to_json(&Game::new()).replacen(&format!("\"version\":{VERSION}"), "\"version\":1", 1);
+        let err = from_json(&json).err().expect("an old save doesn't load");
+        assert!(err.contains("ANOTHER VERSION"), "{err}");
     }
 
     #[test]

@@ -22,6 +22,9 @@ During play the target is zero full-screen menus. Every action gets visible and 
 - **Time scale:** fast for single-player, slow for a persistent world.
 - **Monsters working while you're away:** off, or catch up a capped amount of time.
 
+### The world's spirit
+They're monsters, but their society is perfectly cooperative and peaceful. Nobody is paid, taxed, traded with or fought. Renown is the commune's shared standing, not money. Goals are shared projects that a town needs, such as a sail for its ferry, and everyone pitches in. Player-facing text follows this: no wages, prices, taxes, buying or selling.
+
 ### Saving
 - **Worlds, like a survival game.** Each world is its own save, with its own settings (time scale, offline progress). The title screen lists your worlds; that is a full screen, which is allowed outside play.
 - **What gets saved:** simulation state only:
@@ -60,7 +63,7 @@ Fixes made at the same time:
 
 ### World layout (starting world)
 - **Flip-screen rooms.** Each screen is 25×16 tiles. When the controlled monster crosses an edge, the view flips to the next screen, as in classic DOS games. The simulation keeps running on every screen.
-- **Pinewater, the weaving town (west)**, about 2×2 screens. It has the spinnery, the loom house, the hiring hall and a public workbench, with the cotton fields right outside. M1 can be played entirely here.
+- **Pinewater, the weaving town (west)**, about 2×2 screens. It has the spinnery, the loom house, the gathering hall and a public workbench, with the cotton fields right outside. M1 can be played entirely here.
 - **Wilderness (middle)**, 2–3 screens of road between the towns: forest (hemlock near the road, oak deeper in), a bamboo grove, scrub and meadow (sticks, ramie), and dye plants toward the east. This is where frontier workshops go. Rarer varieties sit farther from the road.
 - **Tanglemere, the dyeing town (east)**, about 2×2 screens. It has the dye works, project boards, a public workbench and the great work. Fabric travels east to be dyed, which is what makes wagons matter.
 - **Later regions** feel farther away and weightier: for example, hills beyond the dyeing town with copper and tin for the Temple Bell chain.
@@ -73,6 +76,9 @@ Henry composes the soundtrack. The arcade's Star Pond already streams WAV music,
 **v1.5:** equipment as physical crafted wearables; charity and great-works drop-offs; and an in-world quality sorter (see below).
 
 ## Features
+
+### Pushing and pulling
+Pushing is the game: goods move by being pushed, so laying out a workshop is a small Sokoban puzzle. Pulling exists to get out of a stuck spot, such as a good pushed into a corner, not to replace pushing. Hold **Shift** and step away from the good in front of you: the monster backs up and drags it along, at **2 seconds a tile** (ten times slower than a push), straining and kicking up dust. Pushing a good that no push could ever move says "STUCK! HOLD SHIFT AND STEP BACK TO PULL IT." Recorded loops can pull too, and pay the same two seconds every cycle, so solving the puzzle stays the better way for automation as well. You can't pull a good that is being worked on, or onto a work spot.
 
 ### Recipes
 There is no recipe menu. What's on a workshop's pads decides what it makes. When two recipes take the same inputs, a signboard on the workshop wall shows the current one, and walking into the board switches it. Empty pads show a dithered ghost of what belongs there, as they do in the prototype.
@@ -93,8 +99,8 @@ There are two kinds of workshop, with a clear trade-off between convenience and 
   Wear-out also clears abandoned workshops out of a persistent world.
 - **Workbenches.** Recipes that don't need a workshop use a small, cheap bench placed anywhere. Benches wear out too, and towns have a few public ones.
 
-### Hiring
-There is no character-creation screen. A **hiring hall** in town holds applicants. Each one is already rolled with a monster type and 3 transferable skills. Walk up to an applicant and their bubble shows type, skills, stats and renown cost. Space hires them. You choose which applicant to hire, not which boxes to tick, and the roster refreshes over time.
+### Joining the commune
+There is no character-creation screen. A **gathering hall** in town holds monsters hoping to join. Each one is already rolled with a monster type and 3 transferable skills. Walk up to one and their bubble shows type, skills, stats and the renown they join at. Space welcomes them. You choose who joins, not which boxes to tick, and the hall's visitors change over time. Nobody is hired or paid: renown is the commune's standing, and a well-known commune draws newcomers. (Internally the code still calls them applicants.)
 
 ### Renown and goals
 Renown is a HUD counter. You spend it in the world: hiring at the hall, and contributing to **town project boards**. A project board shows what goods it wants and a progress bar. In 1.0 boards count goods of any quality, so a low-quality good always has somewhere useful to go. Finished projects unlock things like the road to the second town or new workshops. A final "great work", for example a temple bell, ends 1.0.
@@ -136,6 +142,8 @@ Hold **E** ("examine") to show a card anchored next to the tile you're facing. U
   - what is holding quality back most, e.g. "SECONDARY SKILLS (520): A TALENT FOR HANDCRAFTS OR MUSIC SKIPS THE WEAKEST".
 
   It is computed from the items actually on the pads and pegs, so putting in a better tool updates it straight away. While a monster stands on a work spot, the HUD status line also previews its expected quality.
+
+**Two pages, led by icons** (since M2 stage 1). The first page holds the few things that decide what to do next; while E is held, Tab turns to the details (Tab doesn't switch monsters then), and every new press of E opens page 1. Short cards (boards, the ferry, signposts, bins) are one page. Each line can lead with a 7×7 pixel icon that means the same thing on every card: a star for quality, an hourglass for time, the good's own icon for what comes out, an amber "!" for what holds it back, a green up arrow for learning, a grey down arrow for forgetting, a sparkle for renown. Under a quality sits a meter on the 0–2 scale: a band for the usual range, a bright tick for the expected roll, and marks at standard (1.0), exceptional and masterwork. Page 1 of a workshop forecast is quality and meter, time and output, what holds it back, and the main skill gained; ranges, odds, other skills, forgetting and levelling off are on page 2. An item's card only says what it's worth in renown if a drop-off or project actually takes it.
 
 The card is drawn in the same beveled style as the help overlay. It never pauses the world.
 
@@ -206,21 +214,45 @@ Each matching transferable skill drops the weakest secondary skill and the two l
 
 ### Progress (M1 stage 4)
 - **The cloth store is a drop-off.** A good pushed in pays renown: its value times `RENOWN_PER_VALUE` (10, a first guess; early cotton fabric pays about 20). "+N RENOWN" rises from it, then each contributor's share flies to that monster as credit. Monsters keep a running total of renown earned, shown on their card.
-- **The hiring hall** sits in Pinewater's southwest screen. Three applicants stand there, each a monster type with three rolled talents. Facing one shows their pitch; Space hires them if you have the renown. A new applicant arrives about 20 seconds after a hire, once the stand is clear, and every 5 minutes one applicant leaves for someone new. Applicants block the way like anyone else. For now they are goblins and cyclopes only, the types with sprites.
+- **The gathering hall** (then called the hiring hall) sits in Pinewater's southwest screen. Three applicants stand there, each a monster type with three rolled talents. Facing one shows their pitch; Space hires them if you have the renown. A new applicant arrives about 20 seconds after a hire, once the stand is clear, and every 5 minutes one applicant leaves for someone new. Applicants block the way like anyone else. For now they are goblins and cyclopes only, the types with sprites.
 - **Saving** works as designed above: a title screen lists your worlds; the game autosaves every minute and saves on quit; writes are crash-safe with two backups; a test saves a world mid-loop, reloads it, and checks the two stay identical for 3,000 ticks. Still to come: the per-world settings (time scale, offline catch-up).
 
 ### Learning and forgetting
 Unchanged from the original, plus the Python port's two fixes: skills never read below 0, and learning counts per craft rather than per whole multi-batch task. Mastery takes roughly 100–200 crafts, about 30–40 minutes of a looping monster at prototype speeds. Each monster has a single forgetting counter that drains every skill it isn't practicing, so monsters specialize.
 
+## M2: the second town
+
+Built in four playable stages:
+1. **The east road:** the wilderness and Tanglemere on the map, the rope ferry and its project board, signposts, edge markers, the Tab roster strip.
+2. **Tanglemere's dye works:** the indigo chain, ending in dyed fabric at the cloth hall. At first you push fabric east by hand.
+3. **Wagons:** hitching, loading, recorded wagon trips, hauling learned by doing. After stage 2 you'll have felt the long walk.
+4. **Frontier building:** blueprints, ghost outlines, built quality, wear and repair, workbenches.
+
+### The east road (M2 stage 1)
+- **The world is three region maps side by side**, 175×32 tiles (7×2 screens): Pinewater (`data/pinewater.map`), the wilderness (`data/wilderness.map`) and Tanglemere (`data/tanglemere.map`). Each region's entities are listed after the previous region's, so adding a region never reorders what an older save refers to. Buildings never straddle a screen edge.
+- **Named areas,** announced by a banner when the view arrives: Pinewater; Tinless (Wuxi, "without tin": a joke for later, when the bell needs tin), with the pine river; Thatch Hills (Maoshan); the Dye Meadows; Tanglemere.
+- **The rope ferry.** The road leaves Pinewater's east gate and meets the pine river. A two-tile boat is moored at the west bank, but it has no rope to pull it across. Its project board on the bank, "A ROPE FOR THE FERRY", wants 3 rope; each one earns renown like a delivery, and the last one strings the rope. From then on the ferry shuttles by itself: it waits 2 seconds at each bank, then crosses at 6 ticks a tile. Anything on its deck rides along, monsters and goods alike. It never leaves while someone is still stepping aboard, and it waits up to 10 more seconds for anyone standing on the landing. A recorded loop that crosses waits for the boat like it waits for goods ("WAITING FOR THE FERRY").
+- **Rope** (approved 2026-10-31, the first good added beyond the book's cotton chain): 2 thread twisted by hand at the **gate bench**, a public workbench by Pinewater's east gate, on the thread's way from the spinnery to the ferry. A spinning wheel can only ply thread into cord; rope is strands twisted together again the other way, which takes hands, a hook or a stick, not a machine. So the recipe needs no tool. Every bench knows every bench recipe and what's on its pads picks one; an empty bench shows the recipe that fills its pads (the west bench's one pad cards cotton, the gate bench's two twist rope). Rope is graded, keeps its fiber ("cotton rope"), and uses STR, so a strong cyclops twists good rope. It also supplies the rope that the stone hammer, metal hammer, metal axe and flail need, which nothing made before. The book twists boat ropes from hemp, so hemp rope fits once hemp thread exists. No separate Cord good until something needs fine cord (bowstrings, fishing line).
+- **Wild plants** grow along the way, each giving its good when you stand on it and press Space: hemlock and elder by the road, ramie in the meadow, rhododendron in Thatch Hills, oak deeper south, arrow bamboo and indigofera toward Tanglemere. Gatherable trees are lighter than the old dark trees, which aren't for gathering (E says so).
+- **Tanglemere** stands around its tangled lake: the dye house and ash kiln (idle until stage 2) and the cloth hall, which already takes fabric for renown. An indigofera field grows east of the lake.
+- **Edge markers:** a monster on another screen shows as its initial in a small box at the screen edge, pointing its way, colored by what it is doing (looping, waiting, working, recording, idle).
+- **Roster strip:** hold Tab to see every monster and what it is doing. A tap still switches monsters.
+- **Pulling** (see Features) gets a monster out of a stuck push.
+- **Saves are version 3,** with the boards and the ferry. While the game is in development, saves don't migrate: a save from another version doesn't load, and the title screen says so.
+
 ## Milestones
 
 - **M1, economy:** port the rules from sokobanmonstermakers, using its 92 tests as the spec, with the changes in Crafting math above. The tech tree now lives in `data/good_types.json`; give every good a stable `id`, and complete the data for the first chain. Add saving and the world list. Add quality on sprites, skill popups, the inspect card with the workshop forecast, delivery credits, the renown counter and the hiring hall. Workshops in M1 are the town's permanent ones.
-- **M2, second town:** roads and signposts, wagons, town project boards, building frontier workshops and workbenches, edge markers and the Tab roster strip.
+- **M2, second town:** roads and signposts, wagons, town project boards, building frontier workshops and workbenches, edge markers and the Tab roster strip. Stage plan above.
 - **M3, content and art:** chains 2–3 and the great work. Replace placeholder sprites with final pixel art under the AGENTS.md palette rules.
 - **M4, ship:** itch.io build and outside playtesters.
 - **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
 ## Open questions
+
+- **Lime for indigo (stage 2):** the data gathers Oyster Lime with a hammer and a metal chisel, deep in the smithing chain. The book chisels oyster shells off rocks and burns them. Needs a proposal before the indigo chain is built.
+- **Fuel:** nothing provides the "fuel" tag that 43 recipes need, including lye, indigo and every dye. Proposed fix: tag sticks, logs, coal and coke as fuel.
+- **Tub:** Dyed Fabric's tool tag is split into letters ("t", "u", "b"), and nothing is a tub. Proposed new good: a wooden tub from a log at a workbench. Needs approval.
 
 - **Screen-by-screen layouts** of the two towns and the wilderness, designed in M1 and M2.
 - **Weight you can feel (proposal):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.

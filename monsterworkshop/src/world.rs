@@ -1,6 +1,6 @@
-//! Pinewater as data: a tile map (`data/pinewater.map`) with its workshops, bins and plants,
-//! plus the items lying around. No monsters here; `game.rs` moves them and asks the world
-//! what is where.
+//! The world as data: region maps (`data/*.map`) laid side by side, with their workshops,
+//! bins, plants, project boards and the ferry, plus the items lying around. No monsters
+//! here; `game.rs` moves them and asks the world what is where.
 
 use crate::data::{matches, Data};
 use crate::econ::ItemData;
@@ -16,12 +16,59 @@ pub const TOWN_WORKSHOP_QUALITY: f64 = 0.8;
 /// Finished goods a workshop holds inside, beyond the one on its output mat.
 pub const OUTPUT_BUFFER: usize = 9;
 
-// `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `f` cotton plant
-// `C` cotton bin and `m` its chute  `T` cloth store (a drop-off)  `a` applicant stand in
-// the hiring hall  `1` `2` monster starts
+// `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `Y` tree  `w` water
+// `F` the ferry's boat, docked at the west bank  `s` signpost  `b` project board
+// `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
+// stand in the gathering hall  `1` `2` monster starts
+// Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
+// `q` ramie  `n` indigofera
 // Work spots: `B` workbench  `S` spinning wheel  `L` loom. Each `p` pad, `g` tool peg and
 // `o` output mat belongs to the nearest work spot.
-const MAP: &str = include_str!("../data/pinewater.map");
+
+/// A region's map, plus what its text-only features say, in the order they appear.
+struct Region {
+    map: &'static str,
+    /// Building names, each placed by one tile of the building's top wall (region coordinates).
+    labels: &'static [((i32, i32), &'static str)],
+    /// Signpost texts and the way their arrows point.
+    signs: &'static [(&'static str, Dir)],
+    /// Project boards: the project, the good it wants, how many, and what finishing it does.
+    boards: &'static [(&'static str, &'static str, u32, Project)],
+}
+
+/// West to east. Each region's entities are listed after the previous region's, so adding a
+/// region never reorders what an older save refers to.
+const REGIONS: [Region; 3] = [
+    Region { map: include_str!("../data/pinewater.map"), labels: &[((4, 19), "GATHERING HALL")], signs: &[("TANGLEMERE", Dir::Right)], boards: &[] },
+    Region { map: include_str!("../data/wilderness.map"), labels: &[], signs: &[("TANGLEMERE", Dir::Right)], boards: &[("A ROPE FOR THE FERRY", "rope", 3, Project::Ferry)] },
+    Region {
+        map: include_str!("../data/tanglemere.map"),
+        labels: &[((11, 2), "DYE HOUSE"), ((34, 2), "CLOTH HALL"), ((4, 18), "ASH KILN")],
+        signs: &[("PINEWATER", Dir::Left)],
+        boards: &[],
+    },
+];
+
+/// Named stretches of the world by their first column, announced on arrival.
+const AREAS: [(i32, &str); 5] = [(0, "PINEWATER"), (50, "TINLESS"), (75, "THATCH HILLS"), (100, "DYE MEADOWS"), (125, "TANGLEMERE")];
+
+pub fn area_name(x: i32) -> &'static str {
+    AREAS.iter().rev().find(|(x0, _)| x >= *x0).map_or(AREAS[0].1, |a| a.1)
+}
+
+fn plant_good(ch: char) -> Option<&'static str> {
+    Some(match ch {
+        'f' => "cotton_bolls",
+        'h' => "hemlock_log",
+        'k' => "oak_log",
+        'e' => "elder_sticks",
+        'r' => "rhododendron_sticks",
+        'j' => "arrow_bamboo",
+        'q' => "ramie_stalks",
+        'n' => "indigofera_leaves",
+        _ => return None,
+    })
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Dir {
@@ -34,6 +81,15 @@ pub enum Dir {
 pub const DIRS: [Dir; 4] = [Dir::Up, Dir::Down, Dir::Left, Dir::Right];
 
 impl Dir {
+    pub fn opposite(self) -> Dir {
+        match self {
+            Dir::Up => Dir::Down,
+            Dir::Down => Dir::Up,
+            Dir::Left => Dir::Right,
+            Dir::Right => Dir::Left,
+        }
+    }
+
     pub fn delta(self) -> (i32, i32) {
         match self {
             Dir::Up => (0, -1),
@@ -56,12 +112,16 @@ pub enum Tile {
     Peg,
     OutMat,
     Spot,
+    /// Bins and boards: you push goods into them.
     Bin,
+    Water,
+    Tree,
+    Sign,
 }
 
 impl Tile {
     pub fn walkable(self) -> bool {
-        !matches!(self, Tile::Hedge | Tile::Wall | Tile::Bin)
+        !matches!(self, Tile::Hedge | Tile::Wall | Tile::Bin | Tile::Water | Tile::Tree | Tile::Sign)
     }
 
     /// Items slide over anything a monster can walk on except a work spot.
@@ -164,6 +224,80 @@ pub struct Bin {
     pub scores: bool,
 }
 
+/// What finishing a project does to the world.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Project {
+    /// The rope is strung and the ferry starts running.
+    Ferry,
+}
+
+/// A town project: push the goods it wants into the board. Each one pays renown like a
+/// delivery, and finishing the project changes the world.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Board {
+    pub x: i32,
+    pub y: i32,
+    pub title: String,
+    pub wants: String,
+    pub need: u32,
+    pub have: u32,
+    pub project: Project,
+    pub bounce: u8,
+}
+
+impl Board {
+    pub fn done(&self) -> bool {
+        self.have >= self.need
+    }
+}
+
+pub struct Sign {
+    pub x: i32,
+    pub y: i32,
+    pub text: &'static str,
+    pub dir: Dir,
+}
+
+/// A rope ferry: a two-tile boat pulled back and forth across the river along its rope.
+/// Anything on its deck rides along. It waits at each bank, and never leaves while someone
+/// stands on the landing or is still stepping aboard.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Ferry {
+    pub y: i32,
+    /// The boat's west tile when docked at the west and east banks.
+    pub west: i32,
+    pub east: i32,
+    /// The boat's west tile now.
+    pub x: i32,
+    /// The way it goes next: 1 east, -1 west.
+    pub heading: i32,
+    pub moving: bool,
+    pub timer: u32,
+    /// The rope is strung, so the ferry runs.
+    pub rigged: bool,
+    pub slide: Option<Slide>,
+}
+
+impl Ferry {
+    pub fn on_deck(&self, x: i32, y: i32) -> bool {
+        y == self.y && (x == self.x || x == self.x + 1)
+    }
+
+    /// The bank tile the boat is docked against, if it is docked.
+    pub fn landing(&self) -> Option<(i32, i32)> {
+        match (self.moving, self.x == self.west, self.x == self.east) {
+            (false, true, _) => Some((self.west - 1, self.y)),
+            (false, _, true) => Some((self.east + 2, self.y)),
+            _ => None,
+        }
+    }
+
+    /// Is this a water tile of the ferry's crossing?
+    pub fn crossing(&self, x: i32, y: i32) -> bool {
+        y == self.y && x >= self.west && x <= self.east + 1
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ShopKind {
     Workbench,
@@ -182,7 +316,7 @@ impl ShopKind {
 
     pub fn recipes(self) -> &'static [&'static str] {
         match self {
-            ShopKind::Workbench => &["cotton_slivers"],
+            ShopKind::Workbench => &["cotton_slivers", "rope"],
             ShopKind::Spinnery => &["thread"],
             ShopKind::LoomHouse => &["fabric"],
         }
@@ -218,6 +352,16 @@ pub struct Shop {
     pub out_timer: u8,
 }
 
+impl Shop {
+    /// What the workshop is set up for while its pads are empty: the recipe whose inputs fill
+    /// its pads exactly, else its first. Pinewater's west bench cards cotton; the gate bench
+    /// twists rope.
+    pub fn default_recipe(&self, data: &Data) -> &'static str {
+        let recipes = self.kind.recipes();
+        recipes.iter().copied().find(|r| data.good(r).input_groups().count() == self.pads.len()).unwrap_or(recipes[0])
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum PKind {
     Dust,
@@ -245,60 +389,87 @@ pub struct World {
     pub bins: Vec<Bin>,
     pub shops: Vec<Shop>,
     pub particles: Vec<Particle>,
+    pub boards: Vec<Board>,
+    pub ferry: Option<Ferry>,
+    pub signs: Vec<Sign>,
+    pub labels: Vec<((i32, i32), &'static str)>,
     pub starts: Vec<(i32, i32)>,
-    /// Where applicants wait in the hiring hall.
+    /// Where applicants wait in the gathering hall.
     pub stands: Vec<(i32, i32)>,
     seed: u32,
 }
 
 impl World {
     pub fn new(data: &Data) -> Self {
-        let rows: Vec<&str> = MAP.lines().filter(|l| !l.is_empty()).collect();
-        let (w, h) = (rows[0].len() as i32, rows.len() as i32);
-        let mut tiles = Vec::with_capacity((w * h) as usize);
+        let regions: Vec<Vec<&str>> = REGIONS.iter().map(|r| r.map.lines().filter(|l| !l.is_empty()).collect()).collect();
+        let h = regions[0].len() as i32;
+        let w: i32 = regions.iter().map(|rows| rows[0].len() as i32).sum();
+        let mut tiles = vec![Tile::Hedge; (w * h) as usize];
         let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), vec![(0, 0); 2]);
-        let mut stands = Vec::new();
+        let (mut stands, mut boards, mut signs, mut labels, mut boat) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
-        let regrow = data.good("cotton_bolls").production_time;
-        for (y, row) in rows.iter().enumerate() {
-            assert_eq!(row.len() as i32, w, "map row {y} is {} wide", row.len());
-            for (x, ch) in row.chars().enumerate() {
-                let (x, y) = (x as i32, y as i32);
-                let street_next = row.as_bytes().get(x as usize + 1) == Some(&b',') || (x > 0 && row.as_bytes()[x as usize - 1] == b',');
-                let tile = match ch {
-                    '#' => Tile::Hedge,
-                    ',' | 'm' => Tile::Path,
-                    'W' => Tile::Wall,
-                    '_' | 'a' => Tile::Floor,
-                    'D' => Tile::Door,
-                    'p' => Tile::Pad,
-                    'g' => Tile::Peg,
-                    'o' => Tile::OutMat,
-                    'B' | 'S' | 'L' => Tile::Spot,
-                    'C' | 'T' => Tile::Bin,
-                    '1' | '2' if street_next => Tile::Path,
-                    _ => Tile::Grass,
-                };
-                match ch {
-                    'f' => plants.push(Plant { x, y, good: "cotton_bolls".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 }),
-                    'C' => bins.push(Bin { x, y, accepts: "cotton_bolls".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false }),
-                    'T' => bins.push(Bin { x, y, accepts: "fabric".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true }),
-                    'a' => stands.push((x, y)),
-                    'm' => mouths.push((x, y)),
-                    'p' | 'g' | 'o' => parts.push((ch, x, y)),
-                    'B' | 'S' | 'L' => {
-                        let kind = match ch {
-                            'B' => ShopKind::Workbench,
-                            'S' => ShopKind::Spinnery,
-                            _ => ShopKind::LoomHouse,
-                        };
-                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0 })
+        let mut ox = 0;
+        for (region, rows) in REGIONS.iter().zip(&regions) {
+            assert_eq!(rows.len() as i32, h, "every region is {h} rows tall");
+            let rw = rows[0].len() as i32;
+            let (mut sign_texts, mut board_specs) = (region.signs.iter(), region.boards.iter());
+            labels.extend(region.labels.iter().map(|&((x, y), text)| ((x + ox, y), text)));
+            for (y, row) in rows.iter().enumerate() {
+                assert_eq!(row.len() as i32, rw, "map row {y} is {} wide", row.len());
+                for (lx, ch) in row.chars().enumerate() {
+                    let (x, y) = (lx as i32 + ox, y as i32);
+                    let street_next = row.as_bytes().get(lx + 1) == Some(&b',') || (lx > 0 && row.as_bytes()[lx - 1] == b',');
+                    let tile = match ch {
+                        '#' => Tile::Hedge,
+                        ',' | 'm' => Tile::Path,
+                        'W' => Tile::Wall,
+                        '_' | 'a' => Tile::Floor,
+                        'D' => Tile::Door,
+                        'p' => Tile::Pad,
+                        'g' => Tile::Peg,
+                        'o' => Tile::OutMat,
+                        'B' | 'S' | 'L' => Tile::Spot,
+                        'C' | 'T' | 'b' => Tile::Bin,
+                        'w' | 'F' => Tile::Water,
+                        'Y' => Tile::Tree,
+                        's' => Tile::Sign,
+                        '1' | '2' if street_next => Tile::Path,
+                        _ => Tile::Grass,
+                    };
+                    if let Some(good) = plant_good(ch) {
+                        let regrow = data.good(good).production_time;
+                        plants.push(Plant { x, y, good: good.into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
                     }
-                    '1' | '2' => starts[(ch as u8 - b'1') as usize] = (x, y),
-                    _ => {}
+                    match ch {
+                        'C' => bins.push(Bin { x, y, accepts: "cotton_bolls".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false }),
+                        'T' => bins.push(Bin { x, y, accepts: "fabric".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true }),
+                        'b' => {
+                            let &(title, wants, need, project) = board_specs.next().expect("a project for every board");
+                            boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0 });
+                        }
+                        's' => {
+                            let &(text, dir) = sign_texts.next().expect("a text for every signpost");
+                            signs.push(Sign { x, y, text, dir });
+                        }
+                        'F' => boat.push((x, y)),
+                        'a' => stands.push((x, y)),
+                        'm' => mouths.push((x, y)),
+                        'p' | 'g' | 'o' => parts.push((ch, x, y)),
+                        'B' | 'S' | 'L' => {
+                            let kind = match ch {
+                                'B' => ShopKind::Workbench,
+                                'S' => ShopKind::Spinnery,
+                                _ => ShopKind::LoomHouse,
+                            };
+                            shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0 })
+                        }
+                        '1' | '2' => starts[(ch as u8 - b'1') as usize] = (x, y),
+                        _ => {}
+                    }
+                    tiles[(y * w + x) as usize] = tile;
                 }
-                tiles.push(tile);
             }
+            ox += rw;
         }
         for (ch, x, y) in parts {
             let shop = shops.iter_mut().min_by_key(|s| (s.spot.0 - x).abs() + (s.spot.1 - y).abs()).expect("a work spot");
@@ -316,7 +487,15 @@ impl World {
                 b.mouth = Some(m);
             }
         }
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), starts, stands, seed: 0x9E37_79B9 }
+        // The boat docks at the west bank; the east dock is the far end of the same stretch of water.
+        let ferry = boat.iter().min().map(|&(west, y)| {
+            let mut far = west;
+            while tiles[(y * w + far + 1) as usize] == Tile::Water {
+                far += 1;
+            }
+            Ferry { y, west, east: far - 1, x: west, heading: 1, moving: false, timer: 0, rigged: false, slide: None }
+        });
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, ferry, signs, labels, starts, stands, seed: 0x9E37_79B9 }
     }
 
     pub fn tile(&self, x: i32, y: i32) -> Tile {
@@ -325,6 +504,28 @@ impl World {
         } else {
             self.tiles[(y * self.w + x) as usize]
         }
+    }
+
+    /// Can a monster stand here? Water can't be walked on, except the ferry's deck.
+    pub fn walkable(&self, x: i32, y: i32) -> bool {
+        self.tile(x, y).walkable() || self.on_deck(x, y)
+    }
+
+    /// Can an item lie here?
+    pub fn item_floor(&self, x: i32, y: i32) -> bool {
+        self.tile(x, y).item_floor() || self.on_deck(x, y)
+    }
+
+    pub fn on_deck(&self, x: i32, y: i32) -> bool {
+        self.ferry.as_ref().is_some_and(|f| f.on_deck(x, y))
+    }
+
+    pub fn board_at(&self, x: i32, y: i32) -> Option<usize> {
+        self.boards.iter().position(|b| b.x == x && b.y == y)
+    }
+
+    pub fn sign_at(&self, x: i32, y: i32) -> Option<&Sign> {
+        self.signs.iter().find(|s| s.x == x && s.y == y)
     }
 
     pub fn item_at(&self, x: i32, y: i32) -> Option<usize> {

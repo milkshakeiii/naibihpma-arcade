@@ -1,4 +1,5 @@
 use crate::econ::{quality_level, EXCEPTIONAL, MASTERWORK};
+use crate::inspect::{Icon, Line, Meter};
 use crate::framebuffer::Framebuffer;
 use crate::game::{Game, Species};
 use crate::inspect;
@@ -52,11 +53,15 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
             draw_tile(g, sp, fb, &v, tx, ty);
         }
     }
+    draw_trees(g, sp, fb, &v);
     draw_building_labels(g, fb, &v);
     for p in g.world.plants.iter().filter(|p| v.sees(p.x, p.y)) {
         let (x, y) = v.px(p.x, p.y);
-        fb.blit(&sp.plant[p.stage() as usize], x, y, false);
+        let s = sp.plant(&p.good, p.stage());
+        fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
     }
+    draw_ferry(g, sp, fb, &v);
+    draw_boards_and_signs(g, sp, fb, &v);
     for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1)) {
         let (x, y) = v.px(s.spot.0, s.spot.1);
         match s.kind {
@@ -85,6 +90,7 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     draw_bodies(g, sp, fb, &v);
     draw_particles(g, fb, &v);
     draw_markers(g, sp, fb, &v);
+    draw_edge_markers(g, fb, &v);
     draw_popups(g, fb, &v);
     // Lowest priority first, so the controlled monster's bubble ends up on top.
     for b in layout_bubbles(g, &v).iter().rev() {
@@ -93,8 +99,12 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     draw_progress(g, fb, &v);
     draw_applicant_pitch(g, sp, fb, &v);
     draw_floaters(g, fb, &v);
+    draw_banner(g, fb);
     if g.inspecting && !g.help {
-        draw_card(g, fb, &v);
+        draw_card(g, sp, fb, &v);
+    }
+    if g.roster && !g.help {
+        draw_roster(g, sp, fb);
     }
     draw_hud(g, sp, fb);
     if g.help {
@@ -108,13 +118,27 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
     let tile = g.world.tile(tx, ty);
     let ground = match tile {
         Tile::Bin => g.world.tile(tx, ty + 1),
+        Tile::Tree | Tile::Sign => Tile::Grass,
         t => t,
     };
     for y in 0..TS {
         for x in 0..TS {
             let h = hash(wx + x, wy + y);
             let c = match ground {
-                Tile::Grass | Tile::Bin => grass(h),
+                Tile::Grass | Tile::Bin | Tile::Tree | Tile::Sign => grass(h),
+                Tile::Water => {
+                    // Slow ripples drifting downstream; a lighter lip where the bank begins.
+                    let drift = (y + (g.frame / 10) as i32) % TS;
+                    if y == 0 && g.world.tile(tx, ty - 1) != Tile::Water {
+                        WATER + 2
+                    } else if (x + drift * 5 + (h % 3) as i32) % 17 == 0 && drift % 4 == 1 {
+                        WATER + 2
+                    } else if (x * 3 + drift * 7) % 31 == 0 {
+                        WATER
+                    } else {
+                        WATER + 1
+                    }
+                }
                 Tile::Peg | Tile::Pad | Tile::OutMat | Tile::Spot if !indoors(g, tx, ty) => match h % 23 {
                     0 => GRASS + 3,
                     1 | 2 => GRASS + 2,
@@ -249,7 +273,7 @@ fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
 /// What belongs on a pad (the recipe's input) or an output mat (the recipe's output).
 fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<&'static str> {
     let shop = g.world.shops.iter().find(|s| s.pads.contains(&(tx, ty)) || s.outs.contains(&(tx, ty)))?;
-    let recipe = shop.kind.recipes()[0];
+    let recipe = shop.default_recipe(&g.data);
     if tile == Tile::OutMat {
         return Some(recipe);
     }
@@ -271,6 +295,7 @@ fn leak(id: &str) -> &'static str {
         "cotton_slivers" => "cotton_slivers",
         "thread" => "thread",
         "fabric" => "fabric",
+        "rope" => "rope",
         _ => "",
     }
 }
@@ -284,7 +309,7 @@ fn draw_applicant_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) 
         return;
     }
     let talents = a.transferable.iter().map(|t| t.replace('_', " ").to_uppercase()).collect::<Vec<_>>().join(", ");
-    let mut lines = vec![format!("{} THE {}", a.name, a.kind.to_uppercase()), format!("{} RENOWN TO HIRE", a.cost)];
+    let mut lines = vec![format!("{} THE {}", a.name, a.kind.to_uppercase()), format!("JOINS AT {} RENOWN", a.cost)];
     lines.extend(wrap(&format!("TALENTS: {talents}"), 24));
     let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
     let h = lines.len() as i32 * 9 + 4;
@@ -345,26 +370,47 @@ fn draw_popups(g: &Game, fb: &mut Framebuffer, v: &View) {
     }
 }
 
-/// The hold-E card, with corner brackets on what it describes.
-fn draw_card(g: &Game, fb: &mut Framebuffer, v: &View) {
+/// The hold-E card, with corner brackets on what it describes. It shows one page at a time;
+/// a footer says Tab turns to the other.
+fn draw_card(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     let card = inspect::card(g);
-    let bar_w = if card.lines.iter().any(|l| l.bar.is_some()) { 46 } else { 0 };
+    let page = g.card_page % card.pages.len();
+    let lines = &card.pages[page];
+    let paged = card.pages.len() > 1;
+    let bar_w = if lines.iter().any(|l| l.bar.is_some()) { 46 } else { 0 };
+    // Each line becomes one or more rows; only a line's first row carries its icons and bar.
     let layout = |chars: usize| {
-        let lines: Vec<(String, u8, Option<f64>)> = card
-            .lines
-            .iter()
-            .flat_map(|l| wrap(&l.text, chars).into_iter().enumerate().map(move |(k, t)| (t, l.color, if k == 0 { l.bar } else { None })))
-            .collect();
-        let widest = lines.iter().map(|l| l.0.len()).max().unwrap_or(0).max(card.title.len()) as i32;
-        (lines, widest * 6 + 12 + bar_w)
+        let mut rows: Vec<(&Line, String, bool)> = Vec::new();
+        for l in lines {
+            if l.text.is_empty() {
+                rows.push((l, String::new(), true));
+                continue;
+            }
+            let chars = if l.icon.is_some() { chars.saturating_sub(2) } else { chars };
+            for (k, t) in wrap(&l.text, chars.max(8)).into_iter().enumerate() {
+                rows.push((l, t, k == 0));
+            }
+        }
+        let row_w = |(l, t, first): &(&Line, String, bool)| {
+            let icon = if l.icon.is_some() { ICON_STEP } else { 0 };
+            let then = match (&l.then, first) {
+                (Some((_, s)), true) => 6 + ICON_STEP + s.len() as i32 * 6,
+                _ => 0,
+            };
+            let meter = if l.meter.is_some() { ICON_STEP + METER_W } else { 0 };
+            icon + t.len() as i32 * 6 + then + meter
+        };
+        let widest = rows.iter().map(row_w).max().unwrap_or(0).max(card.title.len() as i32 * 6).max(if paged { 90 } else { 0 });
+        (rows, widest + 12 + bar_w)
     };
     let at = v.px(card.at.0, card.at.1);
-    let (mut lines, mut w) = layout(38);
+    let (mut rows, mut w) = layout(38);
     let (right, room) = inspect::side(at, w);
     if w > room {
-        (lines, w) = layout((((room - 12 - bar_w) / 6).max(14)) as usize);
+        (rows, w) = layout((((room - 12 - bar_w) / 6).max(14)) as usize);
     }
-    let h = 24 + lines.len() as i32 * 10;
+    let footer = if paged { 13 } else { 0 };
+    let h = 24 + rows.len() as i32 * 10 + footer;
     if v.sees(card.at.0, card.at.1) {
         let (tx, ty) = at;
         for (cx, cy, dx, dy) in [(tx, ty, 1, 1), (tx + TS - 1, ty, -1, 1), (tx, ty + TS - 1, 1, -1), (tx + TS - 1, ty + TS - 1, -1, -1)] {
@@ -376,13 +422,92 @@ fn draw_card(g: &Game, fb: &mut Framebuffer, v: &View) {
     fb.rect_bevel(x, y, w, h, HUD_FILL, HUD_HI, HUD_SHADOW);
     fb.text(&card.title, x + 6, y + 6, SPARK + 2, Some(HUD_SHADOW), 1);
     fb.rect_fill(x + 4, y + 16, w - 8, 1, HUD_SHADOW);
-    for (k, (t, c, bar)) in lines.iter().enumerate() {
+    for (k, (l, t, first)) in rows.iter().enumerate() {
         let ly = y + 20 + k as i32 * 10;
-        fb.text(t, x + 6, ly, *c, Some(HUD_SHADOW), 1);
-        if let Some(b) = bar {
+        let mut tx = x + 6;
+        if let (Some(icon), true) = (&l.icon, *first) {
+            draw_icon(fb, sp, icon, tx, ly);
+        }
+        if l.icon.is_some() {
+            tx += ICON_STEP;
+        }
+        if let Some(m) = l.meter {
+            draw_meter(fb, tx + ICON_STEP, ly, m);
+            continue;
+        }
+        fb.text(t, tx, ly, l.color, Some(HUD_SHADOW), 1);
+        if let (Some((icon, s)), true) = (&l.then, *first) {
+            let ax = tx + t.len() as i32 * 6 + 6;
+            draw_icon(fb, sp, icon, ax, ly);
+            fb.text(s, ax + ICON_STEP, ly, TEXT, Some(HUD_SHADOW), 1);
+        }
+        if let (Some(b), true) = (l.bar, *first) {
             let bx = x + w - 46;
             fb.rect_fill(bx, ly, 40, 6, OUTLINE);
             fb.rect_fill(bx + 1, ly + 1, ((b.clamp(0.0, 1.0) * 38.0) as i32).max(1), 4, SPARK + 1);
+        }
+    }
+    if paged {
+        let fy = y + h - 13;
+        fb.rect_fill(x + 4, fy - 2, w - 8, 1, HUD_SHADOW);
+        fb.text(if page == 0 { "TAB: MORE" } else { "TAB: BACK" }, x + 6, fy + 1, TEXT_DIM, Some(HUD_SHADOW), 1);
+        let n = card.pages.len() as i32;
+        for p in 0..n {
+            let dx = x + w - 8 - (n - p) * 7;
+            fb.rect_fill(dx, fy + 2, 5, 5, OUTLINE);
+            fb.rect_fill(dx + 1, fy + 3, 3, 3, if p as usize == page { TEXT } else { HUD_MID });
+        }
+    }
+}
+
+/// Width an icon takes in a card line, with its gap.
+const ICON_STEP: i32 = 10;
+/// The quality meter spans 0 to 2 across this many pixels.
+const METER_W: i32 = 100;
+
+/// A quality meter: the usual range as a band, the expected value as a bright tick, and small
+/// marks at standard (1.0), exceptional and masterwork.
+fn draw_meter(fb: &mut Framebuffer, x: i32, y: i32, m: Meter) {
+    let at = |q: f64| x + ((q / 2.0).clamp(0.0, 1.0) * (METER_W - 1) as f64).round() as i32;
+    fb.rect_fill(x, y + 2, METER_W, 4, OUTLINE);
+    let (a, b) = (at(m.lo), at(m.hi));
+    fb.rect_fill(a, y + 3, (b - a).max(1), 2, HUD_HI);
+    for (q, c) in [(1.0, TEXT_DIM), (EXCEPTIONAL, SPARK + 1), (MASTERWORK, SPARK + 2)] {
+        fb.rect_fill(at(q), y + 1, 1, 6, c);
+    }
+    let mx = at(m.mid);
+    fb.rect_fill(mx - 1, y - 1, 3, 10, OUTLINE);
+    fb.rect_fill(mx, y, 1, 8, TEXT);
+}
+
+/// 7x7 card icons: `a` is the main color, `b` the second.
+fn icon_art(icon: &Icon) -> ([&'static str; 7], u8, u8) {
+    match icon {
+        Icon::Quality => (["...a...", "...a...", "aaaaaaa", ".aaaaa.", "..aaa..", ".aa.aa.", "a.....a"], SPARK + 2, SPARK),
+        Icon::Time => (["aaaaaaa", ".abbba.", "..aba..", "...a...", "..a.a..", ".abbba.", "aaaaaaa"], WOOD + 3, SPARK + 1),
+        Icon::Warn => (["...a...", "..aaa..", "..aba..", ".aabaa.", ".aaaaa.", "aaabaaa", "aaaaaaa"], TEXT_WARN, OUTLINE),
+        Icon::Learn => (["...a...", "..aaa..", ".aaaaa.", "aaaaaaa", "..aaa..", "..aaa..", "..aaa.."], TEXT_GOOD, TEXT_GOOD),
+        Icon::Forget => (["..aaa..", "..aaa..", "..aaa..", "aaaaaaa", ".aaaaa.", "..aaa..", "...a..."], TEXT_DIM, TEXT_DIM),
+        Icon::Renown => (["...a...", "..aaa..", ".aabaa.", "aabbbaa", ".aabaa.", "..aaa..", "...a..."], SPARK + 1, TEXT),
+        Icon::Weight => (["..aaa..", ".a...a.", ".aaaaa.", "aaaaaaa", "aaaaaaa", "aaaaaaa", ".aaaaa."], HUD_HI, HUD_HI),
+        Icon::Wear => (["aaaaa..", "aaaaa..", "..b....", "..b....", "..b....", "..b....", "..b...."], HUD_HI, WOOD + 2),
+        Icon::Good(_) => (["aaaaaaa", "abbbbba", "aaaaaaa", "abbbbba", "abbbbba", "abbbbba", "aaaaaaa"], WOOD + 3, WOOD + 1),
+    }
+}
+
+fn draw_icon(fb: &mut Framebuffer, sp: &Sprites, icon: &Icon, x: i32, y: i32) {
+    if let Icon::Good(id) = icon {
+        if let Some(s) = sp.icon(id) {
+            fb.blit(s, x, y - 1, false);
+            return;
+        }
+    }
+    let (art, a, b) = icon_art(icon);
+    for (dy, row) in art.iter().enumerate() {
+        for (dx, ch) in row.chars().enumerate() {
+            if ch != '.' {
+                fb.pset(x + dx as i32, y + dy as i32, if ch == 'a' { a } else { b });
+            }
         }
     }
 }
@@ -400,11 +525,16 @@ fn blit_ghost(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32) {
 }
 
 fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
-    for s in g.world.shops.iter().filter(|s| s.kind.is_building() && v.sees(s.spot.0, s.spot.1)) {
+    let mut named: Vec<((i32, i32), &str)> = Vec::new();
+    for s in g.world.shops.iter().filter(|s| s.kind.is_building()) {
         let (sx, mut wy) = s.spot;
         while wy > 0 && g.world.tile(sx, wy) != Tile::Wall {
             wy -= 1;
         }
+        named.push(((sx, wy), s.kind.label()));
+    }
+    named.extend(g.world.labels.iter().copied());
+    for ((sx, wy), label) in named.into_iter().filter(|((x, y), _)| v.sees(*x, *y)) {
         let (mut l, mut r) = (sx, sx);
         while g.world.tile(l - 1, wy) == Tile::Wall {
             l -= 1;
@@ -414,7 +544,65 @@ fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
         }
         let (x, y) = v.px(l, wy);
         let w = (r - l + 1) * TS;
-        fb.text_centered(s.kind.label(), x + w / 2, y + 5, WOOD + 3, Some(OUTLINE), 1);
+        fb.text_centered(label, x + w / 2, y + 5, WOOD + 3, Some(OUTLINE), 1);
+    }
+}
+
+/// Trees that are not for gathering: conifers and broadleaves, picked per tile.
+fn draw_trees(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    for ty in v.ty..v.ty + SCREEN_H {
+        for tx in v.tx..v.tx + SCREEN_W {
+            if g.world.tile(tx, ty) == Tile::Tree {
+                let (x, y) = v.px(tx, ty);
+                fb.blit(&sp.trees[(hash(tx, ty) % 2) as usize], x, y, hash(ty, tx) % 2 == 0);
+            }
+        }
+    }
+}
+
+/// The ferry's rope across the river (once it is strung) and the boat on it.
+fn draw_ferry(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    let Some(f) = &g.world.ferry else { return };
+    if !(v.sees(f.west - 1, f.y) || v.sees(f.east + 2, f.y)) {
+        return;
+    }
+    let (x0, y) = v.px(f.west - 1, f.y);
+    let (x1, _) = v.px(f.east + 2, f.y);
+    for x in [x0 + 11, x1 + 3] {
+        fb.rect_fill(x, y - 3, 3, 12, OUTLINE);
+        fb.rect_fill(x + 1, y - 2, 1, 10, WOOD + 2);
+    }
+    if f.rigged {
+        fb.rect_fill(x0 + 13, y - 1, x1 - x0 - 10, 1, WOOD + 3);
+        fb.rect_fill(x0 + 13, y, x1 - x0 - 10, 1, OUTLINE);
+    }
+    let (bx, by) = v.px(f.x, f.y);
+    let ox = Slide::offset(f.slide).0;
+    let bob = if f.moving && g.frame / 6 % 2 == 0 { 1 } else { 0 };
+    fb.blit(&sp.boat, bx + ox, by + TS - 6 + bob, false);
+}
+
+/// Project boards with their progress, and signposts with where they point.
+fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    for b in g.world.boards.iter().filter(|b| v.sees(b.x, b.y)) {
+        let (x, y) = v.px(b.x, b.y);
+        let y = y - (b.bounce > 1) as i32;
+        fb.blit(&sp.board, x, y, false);
+        let (text, col) = if b.done() { ("DONE".to_string(), TEXT_GOOD) } else { (format!("{}/{}", b.have, b.need), TEXT) };
+        fb.text_centered(&text, x + 9, y - 8, col, Some(OUTLINE), 1);
+    }
+    for s in g.world.signs.iter().filter(|s| v.sees(s.x, s.y)) {
+        let (x, y) = v.px(s.x, s.y);
+        fb.blit(&sp.signpost, x + 1, y, false);
+        let w = Framebuffer::text_width(s.text, 1);
+        let lx = (x + 8 - w / 2).clamp(6, 394 - w);
+        fb.text(s.text, lx, y - 8, TEXT, Some(OUTLINE), 1);
+        // A small arrow beside the name, pointing the way.
+        let (ax, dir) = if s.dir == Dir::Left { (lx - 5, -1) } else { (lx + w + 2, 1) };
+        for (k, h) in [5, 3, 1].iter().enumerate() {
+            let col = ax + if dir > 0 { k as i32 } else { 2 - k as i32 };
+            fb.rect_fill(col, y - 8 + 3 - h / 2, 1, *h, SPARK + 2);
+        }
     }
 }
 
@@ -529,7 +717,9 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
 fn monster_pose<'a>(g: &Game, sp: &'a Sprites, v: &View, i: usize) -> (i32, i32, &'a Sprite, bool) {
     let m = &g.monsters[i];
     let frames = if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops };
-    let frame = if m.slide.is_some() {
+    // Riders stand still while the ferry carries them.
+    let riding = g.world.ferry.as_ref().is_some_and(|f| f.slide.is_some() && f.on_deck(m.x, m.y));
+    let frame = if m.slide.is_some() && !riding {
         2 + m.walk_frame as usize
     } else if m.busy {
         (g.frame / 2 % 2) as usize
@@ -594,6 +784,84 @@ fn draw_markers(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
             fb.blit(&sp.loop_icon, bx - 1, by - 2, false);
         }
     }
+}
+
+/// What a monster is doing, in a word and a color, for edge markers and the roster.
+fn state_of(g: &Game, i: usize) -> (&'static str, u8) {
+    let m = &g.monsters[i];
+    if m.busy {
+        ("WORKING", SPARK + 1)
+    } else if m.playing && m.wait >= 12 {
+        ("WAITING", TEXT_WARN)
+    } else if m.playing {
+        ("LOOPING", LOOP + 1)
+    } else if m.rec.is_some() {
+        ("RECORDING", REC + 1)
+    } else {
+        ("IDLE", TEXT_DIM)
+    }
+}
+
+/// Monsters on other screens get a marker at the edge pointing their way, colored by what
+/// they are doing, so a stuck one is noticeable from anywhere.
+fn draw_edge_markers(g: &Game, fb: &mut Framebuffer, v: &View) {
+    let mut placed: Vec<(i32, i32)> = Vec::new();
+    for (i, m) in g.monsters.iter().enumerate().filter(|(_, m)| !v.sees(m.x, m.y)) {
+        let (px, py) = v.px(m.x, m.y);
+        let (mut x, mut y) = ((px + 8).clamp(9, 391), (py + 8).clamp(9, VIEW_H - 9));
+        while placed.iter().any(|&(ox, oy)| (ox - x).abs() < 14 && (oy - y).abs() < 14) {
+            if x == 9 || x == 391 {
+                y = if y + 14 <= VIEW_H - 9 { y + 14 } else { y - 14 };
+            } else {
+                x = if x + 14 <= 391 { x + 14 } else { x - 14 };
+            }
+        }
+        placed.push((x, y));
+        let (_, col) = state_of(g, i);
+        fb.rect_fill(x - 6, y - 6, 13, 13, OUTLINE);
+        fb.rect_fill(x - 5, y - 5, 11, 11, col);
+        fb.rect_fill(x - 4, y - 4, 9, 9, HUD_FILL);
+        let initial = &m.name[..1];
+        fb.text(initial, x - 2, y - 3, TEXT, None, 1);
+        // A notch on the side facing the monster.
+        let (nx, ny) = (if px + 8 < 9 { -8 } else if px + 8 > 391 { 7 } else { 0 }, if py + 8 < 9 { -8 } else if py + 8 > VIEW_H - 9 { 7 } else { 0 });
+        if nx != 0 || ny != 0 {
+            fb.rect_fill(x + nx - if nx == 0 { 1 } else { 0 }, y + ny - if ny == 0 { 1 } else { 0 }, if nx == 0 { 3 } else { 1 }, if ny == 0 { 3 } else { 1 }, col);
+        }
+    }
+}
+
+/// Holding Tab: every monster, where it is and what it is doing.
+fn draw_roster(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
+    let n = g.monsters.len() as i32;
+    let w = 96;
+    let per_row = 4;
+    let rows = (n + per_row - 1) / per_row;
+    let h = rows * 26 + 6;
+    let (x0, y0) = ((400 - per_row.min(n) * w - 6) / 2, VIEW_H - h - 4);
+    fb.rect_bevel(x0, y0, per_row.min(n) * w + 6, h, HUD_FILL, HUD_HI, HUD_SHADOW);
+    for (i, m) in g.monsters.iter().enumerate() {
+        let (col, row) = (i as i32 % per_row, i as i32 / per_row);
+        let (x, y) = (x0 + 3 + col * w, y0 + 3 + row * 26);
+        if i == g.controlled {
+            fb.rect_fill(x, y, w, 26, HUD_MID);
+        }
+        let frames = if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops };
+        fb.blit(&frames[0], x + 2, y + 25 - frames[0].h, false);
+        let (state, color) = state_of(g, i);
+        fb.text(&m.name, x + 20, y + 3, TEXT, Some(HUD_SHADOW), 1);
+        fb.text(state, x + 20, y + 14, color, Some(HUD_SHADOW), 1);
+    }
+}
+
+/// The area's name, shown for a moment on arrival.
+fn draw_banner(g: &Game, fb: &mut Framebuffer) {
+    let Some((name, t)) = g.banner else { return };
+    let drop = (45 - t as i32).min(4) * 2 - 8;
+    let w = Framebuffer::text_width(name, 2) + 20;
+    let (x, y) = ((400 - w) / 2, 10 + drop);
+    fb.rect_bevel(x, y, w, 24, HUD_FILL, HUD_HI, HUD_SHADOW);
+    fb.text_centered(name, 200, y + 5, SPARK + 2, Some(HUD_SHADOW), 2);
 }
 
 fn jobs(g: &Game) -> impl Iterator<Item = ((i32, i32), &Job)> {

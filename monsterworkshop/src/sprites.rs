@@ -460,6 +460,14 @@ fn make_tool_icon(id: &str) -> Sprite {
                 }
             }
         }
+        "rope" => {
+            for (x, y) in [(2, 1), (3, 1), (4, 1), (5, 1), (1, 2), (6, 2), (1, 3), (6, 3), (1, 4), (6, 4), (1, 5), (6, 5), (2, 6), (3, 6), (4, 6), (5, 6)] {
+                s.set(x, y, COTTON + 1);
+            }
+            for (x, y) in [(3, 3), (4, 3), (3, 4), (4, 4)] {
+                s.set(x, y, COTTON + 2);
+            }
+        }
         "spool" => {
             for x in 2..=5 {
                 s.set(x, 1, WOOD + 3);
@@ -488,6 +496,303 @@ fn make_tool_icon(id: &str) -> Sprite {
     s.outline()
 }
 
+/// A cut stump with a sprout: a tree regrowing after its log was taken.
+fn stump(s: &mut Sprite) {
+    for y in 12..=15 {
+        for x in 5..=10 {
+            s.set(x, y, if x == 5 { WOOD + 2 } else if x == 10 { WOOD } else { WOOD + 1 });
+        }
+    }
+    for x in 5..=10 {
+        s.set(x, 12, WOOD + 3);
+    }
+    s.set(11, 11, LEAF + 2);
+    s.set(11, 10, LEAF + 1);
+}
+
+/// A conifer `h` rows tall: stacked tiers in hedge greens, lit on the left.
+fn conifer(s: &mut Sprite, h: i32, ramp: [u8; 3]) {
+    let top = 16 - h;
+    for y in top..=12 {
+        let k = y - top;
+        let half = (1 + k * 6 / (13 - top).max(1)).min(6) - if k % 4 == 3 { 1 } else { 0 };
+        for x in 8 - half..=7 + half {
+            let c = if x <= 8 - half + 1 { ramp[2] } else if x >= 7 + half - 1 { ramp[0] } else { ramp[1] };
+            s.set(x, y, c);
+        }
+    }
+    for y in 13..=15 {
+        s.set(7, y, WOOD + 1);
+        s.set(8, y, WOOD);
+    }
+}
+
+/// A broadleaf tree: a round crown on a short trunk.
+fn broadleaf(s: &mut Sprite, r: i32, ramp: [u8; 3]) {
+    circle_fill(s, 8, 12 - r, r, ramp);
+    for y in 12..=15 {
+        s.set(7, y, WOOD + 1);
+        s.set(8, y, WOOD);
+    }
+}
+
+fn shrub(s: &mut Sprite, rx: i32, ry: i32, ramp: [u8; 3]) {
+    let cy = 15 - ry;
+    for y in cy - ry..=15 {
+        for x in 8 - rx..=8 + rx {
+            let (dx, dy) = (x - 8, (y - cy).min(ry));
+            if dx * dx * ry * ry + dy * dy * rx * rx <= rx * rx * ry * ry {
+                let shade = dx + (y - cy);
+                s.set(x, y, if shade <= -2 { ramp[2] } else if shade >= 3 { ramp[0] } else { ramp[1] });
+            }
+        }
+    }
+}
+
+/// Tall stalks with leaves, `h` rows tall: bamboo poles (`nodes`) or ramie.
+fn stalks(s: &mut Sprite, xs: &[i32], h: i32, nodes: bool) {
+    for (k, &x) in xs.iter().enumerate() {
+        let top = 16 - h + (k as i32 % 2) * 2;
+        for y in top..=15 {
+            let node = nodes && (y - top) % 4 == 3;
+            s.set(x, y, if node { LEAF } else { LEAF + 1 });
+            s.set(x + 1, y, if node { LEAF } else { LEAF + 2 });
+        }
+        // Leaves sprouting from the upper part of each stalk: slim on bamboo, broad on ramie.
+        for (dy, dx) in [(1, -1), (3, 2), (5, -2), (7, 2)] {
+            let y = top + dy;
+            if y < 14 {
+                let (lx, len) = if dx < 0 { (x + dx - 1, 2) } else { (x + dx, 2) };
+                for k in 0..len {
+                    s.set(lx + k, y, LEAF + 2);
+                    if !nodes {
+                        s.set(lx + k, y + 1, LEAF + 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Wild plants by the good they yield, at growth stage 0 (regrowing), 1 (half grown) or 2
+/// (ready to gather).
+fn make_wild(good: &str, stage: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    let light = [LEAF, LEAF + 1, LEAF + 2];
+    let dark = [HEDGE, HEDGE + 1, LEAF + 1];
+    match (good, stage) {
+        ("hemlock_log" | "oak_log", 0) => stump(&mut s),
+        ("hemlock_log", 1) => conifer(&mut s, 10, [HEDGE + 1, LEAF, LEAF + 1]),
+        ("hemlock_log", _) => conifer(&mut s, 16, [HEDGE + 1, LEAF, LEAF + 1]),
+        ("oak_log", 1) => broadleaf(&mut s, 4, light),
+        ("oak_log", _) => broadleaf(&mut s, 6, light),
+        ("arrow_bamboo", _) => stalks(&mut s, &[4, 8, 12], [5, 10, 15][stage as usize], true),
+        ("ramie_stalks", _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
+        (_, 0) => {
+            for y in 12..=15 {
+                s.set(8, y, LEAF);
+            }
+            for (x, y) in [(6, 11), (7, 12), (9, 11), (10, 12)] {
+                s.set(x, y, LEAF + 2);
+            }
+        }
+        ("indigofera_leaves", 1) => shrub(&mut s, 4, 3, light),
+        ("indigofera_leaves", _) => shrub(&mut s, 6, 5, light),
+        (_, 1) => shrub(&mut s, 4, 3, dark),
+        _ => shrub(&mut s, 6, 5, dark),
+    }
+    if stage == 2 {
+        // Blossoms show what is ready: pink rhododendron and indigofera, white elder.
+        let bloom = match good {
+            "rhododendron_sticks" => Some((FLOWER, FLOWER + 1)),
+            "indigofera_leaves" => Some((FLOWER, WATER + 2)),
+            "elder_sticks" => Some((COTTON + 1, COTTON + 2)),
+            _ => None,
+        };
+        if let Some((a, b)) = bloom {
+            for (x, y) in [(5, 7), (10, 6), (8, 9), (4, 11), (12, 10), (7, 5)] {
+                s.set(x, y, b);
+                s.set(x + 1, y, a);
+                s.set(x, y + 1, a);
+                s.set(x + 1, y + 1, a);
+            }
+        }
+    }
+    s.outline()
+}
+
+/// A decorative tree that is not for gathering: darker than the wild trees that are.
+fn make_tree(round: bool) -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    if round {
+        broadleaf(&mut s, 6, [HEDGE, HEDGE + 1, HEDGE + 2]);
+    } else {
+        conifer(&mut s, 16, [HEDGE, HEDGE + 1, HEDGE + 2]);
+    }
+    s.outline()
+}
+
+/// A log lying on its side, its cut end facing you.
+fn make_log(bark: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 9);
+    for y in 2..=7 {
+        for x in 1..=11 {
+            s.set(x, y, if y == 2 { bark + 2 } else if y == 7 { bark } else if (x * 3 + y) % 7 == 0 { bark } else { bark + 1 });
+        }
+    }
+    circle_fill(&mut s, 12, 5, 3, [WOOD + 2, WOOD + 3, WOOD + 3]);
+    s.set(12, 5, WOOD + 2);
+    for x in 3..=10 {
+        s.set(x, 8, WOOD);
+    }
+    s.outline()
+}
+
+/// A bundle of sticks tied in the middle.
+fn make_sticks() -> Sprite {
+    let mut s = Sprite::blank(15, 9);
+    for (k, y0) in [(0, 2), (1, 4), (2, 6)] {
+        for x in 1..=13 {
+            let y = y0 + (x + k) / 7 - 1;
+            s.set(x, y.clamp(1, 8), if k == 1 { WOOD + 3 } else { WOOD + 2 });
+        }
+    }
+    for y in 2..=7 {
+        s.set(7, y, LEAF + 1);
+    }
+    for x in 3..=11 {
+        s.set(x, 8, WOOD + 1);
+    }
+    s.outline()
+}
+
+/// Bamboo poles in a bundle.
+fn make_bamboo() -> Sprite {
+    let mut s = Sprite::blank(16, 8);
+    for (y, c) in [(2, LEAF + 2), (4, LEAF + 1), (6, LEAF + 1)] {
+        for x in 1..=14 {
+            s.set(x, y, if x % 5 == 0 { LEAF } else { c });
+            s.set(x, y + 1, if x % 5 == 0 { LEAF } else { LEAF });
+        }
+    }
+    s.outline()
+}
+
+/// Cut green stalks, tied.
+fn make_stalk_bundle() -> Sprite {
+    let mut s = Sprite::blank(15, 8);
+    for y in 2..=6 {
+        for x in 1..=13 {
+            s.set(x, y, if y == 2 { LEAF + 2 } else if (x + y) % 3 == 0 { LEAF } else { LEAF + 1 });
+        }
+    }
+    for y in 2..=6 {
+        s.set(9, y, WOOD + 2);
+    }
+    for x in 3..=11 {
+        s.set(x, 7, LEAF);
+    }
+    s.outline()
+}
+
+/// A heap of indigofera leaves.
+fn make_leaves() -> Sprite {
+    let mut s = Sprite::blank(13, 9);
+    for (cx, cy) in [(4, 5), (8, 5), (6, 3)] {
+        circle_fill(&mut s, cx, cy, 3, [LEAF, LEAF + 1, LEAF + 2]);
+    }
+    for (x, y) in [(5, 4), (8, 6), (6, 2)] {
+        s.set(x, y, WATER + 1);
+    }
+    for x in 2..=10 {
+        s.set(x, 8, LEAF);
+    }
+    s.outline()
+}
+
+/// A coil of rope.
+fn make_rope() -> Sprite {
+    let mut s = Sprite::blank(14, 12);
+    circle_fill(&mut s, 7, 6, 5, [COTTON, COTTON + 1, COTTON + 2]);
+    for (x, y) in [(5, 4), (6, 4), (7, 4), (8, 4), (4, 5), (9, 5), (4, 6), (9, 6), (5, 7), (8, 7)] {
+        s.set(x, y, COTTON);
+    }
+    for (x, y) in [(6, 5), (7, 5), (6, 6), (7, 6)] {
+        s.set(x, y, 0);
+    }
+    for (x, y) in [(2, 3), (3, 8), (10, 2), (11, 8)] {
+        s.set(x, y, COTTON);
+    }
+    for x in 4..=10 {
+        s.set(x, 11, COTTON);
+    }
+    s.outline()
+}
+
+/// The ferry: a flat two-tile boat with a plank deck.
+fn make_boat() -> Sprite {
+    let mut s = Sprite::blank(32, 9);
+    for y in 1..=7 {
+        let inset = (y - 4).max(0);
+        for x in 1 + inset..=30 - inset {
+            let c = match y {
+                1 => WOOD + 3,
+                2 | 3 => if (x + 2) % 8 == 0 { PLANK } else { PLANK + 2 },
+                4 => WOOD + 2,
+                _ => WOOD + (y == 5) as u8,
+            };
+            s.set(x, y, c);
+        }
+    }
+    for x in [2, 29] {
+        s.set(x, 0, WOOD + 3);
+    }
+    s.outline()
+}
+
+fn make_signpost() -> Sprite {
+    let mut s = Sprite::blank(14, 16);
+    for y in 5..=15 {
+        s.set(6, y, WOOD + 2);
+        s.set(7, y, WOOD + 1);
+    }
+    for y in 1..=5 {
+        for x in 1..=12 {
+            s.set(x, y, if y == 1 { WOOD + 3 } else if y == 5 { WOOD + 1 } else { WOOD + 2 });
+        }
+    }
+    s.outline()
+}
+
+/// A project board on two posts with a notice pinned to it.
+fn make_board() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    for y in 9..=15 {
+        s.set(2, y, WOOD + 1);
+        s.set(13, y, WOOD + 1);
+    }
+    for y in 1..=10 {
+        for x in 1..=14 {
+            s.set(x, y, if y == 1 { WOOD + 3 } else if y == 10 { WOOD + 1 } else { WOOD + 2 });
+        }
+    }
+    for y in 3..=8 {
+        for x in 4..=11 {
+            s.set(x, y, if y == 3 { COTTON + 2 } else { COTTON + 1 });
+        }
+    }
+    for y in [5, 7] {
+        for x in 5..=10 {
+            s.set(x, y, HUD_HI);
+        }
+    }
+    s.set(7, 3, REC + 1);
+    s.outline()
+}
+
+/// Goods gathered in the wild, each with its plant.
+const WILD: [&str; 7] = ["hemlock_log", "oak_log", "elder_sticks", "rhododendron_sticks", "arrow_bamboo", "ramie_stalks", "indigofera_leaves"];
+
 pub struct Sprites {
     pub goblin: [Sprite; 4],
     pub cyclops: [Sprite; 4],
@@ -508,6 +813,18 @@ pub struct Sprites {
     pub marker: Sprite,
     pub icon_cotton: Sprite,
     pub icon_thread: Sprite,
+    wild: Vec<(&'static str, [Sprite; 3])>,
+    pub trees: [Sprite; 2],
+    pub hemlock_log: Sprite,
+    pub oak_log: Sprite,
+    pub sticks: Sprite,
+    pub bamboo: Sprite,
+    pub stalk_bundle: Sprite,
+    pub leaves: Sprite,
+    pub rope: Sprite,
+    pub boat: Sprite,
+    pub signpost: Sprite,
+    pub board: Sprite,
 }
 
 impl Sprites {
@@ -522,7 +839,7 @@ impl Sprites {
             bench: make_bench(),
             loom: make_loom(),
             crate_: make_crate(),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
             wheel: [make_wheel(0), make_wheel(1)],
@@ -532,6 +849,18 @@ impl Sprites {
             marker: make_marker(),
             icon_cotton: make_icon(true),
             icon_thread: make_icon(false),
+            wild: WILD.iter().map(|&g| (g, [make_wild(g, 0), make_wild(g, 1), make_wild(g, 2)])).collect(),
+            trees: [make_tree(false), make_tree(true)],
+            hemlock_log: make_log(WOOD + 1),
+            oak_log: make_log(WOOD),
+            sticks: make_sticks(),
+            bamboo: make_bamboo(),
+            stalk_bundle: make_stalk_bundle(),
+            leaves: make_leaves(),
+            rope: make_rope(),
+            boat: make_boat(),
+            signpost: make_signpost(),
+            board: make_board(),
         }
     }
 }
@@ -545,8 +874,21 @@ impl Sprites {
             "thread" => &self.thread,
             "fabric" | "dyed_fabric" => &self.fabric,
             "spool" => &self.spool,
+            "hemlock_log" => &self.hemlock_log,
+            "oak_log" => &self.oak_log,
+            "elder_sticks" | "rhododendron_sticks" => &self.sticks,
+            "arrow_bamboo" => &self.bamboo,
+            "ramie_stalks" => &self.stalk_bundle,
+            "indigofera_leaves" => &self.leaves,
+            "rope" => &self.rope,
             other => self.icon(other).unwrap_or(&self.crate_),
         }
+    }
+
+    /// A plant's sprite for its good and growth stage; cotton has its own.
+    pub fn plant(&self, good: &str, stage: u8) -> &Sprite {
+        let stage = stage.min(2) as usize;
+        self.wild.iter().find(|(g, _)| *g == good).map_or(&self.plant[stage], |(_, frames)| &frames[stage])
     }
 
     pub fn icon(&self, good: &str) -> Option<&Sprite> {
@@ -570,7 +912,9 @@ mod tests {
     #[test]
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
-        let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
+        let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board];
+        let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);
             assert!(s.w <= 16 && s.h <= 16);

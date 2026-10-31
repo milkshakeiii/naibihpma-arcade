@@ -67,7 +67,7 @@ impl Game {
         let facing = m.facing;
         let (dx, dy) = facing.delta();
         let drop = (m.x + dx, m.y + dy);
-        if !self.world.tile(drop.0, drop.1).item_floor() {
+        if !self.world.item_floor(drop.0, drop.1) {
             return UseRes::Wait("NO ROOM TO DROP IT THERE.".into());
         }
         let (good, x, y) = (plant.good.clone(), plant.x, plant.y);
@@ -87,7 +87,7 @@ impl Game {
         if plant.stock.is_empty() {
             return;
         }
-        let free = self.world.tile(x, y).item_floor() && self.world.item_at(x, y).is_none() && self.monster_at(x, y).is_none();
+        let free = self.world.item_floor(x, y) && self.world.item_at(x, y).is_none() && self.monster_at(x, y).is_none();
         let plant = &mut self.world.plants[p];
         if !free {
             return;
@@ -120,7 +120,7 @@ impl Game {
         let kind = shop.kind;
         let chosen = kind.recipes().iter().find_map(|r| self.match_inputs(s, r).map(|inputs| (r.to_string(), inputs)));
         let Some((recipe, inputs)) = chosen else {
-            let first = self.data.good(kind.recipes()[0]);
+            let first = self.data.good(shop.default_recipe(&self.data));
             let want = first.input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
             return UseRes::Wait(format!("PUT {want} ON THE PAD."));
         };
@@ -143,7 +143,7 @@ impl Game {
         let (recipe, inputs) = match found {
             Some((r, idx)) => (r, Ok(idx.iter().map(|&i| self.world.items[i].data.clone()).collect())),
             None => {
-                let r = kind.recipes()[0];
+                let r = self.world.shops[s].default_recipe(&self.data);
                 let want = self.data.good(r).input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
                 (r.to_string(), Err(want))
             }

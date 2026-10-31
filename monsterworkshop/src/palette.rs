@@ -33,10 +33,11 @@ pub const TEXT_WARN: u8 = 56;
 pub const BUBBLE: u8 = 57;
 pub const INK: u8 = 58; // dark text inside speech bubbles
 pub const FLOWER: u8 = 59; // 2 decorative yard flowers
+pub const WATER: u8 = 61; // 3 river and lake
 
 /// Every multi-shade ramp, dark to light, so a sprite can be brightened or dimmed by
 /// shifting its palette indices within their ramps (no alpha, per AGENTS.md).
-const RAMPS: [(u8, u8); 15] = [
+const RAMPS: [(u8, u8); 16] = [
     (GRASS, 4),
     (PATH, 3),
     (HEDGE, 3),
@@ -52,6 +53,7 @@ const RAMPS: [(u8, u8); 15] = [
     (REC, 2),
     (LOOP, 2),
     (FLOWER, 2),
+    (WATER, 3),
 ];
 
 /// `c` moved `k` steps lighter (or darker, if negative) within its ramp.
@@ -97,6 +99,7 @@ pub fn build() -> [u32; 64] {
     ramp(&mut p, REC, 2, ((152, 26, 34), (240, 76, 64)));
     ramp(&mut p, LOOP, 2, ((36, 132, 156), (128, 224, 232)));
     ramp(&mut p, FLOWER, 2, ((200, 100, 160), (252, 220, 120)));
+    ramp(&mut p, WATER, 3, ((30, 58, 104), (104, 164, 204)));
 
     let fixed: [(u8, Rgb); 15] = [
         (OUTLINE, (16, 12, 22)),
@@ -142,9 +145,10 @@ mod tests {
 
     #[test]
     fn ramps_do_not_overlap() {
-        let ramps: [(u8, u8); 18] = [
+        let ramps: [(u8, u8); 20] = [
             (GRASS, 4), (PATH, 3), (HEDGE, 3), (WOOD, 4), (PLANK, 4), (MAT, 3), (COTTON, 3), (THREAD, 3), (LEAF, 3),
             (GOBLIN, 3), (CYCLOPS, 3), (EYE, 1), (TOOTH, 1), (SPARK, 3), (REC, 2), (LOOP, 2), (DUST, 1), (SHADOW, 1),
+            (FLOWER, 2), (WATER, 3),
         ];
         let mut used = [false; 64];
         for (start, n) in ramps {
