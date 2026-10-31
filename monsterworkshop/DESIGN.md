@@ -18,6 +18,31 @@ During play the target is zero full-screen menus. Every action gets visible and 
 
 **Cut from 1.0:** upkeep, cost multiplier, monster aging.
 
+**Later, a persistent world.** The end product may also offer a persistent multiplayer world. To keep that possible, the simulation stays headless and separate from rendering, as it is in the prototype. World rules work like survival-game server settings:
+- **Time scale:** fast for single-player, slow for a persistent world.
+- **Monsters working while you're away:** off, or catch up a capped amount of time.
+
+### First production chain
+Cotton cloth: **Cotton Bolls → Cotton Slivers → Thread → Fabric.** The production chains come from *Tian Gong Kai Wu* (Song Yingxing, 1637). New goods that fill gaps in the tech tree are proposed from that book, and Henry approves them before they go in.
+
+Added on 2026-10-30, so the chain can be built from gathering alone:
+- **Raw wood varieties**, with values and densities from the first tech tree: Elder Sticks, Rhododendron Sticks, Hemlock Log, Oak Log, and Arrow Bamboo (the book's bamboo for weft quills).
+- **Five carpentry tools** from the book's cotton section (乃服·布衣):
+  - Cotton Gin (趕車): two hardwood rollers, which the book compares to the sugar-cane press;
+  - Cotton Bow (彈弓): its string is ramie, where the book uses ox sinew, because the tree has no animal goods yet;
+  - Spinning Wheel (紡車);
+  - Spool (籰);
+  - Waist Loom (腰機): the book's loom for cotton cloth.
+
+Fixes made at the same time:
+- Plain Fabric no longer needs a figure pattern. The book says plain is enough for cotton cloth. Figure patterns belong to a future Figured Silk made on a Draw Loom (花機).
+- Cotton Slivers needs a *cotton* bow, so it no longer shares a tag with the iron-wire bow used to cut clay tiles.
+- Cotton Seeds' tag was split into letters; it now asks for "cotton gin".
+- Dyed Fabric now carries its dye color, which also makes Royal Blue Dyed Fabric's input reachable.
+
+### Music
+Henry composes the soundtrack. The arcade's Star Pond already streams WAV music, so that code can be reused.
+
 **v1.5:** equipment as physical crafted wearables; charity and great-works drop-offs; and an in-world quality sorter (see below).
 
 ## Features
@@ -46,8 +71,16 @@ Skill growth is shown as it happens. A small "+SPINNING" floats up when a skill 
 ### Items and quality
 Quality is shown on the sprite: brighter is better, and exceptional items sparkle. Tools carry a durability bar. The inspect card gives the details.
 
+### Varieties (carried-over tags)
+Goods come in varieties, like Dwarf Fortress materials: oak or hemlock, cotton or ramie, crimson or indigo. Each recipe lists which tags carry from each input into the output, and tags keep flowing through every later step, so crimson dye on cotton fabric makes a crimson cotton fabric.
+- **Each raw variety is its own good**, with its own base value, density and rarity.
+- **Value and weight follow automatically.** Every good records the raw materials in its history; value adds up their base values, and weight uses their average density. An oak loom is worth more and weighs more than a hemlock one. A tool's material does not pass into what it makes; only its quality does.
+- **Color comes from one chosen input** per good: dyed goods take the dye's color, thread takes its fiber's, tools take their wood's. Each variety maps to a palette ramp, and the sprite is recolored by swapping palette indices, which AGENTS.md allows.
+- **Names and the inspect card** show varieties: "Oak Loom", "Crimson Cotton Fabric".
+- **Gathering:** which variety a gathering spot yields is part of the world-layout discussion. Rarity is already in the data for it, and rare varieties fit the wilderness.
+
 ### The inspect card
-Hold the inspect key (to be chosen by feel, e.g. Shift) to show a card anchored next to the tile you're facing. If that tile is empty, the card describes the monster you're controlling.
+Hold **E** ("examine") to show a card anchored next to the tile you're facing. Use moves to Space only; in the prototype E also triggers Use. If that tile is empty, the card describes the monster you're controlling.
 - **Item:** name, quality, durability (for tools), carried-over tags, and who contributed to it.
 - **Monster:** name, type, ability scores, the 3 transferable skills, and the top applied skills as bars.
 - **Workshop (the forecast):** hold inspect while standing on the work spot. The card shows, for the monster there (or the one you control):
@@ -118,14 +151,16 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 
 ## Open questions
 
-- **Saving:** a local-first game needs a save file (world, monsters, routines). Format and autosave cadence are still to decide.
-- **Offline progress:** either monsters only work while the game runs, or the game catches up a capped amount of time on launch. The current lean is only-while-running for 1.0.
-- **Applicants:** how many are offered at once, how often they refresh, and how cost scales with type and skills.
-- **Inspect key:** which key feels best. Try it in play.
-- **Hauling and wagon skills** used to learn from transport tasks that had a duration. In the grid world they need a new trigger, for example learning per tile hauled.
+- **Saving:** there is always a save file (world, monsters, routines). Format and autosave cadence are still to decide. Offline progress is a setting (see Scope).
+- **World layout:** the two towns, the wilderness, and how big a map is. To work out together.
+- **Weight you can feel (proposal):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.
+- **Crafting without a workshop:** most recipes don't need one. In the grid world they still need a work spot, likely a simple outdoor workbench. Part of the placing-workshops question.
+- **Placing workshops:** possibly a major feature, so that where you build matters, for example next to a resource. Under discussion.
+- **Tune in play:** economy numbers (starting renown, hiring costs, monster count, project costs), applicant rules (how many, refresh rate, pricing), and the time-scale presets.
+- **Hauling and wagon skills** are learned by doing. Each tile a monster pushes cargo, or pulls a loaded wagon, counts as a few seconds of hauling or wagon-driving task time, for both learning and forgetting.
 - **Tech-tree data to fix in M1:**
   - About 80 required tags are provided by no good.
-  - 4 recipes have a tag split into letters.
+  - 3 recipes have a tag split into letters.
   - Bricks and Ash Glaze have nested tool weights.
   - Indigo lists Chemistry as both its primary and a secondary skill.
   - The second "Saw" is really a pick.

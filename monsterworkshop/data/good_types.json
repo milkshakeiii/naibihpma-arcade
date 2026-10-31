@@ -190,14 +190,10 @@
       "tools_required_tags": [
         [
           "loom"
-        ],
-        [
-          "figure pattern"
         ]
       ],
       "tools_weights": [
-        8,
-        4
+        8
       ],
       "transferable_skills": [
         "handcrafts",
@@ -383,7 +379,7 @@
           "cotton gin"
         ],
         [
-          "bow"
+          "cotton bow"
         ]
       ],
       "tools_weights": [
@@ -432,13 +428,7 @@
       "storage_volume": 0.1,
       "tools_required_tags": [
         [
-          "c",
-          "o",
-          "t",
-          "n",
-          " ",
-          "g",
-          "i"
+          "cotton gin"
         ]
       ],
       "tools_weights": [
@@ -2192,7 +2182,22 @@
           "silk",
           "velvetleaf"
         ],
-        []
+        [
+          "black",
+          "bright green",
+          "canary yellow",
+          "crimson",
+          "dark green",
+          "deep sky blue",
+          "eggshell blue",
+          "golden yellow",
+          "indigo",
+          "light green",
+          "pink",
+          "purple",
+          "tea brown",
+          "wood red"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -5791,6 +5796,490 @@
         "metal"
       ],
       "value_added_shares": 5
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Elder Sticks",
+      "primary_applied_skill": "gathering",
+      "production_time": 120,
+      "quantity": 2,
+      "raw_material_base_value": 2,
+      "raw_material_density": 70,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "sticks",
+        "wood",
+        "softwood",
+        "elder"
+      ],
+      "value_added_shares": 2
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Rhododendron Sticks",
+      "primary_applied_skill": "gathering",
+      "production_time": 120,
+      "quantity": 2,
+      "raw_material_base_value": 3,
+      "raw_material_density": 60,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "sticks",
+        "wood",
+        "rhododendron"
+      ],
+      "value_added_shares": 2
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Hemlock Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 3,
+      "raw_material_density": 90,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "softwood",
+        "hemlock"
+      ],
+      "value_added_shares": 2
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Oak Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 6,
+      "raw_material_density": 100,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "hardwood",
+        "oak"
+      ],
+      "value_added_shares": 2
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Arrow Bamboo",
+      "primary_applied_skill": "gathering",
+      "production_time": 180,
+      "quantity": 2,
+      "raw_material_base_value": 2,
+      "raw_material_density": 60,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.4,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "bamboo",
+        "arrow bamboo"
+      ],
+      "value_added_shares": 2
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "input_goods_tags_carryover": [
+        [
+          "oak",
+          "hemlock"
+        ],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "log",
+          "wood"
+        ],
+        [
+          "sticks"
+        ],
+        [
+          "sticks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Cotton Gin",
+      "primary_applied_skill": "carpentry",
+      "production_time": 600,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "textiles",
+        "milling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "cotton gin"
+      ],
+      "value_added_shares": 5
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "input_goods_tags_carryover": [
+        [
+          "arrow bamboo"
+        ],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "bamboo"
+        ],
+        [
+          "ramie",
+          "stalks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Cotton Bow",
+      "primary_applied_skill": "carpentry",
+      "production_time": 240,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "textiles"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "music",
+        "athletics"
+      ],
+      "type_tags": [
+        "cotton bow"
+      ],
+      "value_added_shares": 3
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 12,
+      "has_quality": true,
+      "input_goods_tags_carryover": [
+        [
+          "oak",
+          "hemlock"
+        ],
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "log",
+          "wood"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "ramie",
+          "stalks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Spinning Wheel",
+      "primary_applied_skill": "carpentry",
+      "production_time": 900,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "spinning",
+        "textiles"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.8,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "spinner",
+        "spinning wheel"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 6,
+      "has_quality": true,
+      "input_goods_tags_carryover": [
+        [
+          "arrow bamboo"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "bamboo"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Spool",
+      "primary_applied_skill": "carpentry",
+      "production_time": 120,
+      "quantity": 2,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "spinning"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.1,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "engineering",
+        "mathematics"
+      ],
+      "type_tags": [
+        "spool"
+      ],
+      "value_added_shares": 2
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 14,
+      "has_quality": true,
+      "input_goods_tags_carryover": [
+        [
+          "oak",
+          "hemlock"
+        ],
+        [
+          "oak",
+          "hemlock"
+        ],
+        [],
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "log",
+          "wood"
+        ],
+        [
+          "log",
+          "wood"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "ramie",
+          "stalks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Waist Loom",
+      "primary_applied_skill": "carpentry",
+      "production_time": 1800,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "weaving",
+        "textiles"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.5,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "engineering",
+        "mathematics",
+        "handcrafts"
+      ],
+      "type_tags": [
+        "loom",
+        "waist loom"
+      ],
+      "value_added_shares": 8
     }
   ]
 }
