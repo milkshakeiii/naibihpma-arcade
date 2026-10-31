@@ -6,6 +6,7 @@
       ],
       "difficulty_rating": 15,
       "has_quality": true,
+      "id": "silkworm_cacoons",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -93,6 +94,7 @@
       ],
       "difficulty_rating": 14,
       "has_quality": true,
+      "id": "silk_thread",
       "input_goods_tags_carryover": [
         [],
         []
@@ -155,6 +157,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "fabric",
       "input_goods_tags_carryover": [
         [
           "climbing hempvine",
@@ -209,6 +212,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "ramie_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -248,6 +252,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 7,
       "has_quality": false,
+      "id": "cotton_bolls",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -285,6 +290,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 8,
       "has_quality": false,
+      "id": "bast_fiber",
       "input_goods_tags_carryover": [
         [
           "climbing hempvine",
@@ -349,6 +355,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "cotton_slivers",
       "input_goods_tags_carryover": [
         []
       ],
@@ -401,6 +408,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 5,
       "has_quality": false,
+      "id": "cotton_seeds",
       "input_goods_tags_carryover": [
         []
       ],
@@ -452,6 +460,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "thread",
       "input_goods_tags_carryover": [
         [
           "climbing hempvine",
@@ -510,6 +519,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 16,
       "has_quality": false,
+      "id": "kudzu_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -550,6 +560,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 8,
       "has_quality": false,
+      "id": "hemp_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -590,6 +601,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "velvetleaf_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -629,6 +641,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 12,
       "has_quality": false,
+      "id": "climbing_hempvine_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -680,6 +693,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 2,
       "has_quality": false,
+      "id": "whole_grain",
       "input_goods_tags_carryover": [
         [
           "oily",
@@ -732,6 +746,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 12,
       "has_quality": false,
+      "id": "safflower_blossoms",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -771,6 +786,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 5,
       "has_quality": false,
+      "id": "safflower_seeds",
       "input_goods_tags_carryover": [
         []
       ],
@@ -814,6 +830,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "safflower_cakes",
       "input_goods_tags_carryover": [
         []
       ],
@@ -866,6 +883,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "scholartree_buds",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -905,6 +923,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 8,
       "has_quality": false,
+      "id": "scholartree_bud_cakes",
       "input_goods_tags_carryover": [
         []
       ],
@@ -957,6 +976,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 12,
       "has_quality": false,
+      "id": "green_vitriol_found",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -1007,6 +1027,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "green_vitriol",
       "input_goods_tags_carryover": [
         [],
         []
@@ -1062,6 +1083,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 11,
       "has_quality": false,
+      "id": "lye",
       "input_goods_tags_carryover": [
         [
           "climbing hempvine",
@@ -1115,6 +1137,7 @@
       ],
       "difficulty_rating": 7,
       "has_quality": true,
+      "id": "plums",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -1155,6 +1178,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "crimson_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1212,6 +1236,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "pink_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1263,6 +1288,7 @@
       ],
       "difficulty_rating": 8,
       "has_quality": true,
+      "id": "gallnuts",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -1301,6 +1327,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 13,
       "has_quality": false,
+      "id": "alum_found",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -1341,6 +1368,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "wood_red_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1398,6 +1426,7 @@
       ],
       "difficulty_rating": 14,
       "has_quality": true,
+      "id": "purple_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1451,6 +1480,7 @@
       ],
       "difficulty_rating": 14,
       "has_quality": true,
+      "id": "canary_yellow_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1504,6 +1534,7 @@
       ],
       "difficulty_rating": 14,
       "has_quality": true,
+      "id": "golden_yellow_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1558,6 +1589,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "indigo",
       "input_goods_tags_carryover": [
         [
           "pigweed indigo",
@@ -1595,8 +1627,7 @@
       "requires_workshop": true,
       "secondary_applied_skills": [
         "gathering",
-        "textiles",
-        "chemistry"
+        "textiles"
       ],
       "size": [
         2,
@@ -1620,6 +1651,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "seeth_water",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1670,6 +1702,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "indigofera_leaves",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -1710,6 +1743,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 14,
       "has_quality": false,
+      "id": "pigweed_indigo_leaves",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -1752,6 +1786,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "tea_brown_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1803,6 +1838,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 12,
       "has_quality": false,
+      "id": "lotus_blossoms",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -1843,6 +1879,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "dark_green_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1901,6 +1938,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "bright_green_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -1955,6 +1993,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "light_green_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -2008,6 +2047,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "deep_sky_blue_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -2061,6 +2101,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "eggshell_blue_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -2114,6 +2155,7 @@
       ],
       "difficulty_rating": 15,
       "has_quality": true,
+      "id": "black_dye",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -2172,6 +2214,7 @@
       ],
       "difficulty_rating": 11,
       "has_quality": true,
+      "id": "dyed_fabric",
       "input_goods_tags_carryover": [
         [
           "climbing hempvine",
@@ -2250,6 +2293,7 @@
       ],
       "difficulty_rating": 15,
       "has_quality": true,
+      "id": "royal_blue_dyed_fabric",
       "input_goods_tags_carryover": [
         [
           "climbing hempvine",
@@ -2314,6 +2358,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "rice_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2358,6 +2403,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "rice_stalks_irrigated",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2402,6 +2448,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "wheat_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2446,6 +2493,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 4,
       "has_quality": false,
+      "id": "hulled_grain",
       "input_goods_tags_carryover": [
         [
           "barley",
@@ -2505,6 +2553,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "flour",
       "input_goods_tags_carryover": [
         [
           "barley",
@@ -2562,6 +2611,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "flour_powered",
       "input_goods_tags_carryover": [
         [
           "barley",
@@ -2611,6 +2661,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "barley_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2654,6 +2705,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "sorghum_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2697,6 +2749,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 11,
       "has_quality": false,
+      "id": "sesame_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2742,6 +2795,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 9,
       "has_quality": false,
+      "id": "little_millet_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2785,6 +2839,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "dark_barley_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2828,6 +2883,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 6,
       "has_quality": false,
+      "id": "hungry_rice_stalks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -2872,6 +2928,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 8,
       "has_quality": false,
+      "id": "sea_salt",
       "input_goods_tags_carryover": [
         []
       ],
@@ -2921,6 +2978,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 8,
       "has_quality": false,
+      "id": "well_salt",
       "input_goods_tags_carryover": [
         []
       ],
@@ -2970,6 +3028,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 7,
       "has_quality": false,
+      "id": "white_sugar_cane",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -3012,6 +3071,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 7,
       "has_quality": false,
+      "id": "brown_sugar_cane",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -3056,6 +3116,7 @@
       ],
       "difficulty_rating": 8,
       "has_quality": true,
+      "id": "sugar",
       "input_goods_tags_carryover": [
         [
           "white sugar",
@@ -3119,6 +3180,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "shaped_candy",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -3174,6 +3236,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "malt",
       "input_goods_tags_carryover": [
         [
           "barley",
@@ -3234,6 +3297,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 7,
       "has_quality": false,
+      "id": "red_clay",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -3273,6 +3337,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 8,
       "has_quality": false,
+      "id": "yellow_clay",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -3312,6 +3377,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 9,
       "has_quality": false,
+      "id": "blue_clay",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -3351,6 +3417,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 11,
       "has_quality": false,
+      "id": "white_clay",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -3390,6 +3457,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 12,
       "has_quality": false,
+      "id": "black_clay",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -3431,6 +3499,7 @@
       ],
       "difficulty_rating": 8,
       "has_quality": true,
+      "id": "clay_tiles",
       "input_goods_tags_carryover": [
         [
           "black clay",
@@ -3495,6 +3564,7 @@
       ],
       "difficulty_rating": 8,
       "has_quality": true,
+      "id": "bricks",
       "input_goods_tags_carryover": [
         [
           "black clay",
@@ -3536,9 +3606,7 @@
         ]
       ],
       "tools_weights": [
-        [
-          3
-        ]
+        3
       ],
       "transferable_skills": [
         "science",
@@ -3558,6 +3626,7 @@
       ],
       "difficulty_rating": 16,
       "has_quality": true,
+      "id": "clay_palace_tiles",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -3642,6 +3711,7 @@
       ],
       "difficulty_rating": 16,
       "has_quality": true,
+      "id": "clay_palace_bricks",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -3725,6 +3795,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "ash_glaze",
       "input_goods_tags_carryover": [
         [
           "climbing hempvine",
@@ -3771,12 +3842,8 @@
         ]
       ],
       "tools_weights": [
-        [
-          2
-        ],
-        [
-          2
-        ]
+        2,
+        2
       ],
       "transferable_skills": [
         "science",
@@ -3794,6 +3861,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "palace_glaze",
       "input_goods_tags_carryover": [
         [],
         []
@@ -3844,6 +3912,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 11,
       "has_quality": false,
+      "id": "porcelain_clay_paste",
       "input_goods_tags_carryover": [
         [
           "black clay",
@@ -3910,6 +3979,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "decorated_ceramic",
       "input_goods_tags_carryover": [
         [],
         [
@@ -3970,6 +4040,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "ceramic_cup",
       "input_goods_tags_carryover": [
         [
           "black clay",
@@ -4036,6 +4107,7 @@
       ],
       "difficulty_rating": 16,
       "has_quality": true,
+      "id": "temple_bell",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4131,6 +4203,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "metal_pot",
       "input_goods_tags_carryover": [
         [],
         []
@@ -4186,6 +4259,7 @@
       ],
       "difficulty_rating": 11,
       "has_quality": true,
+      "id": "ceramic_pot_mold",
       "input_goods_tags_carryover": [
         [
           "black clay",
@@ -4249,6 +4323,7 @@
       ],
       "difficulty_rating": 17,
       "has_quality": true,
+      "id": "great_metal_statue",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4368,6 +4443,7 @@
       ],
       "difficulty_rating": 16,
       "has_quality": true,
+      "id": "large_mirror",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4425,6 +4501,7 @@
       ],
       "difficulty_rating": 13,
       "has_quality": true,
+      "id": "ceramic_sycee_mold",
       "input_goods_tags_carryover": [
         [
           "black clay",
@@ -4487,6 +4564,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "sycee",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4547,6 +4625,7 @@
       ],
       "difficulty_rating": 8,
       "has_quality": true,
+      "id": "stone_anvil",
       "input_goods_tags_carryover": [
         []
       ],
@@ -4601,6 +4680,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "metal_anvil",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4672,6 +4752,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "sand_mold",
       "input_goods_tags_carryover": [
         [],
         [
@@ -4731,6 +4812,7 @@
       ],
       "difficulty_rating": 11,
       "has_quality": true,
+      "id": "mirror_pattern",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4794,6 +4876,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "knife",
       "input_goods_tags_carryover": [
         [],
         []
@@ -4857,6 +4940,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "metal_axe",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4928,6 +5012,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "metal_hammer",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -4999,6 +5084,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "flail",
       "input_goods_tags_carryover": [
         [],
         []
@@ -5047,6 +5133,7 @@
       ],
       "difficulty_rating": 11,
       "has_quality": true,
+      "id": "file",
       "input_goods_tags_carryover": [
         [],
         []
@@ -5114,6 +5201,7 @@
       ],
       "difficulty_rating": 9,
       "has_quality": true,
+      "id": "needle",
       "input_goods_tags_carryover": [
         []
       ],
@@ -5164,6 +5252,7 @@
       ],
       "difficulty_rating": 11,
       "has_quality": true,
+      "id": "wire",
       "input_goods_tags_carryover": [
         [],
         []
@@ -5223,6 +5312,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "saw",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -5298,6 +5388,7 @@
       ],
       "difficulty_rating": 9,
       "has_quality": true,
+      "id": "nail",
       "input_goods_tags_carryover": [
         [],
         []
@@ -5362,6 +5453,7 @@
       ],
       "difficulty_rating": 11,
       "has_quality": true,
+      "id": "die_pattern",
       "input_goods_tags_carryover": [
         []
       ],
@@ -5412,6 +5504,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "die",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -5465,6 +5558,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "metal_chisel",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -5536,6 +5630,7 @@
       ],
       "difficulty_rating": 6,
       "has_quality": true,
+      "id": "stone_hammer",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -5586,6 +5681,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 14,
       "has_quality": false,
+      "id": "oyster_lime",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -5635,6 +5731,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "coal",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -5684,6 +5781,7 @@
       "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
+      "id": "coke",
       "input_goods_tags_carryover": [
         [],
         []
@@ -5732,6 +5830,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "pick",
       "input_goods_tags_carryover": [
         [],
         [],
@@ -5755,7 +5854,7 @@
         ]
       ],
       "is_fixed_quantity": true,
-      "name": "Saw",
+      "name": "Pick",
       "primary_applied_skill": "blacksmithing",
       "production_time": 300,
       "relevant_ability_score": 0,
@@ -5803,6 +5902,7 @@
       ],
       "difficulty_rating": 7,
       "has_quality": true,
+      "id": "elder_sticks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -5845,6 +5945,7 @@
       ],
       "difficulty_rating": 7,
       "has_quality": true,
+      "id": "rhododendron_sticks",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -5886,6 +5987,7 @@
       ],
       "difficulty_rating": 7,
       "has_quality": true,
+      "id": "hemlock_log",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -5928,6 +6030,7 @@
       ],
       "difficulty_rating": 7,
       "has_quality": true,
+      "id": "oak_log",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -5970,6 +6073,7 @@
       ],
       "difficulty_rating": 7,
       "has_quality": true,
+      "id": "arrow_bamboo",
       "input_goods_tags_carryover": [],
       "input_goods_tags_required": [],
       "is_fixed_quantity": false,
@@ -6010,6 +6114,7 @@
       ],
       "difficulty_rating": 10,
       "has_quality": true,
+      "id": "cotton_gin",
       "input_goods_tags_carryover": [
         [
           "oak",
@@ -6064,6 +6169,7 @@
       ],
       "difficulty_rating": 8,
       "has_quality": true,
+      "id": "cotton_bow",
       "input_goods_tags_carryover": [
         [
           "arrow bamboo"
@@ -6112,6 +6218,7 @@
       ],
       "difficulty_rating": 12,
       "has_quality": true,
+      "id": "spinning_wheel",
       "input_goods_tags_carryover": [
         [
           "oak",
@@ -6172,6 +6279,7 @@
       ],
       "difficulty_rating": 6,
       "has_quality": true,
+      "id": "spool",
       "input_goods_tags_carryover": [
         [
           "arrow bamboo"
@@ -6215,6 +6323,7 @@
       ],
       "difficulty_rating": 14,
       "has_quality": true,
+      "id": "waist_loom",
       "input_goods_tags_carryover": [
         [
           "oak",

@@ -178,6 +178,13 @@ Each matching transferable skill drops the weakest secondary skill and the two l
 
 **Fallback if that becomes a problem:** the "stand-in" rule. Each secondary skill dropped by a matching transferable skill counts as the monster's primary skill, and each dropped tool slot counts as the best tool. Secondary skills can still be bypassed completely, but only as far as the monster has mastered the craft, and junk tools stop counting as perfect.
 
+### Decisions made while porting (M1 stage 1)
+- **Refinement depth follows the Django original:** a good made only from raw materials is depth 1, and each later step adds one. The Python port counted one lower.
+- **Quality is rolled with the skills the monster had when the craft started,** so the forecast card matches what actually happens. Learning is applied afterwards.
+- **Learning crafts with transferable skills:** the original data defines which transferable skills speed up learning only for hauling and wagon driving. Crafts use the recipe's own transferable skills instead.
+- **Monster aging is cut,** so ability scores don't change with age.
+- **The simulation uses its own seeded random numbers,** so a saved world replays identically.
+
 ### Learning and forgetting
 Unchanged from the original, plus the Python port's two fixes: skills never read below 0, and learning counts per craft rather than per whole multi-batch task. Mastery takes roughly 100–200 crafts, about 30–40 minutes of a looping monster at prototype speeds. Each monster has a single forgetting counter that drains every skill it isn't practicing, so monsters specialize.
 
@@ -195,10 +202,7 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 - **Weight you can feel (proposal):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.
 - **Tune in play:** economy numbers (starting renown, hiring costs, monster count, project costs), applicant rules (how many, refresh rate, pricing), and the time-scale presets.
 - **Hauling and wagon skills** are learned by doing. Each tile a monster pushes cargo, or pulls a loaded wagon, counts as a few seconds of hauling or wagon-driving task time, for both learning and forgetting.
-- **Tech-tree data to fix in M1:**
-  - About 80 required tags are provided by no good.
+- **Tech-tree data still to fix:**
+  - About 80 required tags are still provided by no good, outside the Fabric chain.
   - 3 recipes have a tag split into letters.
-  - Bricks and Ash Glaze have nested tool weights.
-  - Indigo lists Chemistry as both its primary and a secondary skill.
-  - The second "Saw" is really a pick.
-  - The transferable-skill bonus to primary learning is defined only for hauling and wagon driving.
+  - Already fixed in M1 stage 1: stable ids for every good, the second "Saw" renamed "Pick", nested tool weights on Bricks and Ash Glaze, and Indigo listing Chemistry twice.

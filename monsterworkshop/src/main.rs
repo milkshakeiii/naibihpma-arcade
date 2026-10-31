@@ -1,4 +1,8 @@
 mod audio;
+#[allow(dead_code)] // wired into the game in M1 stage 2
+mod data;
+#[allow(dead_code)] // wired into the game in M1 stage 2
+mod econ;
 #[allow(dead_code)] // shared copy of the arcade framebuffer; line/circle unused here
 mod framebuffer;
 mod game;
