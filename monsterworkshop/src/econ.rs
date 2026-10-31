@@ -369,7 +369,15 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
         let r = c.recipe;
         (vec![RawMaterial { good: r.id.clone(), base_value: r.raw_material_base_value.unwrap_or(0.0), density: r.raw_material_density.unwrap_or(0.0) }], 0)
     } else {
-        lineage(&c.inputs)
+        // A recipe's normal yield shares its inputs: those units carry the inputs' value times
+        // the square root of the yield between them. Each unit's share is fixed by the recipe,
+        // not the roll, so extra units from a good roll are each worth as much as a normal one;
+        // a monster is never penalized per unit for rolling high. (A harvest's units are each
+        // their own raw material.)
+        let (mut raw, depth) = lineage(&c.inputs);
+        let share = 1.0 / (c.recipe.quantity.max(1) as f64).sqrt();
+        raw.iter_mut().for_each(|r| r.base_value *= share);
+        (raw, depth)
     };
     let shares = output_shares(c);
     (0..n)

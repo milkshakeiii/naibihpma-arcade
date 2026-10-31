@@ -316,7 +316,7 @@ impl ShopKind {
 
     pub fn recipes(self) -> &'static [&'static str] {
         match self {
-            ShopKind::Workbench => &["cotton_slivers", "rope"],
+            ShopKind::Workbench => &["cotton_slivers", "rope", "wooden_tub"],
             ShopKind::Spinnery => &["thread"],
             ShopKind::LoomHouse => &["fabric"],
         }
@@ -325,7 +325,7 @@ impl ShopKind {
     /// Basic permanent tools a town workshop provides when nothing hangs on its pegs.
     pub fn builtin_tools(self) -> &'static [&'static str] {
         match self {
-            ShopKind::Workbench => &["cotton_gin", "cotton_bow"],
+            ShopKind::Workbench => &["cotton_gin", "cotton_bow", "saw", "metal_chisel"],
             ShopKind::Spinnery => &["spool", "spinning_wheel"],
             ShopKind::LoomHouse => &["waist_loom"],
         }

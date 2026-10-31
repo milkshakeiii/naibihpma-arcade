@@ -367,3 +367,34 @@ fn tab_turns_the_card_page_while_examining_and_switches_monsters_otherwise() {
     g.update(&Input { tab_pressed: true, ..Input::default() }, &mut req, &mut sfx);
     assert_eq!(g.controlled, 1, "without E, Tab switches monsters");
 }
+
+#[test]
+fn two_logs_on_the_gate_bench_make_a_wooden_tub_with_the_towns_lent_tools() {
+    let mut g = Game::new();
+    let log = |d: &Data| ItemData { good: "oak_log".into(), quality: 0.8, carried_tags: Vec::new(), ..boll(d) };
+    g.world.items.push(Item::new(40, 8, log(&g.data)));
+    g.world.items.push(Item::new(41, 8, log(&g.data)));
+    g.controlled = 1;
+    stand(&mut g, (42, 8), Dir::Down);
+    assert_eq!(crate::inspect::card(&g).title, "WORKBENCH: WOODEN TUB");
+    g.script("u");
+    g.run_ticks(20);
+    let tub = g.world.items.iter().find(|it| it.good() == "wooden_tub").expect("a tub on the output mat");
+    assert!(tub.data.carried_tags.contains(&"oak".to_string()), "an oak tub");
+}
+
+#[test]
+fn a_workshop_makes_the_recipe_that_uses_the_most_of_its_pads() {
+    let mut g = Game::new();
+    let bench = g.world.shop_at_spot(42, 8).unwrap();
+    g.world.shops[bench].pads.extend([(43, 8), (44, 8)]); // four pads for the test
+    let unit = |d: &Data, id: &str| ItemData { good: id.into(), carried_tags: Vec::new(), ..boll(d) };
+    for (k, id) in ["safflower_cakes", "lye", "plums", "elder_sticks"].iter().enumerate() {
+        let (x, y) = g.world.shops[bench].pads[k];
+        g.world.items.push(Item::new(x, y, unit(&g.data, id)));
+    }
+    let pink_fits = g.best_recipe(bench, &["pink_dye"]).is_some();
+    assert!(pink_fits, "pink dye's cakes and fuel are on the pads too");
+    let best = g.best_recipe(bench, &["pink_dye", "crimson_dye"]).map(|(r, _)| r);
+    assert_eq!(best.as_deref(), Some("crimson_dye"), "all four ingredients make crimson, not pink from two of them");
+}

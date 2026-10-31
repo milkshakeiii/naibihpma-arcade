@@ -317,3 +317,30 @@ fn ungraded_goods_pass_their_inputs_quality_through_and_ignore_tools() {
     let c = craft(slivers, &st, &sk, vec![&bolls], vec![&gin, &bow], None);
     assert_eq!(roll_quality(&c, &mut Rng::new(1)), 1.0, "poor tools don't drag an ungraded good");
 }
+
+#[test]
+fn a_recipes_normal_yield_shares_its_inputs_and_extra_units_cost_nothing_per_unit() {
+    let d = Data::load();
+    let spool = d.good("spool"); // a fixed 2 per craft
+    let st = stats(&d, "goblin");
+    let sk = skilled(spool, 0.6, &[]);
+    let bamboo = item(&d, "arrow_bamboo", 1.0, &[]);
+    let made = produce(&craft(spool, &st, &sk, vec![&bamboo], vec![], None), &d, &mut Rng::new(42));
+    assert_eq!(made.len(), 2);
+    let raw_in: f64 = bamboo.raw.iter().map(|r| r.base_value).sum();
+    let raw_out: f64 = made.iter().flat_map(|u| &u.raw).map(|r| r.base_value).sum();
+    assert!(close(raw_out, raw_in * 2f64.sqrt()), "2 spools carry 1.41 times the bamboo between them: {raw_out} from {raw_in}");
+
+    // Slivers normally come one per boll; a strong cyclops rolls more, and every one of them
+    // carries the whole boll, as a normal sliver would.
+    let slivers = d.good("cotton_slivers");
+    let strong = stats(&d, "cyclops");
+    let boll = item(&d, "cotton_bolls", 1.0, &[]);
+    let made = produce(&craft(slivers, &strong, &skilled(slivers, 0.6, &[]), vec![&boll], vec![], None), &d, &mut Rng::new(42));
+    assert!(made.len() > slivers.quantity as usize, "the cyclops rolls high: {}", made.len());
+    let boll_value: f64 = boll.raw.iter().map(|r| r.base_value).sum();
+    assert!(made.iter().all(|u| close(u.raw.iter().map(|r| r.base_value).sum(), boll_value)), "a high roll doesn't thin out each unit");
+
+    let oak = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &Skills::default() }, &d, &mut Rng::new(7));
+    assert!(oak.iter().all(|u| close(u.raw[0].base_value, d.good("oak_log").raw_material_base_value.unwrap())), "each harvested unit is a whole raw material");
+}

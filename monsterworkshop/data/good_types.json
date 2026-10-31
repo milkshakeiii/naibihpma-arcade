@@ -1680,11 +1680,11 @@
           "fuel"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Indigo",
       "primary_applied_skill": "chemistry",
       "production_time": 720,
-      "quantity": 1,
+      "quantity": 3,
       "relevant_ability_score": 3,
       "requires_workshop": true,
       "secondary_applied_skills": [
@@ -2330,9 +2330,7 @@
       "storage_volume": 0.5,
       "tools_required_tags": [
         [
-          "t",
-          "u",
-          "b"
+          "tub"
         ]
       ],
       "tools_weights": [
@@ -4693,7 +4691,7 @@
       ],
       "input_goods_tags_required": [
         [
-          "stone"
+          "hard stone"
         ]
       ],
       "is_fixed_quantity": true,
@@ -5700,7 +5698,7 @@
       ],
       "input_goods_tags_required": [
         [
-          "stone"
+          "hard stone"
         ],
         [
           "rope"
@@ -5791,6 +5789,97 @@
     },
     {
       "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": false,
+      "id": "limestone",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Limestone",
+      "primary_applied_skill": "prospecting",
+      "production_time": 480,
+      "quantity": 2,
+      "raw_material_base_value": 2,
+      "raw_material_density": 250,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "pick"
+        ]
+      ],
+      "tools_weights": [
+        3
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "engineering"
+      ],
+      "type_tags": [
+        "limestone",
+        "stone"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "quicklime",
+      "input_goods_tags_carryover": [
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "limestone"
+        ],
+        [
+          "fuel"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Quicklime",
+      "primary_applied_skill": "firing",
+      "production_time": 600,
+      "quantity": 2,
+      "relevant_ability_score": 2,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "chemistry",
+        "prospecting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "lime",
+        "quicklime"
+      ],
+      "value_added_shares": 5
+    },
+    {
+      "destabilizer_skills": [],
       "difficulty_rating": 10,
       "has_quality": false,
       "id": "coal",
@@ -5835,7 +5924,8 @@
       ],
       "type_tags": [
         "coal",
-        "heat"
+        "heat",
+        "fuel"
       ],
       "value_added_shares": 9
     },
@@ -5882,7 +5972,8 @@
       ],
       "type_tags": [
         "coke",
-        "heat"
+        "heat",
+        "fuel"
       ],
       "value_added_shares": 5
     },
@@ -5997,7 +6088,8 @@
         "sticks",
         "wood",
         "softwood",
-        "elder"
+        "elder",
+        "fuel"
       ],
       "value_added_shares": 2
     },
@@ -6039,7 +6131,8 @@
       "type_tags": [
         "sticks",
         "wood",
-        "rhododendron"
+        "rhododendron",
+        "fuel"
       ],
       "value_added_shares": 2
     },
@@ -6082,7 +6175,8 @@
         "log",
         "wood",
         "softwood",
-        "hemlock"
+        "hemlock",
+        "fuel"
       ],
       "value_added_shares": 2
     },
@@ -6125,7 +6219,8 @@
         "log",
         "wood",
         "hardwood",
-        "oak"
+        "oak",
+        "fuel"
       ],
       "value_added_shares": 2
     },
@@ -6451,6 +6546,69 @@
         "waist loom"
       ],
       "value_added_shares": 8
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 12,
+      "has_quality": true,
+      "id": "wooden_tub",
+      "input_goods_tags_carryover": [
+        [
+          "oak",
+          "hemlock"
+        ],
+        [
+          "oak",
+          "hemlock"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "log"
+        ],
+        [
+          "log"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Wooden Tub",
+      "primary_applied_skill": "carpentry",
+      "production_time": 900,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "textiles",
+        "dyeing"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 2.0,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "tub"
+      ],
+      "value_added_shares": 6
     }
   ]
 }

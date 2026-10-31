@@ -198,6 +198,25 @@ mod tests {
             }
         }
     }
+
+    /// Dyed fabric's inputs resolve all the way down to goods you can gather. Tools that
+    /// can't be made yet (the saw and chisel) are lent by town benches, so only inputs count.
+    #[test]
+    fn the_indigo_chain_bottoms_out_in_gatherable_goods() {
+        let d = Data::load();
+        fn makeable(d: &Data, id: &str, depth: u32) -> bool {
+            let g = d.good(id);
+            depth < 8
+                && g.input_goods_tags_required
+                    .iter()
+                    .filter(|grp| !grp.is_empty())
+                    .all(|grp| d.goods.iter().any(|p| matches(&p.type_tags, grp) && p.id != id && makeable(d, &p.id, depth + 1)))
+        }
+        for id in ["dyed_fabric", "indigo", "lye", "quicklime", "wooden_tub"] {
+            assert!(makeable(&d, id, 0), "{id} can't be made from gatherable goods");
+        }
+        assert!(d.goods.iter().any(|p| matches(&p.type_tags, &["tub".to_string()])), "something is a tub");
+    }
 }
 
 #[cfg(test)]

@@ -81,7 +81,7 @@ Henry composes the soundtrack. The arcade's Star Pond already streams WAV music,
 Pushing is the game: goods move by being pushed, so laying out a workshop is a small Sokoban puzzle. Pulling exists to get out of a stuck spot, such as a good pushed into a corner, not to replace pushing. Hold **Shift** and step away from the good in front of you: the monster backs up and drags it along, at **2 seconds a tile** (ten times slower than a push), straining and kicking up dust. Pushing a good that no push could ever move says "STUCK! HOLD SHIFT AND STEP BACK TO PULL IT." Recorded loops can pull too, and pay the same two seconds every cycle, so solving the puzzle stays the better way for automation as well. You can't pull a good that is being worked on, or onto a work spot.
 
 ### Recipes
-There is no recipe menu. What's on a workshop's pads decides what it makes. When two recipes take the same inputs, a signboard on the workshop wall shows the current one, and walking into the board switches it. Empty pads show a dithered ghost of what belongs there, as they do in the prototype.
+There is no recipe menu. What's on a workshop's pads decides what it makes. When several recipes fit, the one that uses the most of what's on the pads wins (built): lay out a hammer's ingot, fuel, rope and sticks and you get the hammer, not a knife from the ingot and fuel alone. The tech tree has 115 such overlaps. When two recipes still fit equally well (16 pairs take identical ingredients, such as clay and fuel for tiles, bricks or molds), a signboard on the workshop wall shows the current one, and walking into the board switches it; a loop records the switch like any step. The signboard comes with the first workshop that has a real tie. Empty pads show a dithered ghost of what belongs there, as they do in the prototype.
 
 ### Tools
 Workshops have tool pegs on the wall, which you fill by pushing tools onto them, the same way pads work. Each tool shows a small durability bar. When a tool breaks, a looping monster stops with a "? + hammer" bubble.
@@ -248,17 +248,34 @@ Built in four playable stages:
 - **M4, ship:** itch.io build and outside playtesters.
 - **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
+### Decided 2026-10-31 (from the stage 2 loose ends)
+- **Tools travel with monsters.** Eventually a monster carries a tool in an item slot along with its other items, and uses it for gathering in the wild. Until then, gathering ignores tool requirements.
+- **Tools nobody can make yet still appear in recipes.** A recipe lists the tools it really needs. Towns lend permanent medium-quality versions on their workshops' pegs, as they already do; once monsters carry tools, medium-quality instances can also be placed in the world, for example at a quarry. When the tool's own chain arrives, better ones simply replace them, with nothing to redo.
+- **An earthenware vat** is a future tub, significantly better than the wooden one.
+- **Fuel adds its value** to what it helps make: burning oak makes more valuable indigo than burning sticks.
+- **Drop-offs can take several goods,** so the cloth hall takes plain and dyed fabric.
+- **The indigo pits' 5 pads** get a playtest before anything is changed.
+- **Forgetting stays harsh, and a beginner's crafting can lower value.** Both are intended; forgetting may be revisited.
+- **Weight you can feel** is an accepted future design (below).
+- **A recipe's normal yield shares its inputs' value by the square root** (built). Every unit used to carry the full value of all the inputs, so a recipe that makes 2 doubled value; dividing evenly would make multi-unit recipes worthless. Now a recipe's normal yield carries the inputs' value times the square root of that yield between them: 2 units carry 1.41 times, 3 carry 1.73, 4 carry 2. The share per unit is set by the recipe, not the roll: extra units from a good roll are each worth as much as a normal one, so a high-rolling monster makes more value in total and never less per unit. Per-unit value matters more than the total, because deep goods multiply it. A harvest's units are each their own raw material and are not split.
+- **Limestone and Quicklime** (approved and added 2026-10-31). Limestone is gathered at an outcrop in the Thatch Hills: very heavy (density 250, an oak log is 100), cheap, about 2 per gather, the prospecting skill with STR, and a pick that gathering ignores for now. Quicklime is limestone plus fuel burned at a kiln, about 2 per burn, the firing skill with CON, ungraded so it passes quality through. It counts as lime, so it serves indigo, seeth water, the temple bell and the great statue. The book's inland towns burn limestone; Oyster Lime is the coast's lime and stays for a coastal region.
+- **Wooden Tub, fuel and indigo yield** (approved and added 2026-10-31):
+  - A **Wooden Tub** is 2 logs at a workbench, using carpentry, with a saw and a chisel that town benches lend at medium quality until those tools can be made. It keeps its wood ("oak wooden tub") and is the tub that Dyed Fabric (its tag had been split into letters), Bast Fiber and climbing hempvine stalks need.
+  - **Fuel:** elder and rhododendron sticks, hemlock and oak logs, coal and coke count as fuel. 43 recipes needed fuel and nothing provided it.
+  - **Indigo** yields about 3 per batch (rolled, base 3), since one vat dyes many cloths; each one carries the batch's inputs divided by the square root of 3.
+  - A test checks that dyed fabric, indigo, lye, quicklime and the tub all resolve down to goods you can gather.
+- **Stone and hard stone.** Limestone counts as stone, ready for building and carving. The stone hammer and stone anvil now ask for hard stone, since limestone is too soft for them (a knife scratches it). A hard stone, such as river cobbles at the Tinless ford, is a future good to propose.
+- **Ramie stalks make ash on purpose.** Small links between industries, like a fiber crop that also feeds the dye works' lye, are wanted over strict separate chains. Rice straw, the book's lye ash, can join it once there are paddies.
+
 ## Open questions
 
-- **Lime for indigo (stage 2):** the data gathers Oyster Lime with a hammer and a metal chisel, deep in the smithing chain. The book chisels oyster shells off rocks and burns them. Needs a proposal before the indigo chain is built.
-- **Fuel:** nothing provides the "fuel" tag that 43 recipes need, including lye, indigo and every dye. Proposed fix: tag sticks, logs, coal and coke as fuel.
-- **Tub:** Dyed Fabric's tool tag is split into letters ("t", "u", "b"), and nothing is a tub. Proposed new good: a wooden tub from a log at a workbench. Needs approval.
+- **Art across biomes,** and whether to hire a pixel artist before publishing. Henry likes the current style.
 
 - **Screen-by-screen layouts** of the two towns and the wilderness, designed in M1 and M2.
-- **Weight you can feel (proposal):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.
+- **Weight you can feel (accepted, not built yet):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.
 - **Tune in play:** economy numbers (starting renown, hiring costs, monster count, project costs), applicant rules (how many, refresh rate, pricing), and the time-scale presets.
 - **Hauling and wagon skills** are learned by doing. Each tile a monster pushes cargo, or pulls a loaded wagon, counts as a few seconds of hauling or wagon-driving task time, for both learning and forgetting.
 - **Tech-tree data still to fix:**
-  - About 80 required tags are still provided by no good, outside the Fabric chain.
-  - 3 recipes have a tag split into letters.
+  - 62 required tag groups have no provider even after the stage 2 proposal. The biggest gaps: metal ingots and smithing tools (forceps, anvils), sickles and scythes, charcoal, the potter's wheel, mulberry leaves, berberine wood, and the bell's rosin, beeswax, oil and mortar.
+  - Tags split into letters: Dyed Fabric (fixed by the tub proposal), climbing hempvine stalks, green vitriol (found).
   - Already fixed in M1 stage 1: stable ids for every good, the second "Saw" renamed "Pick", nested tool weights on Bricks and Ash Glaze, and Indigo listing Chemistry twice.

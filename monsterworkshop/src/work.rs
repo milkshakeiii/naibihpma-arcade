@@ -118,7 +118,7 @@ impl Game {
             return UseRes::Wait(format!("THE {} IS FULL. CLEAR ITS OUTPUT MAT.", shop.kind.label()));
         }
         let kind = shop.kind;
-        let chosen = kind.recipes().iter().find_map(|r| self.match_inputs(s, r).map(|inputs| (r.to_string(), inputs)));
+        let chosen = self.best_recipe(s, kind.recipes());
         let Some((recipe, inputs)) = chosen else {
             let first = self.data.good(shop.default_recipe(&self.data));
             let want = first.input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
@@ -139,7 +139,7 @@ impl Game {
 
     pub(crate) fn preview(&self, s: usize) -> Preview {
         let kind = self.world.shops[s].kind;
-        let found = kind.recipes().iter().find_map(|r| self.match_inputs(s, r).map(|idx| (r.to_string(), idx)));
+        let found = self.best_recipe(s, kind.recipes());
         let (recipe, inputs) = match found {
             Some((r, idx)) => (r, Ok(idx.iter().map(|&i| self.world.items[i].data.clone()).collect())),
             None => {
@@ -159,6 +159,14 @@ impl Game {
         let shop = &self.world.shops[s];
         let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares: Vec::new() });
         Preview { recipe, inputs, tools, workshop }
+    }
+
+    /// The recipe the pads hold ingredients for. When several fit, the one that uses the most
+    /// of what's there wins, so laying out a hammer's ingot, fuel, rope and sticks makes the
+    /// hammer, not a knife from the ingot and fuel alone. Equal fits go to the earlier recipe
+    /// (a signboard will choose between them once a workshop has a real tie).
+    pub(crate) fn best_recipe(&self, s: usize, recipes: &[&str]) -> Option<(String, Vec<usize>)> {
+        recipes.iter().rev().filter_map(|r| self.match_inputs(s, r).map(|inputs| (r.to_string(), inputs))).max_by_key(|(_, inputs)| inputs.len())
     }
 
     /// Items on the pads that satisfy each of the recipe's inputs, in recipe order.
