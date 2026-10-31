@@ -82,6 +82,11 @@ fn the_whole_chain_makes_cotton_fabric_with_a_full_history() {
     let credited = |m: u32| fabric.shares.iter().any(|s| s.monster == m && s.count > 0.0);
     assert!(credited(1) && credited(2), "both the harvester and the weaver share in it: {:?}", fabric.shares);
     assert!(g.monsters[1].skills.applied("weaving") > 0.0);
+    let paid = fabric.value * RENOWN_PER_VALUE;
+    assert!((g.renown - paid).abs() < 1e-9, "the cloth store paid renown for its value");
+    let earned: f64 = g.monsters.iter().map(|m| m.earned).sum();
+    assert!((earned - paid).abs() < 1e-9 && g.monsters.iter().all(|m| m.earned > 0.0), "credit split between both");
+    assert!(g.floaters.iter().any(|f| f.text.contains("RENOWN")), "a renown celebration rises");
     assert_eq!(g.tutorial.stage, 7);
 }
 
@@ -96,7 +101,7 @@ fn two_monsters_loop_the_chain_on_their_own() {
     g.run_ticks(10);
     g.script(&format!("r{}{}rp", bruna_chain(), bruna_home()));
     assert!(g.monsters[1].playing);
-    assert_eq!(g.tutorial.stage, tutorial::DONE);
+    assert_eq!(g.tutorial.stage, tutorial::DONE - 1, "next the tutorial asks you to hire a helper");
 
     let before = g.cloth_stored();
     g.run_ticks(6000);
@@ -178,4 +183,31 @@ fn examining_a_plant_forecasts_the_harvest() {
         assert!(has_line(&card, needle), "missing {needle}: {:?}", card.lines.iter().map(|l| &l.text).collect::<Vec<_>>());
     }
     assert!(!has_line(&card, "QUALITY"), "cotton bolls are ungraded");
+}
+
+#[test]
+fn renown_hires_an_applicant_and_a_new_one_arrives() {
+    let mut g = Game::new();
+    let stand = g.world.stands[1];
+    (g.monsters[0].x, g.monsters[0].y) = (stand.0, stand.1 - 1);
+    g.monsters[0].facing = Dir::Down;
+    let cost = g.applicants[1].as_ref().unwrap().cost as f64;
+    g.script("u");
+    assert_eq!(g.monsters.len(), 2, "no renown, no hire");
+    assert!(g.monsters[0].bubble.as_ref().is_some_and(|b| b.text.contains("NOT ENOUGH RENOWN")));
+
+    g.renown = cost + 7.0;
+    let name = g.applicants[1].as_ref().unwrap().name.clone();
+    g.script("u");
+    assert_eq!(g.monsters.len(), 3);
+    assert_eq!(g.monsters[2].name, name);
+    assert_eq!((g.monsters[2].x, g.monsters[2].y), stand);
+    assert!((g.renown - 7.0).abs() < 1e-9);
+    assert!(g.applicants[1].is_none());
+    g.run_ticks(400);
+    assert!(g.applicants[1].is_none(), "nobody arrives while the new hire still stands there");
+    g.controlled = 2;
+    g.script("UL");
+    g.run_ticks(400);
+    assert!(g.applicants[1].is_some(), "a new applicant arrives once the stand is clear");
 }

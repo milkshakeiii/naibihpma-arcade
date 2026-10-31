@@ -19,7 +19,7 @@ cargo run --release -- --windowed
 | Key | Action |
 | :-- | :-- |
 | Arrows / WASD | Walk. Walk into an item to push it one tile |
-| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), or craft at a work spot |
+| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, or hire the applicant you face |
 | E (hold) | Examine: a card about whatever you face, or the workshop forecast at a work spot |
 | R | Start recording a routine (a flag marks the start). Press again on the flag to save |
 | Backspace | Cancel the recording |
@@ -27,7 +27,9 @@ cargo run --release -- --windowed
 | Tab | Switch monster |
 | F1 | Controls |
 | F2 | CRT scanlines on/off |
-| Esc | Quit |
+| Esc | Save and quit (on the title screen: quit) |
+
+The game opens on a title screen listing your worlds; pick one or start a new one. Worlds save to `%APPDATA%\MonsterWorkshop\worlds\` every minute and when you quit.
 
 Pinewater is 2×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
 

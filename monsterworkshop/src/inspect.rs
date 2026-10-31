@@ -31,6 +31,17 @@ fn skill_name(id: &str) -> String {
     id.replace('_', " ").to_uppercase()
 }
 
+/// Skills read in points out of 1000, like a batting average: 0.312 shows as 312. Gains
+/// under one point keep a decimal so they don't read as nothing.
+fn points(v: f64) -> String {
+    let p = v * 1000.0;
+    if (0.05..0.95).contains(&p) {
+        format!("{p:.1}")
+    } else {
+        format!("{p:.0}")
+    }
+}
+
 fn quality_color(q: f64) -> u8 {
     if q >= EXCEPTIONAL {
         SPARK + 2
@@ -66,6 +77,9 @@ pub fn card(g: &Game) -> Card {
     let (fx, fy) = (m.x + dx, m.y + dy);
     if let Some(s) = g.world.shop_at_spot(m.x, m.y).or_else(|| g.world.shop_at_spot(fx, fy)) {
         return forecast_card(g, s, c);
+    }
+    if let Some(k) = g.faced_applicant() {
+        return applicant_card(g, k);
     }
     if let Some(i) = g.world.item_at(fx, fy) {
         return item_card(g, &g.world.items[i].data, (fx, fy));
@@ -113,11 +127,24 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
         let credit: Vec<String> = item
             .shares
             .iter()
-            .map(|s| format!("{} {:.1}", g.monsters.iter().find(|m| m.id == s.monster).map_or("?", |m| m.name), s.count))
+            .map(|s| format!("{} {:.1}", g.monsters.iter().find(|m| m.id == s.monster).map_or("?", |m| m.name.as_str()), s.count))
             .collect();
         lines.push(line(format!("CREDIT: {}", credit.join(", ")), TEXT_DIM));
     }
     Card { title: display_name(g, item), lines, at }
+}
+
+fn applicant_card(g: &Game, k: usize) -> Card {
+    let a = g.applicants[k].as_ref().expect("a faced applicant");
+    let s = &a.stats;
+    let affordable = g.renown >= a.cost as f64;
+    let lines = vec![
+        line(format!("{} RENOWN TO HIRE. YOU HAVE {}.", a.cost, g.renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }),
+        line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT),
+        line(format!("TALENTS: {}", a.transferable.iter().map(|t| skill_name(t)).collect::<Vec<_>>().join(", ")), TEXT_DIM),
+        line(if affordable { "SPACE HIRES THEM." } else { "EARN MORE RENOWN TO HIRE THEM." }, TEXT_DIM),
+    ];
+    Card { title: format!("{} THE {}", a.name, a.kind.to_uppercase()), lines, at: g.world.stands[k] }
 }
 
 fn town_tool_card(g: &Game, at: (i32, i32)) -> Option<Card> {
@@ -149,7 +176,10 @@ fn monster_card(g: &Game, i: usize) -> Card {
         lines.push(line("NO SKILLS YET", TEXT_DIM));
     }
     for (k, v) in skills.into_iter().take(4) {
-        lines.push(Line { text: format!("{:<13}{v:.2}", skill_name(&k)), color: TEXT, bar: Some(v) });
+        lines.push(Line { text: format!("{:<13}{}", skill_name(&k), points(v)), color: TEXT, bar: Some(v) });
+    }
+    if m.earned > 0.0 {
+        lines.push(line(format!("EARNED {} RENOWN SO FAR", m.earned.floor()), TEXT));
     }
     let (status, warn) = g.status(i);
     let state = status.split_once(": ").map_or(status.clone(), |(_, s)| s.to_string());
@@ -284,14 +314,14 @@ fn time_and_learning(g: &Game, recipe: &crate::data::GoodType, i: usize, jobs: &
     let job_secs = econ::production_seconds(recipe, &m.stats);
     let l = econ::learn(&mut sk, &m.stats, recipe, &g.data, job_secs);
     let primary = &recipe.primary_applied_skill;
-    lines.push(line(format!("LEARNS {} +{:.3}, PRACTICE +{:.3}", skill_name(primary), l.primary, l.specific), TEXT_GOOD));
+    lines.push(line(format!("LEARNS {} +{}, PRACTICE +{}", skill_name(primary), points(l.primary), points(l.specific)), TEXT_GOOD));
     if !l.secondary.is_empty() {
-        let also: Vec<String> = l.secondary.iter().map(|(k, v)| format!("{} +{v:.3}", skill_name(k))).collect();
+        let also: Vec<String> = l.secondary.iter().map(|(k, v)| format!("{} +{}", skill_name(k), points(*v))).collect();
         lines.push(line(format!("ALSO {}", also.join(", ")), TEXT_GOOD));
     }
-    lines.push(line(format!("FORGETS {:.4} OF EVERY OTHER SKILL", l.forgotten), TEXT_DIM));
+    lines.push(line(format!("FORGETS {} OF EVERY OTHER SKILL", points(l.forgotten)), TEXT_DIM));
     let (level, n) = level_off(g, i, recipe, job_secs);
-    lines.push(line(format!("{} LEVELS OFF NEAR {level:.2} IN ABOUT {n} {jobs}", skill_name(primary)), TEXT_DIM));
+    lines.push(line(format!("{} LEVELS OFF NEAR {} IN ABOUT {n} {jobs}", skill_name(primary), points(level)), TEXT_DIM));
     lines
 }
 
@@ -315,22 +345,24 @@ fn held_back(g: &Game, f: &Forecast, recipe: &crate::data::GoodType, i: usize) -
     let m = &g.monsters[i];
     let primary = skill_name(&recipe.primary_applied_skill);
     let ability = ABILITIES.get(recipe.relevant_ability_score).copied().unwrap_or("STR");
+    // Each factor is compared on its 0..1 strength; the shown amount is in its own unit:
+    // quality as a decimal, skills in points, the ability as its score.
     let factors = [
-        ("INPUT QUALITY".to_string(), f.input_quality, "BETTER INPUTS MAKE BETTER GOODS.".to_string()),
-        (format!("{primary} SKILL"), f.primary, "IT GROWS WITH EVERY CRAFT.".to_string()),
-        ("SECONDARY SKILLS".to_string(), f.secondary, {
+        ("INPUT QUALITY".to_string(), f.input_quality, format!("{:.2}", f.input_quality), "BETTER INPUTS MAKE BETTER GOODS.".to_string()),
+        (format!("{primary} SKILL"), f.primary, points(f.primary), "IT GROWS WITH EVERY CRAFT.".to_string()),
+        ("SECONDARY SKILLS".to_string(), f.secondary, points(f.secondary), {
             let missing: Vec<String> = recipe.transferable_skills.iter().filter(|t| !m.skills.transferable.contains(t)).map(|t| skill_name(t)).collect();
             if missing.is_empty() { "THEY GROW SLOWLY WITH PRACTICE.".into() } else { format!("A TALENT FOR {} SKIPS THE WEAKEST.", missing.join(" OR ")) }
         }),
-        ("TOOL QUALITY".to_string(), f.tool_quality, "A BETTER TOOL ON THE PEG WOULD HELP.".to_string()),
-        ("PRACTICE".to_string(), f.specific, if f.primary < 0.1 { format!("IT GROWS ONCE {primary} DOES.") } else { "IT GROWS WITH EVERY CRAFT.".to_string() }),
-        (ability.to_string(), f.ability / econ::ABILITY_FACTOR_CAP, format!("A MONSTER WITH MORE {ability} WOULD DO BETTER.")),
+        ("TOOL QUALITY".to_string(), f.tool_quality, format!("{:.2}", f.tool_quality), "A BETTER TOOL ON THE PEG WOULD HELP.".to_string()),
+        ("PRACTICE".to_string(), f.specific, points(f.specific), if f.primary < 0.1 { format!("IT GROWS ONCE {primary} DOES.") } else { "IT GROWS WITH EVERY CRAFT.".to_string() }),
+        (ability.to_string(), f.ability / econ::ABILITY_FACTOR_CAP, m.stats.get(recipe.relevant_ability_score).to_string(), format!("A MONSTER WITH MORE {ability} WOULD DO BETTER.")),
     ];
-    let Some((name, v, hint)) = factors.into_iter().min_by(|a, b| a.1.total_cmp(&b.1)) else { return Vec::new() };
+    let Some((name, v, shown, hint)) = factors.into_iter().min_by(|a, b| a.1.total_cmp(&b.1)) else { return Vec::new() };
     if v >= 0.95 {
         return vec![line("NOTHING HOLDS IT BACK MUCH.", TEXT_GOOD)];
     }
-    vec![line(format!("HELD BACK BY {name} ({v:.2})"), TEXT_WARN), line(hint, TEXT_DIM)]
+    vec![line(format!("HELD BACK BY {name} ({shown})"), TEXT_WARN), line(hint, TEXT_DIM)]
 }
 
 /// Which side of its target a card goes on, and how wide it may be there: the right if
@@ -360,6 +392,16 @@ pub fn place(at_px: (i32, i32), w: i32, h: i32, view_h: i32, right: bool) -> (i3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skills_read_in_points_out_of_a_thousand() {
+        assert_eq!(points(0.312), "312");
+        assert_eq!(points(0.019), "19");
+        assert_eq!(points(0.0004), "0.4", "a gain under one point still shows");
+        assert_eq!(points(0.00099), "1");
+        assert_eq!(points(0.0), "0");
+        assert_eq!(points(0.00001), "0");
+    }
 
     #[test]
     fn the_card_never_covers_its_target() {

@@ -4,6 +4,7 @@
 
 use crate::data::{matches, Data};
 use crate::econ::ItemData;
+use serde::{Deserialize, Serialize};
 
 pub const TS: i32 = 16;
 pub const SCREEN_W: i32 = 25;
@@ -16,12 +17,13 @@ pub const TOWN_WORKSHOP_QUALITY: f64 = 0.8;
 pub const OUTPUT_BUFFER: usize = 9;
 
 // `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `f` cotton plant
-// `C` cotton bin and `m` its chute  `T` cloth store  `1` `2` monster starts
+// `C` cotton bin and `m` its chute  `T` cloth store (a drop-off)  `a` applicant stand in
+// the hiring hall  `1` `2` monster starts
 // Work spots: `B` workbench  `S` spinning wheel  `L` loom. Each `p` pad, `g` tool peg and
 // `o` output mat belongs to the nearest work spot.
 const MAP: &str = include_str!("../data/pinewater.map");
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Dir {
     Up,
     Down,
@@ -69,7 +71,7 @@ impl Tile {
 }
 
 /// A move in progress, drawn as an offset back toward the tile it came from.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Slide {
     pub dir: Dir,
     pub left: u8,
@@ -89,7 +91,7 @@ impl Slide {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Item {
     pub x: i32,
     pub y: i32,
@@ -110,7 +112,7 @@ impl Item {
 }
 
 /// A timed job at a plant or a work spot.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Job {
     pub monster: usize,
     pub recipe: String,
@@ -118,7 +120,7 @@ pub struct Job {
     pub total: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Plant {
     pub x: i32,
     pub y: i32,
@@ -149,7 +151,7 @@ impl Plant {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Bin {
     pub x: i32,
     pub y: i32,
@@ -158,9 +160,11 @@ pub struct Bin {
     pub mouth: Option<(i32, i32)>,
     pub timer: u8,
     pub bounce: u8,
+    /// A drop-off: goods pushed in are scored for renown.
+    pub scores: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ShopKind {
     Workbench,
     Spinnery,
@@ -199,7 +203,7 @@ impl ShopKind {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Shop {
     pub kind: ShopKind,
     pub spot: (i32, i32),
@@ -242,6 +246,8 @@ pub struct World {
     pub shops: Vec<Shop>,
     pub particles: Vec<Particle>,
     pub starts: Vec<(i32, i32)>,
+    /// Where applicants wait in the hiring hall.
+    pub stands: Vec<(i32, i32)>,
     seed: u32,
 }
 
@@ -251,6 +257,7 @@ impl World {
         let (w, h) = (rows[0].len() as i32, rows.len() as i32);
         let mut tiles = Vec::with_capacity((w * h) as usize);
         let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), vec![(0, 0); 2]);
+        let mut stands = Vec::new();
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
         let regrow = data.good("cotton_bolls").production_time;
         for (y, row) in rows.iter().enumerate() {
@@ -262,7 +269,7 @@ impl World {
                     '#' => Tile::Hedge,
                     ',' | 'm' => Tile::Path,
                     'W' => Tile::Wall,
-                    '_' => Tile::Floor,
+                    '_' | 'a' => Tile::Floor,
                     'D' => Tile::Door,
                     'p' => Tile::Pad,
                     'g' => Tile::Peg,
@@ -274,8 +281,9 @@ impl World {
                 };
                 match ch {
                     'f' => plants.push(Plant { x, y, good: "cotton_bolls".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 }),
-                    'C' => bins.push(Bin { x, y, accepts: "cotton_bolls".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0 }),
-                    'T' => bins.push(Bin { x, y, accepts: "fabric".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0 }),
+                    'C' => bins.push(Bin { x, y, accepts: "cotton_bolls".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false }),
+                    'T' => bins.push(Bin { x, y, accepts: "fabric".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true }),
+                    'a' => stands.push((x, y)),
                     'm' => mouths.push((x, y)),
                     'p' | 'g' | 'o' => parts.push((ch, x, y)),
                     'B' | 'S' | 'L' => {
@@ -308,7 +316,7 @@ impl World {
                 b.mouth = Some(m);
             }
         }
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), starts, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), starts, stands, seed: 0x9E37_79B9 }
     }
 
     pub fn tile(&self, x: i32, y: i32) -> Tile {

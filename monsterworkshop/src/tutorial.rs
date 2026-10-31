@@ -1,16 +1,19 @@
 //! First-minute objectives shown in the HUD. `game.rs` decides when each one is met; most
 //! checks look at world state rather than single events, so doing things early still counts.
 
-pub const STAGES: [&str; 10] = [
+use serde::{Deserialize, Serialize};
+
+pub const STAGES: [&str; 11] = [
     "WALK WITH THE ARROW KEYS OR WASD. WALK INTO THINGS TO PUSH THEM.",
     "STAND ON A RIPE COTTON PLANT, FACE THE BIN, AND PRESS SPACE TO HARVEST.",
     "PUSH A COTTON BOLL INTO THE COTTON BIN.",
     "THE BIN'S CHUTE FEEDS THE WORKBENCH: PUSH A BOLL ONTO ITS PAD, STAND AT THE BENCH, PRESS SPACE.",
     "PUSH THE SLIVERS EAST INTO THE SPINNERY AND SPIN THEM INTO THREAD.",
     "PUSH THE THREAD TO THE LOOM HOUSE IN THE SOUTHEAST AND WEAVE FABRIC.",
-    "PUSH THE FABRIC INTO THE CLOTH STORE BELOW THE LOOM HOUSE.",
+    "PUSH THE FABRIC INTO THE CLOTH STORE BELOW THE LOOM HOUSE TO EARN RENOWN.",
     "TEACH A MONSTER PART OF THE JOB: R, DO IT, BACK TO THE FLAG, R.",
     "PRESS P TO LOOP IT. THEN TAB TO THE OTHER MONSTER AND TEACH THE NEXT PART.",
+    "SAVE UP RENOWN, THEN HIRE A HELPER AT THE HIRING HALL IN THE SOUTHWEST.",
     "PINEWATER WEAVES ON ITS OWN. F1 SHOWS CONTROLS.",
 ];
 
@@ -29,7 +32,7 @@ pub const HELP: [&str; 10] = [
     "ESC             QUIT",
 ];
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Tutorial {
     pub stage: usize,
     pub steps: u32,

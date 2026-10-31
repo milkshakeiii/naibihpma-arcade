@@ -108,6 +108,8 @@ Tab cycles monsters. A monster that's off-screen gets an **edge marker**: an arr
 ### Skills
 Skill growth is shown as it happens. A small "+SPINNING" floats up when a skill improves, and a skilled monster visibly works faster: the progress bar fills quicker. Exact numbers are on the monster's inspect card.
 
+Skills are shown in **points out of 1000**, like a batting average: a skill of 0.312 reads "SPINNING 312", and a craft that teaches 0.019 reads "+19". Underneath they stay 0..1. Gains under one point keep a decimal ("+0.4") so a small gain doesn't read as none. Quality keeps its decimal scale, since 1.0 means "standard" and it can go above it.
+
 ### Items and quality
 Quality is shown on the sprite: brighter is better, and exceptional items sparkle. Tools carry a durability bar. The inspect card gives the details.
 
@@ -131,7 +133,7 @@ Hold **E** ("examine") to show a card anchored next to the tile you're facing. U
     - what each skill gains per craft: the specific skill, the primary skill and each secondary skill;
     - roughly how many more crafts until each one levels off;
     - what the craft costs in forgetting across every other skill;
-  - what is holding quality back most, e.g. "SECONDARY SKILLS 0.52: HANDCRAFTS OR MUSIC WOULD SKIP THESE".
+  - what is holding quality back most, e.g. "SECONDARY SKILLS (520): A TALENT FOR HANDCRAFTS OR MUSIC SKIPS THE WEAKEST".
 
   It is computed from the items actually on the pads and pegs, so putting in a better tool updates it straight away. While a monster stands on a work spot, the HUD status line also previews its expected quality.
 
@@ -201,6 +203,11 @@ Each matching transferable skill drops the weakest secondary skill and the two l
 - **Plants forecast too.** Examining a plant shows its state plus what a harvest would give the monster you control: how many goods (and their expected quality if they are graded), how long it takes, and what it teaches.
 - **HUD preview:** an idle monster at a work spot shows its expected quality in the status line.
 - **First craft:** a bubble suggests holding E to examine things.
+
+### Progress (M1 stage 4)
+- **The cloth store is a drop-off.** A good pushed in pays renown: its value times `RENOWN_PER_VALUE` (10, a first guess; early cotton fabric pays about 20). "+N RENOWN" rises from it, then each contributor's share flies to that monster as credit. Monsters keep a running total of renown earned, shown on their card.
+- **The hiring hall** sits in Pinewater's southwest screen. Three applicants stand there, each a monster type with three rolled talents. Facing one shows their pitch; Space hires them if you have the renown. A new applicant arrives about 20 seconds after a hire, once the stand is clear, and every 5 minutes one applicant leaves for someone new. Applicants block the way like anyone else. For now they are goblins and cyclopes only, the types with sprites.
+- **Saving** works as designed above: a title screen lists your worlds; the game autosaves every minute and saves on quit; writes are crash-safe with two backups; a test saves a world mid-loop, reloads it, and checks the two stay identical for 3,000 ticks. Still to come: the per-world settings (time scale, offline catch-up).
 
 ### Learning and forgetting
 Unchanged from the original, plus the Python port's two fixes: skills never read below 0, and learning counts per craft rather than per whole multi-batch task. Mastery takes roughly 100–200 crafts, about 30–40 minutes of a looping monster at prototype speeds. Each monster has a single forgetting counter that drains every skill it isn't practicing, so monsters specialize.

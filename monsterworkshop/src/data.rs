@@ -1,7 +1,7 @@
 //! Game data loaded from `data/*.json`, embedded in the executable. Goods, skills and monster
 //! types are pure data so the tech tree can be edited without touching code.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 const GOOD_TYPES: &str = include_str!("../data/good_types.json");
@@ -96,7 +96,7 @@ pub fn matches(tags: &[String], group: &[String]) -> bool {
     group.iter().all(|t| tags.contains(t))
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Serialize)]
 pub struct Stats {
     pub str: i32,
     pub dex: i32,

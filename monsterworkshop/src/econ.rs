@@ -5,6 +5,7 @@
 //! - a workshop counts as one more tool, with weight 8.
 //! Refinement depth follows the Django original (a good made from raw materials is depth 1).
 
+use serde::{Deserialize, Serialize};
 use crate::data::{Data, GoodType, Stats, CON, INT, STR, WIS};
 use std::collections::BTreeMap;
 
@@ -24,7 +25,7 @@ const FORGET: f64 = 0.0001;
 const LEARN_STEP_SECONDS: f64 = 10.0;
 
 /// Deterministic random numbers (xorshift64*), so a saved world replays identically.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Rng(u64);
 
 impl Rng {
@@ -56,7 +57,7 @@ impl Rng {
 
 /// A monster's skills: the total learned for each skill, and one forgetting counter for the
 /// whole monster. A skill's value is its total minus the forgetting, never below 0.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Skills {
     pub transferable: Vec<String>,
     pub applied: BTreeMap<String, f64>,
@@ -78,7 +79,7 @@ impl Skills {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RawMaterial {
     pub good: String,
     pub base_value: f64,
@@ -86,14 +87,14 @@ pub struct RawMaterial {
 }
 
 /// Credit toward a good: renown from scoring it is split by share count.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Share {
     pub monster: u32,
     pub count: f64,
 }
 
 /// The economic side of one physical item.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ItemData {
     pub good: String,
     pub quality: f64,

@@ -5,7 +5,9 @@
 //! answered on the same tick and collisions are settled before anything is drawn.
 
 use crate::data::{Data, Stats};
-use crate::econ::{Learned, Rng, Skills};
+use crate::econ::{Learned, Rng, Share, Skills};
+use crate::palette::{SPARK, TEXT_GOOD};
+use serde::{Deserialize, Serialize};
 use crate::tutorial::{self, Tutorial};
 use crate::world::*;
 #[cfg_attr(test, allow(unused_imports))]
@@ -79,7 +81,7 @@ pub struct Input {
     pub inspect: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Species {
     Goblin,
     Cyclops,
@@ -87,13 +89,13 @@ pub enum Species {
 
 /// One recorded action. A step remembers which good it pushed, so replay can tell "it isn't
 /// here yet" (wait) from "something else is in the way" (also wait, but say so).
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Act {
     Step(Dir, Option<String>),
     Use,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Routine {
     pub flag: (i32, i32),
     pub acts: Vec<Act>,
@@ -106,10 +108,11 @@ pub struct Bubble {
     pub waiting: bool, // a looping monster stuck on a step; drawn as a small icon when not controlled
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Monster {
     pub id: u32,
-    pub name: &'static str,
-    pub kind: &'static str,
+    pub name: String,
+    pub kind: String,
     pub species: Species,
     pub stats: Stats,
     pub skills: Skills,
@@ -118,9 +121,11 @@ pub struct Monster {
     pub facing: Dir,
     pub flip: bool,
     pub slide: Option<Slide>,
+    #[serde(skip)]
     pub bump: Option<(Dir, u8)>,
     pub busy: bool,
     pub walk_frame: u8,
+    #[serde(skip)]
     pub bubble: Option<Bubble>,
     pub rec: Option<Routine>,
     pub routine: Option<Routine>,
@@ -130,17 +135,50 @@ pub struct Monster {
     pub wait: u16,
     pub wait_reason: String,
     pub loops: u32,
+    /// Renown credited to this monster from scored goods.
+    pub earned: f64,
     /// What the last finished job taught, for skill popups.
+    #[serde(skip)]
     pub learned: Option<(String, Learned, u16)>,
 }
 
+/// Someone waiting in the hiring hall: a monster type with three talents already rolled.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Applicant {
+    pub kind: String,
+    pub name: String,
+    pub transferable: Vec<String>,
+    pub cost: u32,
+    pub stats: Stats,
+}
+
+/// Floating text that rises or flies between two points (pixels in world space).
+pub struct Floater {
+    pub text: String,
+    pub from: (i32, i32),
+    pub to: (i32, i32),
+    pub t: u16,
+    pub total: u16,
+    /// Ticks before it appears (credits wait for the renown to rise first).
+    pub delay: u16,
+    pub color: u8,
+}
+
+const NAMES: [&str; 16] = ["GRUB", "NELL", "TOK", "ISKA", "BRAM", "ODA", "PIP", "WREN", "MOSK", "HILDA", "ZUG", "FERN", "KORR", "LUMA", "DREG", "SIV"];
+/// Ticks before an empty stand gets a new applicant, and between roster refreshes.
+const APPLICANT_ARRIVES: u32 = 300;
+/// Renown a scored good pays per point of its value (values come from the tech tree's raw
+/// materials and are small). A first tuning guess: early cotton fabric pays about 20.
+pub const RENOWN_PER_VALUE: f64 = 10.0;
+const ROSTER_REFRESH: u32 = 4500;
+
 impl Monster {
-    fn new(id: u32, name: &'static str, kind: &'static str, data: &Data, (x, y): (i32, i32), skills: Skills) -> Self {
+    fn new(id: u32, name: &str, kind: &str, data: &Data, (x, y): (i32, i32), skills: Skills) -> Self {
         let species = if kind == "goblin" { Species::Goblin } else { Species::Cyclops };
         Self {
             id,
-            name,
-            kind,
+            name: name.to_string(),
+            kind: kind.to_string(),
             species,
             stats: data.monster_types[kind].stats.clone(),
             skills,
@@ -161,6 +199,7 @@ impl Monster {
             wait: 0,
             wait_reason: String::new(),
             loops: 0,
+            earned: 0.0,
             learned: None,
         }
     }
@@ -204,7 +243,6 @@ pub struct Game {
     pub monsters: Vec<Monster>,
     pub controlled: usize,
     pub frame: u32,
-    pub crt: bool,
     pub help: bool,
     pub tutorial: Tutorial,
     pub rng: Rng,
@@ -217,6 +255,13 @@ pub struct Game {
     /// Holding E: show the inspect card for whatever the controlled monster faces.
     pub inspecting: bool,
     pub(crate) examine_hinted: bool,
+    pub renown: f64,
+    /// One slot per stand in the hiring hall; empty while a new applicant is on the way.
+    pub applicants: Vec<Option<Applicant>>,
+    pub(crate) applicant_timers: Vec<u32>,
+    pub(crate) roster_timer: u32,
+    pub(crate) next_id: u32,
+    pub floaters: Vec<Floater>,
 }
 
 impl Game {
@@ -229,14 +274,14 @@ impl Game {
             Monster::new(1, "MOGG", "goblin", &data, world.starts[0], mogg),
             Monster::new(2, "BRUNA", "cyclops", &data, world.starts[1], bruna),
         ];
+        let stands = world.stands.len();
         monsters[0].bubble = Some(Bubble { text: "HI, I'M MOGG! LET'S MAKE SOME CLOTH.".into(), ttl: 60, warn: false, waiting: false });
-        Self {
+        let mut g = Self {
             data,
             world,
             monsters,
             controlled: 0,
             frame: 0,
-            crt: true,
             help: false,
             tutorial: Tutorial::default(),
             rng: Rng::new(0x5EED_2026),
@@ -247,6 +292,108 @@ impl Game {
             events: Vec::new(),
             inspecting: false,
             examine_hinted: false,
+            renown: 0.0,
+            applicants: Vec::new(),
+            applicant_timers: vec![0; stands],
+            roster_timer: 0,
+            next_id: 3,
+            floaters: Vec::new(),
+        };
+        g.applicants = (0..stands).map(|_| Some(g.roll_applicant())).collect();
+        g
+    }
+
+    /// A new applicant: a type with three distinct talents, rolled from the world's dice.
+    fn roll_applicant(&mut self) -> Applicant {
+        const KINDS: [&str; 2] = ["goblin", "cyclops"]; // the types with sprites so far
+        let kind = KINDS[(self.rng.next_u64() % KINDS.len() as u64) as usize];
+        let mut pool = self.data.skills.transferable_skills.clone();
+        let mut transferable = Vec::new();
+        for _ in 0..3.min(pool.len()) {
+            let k = (self.rng.next_u64() % pool.len() as u64) as usize;
+            transferable.push(pool.remove(k));
+        }
+        let name = NAMES[(self.rng.next_u64() % NAMES.len() as u64) as usize].to_string();
+        let t = &self.data.monster_types[kind];
+        Applicant { kind: kind.to_string(), name, transferable, cost: t.cost, stats: t.stats.clone() }
+    }
+
+    /// Is an applicant standing on this tile? They block the way like anyone else.
+    pub fn applicant_at(&self, x: i32, y: i32) -> bool {
+        self.world.stands.iter().zip(&self.applicants).any(|(&s, a)| s == (x, y) && a.is_some())
+    }
+
+    /// The applicant stand the controlled monster faces, if someone waits there.
+    pub fn faced_applicant(&self) -> Option<usize> {
+        let m = &self.monsters[self.controlled];
+        let (dx, dy) = m.facing.delta();
+        let k = self.world.stands.iter().position(|&s| s == (m.x + dx, m.y + dy))?;
+        self.applicants[k].as_ref().map(|_| k)
+    }
+
+    fn hire(&mut self, c: usize, k: usize, sfx: &mut Vec<Sfx>) {
+        if self.monsters[c].rec.is_some() {
+            self.say(c, "FINISH RECORDING FIRST (R).", true);
+            sfx.push(Sfx::Deny);
+            return;
+        }
+        let Some(a) = self.applicants[k].clone() else { return };
+        if self.renown < a.cost as f64 {
+            self.say(c, &format!("NOT ENOUGH RENOWN: {} NEEDED.", a.cost), true);
+            sfx.push(Sfx::Deny);
+            return;
+        }
+        self.renown -= a.cost as f64;
+        self.applicants[k] = None;
+        self.applicant_timers[k] = APPLICANT_ARRIVES;
+        let skills = Skills { transferable: a.transferable.clone(), ..Skills::default() };
+        let mut m = Monster::new(self.next_id, &a.name, &a.kind, &self.data, self.world.stands[k], skills);
+        self.next_id += 1;
+        m.facing = Dir::Up;
+        m.bubble = Some(Bubble { text: format!("I'M {}! READY TO WORK.", a.name), ttl: BUBBLE_TICKS, warn: false, waiting: false });
+        self.monsters.push(m);
+        sfx.push(Sfx::RecSave);
+    }
+
+    /// A scored good pays renown, and each contributor's share flies to it as credit.
+    fn score(&mut self, value: f64, shares: &[Share], bx: i32, by: i32) {
+        let value = value * RENOWN_PER_VALUE;
+        self.renown += value;
+        let at = (bx * TS + 8, by * TS);
+        self.floaters.push(Floater { text: format!("+{} RENOWN", value.round()), from: at, to: (at.0, at.1 - 26), t: 0, total: 40, delay: 0, color: SPARK + 2 });
+        let total: f64 = shares.iter().map(|s| s.count).sum();
+        if total <= 0.0 {
+            return;
+        }
+        for s in shares {
+            let credit = value * s.count / total;
+            if let Some(m) = self.monsters.iter_mut().find(|m| m.id == s.monster) {
+                m.earned += credit;
+                if credit >= 0.5 {
+                    let to = (m.x * TS + 8, m.y * TS - 6);
+                    self.floaters.push(Floater { text: format!("{} +{}", m.name, credit.round()), from: (at.0, at.1 - 20), to, t: 0, total: 44, delay: 14, color: TEXT_GOOD });
+                }
+            }
+        }
+    }
+
+    /// Applicants arrive at empty stands, and now and then one leaves for someone new.
+    fn tick_hall(&mut self) {
+        for k in 0..self.applicants.len() {
+            let (sx, sy) = self.world.stands[k];
+            let clear = self.monster_at(sx, sy).is_none() && self.world.item_at(sx, sy).is_none();
+            if self.applicants[k].is_none() {
+                self.applicant_timers[k] = self.applicant_timers[k].saturating_sub(1);
+                if self.applicant_timers[k] == 0 && clear {
+                    self.applicants[k] = Some(self.roll_applicant());
+                }
+            }
+        }
+        self.roster_timer += 1;
+        if self.roster_timer >= ROSTER_REFRESH && !self.applicants.is_empty() {
+            self.roster_timer = 0;
+            let k = (self.frame / ROSTER_REFRESH) as usize % self.applicants.len();
+            self.applicants[k] = Some(self.roll_applicant());
         }
     }
 
@@ -275,7 +422,12 @@ impl Game {
         }
         self.advance_motion();
         self.tick_work(sfx);
+        self.tick_hall();
         self.world.tick_particles(self.frame);
+        for f in self.floaters.iter_mut() {
+            f.t += 1;
+        }
+        self.floaters.retain(|f| f.t < f.total);
         for m in self.monsters.iter_mut() {
             if let Some(b) = m.bubble.as_mut() {
                 b.ttl = b.ttl.saturating_sub(1);
@@ -353,6 +505,12 @@ impl Game {
             return;
         }
 
+        if inp.use_pressed {
+            if let Some(k) = self.faced_applicant() {
+                self.hire(c, k, sfx);
+                return;
+            }
+        }
         if inp.use_pressed || std::mem::take(&mut self.queued_use) {
             self.queued = None;
             match self.try_use(c, sfx) {
@@ -409,7 +567,7 @@ impl Game {
         if dx != 0 {
             self.monsters[i].flip = dx < 0;
         }
-        if !self.world.tile(tx, ty).walkable() || self.monster_at(tx, ty).is_some() {
+        if !self.world.tile(tx, ty).walkable() || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) {
             return StepRes::Blocked(String::new());
         }
         let mut pushed = None;
@@ -425,13 +583,17 @@ impl Game {
                 }
                 let item = self.world.items.remove(it);
                 let bin = &mut self.world.bins[b];
+                let scored = bin.scores.then(|| (item.data.value, item.data.shares.clone()));
                 bin.stock.push(item.data);
                 bin.bounce = 4;
                 self.world.burst(bx, by, PKind::Spark, 5);
+                if let Some((value, shares)) = scored {
+                    self.score(value, &shares, bx, by);
+                }
                 self.events.push(Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else {
-                let free = self.world.tile(bx, by).item_floor() && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none();
+                let free = self.world.tile(bx, by).item_floor() && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none() && !self.applicant_at(bx, by);
                 if !free {
                     return StepRes::Blocked(String::new());
                 }
@@ -649,6 +811,7 @@ impl Game {
                 6 => stored("fabric"),
                 7 => has_routine,
                 8 => playing >= 2,
+                9 => self.monsters.len() > 2,
                 _ => false,
             };
             if !met || t.stage >= tutorial::DONE {

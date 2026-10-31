@@ -91,6 +91,8 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
         draw_bubble(fb, sp, b);
     }
     draw_progress(g, fb, &v);
+    draw_applicant_pitch(g, sp, fb, &v);
+    draw_floaters(g, fb, &v);
     if g.inspecting && !g.help {
         draw_card(g, fb, &v);
     }
@@ -273,6 +275,39 @@ fn leak(id: &str) -> &'static str {
     }
 }
 
+/// Facing an applicant: who they are, their talents and what they cost.
+fn draw_applicant_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    let Some(k) = g.faced_applicant() else { return };
+    let Some(a) = &g.applicants[k] else { return };
+    let (sx, sy) = g.world.stands[k];
+    if !v.sees(sx, sy) {
+        return;
+    }
+    let talents = a.transferable.iter().map(|t| t.replace('_', " ").to_uppercase()).collect::<Vec<_>>().join(", ");
+    let mut lines = vec![format!("{} THE {}", a.name, a.kind.to_uppercase()), format!("{} RENOWN TO HIRE", a.cost)];
+    lines.extend(wrap(&format!("TALENTS: {talents}"), 24));
+    let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
+    let h = lines.len() as i32 * 9 + 4;
+    let (px, py) = v.px(sx, sy);
+    let cx = px + 8;
+    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py + TS + 6).min(VIEW_H - h - 2), w, h, cx, above: false, lines, icon: None, warn: g.renown < a.cost as f64 };
+    draw_bubble(fb, sp, &b);
+}
+
+/// Renown rising from a drop-off, and credits flying to each contributor.
+fn draw_floaters(g: &Game, fb: &mut Framebuffer, v: &View) {
+    let (cx, cy) = (v.tx * TS, v.ty * TS);
+    for f in g.floaters.iter().filter(|f| f.t >= f.delay) {
+        let k = (f.t - f.delay) as i32;
+        let n = (f.total - f.delay).max(1) as i32;
+        let x = f.from.0 + (f.to.0 - f.from.0) * k / n - cx;
+        let y = f.from.1 + (f.to.1 - f.from.1) * k / n - cy;
+        if (0..400).contains(&x) && (0..VIEW_H).contains(&y) {
+            fb.text_centered(&f.text, x, y, f.color, Some(OUTLINE), 1);
+        }
+    }
+}
+
 /// A small count in a tile's top-right corner.
 fn badge(fb: &mut Framebuffer, x: i32, y: i32, n: usize) {
     let text = n.to_string();
@@ -426,6 +461,7 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     enum Body {
         Item(usize),
         Monster(usize),
+        Applicant(usize),
     }
     let mut bodies: Vec<(i32, Body)> = Vec::new();
     for (i, it) in g.world.items.iter().enumerate().filter(|(_, it)| v.sees(it.x, it.y)) {
@@ -433,6 +469,11 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     }
     for (i, m) in g.monsters.iter().enumerate().filter(|(_, m)| v.sees(m.x, m.y)) {
         bodies.push((m.y * TS + Slide::offset(m.slide).1 + 1, Body::Monster(i)));
+    }
+    for (k, &(x, y)) in g.world.stands.iter().enumerate() {
+        if g.applicants[k].is_some() && v.sees(x, y) {
+            bodies.push((y * TS + 1, Body::Applicant(k)));
+        }
     }
     bodies.sort_by_key(|b| b.0);
     for (_, b) in bodies {
@@ -464,6 +505,14 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                         }
                     }
                 }
+            }
+            Body::Applicant(k) => {
+                let Some(a) = &g.applicants[k] else { continue };
+                let frames = if a.kind == "goblin" { &sp.goblin } else { &sp.cyclops };
+                let s = &frames[(g.frame / 12 + k as u32) as usize % 2];
+                let (tx, ty) = v.px(g.world.stands[k].0, g.world.stands[k].1);
+                fb.rect_checker(tx + 3, ty + TS - 2, 10, 2, SHADOW);
+                fb.blit(s, tx + (TS - s.w) / 2, ty + TS - s.h, k % 2 == 1);
             }
             Body::Monster(i) => {
                 let (x, y, s, flip) = monster_pose(g, sp, v, i);
@@ -681,12 +730,37 @@ fn draw_hud(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     fb.rect_fill(4, VIEW_H + 27, 392, 1, HUD_MID);
     let (status, warn) = g.status(g.controlled);
     fb.text(&status, 6, VIEW_H + 32, if warn { TEXT_WARN } else { TEXT_DIM }, Some(HUD_SHADOW), 1);
-    let count = format!("{}", g.cloth_stored());
-    let right = 394 - Framebuffer::text_width(&count, 1);
-    fb.text(&count, right, VIEW_H + 32, TEXT, Some(HUD_SHADOW), 1);
-    if let Some(icon) = sp.icon("fabric") {
-        fb.blit(icon, right - 11, VIEW_H + 31, false);
+    let renown = format!("RENOWN {}", g.renown.floor());
+    fb.text(&renown, 394 - Framebuffer::text_width(&renown, 1), VIEW_H + 32, SPARK + 2, Some(HUD_SHADOW), 1);
+    let _ = sp;
+}
+
+/// The title screen: start a new world or pick a saved one.
+pub fn draw_title(fb: &mut Framebuffer, worlds: &[String], sel: usize, error: Option<&str>) {
+    fb.rect_fill(0, 0, 400, 300, HEDGE);
+    fb.rect_checker(0, 0, 400, 300, GRASS);
+    fb.text_centered("MONSTER WORKSHOP", 200, 40, SPARK + 2, Some(OUTLINE), 3);
+    let items: Vec<String> = std::iter::once("NEW WORLD".to_string()).chain(worlds.iter().cloned()).collect();
+    let h = items.len().min(10) as i32 * 14 + 16;
+    let (w, x, y) = (200, 100, 100);
+    fb.rect_bevel(x, y, w, h, HUD_FILL, HUD_HI, HUD_SHADOW);
+    let first = sel.saturating_sub(9);
+    for (k, name) in items.iter().enumerate().skip(first).take(10) {
+        let ly = y + 9 + (k - first) as i32 * 14;
+        if k == sel {
+            fb.rect_fill(x + 4, ly - 3, w - 8, 13, HUD_MID);
+            for (k, h) in [1, 3, 5, 3, 1].iter().enumerate() {
+                fb.rect_fill(x + 10 + k as i32, ly + 3 - h / 2, 1, *h, SPARK + 2);
+            }
+        }
+        fb.text(name, x + 22, ly, if k == sel { TEXT } else { TEXT_DIM }, Some(HUD_SHADOW), 1);
     }
+    if let Some(e) = error {
+        for (k, l) in wrap(e, 60).iter().enumerate() {
+            fb.text_centered(l, 200, y + h + 10 + k as i32 * 10, TEXT_WARN, Some(OUTLINE), 1);
+        }
+    }
+    fb.text_centered("ARROWS PICK  SPACE STARTS  ESC QUITS", 200, 282, TEXT, Some(OUTLINE), 1);
 }
 
 fn draw_help(fb: &mut Framebuffer) {
