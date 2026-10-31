@@ -53,6 +53,19 @@ There is no recipe menu. What's on a workshop's pads decides what it makes. When
 ### Tools
 Workshops have tool pegs on the wall, which you fill by pushing tools onto them, the same way pads work. Each tool shows a small durability bar. When a tool breaks, a looping monster stops with a "? + hammer" bubble.
 
+### Workshops: town and frontier
+There are two kinds of workshop, with a clear trade-off between convenience and being close to raw materials.
+- **Town workshops** are permanent: they never wear out, have a fixed quality of around 0.8, and are far from raw materials. Their pegs hold basic permanent tools of modest quality, around 0.5, so a new player can craft straight away; bringing better tools improves the results. Nobody builds inside towns, which keeps them fixed and easy to read.
+- **Frontier workshops** are built by players anywhere outside town limits except on roads, for example next to a resource. Their quality is rolled when they're built, like any crafted good, so a lucky build can beat the town's. They wear out: 1,000 durability at 8 per use, about 125 crafts. You repair one by pushing materials into it.
+- **Building stays in the world.** Push a blueprint onto open ground and its footprint appears as a ghost outline. Push the materials in, and a monster builds it.
+- **Reasons to build:**
+  - shorter physical loops, because distance is time;
+  - possibly higher quality;
+  - workshop shares: builders earn weight-8 shares whenever *anyone* uses their workshop.
+
+  Wear-out also clears abandoned workshops out of a persistent world.
+- **Workbenches.** Recipes that don't need a workshop use a small, cheap bench placed anywhere. Benches wear out too, and towns have a few public ones.
+
 ### Hiring
 There is no character-creation screen. A **hiring hall** in town holds applicants. Each one is already rolled with a monster type and 3 transferable skills. Walk up to an applicant and their bubble shows type, skills, stats and renown cost. Space hires them. You choose which applicant to hire, not which boxes to tick, and the roster refreshes over time.
 
@@ -120,7 +133,7 @@ These rules are ported from the Django and Python versions, with the changes agr
 This runs every time a monster finishes a good that has quality, including gathering. Where a recipe has no inputs or no tools, that average counts as 1.0.
 
 1. **Material term** = average input quality × primary skill × secondary-skill average.
-2. **Tool term** = weighted average tool quality × specific skill × ability factor. The ability factor is the relevant ability divided by the difficulty, at most 1.2.
+2. **Tool term** = weighted average tool quality × specific skill × ability factor. The ability factor is the relevant ability divided by the difficulty, at most 1.2. When the recipe uses a workshop, the workshop counts as one more tool with weight 8, matching its share weight and its durability cost. *Changed:* the original rules said workshop quality affects production, but neither the Django nor the Python code used it.
 3. **Mean = (material term + tool term) / 2.** *Changed:* the original added the two terms. Expert chains then compounded without limit: a Metal Hammer made with the previous Metal Hammer reached quality 159 after 40 generations.
 4. **Safety cap on the mean.** Above 1.0 the mean is compressed so that it approaches 2.0 (`QUALITY_MEAN_CAP`). It rarely kicks in; it is only there to stop runaway loops, for example once equipment arrives.
 5. **Roll** = mean + normal noise with spread **σ = 0.1 + 0.3 × destabilizer average** (*changed* from 0.1 + 0.1 ×). The roll itself is not capped, only floored at 0. Outliers above 1 still happen, carry into downstream goods, and then fade back.
@@ -143,8 +156,8 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 
 ## Milestones
 
-- **M1, economy:** port the rules from sokobanmonstermakers, using its 92 tests as the spec, with the changes in Crafting math above. The tech tree now lives in `data/good_types.json`; complete its data for the first chain. Add quality on sprites, skill popups, the inspect card with the workshop forecast, delivery credits, the renown counter and the hiring hall.
-- **M2, second town:** roads and signposts, wagons, town project boards, edge markers and the Tab roster strip.
+- **M1, economy:** port the rules from sokobanmonstermakers, using its 92 tests as the spec, with the changes in Crafting math above. The tech tree now lives in `data/good_types.json`; complete its data for the first chain. Add quality on sprites, skill popups, the inspect card with the workshop forecast, delivery credits, the renown counter and the hiring hall. Workshops in M1 are the town's permanent ones.
+- **M2, second town:** roads and signposts, wagons, town project boards, building frontier workshops and workbenches, edge markers and the Tab roster strip.
 - **M3, content and art:** chains 2–3 and the great work. Replace placeholder sprites with final pixel art under the AGENTS.md palette rules.
 - **M4, ship:** itch.io build and outside playtesters.
 - **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
@@ -154,8 +167,6 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 - **Saving:** there is always a save file (world, monsters, routines). Format and autosave cadence are still to decide. Offline progress is a setting (see Scope).
 - **World layout:** the two towns, the wilderness, and how big a map is. To work out together.
 - **Weight you can feel (proposal):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.
-- **Crafting without a workshop:** most recipes don't need one. In the grid world they still need a work spot, likely a simple outdoor workbench. Part of the placing-workshops question.
-- **Placing workshops:** possibly a major feature, so that where you build matters, for example next to a resource. Under discussion.
 - **Tune in play:** economy numbers (starting renown, hiring costs, monster count, project costs), applicant rules (how many, refresh rate, pricing), and the time-scale presets.
 - **Hauling and wagon skills** are learned by doing. Each tile a monster pushes cargo, or pulls a loaded wagon, counts as a few seconds of hauling or wagon-driving task time, for both learning and forgetting.
 - **Tech-tree data to fix in M1:**
