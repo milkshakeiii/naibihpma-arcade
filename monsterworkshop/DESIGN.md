@@ -40,6 +40,17 @@ Fixes made at the same time:
 - Cotton Seeds' tag was split into letters; it now asks for "cotton gin".
 - Dyed Fabric now carries its dye color, which also makes Royal Blue Dyed Fabric's input reachable.
 
+**The source stays implicit.** Player-facing text never names the book or the real places it describes. It shapes the world from underneath, as part of the game's mystique.
+
+### World layout (starting world)
+- **Flip-screen rooms.** Each screen is 25×16 tiles. When the controlled monster crosses an edge, the view flips to the next screen, as in classic DOS games. The simulation keeps running on every screen.
+- **Pinewater, the weaving town (west)**, about 2×2 screens. It has the spinnery, the loom house, the hiring hall and a public workbench, with the cotton fields right outside. M1 can be played entirely here.
+- **Wilderness (middle)**, 2–3 screens of road between the towns: forest (hemlock near the road, oak deeper in), a bamboo grove, scrub and meadow (sticks, ramie), and dye plants toward the east. This is where frontier workshops go. Rarer varieties sit farther from the road.
+- **Tanglemere, the dyeing town (east)**, about 2×2 screens. It has the dye works, project boards, a public workbench and the great work. Fabric travels east to be dyed, which is what makes wagons matter.
+- **Later regions** feel farther away and weightier: for example, hills beyond the dyeing town with copper and tin for the Temple Bell chain.
+- Its two-town shape follows the book: weaving at one town, sizing and dyeing at another.
+- **Naming:** place names quietly translate the meaning of the real places behind them. Songjiang ("pine river") becomes Pinewater, and Wuhu ("overgrown lake") becomes Tanglemere. Name the wilderness and later regions the same way.
+
 ### Music
 Henry composes the soundtrack. The arcade's Star Pond already streams WAV music, so that code can be reused.
 
@@ -165,7 +176,7 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 ## Open questions
 
 - **Saving:** there is always a save file (world, monsters, routines). Format and autosave cadence are still to decide. Offline progress is a setting (see Scope).
-- **World layout:** the two towns, the wilderness, and how big a map is. To work out together.
+- **Screen-by-screen layouts** of the two towns and the wilderness, designed in M1 and M2.
 - **Weight you can feel (proposal):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.
 - **Tune in play:** economy numbers (starting renown, hiring costs, monster count, project costs), applicant rules (how many, refresh rate, pricing), and the time-scale presets.
 - **Hauling and wagon skills** are learned by doing. Each tile a monster pushes cargo, or pulls a loaded wagon, counts as a few seconds of hauling or wagon-driving task time, for both learning and forgetting.
