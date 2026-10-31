@@ -22,6 +22,22 @@ During play the target is zero full-screen menus. Every action gets visible and 
 - **Time scale:** fast for single-player, slow for a persistent world.
 - **Monsters working while you're away:** off, or catch up a capped amount of time.
 
+### Saving
+- **Worlds, like a survival game.** Each world is its own save, with its own settings (time scale, offline progress). The title screen lists your worlds; that is a full screen, which is allowed outside play.
+- **What gets saved:** simulation state only:
+  - monsters: position, stats, skills, routines and loop progress;
+  - items: variety tags, quality, durability, raw-material history, shares;
+  - plants, bins, and workshops, including crafts in progress;
+  - renown, project progress, applicants and the tutorial stage;
+  - the game clock and the random-number state.
+
+  The base map comes from the game's data, so a save stores only what has changed; from M2 that includes player-built workshops. Display-only state such as particles and bubbles is not saved.
+- **Format: JSON**, with a version number and migrations on load. It is readable when debugging, easy to diff, and the same snapshot can later be what a persistent-world server stores. Goods are referenced by a stable `id` (like `cotton_gin`), never by display name, so renaming a good never breaks a save. The data needs those ids first: today goods have only names, and two are both called "Saw".
+- **Where:** `%APPDATA%\MonsterWorkshop\worlds\`, so an itch install folder never has to be writable.
+- **When:** every 60 seconds of play, and on quit, always between ticks. Each save is written to a temporary file and then renamed, and the previous two saves are kept as backups, so a crash mid-write can't lose a world.
+- **Offline progress on load:** if the world's setting allows it, the game runs the missed time headless, capped at around 8 hours, behind a progress bar, before showing the world. The simulation is deterministic per tick, so catching up just means ticking fast.
+- **Tested by a round trip:** save, load, run both copies for a few thousand ticks, and check they stay identical. That also guards the simulation's determinism, which the persistent world will rely on.
+
 ### First production chain
 Cotton cloth: **Cotton Bolls → Cotton Slivers → Thread → Fabric.** The production chains come from *Tian Gong Kai Wu* (Song Yingxing, 1637). New goods that fill gaps in the tech tree are proposed from that book, and Henry approves them before they go in.
 
@@ -167,7 +183,7 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 
 ## Milestones
 
-- **M1, economy:** port the rules from sokobanmonstermakers, using its 92 tests as the spec, with the changes in Crafting math above. The tech tree now lives in `data/good_types.json`; complete its data for the first chain. Add quality on sprites, skill popups, the inspect card with the workshop forecast, delivery credits, the renown counter and the hiring hall. Workshops in M1 are the town's permanent ones.
+- **M1, economy:** port the rules from sokobanmonstermakers, using its 92 tests as the spec, with the changes in Crafting math above. The tech tree now lives in `data/good_types.json`; give every good a stable `id`, and complete the data for the first chain. Add saving and the world list. Add quality on sprites, skill popups, the inspect card with the workshop forecast, delivery credits, the renown counter and the hiring hall. Workshops in M1 are the town's permanent ones.
 - **M2, second town:** roads and signposts, wagons, town project boards, building frontier workshops and workbenches, edge markers and the Tab roster strip.
 - **M3, content and art:** chains 2–3 and the great work. Replace placeholder sprites with final pixel art under the AGENTS.md palette rules.
 - **M4, ship:** itch.io build and outside playtesters.
@@ -175,7 +191,6 @@ Unchanged from the original, plus the Python port's two fixes: skills never read
 
 ## Open questions
 
-- **Saving:** there is always a save file (world, monsters, routines). Format and autosave cadence are still to decide. Offline progress is a setting (see Scope).
 - **Screen-by-screen layouts** of the two towns and the wilderness, designed in M1 and M2.
 - **Weight you can feel (proposal):** heavier items push a little slower, scaled against the monster's STR (for example 3 ticks for a normal push and 4 for a heavy one), and wagons get a weight capacity. Oak versus hemlock then becomes a trade-off between value and hauling effort.
 - **Tune in play:** economy numbers (starting renown, hiring costs, monster count, project costs), applicant rules (how many, refresh rate, pricing), and the time-scale presets.
