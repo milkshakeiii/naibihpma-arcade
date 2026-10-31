@@ -16,9 +16,10 @@ pub const STAGES: [&str; 10] = [
 
 pub const DONE: usize = STAGES.len() - 1;
 
-pub const HELP: [&str; 9] = [
+pub const HELP: [&str; 10] = [
     "ARROWS / WASD   WALK, PUSH",
-    "SPACE / E       USE: HARVEST, CRAFT",
+    "SPACE           USE: HARVEST, CRAFT",
+    "E (HOLD)        EXAMINE",
     "R               RECORD / SAVE ROUTINE",
     "BACKSPACE       CANCEL RECORDING",
     "P               LOOP ROUTINE / STOP",

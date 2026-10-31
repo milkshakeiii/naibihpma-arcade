@@ -103,3 +103,79 @@ fn two_monsters_loop_the_chain_on_their_own() {
     assert!(g.cloth_stored() >= before + 3, "only {} more fabric in 400 s", g.cloth_stored() - before);
     assert!(g.monsters.iter().all(|m| m.playing), "a loop stopped");
 }
+
+fn has_line(card: &crate::inspect::Card, needle: &str) -> bool {
+    card.lines.iter().any(|l| l.text.contains(needle))
+}
+
+#[test]
+fn examining_a_boll_shows_its_quality_and_history() {
+    let mut g = Game::new();
+    g.script("RRRRRRu");
+    let card = crate::inspect::card(&g);
+    assert_eq!(card.title, "COTTON BOLLS");
+    assert!(!has_line(&card, "QUALITY"), "bolls have no quality, so the card doesn't mention it");
+    assert!(has_line(&card, "RAW MATERIAL") && has_line(&card, "CREDIT: MOGG"));
+}
+
+#[test]
+fn examining_with_nothing_ahead_describes_your_monster() {
+    let mut g = Game::new();
+    g.monsters[0].facing = Dir::Left; // open grass, not the cotton plant to the east
+    let card = crate::inspect::card(&g);
+    assert_eq!(card.title, "MOGG THE GOBLIN");
+    assert!(has_line(&card, "TALENTS: HANDCRAFTS") && has_line(&card, "SPINNING"));
+}
+
+#[test]
+fn the_spinnery_forecast_shows_quality_odds_learning_and_what_holds_it_back() {
+    let mut g = Game::new();
+    let mut slivers = boll(&g.data);
+    slivers.good = "cotton_slivers".into();
+    slivers.carried_tags = vec!["cotton".into()];
+    slivers.depth = 1;
+    g.world.items.push(Item::new(30, 9, slivers));
+    g.controlled = 1;
+    (g.monsters[1].x, g.monsters[1].y) = (30, 8);
+    let card = crate::inspect::card(&g);
+    assert_eq!(card.title, "SPINNERY: THREAD");
+    for needle in ["EXPECTED QUALITY", "EXCEPTIONAL", "MAKES 1 THREAD", "LEARNS SPINNING", "FORGETS", "LEVELS OFF", "TAKES"] {
+        assert!(has_line(&card, needle), "missing {needle}: {:?}", card.lines.iter().map(|l| &l.text).collect::<Vec<_>>());
+    }
+    assert!(g.status(1).0.contains("SPINNERY EXPECTS QUALITY"), "{}", g.status(1).0);
+    g.world.items.clear();
+    assert!(has_line(&crate::inspect::card(&g), "NEEDS COTTON SLIVERS ON THE PAD."));
+}
+
+#[test]
+fn extra_output_waits_inside_so_loops_never_jam() {
+    let mut g = Game::new();
+    let bench = g.world.shop_at_spot(14, 9).unwrap();
+    let extra = boll(&g.data);
+    g.world.shops[bench].pending = vec![extra.clone(), extra.clone()];
+    g.world.items.push(Item::new(15, 9, extra.clone())); // one already out on the mat
+    g.world.items.push(Item::new(13, 9, boll(&g.data))); // a fresh boll on the pad
+    g.controlled = 1;
+    (g.monsters[1].x, g.monsters[1].y) = (14, 9);
+    g.script("u");
+    assert!(g.made.contains("cotton_slivers"), "the bench works even with output waiting");
+    assert!(g.world.shops[bench].pending.len() >= 3, "new slivers queue behind the waiting ones");
+
+    g.world.shops[bench].pending = vec![extra; crate::world::OUTPUT_BUFFER];
+    g.world.items.push(Item::new(13, 9, boll(&g.data)));
+    g.script("u");
+    let said = g.monsters[1].bubble.as_ref().map(|b| b.text.clone()).unwrap_or_default();
+    assert!(said.contains("IS FULL"), "a full workshop says so: {said}");
+}
+
+
+#[test]
+fn examining_a_plant_forecasts_the_harvest() {
+    let g = Game::new(); // Mogg starts facing the first cotton plant
+    let card = crate::inspect::card(&g);
+    assert_eq!(card.title, "COTTON PLANT");
+    for needle in ["RIPE", "A HARVEST GIVES", "TAKES", "LEARNS HARVESTING", "LEVELS OFF"] {
+        assert!(has_line(&card, needle), "missing {needle}: {:?}", card.lines.iter().map(|l| &l.text).collect::<Vec<_>>());
+    }
+    assert!(!has_line(&card, "QUALITY"), "cotton bolls are ungraded");
+}

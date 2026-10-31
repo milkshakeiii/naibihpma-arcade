@@ -34,6 +34,36 @@ pub const BUBBLE: u8 = 57;
 pub const INK: u8 = 58; // dark text inside speech bubbles
 pub const FLOWER: u8 = 59; // 2 decorative yard flowers
 
+/// Every multi-shade ramp, dark to light, so a sprite can be brightened or dimmed by
+/// shifting its palette indices within their ramps (no alpha, per AGENTS.md).
+const RAMPS: [(u8, u8); 15] = [
+    (GRASS, 4),
+    (PATH, 3),
+    (HEDGE, 3),
+    (WOOD, 4),
+    (PLANK, 4),
+    (MAT, 3),
+    (COTTON, 3),
+    (THREAD, 3),
+    (LEAF, 3),
+    (GOBLIN, 3),
+    (CYCLOPS, 3),
+    (SPARK, 3),
+    (REC, 2),
+    (LOOP, 2),
+    (FLOWER, 2),
+];
+
+/// `c` moved `k` steps lighter (or darker, if negative) within its ramp.
+pub fn shift(c: u8, k: i32) -> u8 {
+    for (start, n) in RAMPS {
+        if c >= start && c < start + n {
+            return (c as i32 + k).clamp(start as i32, (start + n - 1) as i32) as u8;
+        }
+    }
+    c
+}
+
 type Rgb = (u8, u8, u8);
 
 #[inline]
@@ -100,6 +130,14 @@ mod tests {
         for &c in build().iter() {
             assert_eq!(c & 0x0003_0303, 0, "channel not quantized to 6 bits: {c:08x}");
         }
+    }
+
+    #[test]
+    fn shifting_stays_inside_the_ramp() {
+        assert_eq!(shift(COTTON + 1, 1), COTTON + 2);
+        assert_eq!(shift(COTTON + 2, 1), COTTON + 2);
+        assert_eq!(shift(COTTON, -1), COTTON);
+        assert_eq!(shift(OUTLINE, 1), OUTLINE);
     }
 
     #[test]

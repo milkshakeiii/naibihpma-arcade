@@ -308,7 +308,7 @@
           "bast"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Bast Fiber",
       "primary_applied_skill": "textiles",
       "production_time": 720,
@@ -364,7 +364,7 @@
           "bolls"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Cotton Slivers",
       "primary_applied_skill": "textiles",
       "production_time": 120,
@@ -417,7 +417,7 @@
           "bolls"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Cotton Seeds",
       "primary_applied_skill": "textiles",
       "production_time": 120,
@@ -706,7 +706,7 @@
           "stalks"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Whole Grain",
       "primary_applied_skill": "threshing",
       "production_time": 600,
@@ -796,7 +796,7 @@
           "blossoms"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Safflower Seeds",
       "primary_applied_skill": "gathering",
       "production_time": 120,
@@ -840,7 +840,7 @@
           "seeds"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Safflower Cakes",
       "primary_applied_skill": "dyeing",
       "production_time": 180,
@@ -933,7 +933,7 @@
           "buds"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Scholartree Bud Cakes",
       "primary_applied_skill": "dyeing",
       "production_time": 240,
@@ -1040,7 +1040,7 @@
           "iron"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Green Vitriol",
       "primary_applied_skill": "chemistry",
       "production_time": 240,
@@ -1101,7 +1101,7 @@
           "fuel"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Lye",
       "primary_applied_skill": "chemistry",
       "production_time": 120,
@@ -1669,7 +1669,7 @@
           "fuel"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Seeth Water",
       "primary_applied_skill": "chemistry",
       "production_time": 360,
@@ -3933,7 +3933,7 @@
           "fuel"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Porcelain Clay Paste",
       "primary_applied_skill": "firing",
       "production_time": 300,
@@ -5794,7 +5794,7 @@
           "fuel"
         ]
       ],
-      "is_fixed_quantity": true,
+      "is_fixed_quantity": false,
       "name": "Coke",
       "primary_applied_skill": "firing",
       "production_time": 360,

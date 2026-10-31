@@ -1,5 +1,7 @@
+use crate::econ::{quality_level, EXCEPTIONAL, MASTERWORK};
 use crate::framebuffer::Framebuffer;
 use crate::game::{Game, Species};
+use crate::inspect;
 use crate::palette::*;
 use crate::sprites::{Sprite, Sprites};
 use crate::tutorial::{self, wrap, HELP, STAGES};
@@ -66,15 +68,32 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
         draw_bin(sp, fb, &v, b);
     }
+    // How many more goods wait inside a workshop or a harvested plant.
+    for s in &g.world.shops {
+        if let Some(&(x, y)) = s.outs.first().filter(|_| !s.pending.is_empty()) {
+            if v.sees(x, y) {
+                let (px, py) = v.px(x, y);
+                badge(fb, px, py, s.pending.len());
+            }
+        }
+    }
+    for p in g.world.plants.iter().filter(|p| !p.stock.is_empty() && v.sees(p.x, p.y)) {
+        let (px, py) = v.px(p.x, p.y);
+        badge(fb, px, py, p.stock.len());
+    }
     draw_flags(g, sp, fb, &v);
     draw_bodies(g, sp, fb, &v);
     draw_particles(g, fb, &v);
     draw_markers(g, sp, fb, &v);
+    draw_popups(g, fb, &v);
     // Lowest priority first, so the controlled monster's bubble ends up on top.
     for b in layout_bubbles(g, &v).iter().rev() {
         draw_bubble(fb, sp, b);
     }
     draw_progress(g, fb, &v);
+    if g.inspecting && !g.help {
+        draw_card(g, fb, &v);
+    }
     draw_hud(g, sp, fb);
     if g.help {
         draw_help(fb);
@@ -254,6 +273,85 @@ fn leak(id: &str) -> &'static str {
     }
 }
 
+/// A small count in a tile's top-right corner.
+fn badge(fb: &mut Framebuffer, x: i32, y: i32, n: usize) {
+    let text = n.to_string();
+    let w = Framebuffer::text_width(&text, 1) + 3;
+    fb.rect_fill(x + TS - w, y - 2, w, 9, OUTLINE);
+    fb.text(&text, x + TS - w + 2, y - 1, TEXT, None, 1);
+}
+
+/// A sprite brightened or dimmed by quality in half steps: odd levels shift every other
+/// pixel (ordered dither), even levels shift them all. The dark hull never changes.
+fn blit_quality(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32, level: i32) {
+    for sy in 0..s.h {
+        for sx in 0..s.w {
+            let c = s.px[(sy * s.w + sx) as usize];
+            if c == 0 {
+                continue;
+            }
+            let half = level % 2 != 0 && (x + sx + y + sy) % 2 == 0;
+            let k = level / 2 + if half { level.signum() } else { 0 };
+            fb.pset(x + sx, y + sy, if c > 1 { shift(c, k) } else { c });
+        }
+    }
+}
+
+/// "+SPINNING" rises over a monster that just learned.
+fn draw_popups(g: &Game, fb: &mut Framebuffer, v: &View) {
+    for m in g.monsters.iter().filter(|m| v.sees(m.x, m.y)) {
+        let Some((recipe, _, ttl)) = &m.learned else { continue };
+        let Some(r) = g.data.try_good(recipe) else { continue };
+        let text = format!("+{}", r.primary_applied_skill.replace('_', " ").to_uppercase());
+        let (ox, oy) = Slide::offset(m.slide);
+        let (mx, my) = v.px(m.x, m.y);
+        let rise = (45 - *ttl as i32).max(0) / 3;
+        fb.text_centered(&text, mx + ox + 8, my + oy - 10 - rise, TEXT_GOOD, Some(OUTLINE), 1);
+    }
+}
+
+/// The hold-E card, with corner brackets on what it describes.
+fn draw_card(g: &Game, fb: &mut Framebuffer, v: &View) {
+    let card = inspect::card(g);
+    let bar_w = if card.lines.iter().any(|l| l.bar.is_some()) { 46 } else { 0 };
+    let layout = |chars: usize| {
+        let lines: Vec<(String, u8, Option<f64>)> = card
+            .lines
+            .iter()
+            .flat_map(|l| wrap(&l.text, chars).into_iter().enumerate().map(move |(k, t)| (t, l.color, if k == 0 { l.bar } else { None })))
+            .collect();
+        let widest = lines.iter().map(|l| l.0.len()).max().unwrap_or(0).max(card.title.len()) as i32;
+        (lines, widest * 6 + 12 + bar_w)
+    };
+    let at = v.px(card.at.0, card.at.1);
+    let (mut lines, mut w) = layout(38);
+    let (right, room) = inspect::side(at, w);
+    if w > room {
+        (lines, w) = layout((((room - 12 - bar_w) / 6).max(14)) as usize);
+    }
+    let h = 24 + lines.len() as i32 * 10;
+    if v.sees(card.at.0, card.at.1) {
+        let (tx, ty) = at;
+        for (cx, cy, dx, dy) in [(tx, ty, 1, 1), (tx + TS - 1, ty, -1, 1), (tx, ty + TS - 1, 1, -1), (tx + TS - 1, ty + TS - 1, -1, -1)] {
+            fb.rect_fill(cx.min(cx + dx * 3), cy, 4, 1, SPARK + 2);
+            fb.rect_fill(cx, cy.min(cy + dy * 3), 1, 4, SPARK + 2);
+        }
+    }
+    let (x, y) = inspect::place(at, w, h, VIEW_H, right);
+    fb.rect_bevel(x, y, w, h, HUD_FILL, HUD_HI, HUD_SHADOW);
+    fb.text(&card.title, x + 6, y + 6, SPARK + 2, Some(HUD_SHADOW), 1);
+    fb.rect_fill(x + 4, y + 16, w - 8, 1, HUD_SHADOW);
+    for (k, (t, c, bar)) in lines.iter().enumerate() {
+        let ly = y + 20 + k as i32 * 10;
+        fb.text(t, x + 6, ly, *c, Some(HUD_SHADOW), 1);
+        if let Some(b) = bar {
+            let bx = x + w - 46;
+            fb.rect_fill(bx, ly, 40, 6, OUTLINE);
+            fb.rect_fill(bx + 1, ly + 1, ((b.clamp(0.0, 1.0) * 38.0) as i32).max(1), 4, SPARK + 1);
+        }
+    }
+}
+
 /// Every other pixel of a sprite: a dithered "this goes here" hint, no alpha.
 fn blit_ghost(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32) {
     for sy in 0..s.h {
@@ -348,7 +446,24 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let x = tx + ox + (TS - s.w) / 2 + jitter;
                 let y = ty + TS - s.h + oy - HOP[it.hop.min(6) as usize];
                 fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
-                fb.blit(s, x, y, false);
+                // Ungraded goods have no quality to show: no tint, no twinkle.
+                let graded = g.data.try_good(it.good()).is_some_and(|gt| gt.has_quality);
+                let q = it.data.quality;
+                blit_quality(fb, s, x, y, if graded { quality_level(q) } else { 0 });
+                if graded && q >= EXCEPTIONAL {
+                    // A slow twinkle: exceptional goods every two seconds, masterworks twice as often.
+                    let period = if q >= MASTERWORK { 15 } else { 30 };
+                    let phase = (g.frame + (it.x * 7 + it.y * 13) as u32) % period;
+                    let (gx, gy) = (x + s.w - 2, y + 1);
+                    if phase < 3 {
+                        fb.pset(gx, gy, SPARK + 2);
+                    }
+                    if phase == 1 {
+                        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                            fb.pset(gx + dx, gy + dy, SPARK + 1);
+                        }
+                    }
+                }
             }
             Body::Monster(i) => {
                 let (x, y, s, flip) = monster_pose(g, sp, v, i);

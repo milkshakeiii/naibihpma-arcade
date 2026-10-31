@@ -247,7 +247,8 @@ pub fn forecast(c: &Craft) -> Forecast {
         let tool = tool_quality * specific * ability_factor;
         (soft_cap((material + tool) / 2.0), SIGMA_BASE + SIGMA_PER_DESTABILIZER * destab_avg)
     } else {
-        ((input_quality + tool_quality) / 2.0, 0.0)
+        // Ungraded goods pass their inputs' quality through unchanged (raw ones count as 1).
+        (input_quality, 0.0)
     };
     Forecast { input_quality, primary, secondary, tool_quality, specific, ability: ability_factor, mean, sigma }
 }
@@ -446,6 +447,61 @@ pub fn learn(skills: &mut Skills, stats: &Stats, recipe: &GoodType, data: &Data,
 pub fn gather(recipe: &GoodType, gatherer: Crafter, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
     let c = Craft { recipe, crafter: gatherer, inputs: Vec::new(), tools: Vec::new(), workshop: None };
     produce(&c, data, rng)
+}
+
+/// Quantity a craft makes: (fewest, most, average) over many rolls, for the forecast card.
+pub fn quantity_range(c: &Craft) -> (u32, u32, f64) {
+    if c.recipe.is_fixed_quantity {
+        let n = c.recipe.quantity.max(1);
+        return (n, n, n as f64);
+    }
+    let mut rng = Rng::new(0xF0_2E_CA_57);
+    let rolls: Vec<u32> = (0..400).map(|_| roll_quantity(c, &mut rng)).collect();
+    let avg = rolls.iter().sum::<u32>() as f64 / rolls.len() as f64;
+    (*rolls.iter().min().unwrap_or(&1), *rolls.iter().max().unwrap_or(&1), avg)
+}
+
+/// How bright a good looks, in half steps of its palette ramps: -2 dull to +2 brilliant.
+pub fn quality_level(q: f64) -> i32 {
+    match q {
+        q if q < 0.25 => -2,
+        q if q < 0.5 => -1,
+        q if q < 0.9 => 0,
+        q if q < EXCEPTIONAL => 1,
+        _ => 2,
+    }
+}
+
+pub fn tier_name(q: f64) -> &'static str {
+    match q {
+        q if q < 0.25 => "POOR",
+        q if q < 0.5 => "PLAIN",
+        q if q < 0.9 => "GOOD",
+        q if q < EXCEPTIONAL => "FINE",
+        q if q < MASTERWORK => "EXCEPTIONAL",
+        _ => "MASTERWORK",
+    }
+}
+
+/// Upper tail of the standard normal, P(Z > z) (Abramowitz and Stegun 7.1.26).
+fn upper_tail(z: f64) -> f64 {
+    let x = z.abs() / std::f64::consts::SQRT_2;
+    let t = 1.0 / (1.0 + 0.327_591_1 * x);
+    let poly = t * (0.254_829_592 + t * (-0.284_496_736 + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+    let erfc = poly * (-x * x).exp();
+    if z >= 0.0 {
+        erfc / 2.0
+    } else {
+        1.0 - erfc / 2.0
+    }
+}
+
+/// Chance a craft lands at quality `q` or better (exact for q >= 1, where no nudge applies).
+pub fn chance_at_least(f: &Forecast, q: f64) -> f64 {
+    if f.sigma <= 0.0 {
+        return if f.mean >= q { 1.0 } else { 0.0 };
+    }
+    upper_tail((q - f.mean) / f.sigma)
 }
 
 #[cfg(test)]

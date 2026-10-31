@@ -22,21 +22,40 @@ fn builtin_tool(id: &str) -> ItemData {
     ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0 }
 }
 
+/// What a work spot would make right now, for the forecast card.
+pub(crate) struct Preview {
+    pub recipe: String,
+    /// The inputs on the pads, or what is missing.
+    pub inputs: Result<Vec<ItemData>, String>,
+    /// The tools the craft would use, or the one that is missing.
+    pub tools: Result<Vec<ItemData>, String>,
+    pub workshop: Option<Workshop>,
+}
+
 impl Game {
-    fn job_ticks(&self, recipe: &str, monster: usize) -> u32 {
+    pub(crate) fn job_ticks(&self, recipe: &str, monster: usize) -> u32 {
         let secs = econ::production_seconds(self.data.good(recipe), &self.monsters[monster].stats);
         ((secs / GAME_SECONDS_PER_TICK).round() as u32).max(1)
     }
 
-    /// "COTTON BOLLS" for a recipe's first input, for hints.
-    fn describe_group(&self, group: &[String]) -> String {
-        self.data.goods.iter().find(|g| matches(&g.type_tags, group)).map_or_else(|| group.join(" ").to_uppercase(), |g| g.name.to_uppercase())
+    /// "COTTON SLIVERS" for a recipe's input, for hints: a good this town makes or grows if
+    /// one fits, otherwise any good that fits.
+    pub(crate) fn describe_group(&self, group: &[String]) -> String {
+        let local = |id: &str| self.world.shops.iter().any(|s| s.kind.recipes().contains(&id)) || self.world.plants.iter().any(|p| p.good == id);
+        let fits: Vec<&crate::data::GoodType> = self.data.goods.iter().filter(|g| matches(&g.type_tags, group)).collect();
+        fits.iter()
+            .find(|g| local(&g.id))
+            .or(fits.first())
+            .map_or_else(|| group.join(" ").to_uppercase(), |g| g.name.to_uppercase())
     }
 
-    pub(crate) fn use_plant(&mut self, i: usize, p: usize, sfx: &mut Vec<Sfx>) -> UseRes {
+    /// Space on a plant: harvest it if it is ripe. A plant that still holds goods sets them
+    /// out on its own, so Space there just succeeds, and a recorded "Space, push, walk back"
+    /// yields one good per cycle however many a harvest rolled.
+    pub(crate) fn use_plant(&mut self, i: usize, p: usize, _sfx: &mut Vec<Sfx>) -> UseRes {
         let plant = &self.world.plants[p];
         if !plant.stock.is_empty() {
-            return self.pop_from_plant(i, p, sfx);
+            return UseRes::Done;
         }
         if plant.harvest.is_some() {
             return UseRes::Wait("SOMEONE IS ALREADY HARVESTING.".into());
@@ -44,35 +63,49 @@ impl Game {
         if !plant.ripe() {
             return UseRes::Wait("STILL GROWING.".into());
         }
+        let m = &self.monsters[i];
+        let facing = m.facing;
+        let (dx, dy) = facing.delta();
+        let drop = (m.x + dx, m.y + dy);
+        if !self.world.tile(drop.0, drop.1).item_floor() {
+            return UseRes::Wait("NO ROOM TO DROP IT THERE.".into());
+        }
         let (good, x, y) = (plant.good.clone(), plant.x, plant.y);
         let total = self.job_ticks(&good, i);
-        self.world.plants[p].harvest = Some(Job { monster: i, recipe: good, t: 0, total });
+        let plant = &mut self.world.plants[p];
+        plant.harvest = Some(Job { monster: i, recipe: good, t: 0, total });
+        plant.drop = Some((drop, facing));
         self.monsters[i].busy = true;
         self.world.burst(x, y, PKind::Leaf, 3);
         UseRes::Done
     }
 
-    /// One gathered good pops out in front of the monster.
-    fn pop_from_plant(&mut self, i: usize, p: usize, sfx: &mut Vec<Sfx>) -> UseRes {
-        let m = &self.monsters[i];
-        let facing = m.facing;
-        let (dx, dy) = facing.delta();
-        let (fx, fy) = (m.x + dx, m.y + dy);
-        let free = self.world.tile(fx, fy).item_floor() && self.world.item_at(fx, fy).is_none() && self.monster_at(fx, fy).is_none();
-        if !free {
-            return UseRes::Wait("NO ROOM TO DROP IT THERE.".into());
+    /// A harvested plant sets its goods out on its drop tile, one at a time as it clears.
+    fn dispense_plant(&mut self, p: usize, sfx: &mut Vec<Sfx>) {
+        let plant = &self.world.plants[p];
+        let Some(((x, y), dir)) = plant.drop else { return };
+        if plant.stock.is_empty() {
+            return;
         }
+        let free = self.world.tile(x, y).item_floor() && self.world.item_at(x, y).is_none() && self.monster_at(x, y).is_none();
         let plant = &mut self.world.plants[p];
+        if !free {
+            return;
+        }
+        plant.timer = plant.timer.saturating_add(1);
+        if plant.timer < DISPENSE_TICKS {
+            return;
+        }
+        plant.timer = 0;
         let data = plant.stock.remove(0);
         if plant.stock.is_empty() {
             plant.growth = 0;
         }
         let (px, py) = (plant.x, plant.y);
-        let slide = Some(Slide { dir: facing, left: crate::game::PUSH_TICKS, total: crate::game::PUSH_TICKS });
-        self.world.items.push(Item { slide, hop: 6, ..Item::new(fx, fy, data) });
+        let slide = Some(Slide { dir, left: crate::game::PUSH_TICKS, total: crate::game::PUSH_TICKS });
+        self.world.items.push(Item { slide, hop: 6, ..Item::new(x, y, data) });
         self.world.burst(px, py, PKind::Leaf, 4);
         sfx.push(Sfx::Pop);
-        UseRes::Done
     }
 
     pub(crate) fn use_shop(&mut self, i: usize, s: usize, sfx: &mut Vec<Sfx>) -> UseRes {
@@ -80,9 +113,9 @@ impl Game {
         if shop.job.is_some() {
             return UseRes::Wait(format!("THE {} IS BUSY.", shop.kind.label()));
         }
-        let outs_full = !shop.pending.is_empty() || shop.outs.iter().all(|&(x, y)| self.world.item_at(x, y).is_some() || self.monster_at(x, y).is_some());
-        if outs_full {
-            return UseRes::Wait("CLEAR THE OUTPUT MAT FIRST.".into());
+        // Extra output waits inside, so a loop that takes one per cycle never jams.
+        if shop.pending.len() >= OUTPUT_BUFFER {
+            return UseRes::Wait(format!("THE {} IS FULL. CLEAR ITS OUTPUT MAT.", shop.kind.label()));
         }
         let kind = shop.kind;
         let chosen = kind.recipes().iter().find_map(|r| self.match_inputs(s, r).map(|inputs| (r.to_string(), inputs)));
@@ -102,6 +135,30 @@ impl Game {
         self.monsters[i].busy = true;
         sfx.push(Sfx::Spin);
         UseRes::Done
+    }
+
+    pub(crate) fn preview(&self, s: usize) -> Preview {
+        let kind = self.world.shops[s].kind;
+        let found = kind.recipes().iter().find_map(|r| self.match_inputs(s, r).map(|idx| (r.to_string(), idx)));
+        let (recipe, inputs) = match found {
+            Some((r, idx)) => (r, Ok(idx.iter().map(|&i| self.world.items[i].data.clone()).collect())),
+            None => {
+                let r = kind.recipes()[0];
+                let want = self.data.good(r).input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
+                (r.to_string(), Err(want))
+            }
+        };
+        let tools = self.match_tools(s, &recipe).map(|src| {
+            src.iter()
+                .map(|t| match t {
+                    ToolSource::Peg(i) => self.world.items[*i].data.clone(),
+                    ToolSource::Builtin(id) => builtin_tool(id),
+                })
+                .collect()
+        });
+        let shop = &self.world.shops[s];
+        let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares: Vec::new() });
+        Preview { recipe, inputs, tools, workshop }
     }
 
     /// Items on the pads that satisfy each of the recipe's inputs, in recipe order.
@@ -150,10 +207,11 @@ impl Game {
                 j.t >= j.total
             });
             if done {
-                self.finish_harvest(p, sfx);
+                self.finish_harvest(p);
             } else if self.world.plants[p].harvest.is_some() && self.frame % 5 == 0 {
                 self.world.burst(x, y, PKind::Leaf, 1);
             }
+            self.dispense_plant(p, sfx);
         }
         for s in 0..self.world.shops.len() {
             let shop = &mut self.world.shops[s];
@@ -183,7 +241,7 @@ impl Game {
         self.tick_bins(sfx);
     }
 
-    fn finish_harvest(&mut self, p: usize, sfx: &mut Vec<Sfx>) {
+    fn finish_harvest(&mut self, p: usize) {
         let Some(job) = self.world.plants[p].harvest.take() else { return };
         let m = job.monster;
         let recipe = self.data.good(&job.recipe).clone();
@@ -196,11 +254,8 @@ impl Game {
         let plant = &mut self.world.plants[p];
         plant.stock = items;
         plant.growth = 0;
-        let here = (plant.x, plant.y);
+        plant.timer = DISPENSE_TICKS; // the first one comes out straight away
         self.events.push(Ev::Made(recipe.id.clone()));
-        if (self.monsters[m].x, self.monsters[m].y) == here {
-            let _ = self.pop_from_plant(m, p, sfx);
-        }
     }
 
     fn finish_shop(&mut self, s: usize, sfx: &mut Vec<Sfx>) {
@@ -254,6 +309,9 @@ impl Game {
         sfx.push(Sfx::Chime);
         if broke {
             self.say(m, "A TOOL WORE OUT!", true);
+        } else if !self.examine_hinted && m == self.controlled {
+            self.examine_hinted = true;
+            self.say(m, "DONE! HOLD E TO EXAMINE THINGS.", false);
         }
     }
 

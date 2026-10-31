@@ -292,3 +292,28 @@ fn gathering_starts_an_item_history() {
     assert_eq!(got[0].raw[0].good, "oak_log");
     assert!(got[0].shares.iter().any(|s| s.monster == 3));
 }
+
+#[test]
+fn odds_of_exceptional_results_follow_the_spread() {
+    let f = |mean: f64, sigma: f64| Forecast { input_quality: 1.0, primary: 1.0, secondary: 1.0, tool_quality: 1.0, specific: 1.0, ability: 1.0, mean, sigma };
+    let p = chance_at_least(&f(0.97, 0.4), EXCEPTIONAL);
+    assert!((p - 0.242).abs() < 0.01, "1 in 4ish, got {p}");
+    assert!(chance_at_least(&f(0.97, 0.1), MASTERWORK) < 1e-6);
+    assert!((chance_at_least(&f(1.25, 0.2), EXCEPTIONAL) - 0.5).abs() < 1e-6);
+    assert_eq!(quality_level(0.1), -2);
+    assert_eq!(quality_level(1.6), 2);
+    assert_eq!(tier_name(1.3), "EXCEPTIONAL");
+}
+
+#[test]
+fn ungraded_goods_pass_their_inputs_quality_through_and_ignore_tools() {
+    let d = Data::load();
+    let slivers = d.good("cotton_slivers");
+    assert!(!slivers.has_quality);
+    let st = stats(&d, "goblin");
+    let sk = skilled(slivers, 0.5, &[]);
+    let bolls = item(&d, "cotton_bolls", 1.0, &[]);
+    let (gin, bow) = (item(&d, "cotton_gin", 0.2, &[]), item(&d, "cotton_bow", 0.2, &[]));
+    let c = craft(slivers, &st, &sk, vec![&bolls], vec![&gin, &bow], None);
+    assert_eq!(roll_quality(&c, &mut Rng::new(1)), 1.0, "poor tools don't drag an ungraded good");
+}

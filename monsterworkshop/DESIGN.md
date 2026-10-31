@@ -183,13 +183,24 @@ Each matching transferable skill drops the weakest secondary skill and the two l
 - **Quality is rolled with the skills the monster had when the craft started,** so the forecast card matches what actually happens. Learning is applied afterwards.
 - **Learning crafts with transferable skills:** the original data defines which transferable skills speed up learning only for hauling and wagon driving. Crafts use the recipe's own transferable skills instead.
 - **Monster aging is cut,** so ability scores don't change with age.
+- **Ungraded goods have no quality anywhere in the game.** 46 goods are marked `has_quality: false`; for them there is no number, no tint and no quality forecast. Mechanically they pass their inputs' quality through unchanged, with raw ungraded goods counting as 1, so they never drag later steps down. *Changed:* the original averaged inputs and tools, which silently lowered downstream quality (slivers at 0.75 cost an expert's thread about 14%). No ungraded good can currently be made from a graded one; if one ever can, that is probably a tech-tree mistake, and pass-through keeps it harmless.
 - **The simulation uses its own seeded random numbers,** so a saved world replays identically.
 
 ### How the rules play in the world (M1 stage 2)
 - **Pace:** fast mode runs 4 game seconds per tick, so a real second is about a game minute. Harvesting cotton takes about 2–3 seconds, spinning 3–5, and weaving 20–40, depending on the monster.
-- **Harvests keep loops exact.** A harvest gathers the whole rolled quantity at once. The plant then holds those goods and pops one out per use, and regrows once it is empty.
-- **Workshops hold finished goods** until an output mat is free, then set them out one at a time.
+- **Harvested plants work like a chute.** A harvest gathers the whole rolled quantity at once. The plant sets the goods out one at a time on its drop tile (the tile the harvester faced) as that tile clears, shows how many are left, and regrows once it is empty. Space on a plant that still holds goods simply succeeds. Space on a plant is always recorded, ripe or not, so a recorded "Space, push, walk back" waits for regrowth when it has to, and yields one good per cycle however many a harvest rolled. Like a chute's mouth, the drop tile works as an output square, so routes should avoid crossing it.
+- **Ungraded goods roll their quantity,** so skill shows in how many come out. *Changed:* 12 ungraded crafted goods had a fixed quantity of 1 (slivers, bast fiber, lye, coke and others); all now roll, like ungraded raw materials always did. A test keeps the rule.
+- **One item per tile, no stacks.** Every unit keeps its own quality, history and shares. Where extra units wait, a small number shows how many.
+- **Workshops hold finished goods** until an output mat is free, then set them out one at a time. They keep up to 9 waiting inside (`OUTPUT_BUFFER`) and keep working while goods wait, so a loop that takes one per cycle never jams. A full workshop stops and says so.
 - **Built-in tools show on the pegs** as faint outlines. A tool pushed onto a peg is used instead, and wears out.
+
+### The visible layer (M1 stage 3)
+- **Quality on sprites:** five brightness steps, made by shifting palette indices within their ramps, with dithering for the half steps. The breakpoints are 0.25, 0.5, 0.9 and 1.25. Exceptional goods (1.25 or better) twinkle every two seconds; masterworks (1.5 or better) twice as often.
+- **Skill popups:** "+SPINNING" rises over a monster when a job finishes.
+- **Hold E:** a card about what the monster faces: an item, a monster, a plant, a bin, or the town tool on a peg. With nothing ahead, it describes the monster itself. At a work spot it shows the forecast: expected quality and its range, the odds of exceptional and masterwork results, the weakest factor and what would help, time per craft, learning per craft, forgetting, and where the main skill levels off.
+- **Plants forecast too.** Examining a plant shows its state plus what a harvest would give the monster you control: how many goods (and their expected quality if they are graded), how long it takes, and what it teaches.
+- **HUD preview:** an idle monster at a work spot shows its expected quality in the status line.
+- **First craft:** a bubble suggests holding E to examine things.
 
 ### Learning and forgetting
 Unchanged from the original, plus the Python port's two fixes: skills never read below 0, and learning counts per craft rather than per whole multi-batch task. Mastery takes roughly 100–200 crafts, about 30–40 minutes of a looping monster at prototype speeds. Each monster has a single forgetting counter that drains every skill it isn't practicing, so monsters specialize.

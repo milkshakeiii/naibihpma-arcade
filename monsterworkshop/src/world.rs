@@ -12,6 +12,8 @@ pub const DISPENSE_TICKS: u8 = 4;
 /// Town workshops' built-in tools, used when nothing better hangs on the peg.
 pub const BUILTIN_TOOL_QUALITY: f64 = 0.5;
 pub const TOWN_WORKSHOP_QUALITY: f64 = 0.8;
+/// Finished goods a workshop holds inside, beyond the one on its output mat.
+pub const OUTPUT_BUFFER: usize = 9;
 
 // `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `f` cotton plant
 // `C` cotton bin and `m` its chute  `T` cloth store  `1` `2` monster starts
@@ -123,9 +125,12 @@ pub struct Plant {
     pub good: String,
     pub growth: u32,
     pub regrow: u32,
-    /// Gathered goods waiting to pop out, one per use.
+    /// Gathered goods waiting to come out, one at a time, like a chute.
     pub stock: Vec<ItemData>,
     pub harvest: Option<Job>,
+    /// Where the goods come out: the tile the harvester faced, and that direction.
+    pub drop: Option<((i32, i32), Dir)>,
+    pub timer: u8,
 }
 
 impl Plant {
@@ -268,7 +273,7 @@ impl World {
                     _ => Tile::Grass,
                 };
                 match ch {
-                    'f' => plants.push(Plant { x, y, good: "cotton_bolls".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None }),
+                    'f' => plants.push(Plant { x, y, good: "cotton_bolls".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 }),
                     'C' => bins.push(Bin { x, y, accepts: "cotton_bolls".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0 }),
                     'T' => bins.push(Bin { x, y, accepts: "fabric".into(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0 }),
                     'm' => mouths.push((x, y)),

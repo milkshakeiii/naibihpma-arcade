@@ -199,3 +199,16 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod quantity_rule {
+    use super::*;
+
+    /// Goods without quality grades let skill show in how many come out instead.
+    #[test]
+    fn every_ungraded_good_rolls_its_quantity() {
+        let d = Data::load();
+        let fixed: Vec<&str> = d.goods.iter().filter(|g| !g.has_quality && g.is_fixed_quantity).map(|g| g.name.as_str()).collect();
+        assert!(fixed.is_empty(), "ungraded goods with a fixed quantity: {fixed:?}");
+    }
+}

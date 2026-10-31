@@ -6,6 +6,7 @@ mod econ;
 #[allow(dead_code)] // shared copy of the arcade framebuffer; line/circle unused here
 mod framebuffer;
 mod game;
+mod inspect;
 mod palette;
 mod render;
 mod sprites;
@@ -140,7 +141,8 @@ fn run_window(game: &mut Game, audio: &mut Audio, windowed: bool) {
                     latched.held[k] |= held[k];
                     latched.pressed[k] |= dirs[k].rose(held[k]);
                 }
-                latched.use_pressed |= Edge::rose(&mut e_use, key_down(VK_SPACE) || key_down('E' as i32));
+                latched.use_pressed |= Edge::rose(&mut e_use, key_down(VK_SPACE));
+                latched.inspect |= key_down('E' as i32);
                 latched.rec_pressed |= Edge::rose(&mut e_rec, key_down('R' as i32));
                 latched.play_pressed |= Edge::rose(&mut e_play, key_down('P' as i32));
                 latched.tab_pressed |= Edge::rose(&mut e_tab, key_down(VK_TAB));
@@ -227,8 +229,10 @@ fn export_screenshots(dir: &Path) {
     g.run_ticks(12);
     save(&g, "02_harvesting.png");
     g.run_ticks(30);
+    g.inspecting = true;
+    save(&g, "03_examine_boll.png");
+    g.inspecting = false;
     g.script("RRR");
-    save(&g, "03_into_the_bin.png");
     g.script("t");
     g.run_ticks(10);
     g.script("RDRRU");
@@ -237,18 +241,24 @@ fn export_screenshots(dir: &Path) {
     save(&g, "04_workbench.png");
     g.run_ticks(40);
     g.script(&format!("{}UR", "R".repeat(15)));
+    g.inspecting = true;
+    save(&g, "05_spinnery_forecast.png");
+    g.inspecting = false;
     use_now(&mut g);
-    g.run_ticks(30);
-    save(&g, "05_spinnery.png");
-    g.run_ticks(80);
+    g.run_ticks(84);
+    save(&g, "06_thread_and_popup.png");
     g.script(&format!("D{}UR{}LD", "R".repeat(13), "D".repeat(12)));
     use_now(&mut g);
     g.run_ticks(200);
-    save(&g, "06_loom_house.png");
+    save(&g, "07_loom_house.png");
     g.run_ticks(600);
     g.script(&format!("R{}", "D".repeat(6)));
-    save(&g, "07_cloth_store.png");
+    save(&g, "08_cloth_store.png");
+    g.monsters[g.controlled].facing = game::Dir::Left;
+    g.inspecting = true;
+    save(&g, "09_examine_bruna.png");
+    g.inspecting = false;
     g.help = true;
-    save(&g, "08_help.png");
+    save(&g, "10_help.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

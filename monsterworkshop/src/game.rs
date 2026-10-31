@@ -8,6 +8,8 @@ use crate::data::{Data, Stats};
 use crate::econ::{Learned, Rng, Skills};
 use crate::tutorial::{self, Tutorial};
 use crate::world::*;
+#[cfg_attr(test, allow(unused_imports))]
+pub use crate::world::Dir;
 use std::collections::BTreeSet;
 
 pub const WALK_TICKS: u8 = 2;
@@ -73,6 +75,8 @@ pub struct Input {
     pub cancel_pressed: bool,
     pub help_pressed: bool,
     pub quit_pressed: bool,
+    /// E held down: examine.
+    pub inspect: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -210,6 +214,9 @@ pub struct Game {
     queued_use: bool,
     hold: Option<(Dir, u8)>, // direction held since its press, and for how many ticks
     pub(crate) events: Vec<Ev>,
+    /// Holding E: show the inspect card for whatever the controlled monster faces.
+    pub inspecting: bool,
+    pub(crate) examine_hinted: bool,
 }
 
 impl Game {
@@ -238,6 +245,8 @@ impl Game {
             queued_use: false,
             hold: None,
             events: Vec::new(),
+            inspecting: false,
+            examine_hinted: false,
         }
     }
 
@@ -250,6 +259,7 @@ impl Game {
         if inp.help_pressed {
             self.help = !self.help;
         }
+        self.inspecting = inp.inspect;
         if inp.tab_pressed {
             self.controlled = (self.controlled + 1) % self.monsters.len();
             self.queued = None;
@@ -352,6 +362,14 @@ impl Game {
                     }
                 }
                 UseRes::Wait(msg) => {
+                    // Space on a plant is always part of a routine, ripe or not: on replay the
+                    // monster waits there until it can harvest.
+                    let m = &self.monsters[c];
+                    if self.world.plant_at(m.x, m.y).is_some() {
+                        if let Some(r) = self.monsters[c].rec.as_mut() {
+                            r.acts.push(Act::Use);
+                        }
+                    }
                     self.say(c, &msg, true);
                     sfx.push(Sfx::Deny);
                 }
@@ -657,6 +675,8 @@ impl Game {
             (m.wait_reason.trim_end_matches('.').to_string(), true)
         } else if m.playing {
             (format!("LOOPING, {} DONE", m.loops), false)
+        } else if let Some(preview) = crate::inspect::spot_preview(self, i) {
+            (preview, false)
         } else if m.routine.is_some() {
             ("IDLE. P RUNS THE SAVED LOOP".to_string(), false)
         } else {
@@ -709,7 +729,8 @@ pub mod routes {
     /// Mogg, from the start west of the fields: harvest the east end of the bottom row and
     /// push the boll into the cotton bin.
     pub const MOGG_HARVEST: &str = "RRRRRRu RRR";
-    pub const MOGG_HOME: &str = "LLLLLLLLL";
+    /// Back to the start along row 7, clear of the plant's drop tile.
+    pub const MOGG_HOME: &str = "ULLLLLLLLLD";
 
     /// Bruna, from beside the chute: workbench, spinnery, loom house, cloth store.
     pub fn bruna_chain() -> String {

@@ -19,7 +19,8 @@ cargo run --release -- --windowed
 | Key | Action |
 | :-- | :-- |
 | Arrows / WASD | Walk. Walk into an item to push it one tile |
-| Space / E | Use: harvest a ripe plant you stand on (the boll pops out in front of you), or spin at the wheel |
+| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), or craft at a work spot |
+| E (hold) | Examine: a card about whatever you face, or the workshop forecast at a work spot |
 | R | Start recording a routine (a flag marks the start). Press again on the flag to save |
 | Backspace | Cancel the recording |
 | P | Loop the saved routine (start from the flag) or stop it |
