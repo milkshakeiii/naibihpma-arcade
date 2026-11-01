@@ -7,7 +7,7 @@
 
 use crate::game::{Game, Sfx, StepRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
 use crate::sched::Hold;
-use crate::motion::{Going, EXCUSE_ME};
+use crate::motion::{Going, EXCUSE_ME, LOOK_AROUND_EVERY};
 use crate::world::{Dir, Tile, DIRS};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -34,11 +34,19 @@ impl Game {
     /// being worked, so about to be gone. Ties break in a fixed order, so the same world always
     /// gives the same plan.
     pub(crate) fn plan_carry(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str) -> Option<(Vec<CarryStep>, u32)> {
-        self.plan_carry_with(from, to, me, good, false)
+        self.plan_carry_with(from, to, me, good, false, &[])
     }
 
-    /// The same, but as if strays weren't there (for finding which to shove aside).
-    fn plan_carry_with(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str, through_strays: bool) -> Option<(Vec<CarryStep>, u32)> {
+    /// For monster `i`: around everyone standing still if there's a way, otherwise through them
+    /// (to wait for them). See `motion.rs`.
+    fn plan_carry_for(&self, i: usize, from: (i32, i32), to: (i32, i32), good: &str) -> Option<(Vec<CarryStep>, u32)> {
+        let me = (self.monsters[i].x, self.monsters[i].y);
+        self.plan_carry_with(from, to, me, good, false, &self.still_tiles(i)).or_else(|| self.plan_carry(from, to, me, good))
+    }
+
+    /// The same, but as if strays weren't there (for finding which to shove aside), and never
+    /// through the tiles in `avoid`.
+    fn plan_carry_with(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str, through_strays: bool, avoid: &[(i32, i32)]) -> Option<(Vec<CarryStep>, u32)> {
         if from == to {
             return Some((Vec::new(), 0));
         }
@@ -57,7 +65,7 @@ impl Game {
         // A parked wagon stays put; one being led moves on, like a monster.
         let carts = self.world.wagons.iter().filter(|wg| wg.leader.is_none()).flat_map(|wg| [wg.at, wg.pumpkin]);
         let stands = self.world.stands.iter().zip(&self.applicants).filter(|(_, a)| a.is_some()).map(|(&s, _)| s);
-        for p in carts.chain(stands).filter(|&p| inside(p)) {
+        for p in carts.chain(stands).chain(avoid.iter().copied()).filter(|&p| inside(p)) {
             blocked[idx(p)] = true;
         }
         let mut walk = vec![false; cells];
@@ -251,7 +259,7 @@ impl Game {
         let it = &self.world.items[k];
         let (at, good) = ((it.x, it.y), it.good().to_string());
         let me = (self.monsters[i].x, self.monsters[i].y);
-        let (plan, _) = self.plan_carry_with(at, to, me, &good, true)?;
+        let (plan, _) = self.plan_carry_with(at, to, me, &good, true, &[])?;
         let (mut b, mut pos, mut route) = (at, me, Vec::new());
         for (d, pull) in plan {
             let (dx, dy) = d.delta();
@@ -304,7 +312,7 @@ impl Game {
         }
         let here = (self.monsters[i].x, self.monsters[i].y);
         if self.monsters[i].carry_plan.is_empty() {
-            match self.plan_carry(at, to, here, &good) {
+            match self.plan_carry_for(i, at, to, &good) {
                 Some((plan, _)) if plan.is_empty() => return Going::Arrived,
                 Some((plan, _)) => self.monsters[i].carry_plan = plan,
                 None => {
@@ -331,7 +339,16 @@ impl Game {
         let near = (here.0 - stand.0).abs() + (here.1 - stand.1).abs() <= 1;
         let blocking = if near && in_way(stand) { Some(stand) } else if here == stand && in_way(dest) { Some(dest) } else { None };
         if let Some((x, y)) = blocking {
-            self.monsters[i].waiting_on = self.monster_at(x, y).filter(|&o| o != i);
+            let o = self.monster_at(x, y).filter(|&o| o != i);
+            self.monsters[i].waiting_on = o;
+            // Someone standing still there (or leading a wagon there, standing still): look for a
+            // way around now and then.
+            let still = o.map_or_else(|| self.still_tiles(i).contains(&(x, y)), |o| self.standing_still(o));
+            if still && self.monsters[i].wait % LOOK_AROUND_EVERY == 0 {
+                if let Some((plan, _)) = self.plan_carry_for(i, at, to, &good).filter(|(p, _)| !p.is_empty()) {
+                    self.monsters[i].carry_plan = plan;
+                }
+            }
             return Going::Waiting(EXCUSE_ME.into());
         }
         // Something landed where this move is made from since planning: plan again.

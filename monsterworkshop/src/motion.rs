@@ -1,12 +1,19 @@
 //! How a looping monster gets where its goal takes it: walking to a spot, leading a wagon. (How
 //! it moves a good is `carry.rs`'s planning, on top of this.)
 //!
-//! This is the one place where looping monsters' moves meet, and for now they meet greedily:
-//! each takes the next step of its own shortest way there, around walls, goods and parked
-//! wagons but not around other monsters, and when another monster stands on that tile, it
-//! waits. Nobody ever moves onto a tile someone else is on, so nobody passes through anybody.
-//! It's a baseline, and it jams when two meet head-on in a lane; coordination gets added on top
-//! of it one principle at a time, each with what it guarantees, measured by the tangle tests.
+//! This is the one place where looping monsters' moves meet. Each takes the next step of its
+//! own shortest way there, around walls, goods and parked wagons, and nobody ever moves onto a
+//! tile someone else is on, so nobody passes through anybody. On top of that greedy baseline,
+//! coordination is added one principle at a time, each with what it guarantees, measured by
+//! the tangle tests:
+//!
+//! 1. **Go around anyone standing still.** A monster standing still (one you've left standing,
+//!    one working at a spot, a loop that's waiting, or a wagon whose leader is any of those) is
+//!    planned around like a wall, when there's a way around; one on the move is waited for, as it
+//!    moves on. While waiting behind one standing still, a monster looks again for a way around
+//!    every second. Guarantee: nobody waits for ever behind someone who isn't going anywhere when
+//!    there's another way. Two that are both waiting, each in the other's only way (head-on in a
+//!    lane), still wait: that's for the next principle.
 
 use crate::game::{Game, Sfx, StepRes};
 use crate::world::{Dir, DIRS};
@@ -16,6 +23,8 @@ use std::collections::VecDeque;
 pub(crate) const NO_WAY: &str = "I CAN'T FIND A WAY THERE.";
 /// What a monster waiting on another in its way says.
 pub(crate) const EXCUSE_ME: &str = "EXCUSE ME!";
+/// Ticks between looks for a way around someone standing still, while waiting behind them.
+pub(crate) const LOOK_AROUND_EVERY: u16 = 15;
 
 pub(crate) enum Going {
     Arrived,
@@ -45,9 +54,46 @@ impl Game {
         self.world.walkable(x, y) && self.world.item_at(x, y).is_none() && !self.applicant_at(x, y) && !self.world.cart_at(x, y)
     }
 
-    /// A shortest path, not counting `from`. Breadth-first in a fixed direction order, so the
-    /// same world always gives the same path (saves replay exactly).
+    /// Is monster `k` standing still: not on its way anywhere this moment? One you've left
+    /// standing, one working at a spot, or a loop that's waiting.
+    pub(crate) fn standing_still(&self, k: usize) -> bool {
+        let m = &self.monsters[k];
+        m.slide.is_none() && (!m.playing || m.busy || m.wait > 0)
+    }
+
+    /// The tiles of everyone but monster `i` standing still, and of wagons whose leaders are.
+    pub(crate) fn still_tiles(&self, i: usize) -> Vec<(i32, i32)> {
+        let still = |k: usize| k != i && self.standing_still(k);
+        let mut tiles: Vec<(i32, i32)> = (0..self.monsters.len()).filter(|&k| still(k)).map(|k| (self.monsters[k].x, self.monsters[k].y)).collect();
+        for w in &self.world.wagons {
+            if w.leader.and_then(|id| self.monsters.iter().position(|m| m.id == id)).is_some_and(still) {
+                tiles.extend([w.pumpkin, w.at]);
+            }
+        }
+        tiles
+    }
+
+    /// A way for monster `i` from `from` to `to` around everyone standing still if there is
+    /// one, otherwise straight through them (to wait for them).
+    fn plan_for(&self, i: usize, from: (i32, i32), to: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        self.plan_avoiding(from, to, &self.still_tiles(i)).or_else(|| self.plan(from, to))
+    }
+
+    /// Is someone standing still on the next tile of monster `i`'s way, and is it time to look
+    /// again for a way around them?
+    fn look_around(&self, i: usize) -> bool {
+        let m = &self.monsters[i];
+        m.wait % LOOK_AROUND_EVERY == 0 && m.path.first().and_then(|&(x, y)| self.monster_at(x, y)).is_some_and(|o| o != i && self.standing_still(o))
+    }
+
+    /// A shortest path, not counting `from`, through other monsters. Breadth-first in a fixed
+    /// direction order, so the same world always gives the same path (saves replay exactly).
     pub(crate) fn plan(&self, from: (i32, i32), to: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        self.plan_avoiding(from, to, &[])
+    }
+
+    /// The same, never through the tiles in `avoid`.
+    fn plan_avoiding(&self, from: (i32, i32), to: (i32, i32), avoid: &[(i32, i32)]) -> Option<Vec<(i32, i32)>> {
         let (w, h) = (self.world.w, self.world.h);
         let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
         let mut prev = vec![usize::MAX; (w * h) as usize];
@@ -60,7 +106,7 @@ impl Game {
             for d in DIRS {
                 let (dx, dy) = d.delta();
                 let n = (x + dx, y + dy);
-                if n.0 < 0 || n.1 < 0 || n.0 >= w || n.1 >= h || prev[idx(n)] != usize::MAX || !self.open(n.0, n.1) {
+                if n.0 < 0 || n.1 < 0 || n.0 >= w || n.1 >= h || prev[idx(n)] != usize::MAX || !self.open(n.0, n.1) || avoid.contains(&n) {
                     continue;
                 }
                 prev[idx(n)] = idx((x, y));
@@ -121,8 +167,8 @@ impl Game {
             return Going::Arrived;
         }
         let path = &self.monsters[i].path;
-        if path.last() != Some(&to) || !path.first().is_some_and(|&n| adjacent(here, n)) {
-            match self.plan(here, to) {
+        if path.last() != Some(&to) || !path.first().is_some_and(|&n| adjacent(here, n)) || self.look_around(i) {
+            match self.plan_for(i, here, to) {
                 Some(p) => self.monsters[i].path = p,
                 None => return Going::Stuck(NO_WAY.into()),
             }
@@ -166,8 +212,9 @@ impl Game {
             };
         }
         let path = &self.monsters[i].path;
-        if !path.first().is_some_and(|&n| adjacent(here, n)) {
-            match self.plan_lead([here, p, at], bed, pumpkin) {
+        if !path.first().is_some_and(|&n| adjacent(here, n)) || self.look_around(i) {
+            let still = self.still_tiles(i);
+            match self.plan_lead([here, p, at], bed, pumpkin, &still).or_else(|| self.plan_lead([here, p, at], bed, pumpkin, &[])) {
                 Some(path) if !path.is_empty() => self.monsters[i].path = path,
                 _ => return Going::Stuck("I CAN'T GET THE WAGON THERE.".into()),
             }
@@ -179,8 +226,8 @@ impl Game {
     /// bed at `bed` and its pumpkin at `pumpkin`: each step, the pumpkin takes the tile the
     /// leader left and the bed the pumpkin's. Breadth-first over where the leader is and which
     /// way the pumpkin and bed trail behind it (a train can't back up, so turning round takes
-    /// room), only over tiles wagons fit, and not counting other monsters.
-    fn plan_lead(&self, [leader, pumpkin, bed]: [(i32, i32); 3], to_bed: (i32, i32), to_pumpkin: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+    /// room), only over tiles wagons fit and not through the tiles in `avoid`.
+    fn plan_lead(&self, [leader, pumpkin, bed]: [(i32, i32); 3], to_bed: (i32, i32), to_pumpkin: (i32, i32), avoid: &[(i32, i32)]) -> Option<Vec<(i32, i32)>> {
         let (w, h) = (self.world.w, self.world.h);
         let inside = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x < w && y < h;
         let side = |a: (i32, i32), b: (i32, i32)| DIRS.iter().position(|d| (a.0 + d.delta().0, a.1 + d.delta().1) == b);
@@ -194,7 +241,7 @@ impl Game {
             (l, p, (p.0 + db.0, p.1 + db.1))
         };
         // The wagon's own tiles move with it; anything else in the way stays put.
-        let rolls = |t: (i32, i32)| inside(t) && self.world.wagon_way(t.0, t.1) && self.world.item_at(t.0, t.1).is_none() && !self.applicant_at(t.0, t.1) && (!self.world.cart_at(t.0, t.1) || t == pumpkin || t == bed);
+        let rolls = |t: (i32, i32)| inside(t) && self.world.wagon_way(t.0, t.1) && self.world.item_at(t.0, t.1).is_none() && !self.applicant_at(t.0, t.1) && (!self.world.cart_at(t.0, t.1) || t == pumpkin || t == bed) && !avoid.contains(&t);
         let start = key(leader, pumpkin, bed)?;
         let mut prev = vec![u32::MAX; (w * h) as usize * 16];
         prev[start as usize] = start;

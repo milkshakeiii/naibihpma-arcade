@@ -740,7 +740,6 @@ fn a_stray_on_the_goal_is_shoved_aside_and_the_good_goes_in() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn a_push_goes_around_a_monster_standing_in_the_way() {
     let mut g = Game::new();
     g.world.items.push(Item::new(31, 13, good_like(&g.data, "fabric", 0.8)));
@@ -902,14 +901,13 @@ fn doorway_jam() -> Game {
 }
 
 #[test]
-#[ignore = "needs coordination"]
-fn blocked_in_a_doorway_a_loop_waits_a_while_then_goes_the_long_way_round() {
+fn blocked_in_a_doorway_by_a_monster_standing_still_a_loop_goes_the_long_way_round() {
+    // Bruna, leading the wagon, has stopped right outside the door: she's standing still, so
+    // Mogg takes the thread out the west door and round the spinnery instead of waiting.
     let mut g = doorway_jam();
     let m = &mut g.monsters[0];
     m.routine = Some(Routine { flag: (30, 9), goals: vec![Goal::Move { good: "thread".into(), from: (36, 9), to: (44, 21) }] });
     (m.pc, m.playing) = (0, true);
-    g.run_ticks(60);
-    assert!(g.world.item_at(36, 9).is_some(), "at first Mogg waits for Bruna to move on");
     g.run_ticks(2000);
     assert!(g.world.item_at(44, 21).is_some_and(|k| g.world.items[k].good() == "thread"), "then goes round: {}", g.monsters[0].wait_reason);
     assert_eq!((g.monsters[1].x, g.monsters[1].y), (37, 9), "Bruna never moved");
@@ -988,7 +986,6 @@ fn a_good_a_loop_goes_for_is_reserved_and_other_loops_leave_it() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn two_monsters_on_one_harvest_loop_never_wait_on_each_other() {
     // The deadlock Henry hit: both took one boll of a harvest, then waited at the second push
     // for a boll only their own harvest step makes.

@@ -71,7 +71,8 @@ fn the_check_catches_trading_tiles_and_rings_but_not_following() {
 
 /// Monsters walking between stops by themselves, round and round: movement alone, with no loop
 /// (a loop's goals each bring their own walk). Monster `k` walks `stops[k]` in turn; one with
-/// no stops is left to its loop, or to stand still.
+/// no stops is left to its loop, or to stand still. Walkers count as looping, so they're
+/// standing still only while waiting, like a loop.
 pub(super) struct Walkers {
     stops: Vec<Vec<(i32, i32)>>,
     next: Vec<usize>,
@@ -100,14 +101,19 @@ impl Walkers {
                 continue;
             }
             g.monsters[k].waiting_on = None;
-            match g.go_toward(k, stops[self.next[k]], None, &mut sfx) {
+            let went = g.go_toward(k, stops[self.next[k]], None, &mut sfx);
+            let m = &mut g.monsters[k];
+            match went {
                 Going::Arrived => {
                     self.next[k] = (self.next[k] + 1) % stops.len();
-                    g.monsters[k].steps += 1;
-                    g.monsters[k].wait_reason.clear();
+                    m.steps += 1;
+                    (m.wait, m.wait_reason) = (0, String::new());
                 }
-                Going::Waiting(msg) | Going::Stuck(msg) => g.monsters[k].wait_reason = msg,
-                Going::Moving => g.monsters[k].wait_reason.clear(),
+                Going::Waiting(msg) | Going::Stuck(msg) => {
+                    m.wait += 1;
+                    m.wait_reason = msg;
+                }
+                Going::Moving => (m.wait, m.wait_reason) = (0, String::new()),
             }
         }
         g.run_ticks(1);
@@ -187,7 +193,6 @@ fn every_loop_keeps_going(g: &mut Game, ticks: u32, window: u32) {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn three_copies_of_the_whole_chain_and_a_stray_thread_in_the_loom_house() {
     let mut g = on_one_loop(3, full_chain);
     // Left inside the loom house's north door by a loop that was stopped partway.
@@ -220,7 +225,6 @@ fn copies_starting_at_different_goals_meet_head_on() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn strays_in_every_doorway_on_the_way() {
     let mut g = on_one_loop(3, full_chain);
     // Left about by loops that were stopped: in the spinnery's doors and both of the loom house's.
@@ -381,6 +385,7 @@ fn walkers(rows: &[&str], stops: &[&[(i32, i32)]]) -> (Game, Walkers) {
     let mut all = vec![Vec::new(); g.monsters.len()];
     for (k, s) in stops.iter().enumerate() {
         (g.monsters[k].x, g.monsters[k].y) = on_ground(s[0]);
+        g.monsters[k].playing = true;
         all[k] = s[1..].iter().chain(&s[..1]).map(|&t| on_ground(t)).collect();
     }
     // Anyone not walking stands well out of the way.
@@ -394,7 +399,6 @@ fn walkers(rows: &[&str], stops: &[&[(i32, i32)]]) -> (Game, Walkers) {
 const TUNNEL: [&str; 7] = ["##################", "#....########....#", "#....########....#", "#................#", "#....########....#", "#....########....#", "##################"];
 
 #[test]
-#[ignore = "needs coordination"]
 fn a_walker_goes_around_a_monster_standing_in_its_way() {
     let (mut g, mut walk) = walkers(&["############", "#..........#", "#..........#", "#..........#", "############"], &[&[(1, 2), (10, 2)]]);
     let bruna = g.monsters.len() - 1;

@@ -394,7 +394,8 @@ impl Game {
 
     /// One tick of a looping monster.
     pub(crate) fn run_loop(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
-        if !self.monsters[i].idle() {
+        // (With no loop at all, something else is moving it: a test's walker.)
+        if !self.monsters[i].idle() || self.monsters[i].routine.is_none() {
             return;
         }
         let m = &mut self.monsters[i];
