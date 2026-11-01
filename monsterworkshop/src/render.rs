@@ -199,6 +199,14 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
         }
         fb.pset(fx, fy, SPARK + 2);
     }
+    if tile == Tile::Bridge {
+        for (dy, row) in [(-1, 0), (1, TS - 2)] {
+            if g.world.tile(tx, ty + dy) != Tile::Bridge {
+                fb.rect_fill(x0, y0 + row, TS, 2, WOOD);
+                fb.rect_fill(x0, y0 + row + if dy < 0 { 1 } else { 0 }, TS, 1, WOOD + 2);
+            }
+        }
+    }
     if tile == Tile::Wall {
         for (dx, dy, edge) in [(0, -1, 0), (0, 1, 1), (-1, 0, 2), (1, 0, 3)] {
             if g.world.tile(tx + dx, ty + dy) != Tile::Wall {
@@ -654,6 +662,8 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         Item(usize),
         Monster(usize),
         Applicant(usize),
+        Wagon(usize),
+        Pumpkin(usize),
     }
     let mut bodies: Vec<(i32, Body)> = Vec::new();
     for (i, it) in g.world.items.iter().enumerate().filter(|(_, it)| v.sees(it.x, it.y)) {
@@ -665,6 +675,14 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     for (k, &(x, y)) in g.world.stands.iter().enumerate() {
         if g.applicants[k].is_some() && v.sees(x, y) {
             bodies.push((y * TS + 1, Body::Applicant(k)));
+        }
+    }
+    for (k, w) in g.world.wagons.iter().enumerate() {
+        if v.sees(w.at.0, w.at.1) {
+            bodies.push((w.at.1 * TS + Slide::offset(w.slide).1, Body::Wagon(k)));
+        }
+        if v.sees(w.pumpkin.0, w.pumpkin.1) {
+            bodies.push((w.pumpkin.1 * TS + Slide::offset(w.pumpkin_slide).1, Body::Pumpkin(k)));
         }
     }
     bodies.sort_by_key(|b| b.0);
@@ -705,6 +723,42 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let (tx, ty) = v.px(g.world.stands[k].0, g.world.stands[k].1);
                 fb.rect_checker(tx + 3, ty + TS - 2, 10, 2, SHADOW);
                 fb.blit(s, tx + (TS - s.w) / 2, ty + TS - s.h, k % 2 == 1);
+            }
+            Body::Wagon(k) => {
+                let w = &g.world.wagons[k];
+                let s = &sp.wagon[w.open as usize];
+                let (tx, ty) = v.px(w.at.0, w.at.1);
+                let (ox, oy) = Slide::offset(w.slide);
+                let (x, y) = (tx + ox + (TS - s.w) / 2, ty + oy + TS - s.h - (w.bounce > 1) as i32);
+                fb.rect_checker(tx + ox + 2, ty + oy + TS - 2, 12, 2, SHADOW);
+                // The tailgate is drawn on the left; face it away from the pumpkin.
+                fb.blit(s, x, y, w.pumpkin.0 < w.at.0);
+                if let Some(icon) = w.good().and_then(|good| sp.icon(good)) {
+                    fb.blit(icon, x + 1, y - 2, false);
+                }
+                if !w.stock.is_empty() {
+                    badge(fb, tx + ox, ty + oy, w.stock.len());
+                }
+            }
+            Body::Pumpkin(k) => {
+                let w = &g.world.wagons[k];
+                let moving = w.pumpkin_slide.is_some();
+                let s = &sp.pumpkin[if moving { (g.frame / 2 % 2) as usize } else { (g.frame / 15 % 2) as usize }];
+                let (tx, ty) = v.px(w.pumpkin.0, w.pumpkin.1);
+                let (ox, oy) = Slide::offset(w.pumpkin_slide);
+                fb.rect_checker(tx + ox + 3, ty + oy + TS - 2, 10, 2, SHADOW);
+                fb.blit(s, tx + ox + (TS - s.w) / 2, ty + oy + TS - s.h, w.at.0 > w.pumpkin.0);
+                // The lead rope from the pumpkin's stem to its leader's hand.
+                if let Some(m) = w.leader.and_then(|id| g.monsters.iter().find(|m| m.id == id)) {
+                    let (mx, my) = v.px(m.x, m.y);
+                    let (mox, moy) = Slide::offset(m.slide);
+                    let (ax, ay) = (tx + ox + 8, ty + oy + TS - s.h + 1);
+                    let (bx, by) = (mx + mox + 8, my + moy + 9);
+                    let n = (bx - ax).abs().max((by - ay).abs()).max(1);
+                    for k in 0..=n {
+                        fb.pset(ax + (bx - ax) * k / n, ay + (by - ay) * k / n + if k > 0 && k < n { 1 } else { 0 }, WOOD + 3);
+                    }
+                }
             }
             Body::Monster(i) => {
                 let (x, y, s, flip) = monster_pose(g, sp, v, i);

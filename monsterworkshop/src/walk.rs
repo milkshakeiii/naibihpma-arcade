@@ -34,6 +34,7 @@ impl Game {
             && !self.world.on_deck(x, y)
             && self.world.item_at(x, y).is_none()
             && !self.applicant_at(x, y)
+            && !self.world.cart_at(x, y)
             && (!around_monsters || self.monster_at(x, y).is_none())
     }
 
@@ -98,7 +99,8 @@ impl Game {
             // Walking straight at each other: squeeze past.
             let other = &self.monsters[o];
             let other_going = other.routine.as_ref().and_then(|r| r.acts.get(other.pc)).is_some_and(|a| matches!(a, Act::Go { .. }));
-            if other.playing && other.idle() && other_going && other.path.first() == Some(&here) {
+            let free_hands = self.led_wagon(i).is_none() && self.led_wagon(o).is_none();
+            if other.playing && other.idle() && other_going && other.path.first() == Some(&here) && free_hands {
                 self.squeeze_past(i, o);
                 return Going::Moving;
             }

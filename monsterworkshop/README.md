@@ -19,7 +19,7 @@ cargo run --release -- --windowed
 | Key | Action |
 | :-- | :-- |
 | Arrows / WASD | Walk. Walk into an item to push it one tile |
-| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, or welcome the monster you face at the gathering hall |
+| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, welcome the monster you face at the gathering hall, lead the wagon's pumpkin (and let go), or open and shut a wagon's tailgate from behind |
 | E (hold) | Examine: a card about whatever you face, or the workshop forecast at a work spot. Press Tab while holding E for the details page |
 | Shift + arrow | Pull: back away from the item in front, dragging it along. Very slow; it's for getting unstuck |
 | R | Start recording a routine (a flag marks the start). Press again on the flag to save |

@@ -18,6 +18,7 @@ pub const OUTPUT_BUFFER: usize = 9;
 
 // `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `Y` tree  `w` water
 // `F` the ferry's boat, docked at the west bank  `s` signpost  `b` project board
+// `X` water where the bridge will go  `U` the town wagon  `P` its pumpkin
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
@@ -40,7 +41,12 @@ struct Region {
 /// region never reorders what an older save refers to.
 const REGIONS: [Region; 3] = [
     Region { map: include_str!("../data/pinewater.map"), labels: &[((4, 19), "GATHERING HALL")], signs: &[("TANGLEMERE", Dir::Right)], boards: &[] },
-    Region { map: include_str!("../data/wilderness.map"), labels: &[], signs: &[("TANGLEMERE", Dir::Right)], boards: &[("A ROPE FOR THE FERRY", "rope", 3, Project::Ferry)] },
+    Region {
+        map: include_str!("../data/wilderness.map"),
+        labels: &[],
+        signs: &[("TANGLEMERE", Dir::Right)],
+        boards: &[("A ROPE FOR THE FERRY", "rope", 3, Project::Ferry), ("A BRIDGE ACROSS THE RIVER", "log", 12, Project::Bridge)],
+    },
     Region {
         map: include_str!("../data/tanglemere.map"),
         labels: &[((34, 2), "CLOTH HALL")],
@@ -118,6 +124,8 @@ pub enum Tile {
     Water,
     Tree,
     Sign,
+    /// Planks over the river, once the bridge project is done.
+    Bridge,
 }
 
 impl Tile {
@@ -231,6 +239,8 @@ pub struct Bin {
 pub enum Project {
     /// The rope is strung and the ferry starts running.
     Ferry,
+    /// The bridge goes up where the river was, and wagons can cross.
+    Bridge,
 }
 
 /// A town project: push the goods it wants into the board. Each one pays renown like a
@@ -258,6 +268,46 @@ pub struct Sign {
     pub y: i32,
     pub text: &'static str,
     pub dir: Dir,
+}
+
+/// The town lends its wagon until wagons can be built: its bed's room in storage volume, and
+/// the weight it pulls at full speed per point of its leader's CHA.
+pub const TOWN_WAGON_ROOM: f64 = 6.0;
+pub const TOWN_WAGON_POWER: f64 = 25.0;
+
+/// A wagon and the magical pumpkin that pulls it. The pumpkin walks a tile ahead of the wagon,
+/// and a monster leading them walks a tile ahead of the pumpkin.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Wagon {
+    pub at: (i32, i32),
+    pub pumpkin: (i32, i32),
+    pub slide: Option<Slide>,
+    pub pumpkin_slide: Option<Slide>,
+    /// The goods in its bed, first in first out, each with the area it was loaded in.
+    pub stock: Vec<(ItemData, String)>,
+    /// How much its bed holds, in storage volume.
+    pub room: f64,
+    /// Weight it pulls at full speed, per point of its leader's CHA.
+    pub power: f64,
+    /// Its tailgate: open, a parked wagon sets its goods out behind it.
+    pub open: bool,
+    /// The monster leading it, and whoever led it last (by id).
+    pub leader: Option<u32>,
+    pub last_leader: Option<u32>,
+    pub timer: u8,
+    pub bounce: u8,
+}
+
+impl Wagon {
+    /// The tile behind the wagon, away from its pumpkin: where its tailgate sets goods out.
+    pub fn behind(&self) -> (i32, i32) {
+        (2 * self.at.0 - self.pumpkin.0, 2 * self.at.1 - self.pumpkin.1)
+    }
+
+    /// The one kind of good it is carrying, if any.
+    pub fn good(&self) -> Option<&str> {
+        self.stock.first().map(|(d, _)| d.good.as_str())
+    }
 }
 
 /// A rope ferry: a two-tile boat pulled back and forth across the river along its rope.
@@ -411,6 +461,9 @@ pub struct World {
     pub particles: Vec<Particle>,
     pub boards: Vec<Board>,
     pub ferry: Option<Ferry>,
+    /// Where the bridge goes up when its project is done.
+    pub bridge: Vec<(i32, i32)>,
+    pub wagons: Vec<Wagon>,
     pub signs: Vec<Sign>,
     pub labels: Vec<((i32, i32), &'static str)>,
     pub starts: Vec<(i32, i32)>,
@@ -427,6 +480,7 @@ impl World {
         let mut tiles = vec![Tile::Hedge; (w * h) as usize];
         let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), vec![(0, 0); 2]);
         let (mut stands, mut boards, mut signs, mut labels, mut boat) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), None, None);
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
         let mut ox = 0;
         for (region, rows) in REGIONS.iter().zip(&regions) {
@@ -450,7 +504,7 @@ impl World {
                         'o' => Tile::OutMat,
                         'B' | 'S' | 'L' | 'K' | 'I' | 'V' => Tile::Spot,
                         'C' | 'T' | 'b' => Tile::Bin,
-                        'w' | 'F' => Tile::Water,
+                        'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
                         's' => Tile::Sign,
                         '1' | '2' if street_next => Tile::Path,
@@ -472,6 +526,9 @@ impl World {
                             signs.push(Sign { x, y, text, dir });
                         }
                         'F' => boat.push((x, y)),
+                        'X' => bridge.push((x, y)),
+                        'U' => wagon_at = Some((x, y)),
+                        'P' => pumpkin_at = Some((x, y)),
                         'a' => stands.push((x, y)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
@@ -518,7 +575,25 @@ impl World {
             }
             Ferry { y, west, east: far - 1, x: west, heading: 1, moving: false, timer: 0, rigged: false, slide: None }
         });
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, ferry, signs, labels, starts, stands, seed: 0x9E37_79B9 }
+        let wagons = wagon_at
+            .zip(pumpkin_at)
+            .map(|(at, pumpkin)| Wagon {
+                at,
+                pumpkin,
+                slide: None,
+                pumpkin_slide: None,
+                stock: Vec::new(),
+                room: TOWN_WAGON_ROOM,
+                power: TOWN_WAGON_POWER,
+                open: false,
+                leader: None,
+                last_leader: None,
+                timer: 0,
+                bounce: 0,
+            })
+            .into_iter()
+            .collect();
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, ferry, bridge, wagons, signs, labels, starts, stands, seed: 0x9E37_79B9 }
     }
 
     pub fn tile(&self, x: i32, y: i32) -> Tile {
@@ -541,6 +616,30 @@ impl World {
 
     pub fn on_deck(&self, x: i32, y: i32) -> bool {
         self.ferry.as_ref().is_some_and(|f| f.on_deck(x, y))
+    }
+
+    pub fn wagon_at(&self, x: i32, y: i32) -> Option<usize> {
+        self.wagons.iter().position(|w| w.at == (x, y))
+    }
+
+    pub fn pumpkin_at(&self, x: i32, y: i32) -> Option<usize> {
+        self.wagons.iter().position(|w| w.pumpkin == (x, y))
+    }
+
+    /// A wagon or a pumpkin stands here.
+    pub fn cart_at(&self, x: i32, y: i32) -> bool {
+        self.wagons.iter().any(|w| w.at == (x, y) || w.pumpkin == (x, y))
+    }
+
+    /// The bridge's planks replace the river.
+    pub fn build_bridge(&mut self) {
+        for &(x, y) in &self.bridge {
+            self.tiles[(y * self.w + x) as usize] = Tile::Bridge;
+        }
+    }
+
+    pub fn bridge_built(&self) -> bool {
+        self.bridge.first().is_some_and(|&(x, y)| self.tile(x, y) == Tile::Bridge)
     }
 
     pub fn board_at(&self, x: i32, y: i32) -> Option<usize> {

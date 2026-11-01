@@ -17,6 +17,7 @@ fn boll(data: &Data) -> ItemData {
         shares: Vec::new(),
         wear: 0,
         haul: Vec::new(),
+        carted: None,
     }
 }
 
@@ -452,7 +453,7 @@ fn walking_records_as_go_to_and_pushes_stay_literal() {
 /// Gives a monster a loop of "go to" goals from where it stands, and starts it.
 fn walk_loop(g: &mut Game, i: usize, stops: &[((i32, i32), Dir)]) {
     let m = &mut g.monsters[i];
-    m.routine = Some(Routine { flag: (m.x, m.y), acts: stops.iter().map(|&(to, facing)| Act::Go { to, facing }).collect() });
+    m.routine = Some(Routine { flag: (m.x, m.y), acts: stops.iter().map(|&(to, facing)| Act::Go { to, facing }).collect(), facing: m.facing });
     (m.pc, m.playing) = (0, true);
 }
 
@@ -493,4 +494,154 @@ fn hauling_pays_one_share_when_a_good_is_used_however_far_it_was_pushed() {
     let mogg = stored.shares.iter().find(|s| s.monster == 1).map_or(0.0, |s| s.count);
     assert!((mogg - 1.0).abs() < 1e-9, "one hauling share, not ten: {mogg}");
     assert!(stored.haul.is_empty() && g.monsters[0].earned > 0.0);
+}
+
+#[test]
+fn twelve_logs_of_any_wood_build_the_bridge() {
+    let mut g = Game::new();
+    let b = g.world.boards.iter().position(|b| b.project == crate::world::Project::Bridge).expect("a bridge board");
+    let (bx, by) = (g.world.boards[b].x, g.world.boards[b].y);
+    let deliver = |g: &mut Game, id: &str| {
+        g.world.items.push(Item::new(bx + 1, by, ItemData { good: id.into(), carried_tags: Vec::new(), ..boll(&g.data) }));
+        stand(g, (bx + 2, by), Dir::Left);
+        g.script("L");
+    };
+    deliver(&mut g, "fabric");
+    assert_eq!(g.world.boards[b].have, 0, "fabric isn't a log");
+    g.world.items.clear();
+    deliver(&mut g, "hemlock_log");
+    g.world.boards[b].have = 11;
+    assert!(!g.world.bridge_built());
+    deliver(&mut g, "oak_log");
+    assert!(g.world.bridge_built(), "the twelfth log builds it");
+    let &(x, y) = g.world.bridge.first().unwrap();
+    stand(&mut g, (x - 1, y + 1), Dir::Right);
+    g.script("RRRRRRR");
+    assert_eq!(g.monsters[g.controlled].x, x + 6, "walked across the river");
+}
+
+/// Mogg beside the town wagon's pumpkin, facing it.
+fn at_the_wagon(g: &mut Game) -> ((i32, i32), (i32, i32)) {
+    let w = &g.world.wagons[0];
+    let (bed, pumpkin) = (w.at, w.pumpkin);
+    stand(g, (pumpkin.0 + 1, pumpkin.1), Dir::Left);
+    (bed, pumpkin)
+}
+
+#[test]
+fn a_led_wagon_follows_takes_one_good_and_unloads_out_its_tailgate() {
+    let mut g = Game::new();
+    let (bed, pumpkin) = at_the_wagon(&mut g);
+    g.script("u");
+    assert_eq!(g.world.wagons[0].leader, Some(1), "Mogg leads the pumpkin");
+    g.script("U");
+    assert_eq!((g.world.wagons[0].pumpkin, g.world.wagons[0].at), ((pumpkin.0 + 1, pumpkin.1), pumpkin), "pumpkin and wagon follow, snake-like");
+    g.script("D"); // into the pumpkin: blocked
+    assert_eq!(g.monsters[0].y, pumpkin.1 - 1);
+    g.script("u");
+    assert!(g.world.wagons[0].leader.is_none(), "Space with nothing else to do lets go");
+
+    // Load it from behind, open the tailgate, step away: it unloads.
+    let w = &g.world.wagons[0];
+    let back = w.behind();
+    let (dx, dy) = (back.0 - w.at.0, back.1 - w.at.1);
+    let dir = if dx > 0 { Dir::Left } else if dx < 0 { Dir::Right } else if dy > 0 { Dir::Up } else { Dir::Down };
+    g.world.items.push(Item::new(back.0, back.1, good_like(&g.data, "fabric", 0.8)));
+    g.controlled = 1;
+    stand(&mut g, (back.0 + dx, back.1 + dy), dir);
+    let key = match dir { Dir::Left => "L", Dir::Right => "R", Dir::Up => "U", Dir::Down => "D" };
+    g.script(key);
+    assert_eq!(g.world.wagons[0].stock.len(), 1, "pushed into the bed");
+    g.world.items.push(Item::new(back.0, back.1, good_like(&g.data, "thread", 0.8)));
+    stand(&mut g, (back.0 + dx, back.1 + dy), dir);
+    g.script(key);
+    assert!(g.monsters[1].bubble.as_ref().is_some_and(|b| b.text.contains("CARRYING FABRIC")), "one kind of good at a time");
+    g.world.items.retain(|it| it.good() != "thread");
+    stand(&mut g, back, dir);
+    g.script("u");
+    assert!(g.world.wagons[0].open);
+    let away = match dir { Dir::Left => "R", Dir::Right => "L", Dir::Up => "D", Dir::Down => "U" };
+    g.script(away);
+    g.run_ticks(10);
+    assert!(g.world.wagons[0].stock.is_empty() && g.world.item_at(back.0, back.1).is_some(), "set out behind it");
+    let _ = bed;
+}
+
+#[test]
+fn a_wagon_wont_fit_the_ferry_and_a_heavy_load_slows_it() {
+    let mut g = Game::new();
+    let f = g.world.ferry.clone().unwrap();
+    g.world.ferry.as_mut().unwrap().rigged = true;
+    {
+        let w = &mut g.world.wagons[0];
+        (w.at, w.pumpkin, w.leader) = ((f.west - 3, f.y), (f.west - 2, f.y), Some(1));
+    }
+    stand(&mut g, (f.west - 1, f.y), Dir::Right);
+    g.script("R");
+    assert_eq!(g.monsters[0].x, f.west - 1, "stays on the landing");
+    assert!(g.monsters[0].bubble.as_ref().is_some_and(|b| b.text.contains("WON'T FIT")));
+
+    assert_eq!(g.wagon_ticks(0, 0), PUSH_TICKS, "empty, it rolls at push speed");
+    let log = ItemData { good: "oak_log".into(), carried_tags: Vec::new(), ..boll(&g.data) };
+    g.world.wagons[0].stock = vec![(log, "PINEWATER".into()); 6];
+    assert!(g.wagon_ticks(0, 0) > PUSH_TICKS, "six oak logs are more than Mogg's CHA pulls at full speed");
+}
+
+#[test]
+fn a_wagon_journey_pays_its_leader_two_shares() {
+    let mut g = Game::new();
+    let t = |x: i32, y: i32| (125 + x, y);
+    {
+        let w = &mut g.world.wagons[0];
+        (w.at, w.pumpkin, w.open, w.last_leader) = (t(20, 13), t(21, 13), true, Some(1));
+        w.stock = vec![(good_like(&g.data, "fabric", 0.8), "PINEWATER".into())];
+    }
+    g.run_ticks(10);
+    let k = g.world.items.iter().position(|it| it.good() == "fabric").expect("unloaded in Tanglemere");
+    assert_eq!(g.world.items[k].data.carted, Some(1), "brought from Pinewater by Mogg");
+    let mut data = g.world.items[k].data.clone();
+    crate::econ::pay_haul(&mut data);
+    assert!(data.shares.iter().any(|s| s.monster == 1 && (s.count - 2.0).abs() < 1e-9), "two shares when it's used");
+}
+
+#[test]
+fn pushing_teaches_hauling() {
+    let mut g = Game::new();
+    g.world.items.push(Item::new(30, 13, good_like(&g.data, "fabric", 0.8)));
+    stand(&mut g, (29, 13), Dir::Right);
+    let before = g.monsters[0].skills.applied("hauling");
+    g.script("RRRRRR");
+    g.world.items.clear();
+    assert!(g.monsters[0].skills.applied("hauling") > before);
+}
+
+#[test]
+fn a_recorded_wagon_loop_leads_it_around_and_lets_go() {
+    let mut g = Game::new();
+    let (bed, pumpkin) = at_the_wagon(&mut g);
+    // Lead it up and around a little loop that ends where it began, then let go.
+    g.script("ruULLLDRRRur");
+    assert_eq!((g.world.wagons[0].at, g.world.wagons[0].pumpkin), (bed, pumpkin), "back where it started");
+    assert!(g.monsters[0].routine.is_some() && g.world.wagons[0].leader.is_none());
+    g.script("p");
+    g.run_ticks(900);
+    assert!(g.monsters[0].playing && g.monsters[0].loops >= 3, "looped {} times: {}", g.monsters[0].loops, g.monsters[0].wait_reason);
+}
+
+#[test]
+fn space_turns_to_a_pumpkin_or_tailgate_beside_you() {
+    let mut g = Game::new();
+    let (bed, pumpkin) = (g.world.wagons[0].at, g.world.wagons[0].pumpkin);
+    stand(&mut g, (pumpkin.0 + 1, pumpkin.1), Dir::Up); // beside the pumpkin, facing away
+    g.script("u");
+    assert_eq!(g.world.wagons[0].leader, Some(1), "Space found the pumpkin");
+    assert_eq!(g.monsters[0].facing, Dir::Left);
+    g.script("u");
+    assert!(g.world.wagons[0].leader.is_none());
+
+    let back = g.world.wagons[0].behind();
+    stand(&mut g, back, Dir::Down); // at the tailgate, facing along the road
+    g.script("u");
+    assert!(g.world.wagons[0].open, "Space found the tailgate");
+    let _ = bed;
 }

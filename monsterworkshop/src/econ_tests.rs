@@ -19,7 +19,7 @@ fn item(d: &Data, id: &str, quality: f64, carried: &[&str]) -> ItemData {
         Some(v) => (vec![RawMaterial { good: id.into(), base_value: v, density: g.raw_material_density.unwrap_or(0.0), spent: false }], 0),
         None => (Vec::new(), 1),
     };
-    ItemData { good: id.into(), quality, carried_tags: carried.iter().map(|s| s.to_string()).collect(), raw, depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new() }
+    ItemData { good: id.into(), quality, carried_tags: carried.iter().map(|s| s.to_string()).collect(), raw, depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
 }
 
 /// Every skill the recipe uses at `level`, with the given transferable skills.
@@ -225,7 +225,7 @@ fn value_and_weight_follow_the_raw_materials() {
     let make = |log: &str| {
         let l = item(&d, log, 1.0, &[]);
         let (raw, depth) = lineage(loom, &[&l, &l, &bamboo, &bamboo, &bamboo, &ramie]);
-        let it = ItemData { good: loom.id.clone(), quality: 1.0, carried_tags: Vec::new(), raw: raw.clone(), depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new() };
+        let it = ItemData { good: loom.id.clone(), quality: 1.0, carried_tags: Vec::new(), raw: raw.clone(), depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None };
         (value(loom, &raw, depth, 1.0, None), weight(loom, &it))
     };
     let (oak_value, oak_weight) = make("oak_log");

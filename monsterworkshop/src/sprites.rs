@@ -1006,6 +1006,61 @@ fn make_tub() -> Sprite {
     s.outline()
 }
 
+/// A magical walking pumpkin: ribbed, with a curly stem, two bright eyes and little vine feet
+/// that step on alternate frames.
+fn make_pumpkin(frame: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 15);
+    let (cx, cy, rx, ry) = (8, 7, 6, 5);
+    for y in cy - ry..=cy + ry {
+        for x in cx - rx..=cx + rx {
+            let (dx, dy) = (x - cx, y - cy);
+            if dx * dx * ry * ry + dy * dy * rx * rx > rx * rx * ry * ry {
+                continue;
+            }
+            // Orange: the warm end of the spark ramp, ribbed and shaded in brown.
+            let rib = dx == -3 || dx == 0 || dx == 3;
+            let c = if rib { WOOD + 2 } else if dx + dy <= -4 { SPARK + 1 } else if dx + dy >= 4 { WOOD + 3 } else { SPARK };
+            s.set(x, y, c);
+        }
+    }
+    for (x, y) in [(8, 1), (8, 0), (9, 0), (10, 1)] {
+        s.set(x, y, LEAF + (x == 10) as u8);
+    }
+    for (x, y) in [(6, 7), (10, 7)] {
+        s.set(x, y, OUTLINE);
+    }
+    let feet: [(i32, i32); 4] = if frame == 0 { [(5, 13), (4, 14), (11, 13), (11, 14)] } else { [(5, 13), (5, 14), (11, 13), (12, 14)] };
+    for (x, y) in feet {
+        s.set(x, y, LEAF + 1);
+    }
+    s.outline()
+}
+
+/// The wagon from the side: a plank bed on two spoked wheels, its tailgate at the left
+/// (flipped to face the other way). Open, the tailgate hangs down.
+fn make_wagon(open: bool) -> Sprite {
+    let mut s = Sprite::blank(16, 14);
+    for y in 3..=8 {
+        for x in 2..=14 {
+            let c = if y == 3 { WOOD + 3 } else if y == 8 { WOOD } else if x == 2 || x == 14 { WOOD + 1 } else if y % 2 == 0 { PLANK + 1 } else { PLANK + 2 };
+            s.set(x, y, c);
+        }
+    }
+    if open {
+        for y in 7..=11 {
+            s.set(1, y, WOOD + 2);
+        }
+        for y in 3..=6 {
+            s.set(2, y, 0);
+        }
+    }
+    for cx in [5, 11] {
+        circle_fill(&mut s, cx, 11, 2, [WOOD, WOOD + 1, WOOD + 2]);
+        s.set(cx, 11, WOOD + 3);
+    }
+    s.outline()
+}
+
 /// Goods gathered in the wild, each with its plant.
 const WILD: [&str; 8] = ["hemlock_log", "oak_log", "elder_sticks", "rhododendron_sticks", "arrow_bamboo", "ramie_stalks", "indigofera_leaves", "limestone"];
 
@@ -1049,6 +1104,9 @@ pub struct Sprites {
     pub quicklime: Sprite,
     pub indigo: Sprite,
     pub tub: Sprite,
+    pub pumpkin: [Sprite; 2],
+    /// Tailgate shut, open.
+    pub wagon: [Sprite; 2],
 }
 
 impl Sprites {
@@ -1093,6 +1151,8 @@ impl Sprites {
             quicklime: make_lumps([TEXT_DIM, COTTON + 1, COTTON + 2]),
             indigo: make_indigo(),
             tub: make_tub(),
+            pumpkin: [make_pumpkin(0), make_pumpkin(1)],
+            wagon: [make_wagon(false), make_wagon(true)],
         }
     }
 }
@@ -1150,7 +1210,7 @@ mod tests {
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
         let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub];
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1]];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);

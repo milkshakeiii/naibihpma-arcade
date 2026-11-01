@@ -115,6 +115,13 @@ pub enum Act {
 pub struct Routine {
     pub flag: (i32, i32),
     pub acts: Vec<Act>,
+    /// The way the monster faced when recording began; each run of the loop starts facing it.
+    #[serde(default = "face_down")]
+    pub facing: Dir,
+}
+
+fn face_down() -> Dir {
+    Dir::Down
 }
 
 pub struct Bubble {
@@ -258,6 +265,8 @@ pub(crate) enum Ev {
     Made(String),
     Delivered(String),
     Switched,
+    /// A wagon set a good out.
+    Unloaded,
 }
 
 pub struct Game {
@@ -391,7 +400,7 @@ impl Game {
     }
 
     /// A scored good pays renown, and each contributor's share flies to it as credit.
-    fn score(&mut self, value: f64, shares: &[Share], bx: i32, by: i32) {
+    pub(crate) fn score(&mut self, value: f64, shares: &[Share], bx: i32, by: i32) {
         let value = value * RENOWN_PER_VALUE;
         self.renown += value;
         let at = (bx * TS + 8, by * TS);
@@ -427,6 +436,15 @@ impl Game {
 
     fn finish_project(&mut self, b: usize, sfx: &mut Vec<Sfx>) {
         match self.world.boards[b].project {
+            Project::Bridge => {
+                self.world.build_bridge();
+                for (x, y) in self.world.bridge.clone() {
+                    self.world.burst(x, y, PKind::Spark, 2);
+                }
+                let &(x, y) = self.world.bridge.first().expect("a bridge site");
+                let at = ((x + 3) * TS, y * TS);
+                self.floaters.push(Floater { text: "THE BRIDGE IS BUILT!".into(), from: at, to: (at.0, at.1 - 30), t: 0, total: 60, delay: 20, color: SPARK + 2 });
+            }
             Project::Ferry => {
                 let Some(f) = self.world.ferry.as_mut() else { return };
                 f.rigged = true;
@@ -548,6 +566,7 @@ impl Game {
         }
         self.advance_motion();
         self.tick_ferry();
+        self.tick_wagons(sfx);
         self.tick_work(sfx);
         self.tick_hall();
         self.world.tick_particles(self.frame);
@@ -644,6 +663,7 @@ impl Game {
         }
 
         if inp.use_pressed {
+            self.face_something_usable(c);
             if let Some(k) = self.faced_applicant() {
                 self.welcome(c, k, sfx);
                 return;
@@ -678,17 +698,20 @@ impl Game {
         let repeat = self.hold.filter(|&(_, t)| t >= HOLD_REPEAT_TICKS).map(|(d, _)| d);
         let Some(d) = pressed_now.or(repeat) else { return };
         // Shift with an item in front and a step away from it: pull. Otherwise Shift is ignored.
-        let pulling = inp.pull && self.pulled_item(c, d).is_some();
+        let pulling = inp.pull && self.pulled_item(c, d).is_some() && self.led_wagon(c).is_none();
         let res = if pulling { self.try_pull(c, d, sfx) } else { self.try_step(c, d, sfx) };
         match res {
             StepRes::Moved(moved) => {
                 let (dx, dy) = d.delta();
                 let to = (self.monsters[c].x, self.monsters[c].y);
                 let ferry = self.world.ferry.as_ref().is_some_and(|f| f.crossing(to.0, to.1) || f.crossing(to.0 - dx, to.1 - dy));
+                let leading = self.led_wagon(c).is_some();
                 if let Some(r) = self.monsters[c].rec.as_mut() {
                     let act = match (pulling, moved) {
                         (true, Some(good)) => Act::Pull(d, good),
-                        (_, None) if !ferry => Act::Go { to, facing: d },
+                        // Leading a wagon, the route itself matters (the wagon follows it), so
+                        // those steps stay as recorded.
+                        (_, None) if !ferry && !leading => Act::Go { to, facing: d },
                         (_, moved) => Act::Step(d, moved),
                     };
                     // Consecutive walking merges into one "go to".
@@ -749,13 +772,17 @@ impl Game {
         if self.world.items[it].locked {
             return StepRes::Blocked("THAT'S BEING WORKED ON.".into());
         }
-        if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) || self.world.item_at(tx, ty).is_some() {
+        if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) || self.world.item_at(tx, ty).is_some() || self.world.cart_at(tx, ty) {
             return StepRes::Blocked(self.water_note(tx, ty));
+        }
+        if self.led_wagon(i).is_some() {
+            return StepRes::Blocked("LET GO OF THE WAGON FIRST.".into());
         }
         if !self.world.item_floor(x, y) {
             return StepRes::Blocked("I CAN'T PULL IT ONTO A WORK SPOT.".into());
         }
         let slide = Some(Slide { dir: d, left: PULL_TICKS, total: PULL_TICKS });
+        self.practice(i, "hauling", PULL_TICKS);
         let id = self.monsters[i].id;
         let item = &mut self.world.items[it];
         item.data.hauled_by(id);
@@ -782,9 +809,17 @@ impl Game {
         if dx != 0 {
             self.monsters[i].flip = dx < 0;
         }
-        if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) {
+        if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) || self.world.cart_at(tx, ty) {
             return StepRes::Blocked(self.water_note(tx, ty));
         }
+        let wagon = self.led_wagon(i);
+        if wagon.is_some() && self.world.on_deck(tx, ty) {
+            return StepRes::Blocked("THE WAGON WON'T FIT ON THE FERRY.".into());
+        }
+        // Leading a wagon, every step goes at the wagon's pace.
+        let pull = wagon.map_or(0, |w| self.wagon_ticks(i, w));
+        let id = self.monsters[i].id;
+        let mut ticks = WALK_TICKS.max(pull);
         let mut pushed = None;
         if let Some(it) = self.world.item_at(tx, ty) {
             let good = self.world.items[it].good().to_string();
@@ -792,16 +827,17 @@ impl Game {
                 return StepRes::Blocked("THAT'S BEING WORKED ON.".into());
             }
             let (bx, by) = (tx + dx, ty + dy);
+            ticks = self.push_ticks(i, &self.world.items[it].data).max(pull);
             if let Some(b) = self.world.board_at(bx, by) {
                 let board = &self.world.boards[b];
                 if board.done() {
                     return StepRes::Blocked("THAT PROJECT IS DONE.".into());
                 }
-                if board.wants != good {
+                if !self.board_takes(b, &good) {
                     return StepRes::Blocked(format!("THE BOARD WANTS {}.", self.good_name(&board.wants)));
                 }
                 let mut item = self.world.items.remove(it);
-                item.data.hauled_by(self.monsters[i].id);
+                item.data.hauled_by(id);
                 crate::econ::pay_haul(&mut item.data);
                 self.contribute(b, item.data, sfx);
                 self.events.push(Ev::Delivered(good.clone()));
@@ -812,7 +848,7 @@ impl Game {
                     return StepRes::Blocked(format!("ONLY {} GOES IN THERE.", names.join(" OR ")));
                 }
                 let mut item = self.world.items.remove(it);
-                item.data.hauled_by(self.monsters[i].id);
+                item.data.hauled_by(id);
                 if self.world.bins[b].scores {
                     crate::econ::pay_haul(&mut item.data);
                 }
@@ -826,18 +862,23 @@ impl Game {
                 }
                 self.events.push(Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
+            } else if let Some(w) = self.world.wagon_at(bx, by) {
+                if let Err(msg) = self.load_wagon(w, it, id) {
+                    return StepRes::Blocked(msg);
+                }
+                self.world.burst(bx, by, PKind::Spark, 3);
+                sfx.push(Sfx::Deposit);
             } else {
-                let free = self.world.item_floor(bx, by) && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none() && !self.applicant_at(bx, by);
+                let free = self.world.item_floor(bx, by) && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none() && !self.applicant_at(bx, by) && !self.world.cart_at(bx, by);
                 if !free {
                     return StepRes::Blocked(self.water_note(bx, by));
                 }
-                let id = self.monsters[i].id;
                 let item = &mut self.world.items[it];
                 item.x = bx;
                 item.y = by;
                 item.hop = 0;
                 item.data.hauled_by(id);
-                item.slide = Some(Slide { dir: d, left: PUSH_TICKS, total: PUSH_TICKS });
+                item.slide = Some(Slide { dir: d, left: ticks, total: ticks });
                 if let Some((s, k)) = self.world.pad_owner(bx, by) {
                     self.world.shops[s].pad_flash[k] = 5;
                     sfx.push(Sfx::Pad);
@@ -845,26 +886,50 @@ impl Game {
                 self.world.dust(tx, ty, d);
                 sfx.push(Sfx::Push);
             }
+            self.practice(i, "hauling", ticks);
             pushed = Some(good);
         } else if i == self.controlled {
             sfx.push(Sfx::Step);
         }
+        if let Some(w) = wagon {
+            if !self.world.wagons[w].stock.is_empty() {
+                self.practice(i, "wagon_driving", ticks);
+            }
+        }
         let m = &mut self.monsters[i];
         m.x = tx;
         m.y = ty;
-        let t = if pushed.is_some() { PUSH_TICKS } else { WALK_TICKS };
-        m.slide = Some(Slide { dir: d, left: t, total: t });
+        m.slide = Some(Slide { dir: d, left: ticks, total: ticks });
         m.bump = None;
+        if let Some(w) = wagon {
+            self.follow(w, (x, y), ticks);
+        }
         StepRes::Moved(pushed)
     }
 
+    /// Does this project board take this good: the good itself, or anything tagged with what
+    /// it wants (any log for the bridge)?
+    pub(crate) fn board_takes(&self, b: usize, good: &str) -> bool {
+        let wants = &self.world.boards[b].wants;
+        good == wants || self.data.try_good(good).is_some_and(|g| g.type_tags.iter().any(|t| t == wants))
+    }
+
     fn try_use(&mut self, i: usize, sfx: &mut Vec<Sfx>) -> UseRes {
+        self.face_something_usable(i);
+        if let Some(res) = self.use_wagon_ahead(i, sfx) {
+            return res;
+        }
         let (x, y) = (self.monsters[i].x, self.monsters[i].y);
         if let Some(s) = self.world.shop_at_spot(x, y) {
             return self.use_shop(i, s, sfx);
         }
         if let Some(p) = self.world.plant_at(x, y) {
             return self.use_plant(i, p, sfx);
+        }
+        // Leading a wagon with nothing else to use: let go of it.
+        if let Some(w) = self.led_wagon(i) {
+            self.let_go(w, sfx);
+            return UseRes::Done;
         }
         UseRes::Nothing
     }
@@ -944,6 +1009,9 @@ impl Game {
                 if m.pc >= m.routine.as_ref().map_or(0, |r| r.acts.len()) {
                     m.pc = 0;
                     m.loops += 1;
+                    if let Some(f) = m.routine.as_ref().map(|r| r.facing) {
+                        m.facing = f;
+                    }
                 }
             }
             Err(msg) => {
@@ -966,7 +1034,7 @@ impl Game {
         let pos = (m.x, m.y);
         match m.rec.take() {
             None => {
-                m.rec = Some(Routine { flag: pos, acts: Vec::new() });
+                m.rec = Some(Routine { flag: pos, acts: Vec::new(), facing: m.facing });
                 self.say(i, "RECORDING! BRING ME BACK HERE, THEN R.", false);
                 sfx.push(Sfx::RecOn);
             }
@@ -1010,6 +1078,9 @@ impl Game {
             // Resume where the loop was stopped.
         } else if pos == flag {
             m.pc = 0;
+            if let Some(f) = m.routine.as_ref().map(|r| r.facing) {
+                m.facing = f;
+            }
         } else {
             self.say(i, "TAKE ME TO MY FLAG FIRST.", true);
             sfx.push(Sfx::Deny);
@@ -1080,6 +1151,9 @@ impl Game {
                 14 => self.made.contains("quicklime"),
                 15 => self.made.contains("indigo"),
                 16 => stored("dyed_fabric"),
+                17 => self.world.wagons.iter().any(|w| w.last_leader.is_some()),
+                18 => events.contains(&Ev::Unloaded),
+                19 => self.world.bridge_built(),
                 _ => false,
             };
             if !met || t.stage >= tutorial::DONE {
@@ -1103,6 +1177,9 @@ impl Game {
             ("WORKING".to_string(), false)
         } else if riding {
             ("RIDING THE FERRY".to_string(), false)
+        } else if let Some(w) = self.led_wagon(i).filter(|_| !m.playing) {
+            let slow = self.wagon_ticks(i, w) > PUSH_TICKS;
+            (if slow { "LEADING THE WAGON. THE LOAD SLOWS IT".to_string() } else { "LEADING THE WAGON".to_string() }, false)
         } else if m.slide.is_some_and(|s| s.total == PULL_TICKS) {
             ("PULLING. HEAVY GOING".to_string(), false)
         } else if let Some(r) = &m.rec {

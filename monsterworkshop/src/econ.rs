@@ -63,6 +63,9 @@ pub struct Skills {
     pub applied: BTreeMap<String, f64>,
     pub specific: BTreeMap<String, f64>,
     pub forgotten: f64,
+    /// Practice toward a learning step at tasks that aren't recipes, in game seconds.
+    #[serde(default)]
+    pub pending: BTreeMap<String, f64>,
 }
 
 impl Skills {
@@ -114,6 +117,9 @@ pub struct ItemData {
     /// Who has pushed or pulled it since it was made, and how many tiles each.
     #[serde(default)]
     pub haul: Vec<(u32, u32)>,
+    /// Who brought it here by wagon from somewhere else.
+    #[serde(default)]
+    pub carted: Option<u32>,
 }
 
 impl ItemData {
@@ -355,6 +361,7 @@ pub fn value(recipe: &GoodType, raw: &[RawMaterial], depth: u32, quality: f64, c
 
 /// A good pays its haulers when it is used (by a workshop, a drop-off or a project): one share
 /// between them, split by the tiles each moved it. Pushing it in circles earns no more.
+/// A wagon journey from elsewhere pays its leader two shares more.
 pub fn pay_haul(item: &mut ItemData) {
     let total: u32 = item.haul.iter().map(|h| h.1).sum();
     if total > 0 {
@@ -362,6 +369,32 @@ pub fn pay_haul(item: &mut ItemData) {
             add_share(&mut item.shares, monster, tiles as f64 / total as f64);
         }
     }
+    if let Some(leader) = item.carted.take() {
+        add_share(&mut item.shares, leader, WAGON_JOURNEY_SHARES);
+    }
+}
+
+const WAGON_JOURNEY_SHARES: f64 = 2.0;
+
+/// Practice at a task that isn't a recipe (hauling, wagon driving): `seconds` of it. Practice
+/// adds up until it makes whole learning steps; forgetting works as it does for crafts.
+pub fn practice(skills: &mut Skills, stats: &Stats, skill: &str, data: &Data, seconds: f64) -> f64 {
+    let total = skills.pending.get(skill).copied().unwrap_or(0.0) + seconds;
+    let steps = (total / LEARN_STEP_SECONDS) as usize;
+    skills.pending.insert(skill.to_string(), total - steps as f64 * LEARN_STEP_SECONDS);
+    if steps == 0 {
+        return 0.0;
+    }
+    let ability_factor = (ability(stats, INT) * 0.8 + ability(stats, CON) * 0.2) / 20.0;
+    let talents = data.skills.relevant_transferable_skills.get(skill).map_or(0, |t| skills.matching(t));
+    let gain = grow(skills.applied(skill), steps, LEARN_PRIMARY * ability_factor * (1.0 + talents as f64 / 4.0));
+    let floor = skills.forgotten;
+    let total = skills.applied.get(skill).copied().unwrap_or(floor).max(floor);
+    skills.applied.insert(skill.to_string(), total + gain);
+    skills.forgotten += steps as f64 * FORGET * (1.0 - ability(stats, WIS) / 20.0 * 0.25);
+    let floor = skills.forgotten;
+    skills.applied.values_mut().chain(skills.specific.values_mut()).for_each(|v| *v = v.max(floor));
+    gain
 }
 
 fn add_share(shares: &mut Vec<Share>, monster: u32, count: f64) {
@@ -425,7 +458,7 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
         .map(|_| {
             let quality = roll_quality(c, rng);
             let value = value(c.recipe, &raw, depth, quality, Some(c.crafter.stats));
-            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0, haul: Vec::new() }
+            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0, haul: Vec::new(), carted: None }
         })
         .collect()
 }

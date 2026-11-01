@@ -170,6 +170,20 @@ pub fn card(g: &Game) -> Card {
     if let Some(o) = g.monster_at(fx, fy) {
         return monster_card(g, o);
     }
+    if let Some(w) = g.world.pumpkin_at(fx, fy) {
+        let leader = g.world.wagons[w].leader.and_then(|id| g.monsters.iter().find(|m| m.id == id)).map(|m| m.name.clone());
+        let lines = vec![
+            line("A MAGICAL PUMPKIN. IT FOLLOWS ANYONE CHARMING ENOUGH.", TEXT),
+            match leader {
+                Some(name) => line(format!("{name} IS LEADING IT."), TEXT_GOOD),
+                None => line("SPACE: LEAD IT, AND ITS WAGON COMES ALONG.", TEXT_DIM),
+            },
+        ];
+        return Card::one("PUMPKIN", lines, (fx, fy));
+    }
+    if let Some(w) = g.world.wagon_at(fx, fy) {
+        return wagon_card(g, w, (fx, fy));
+    }
     if let Some(p) = g.world.plant_at(fx, fy).or_else(|| g.world.plant_at(m.x, m.y)) {
         return plant_card(g, p);
     }
@@ -197,6 +211,24 @@ pub fn card(g: &Game) -> Card {
     monster_card(g, c)
 }
 
+fn wagon_card(g: &Game, w: usize, at: (i32, i32)) -> Card {
+    let wagon = &g.world.wagons[w];
+    let mut first = vec![match wagon.good() {
+        Some(good) => line(format!("{} {}", wagon.stock.len(), g.good_name(good)), TEXT).icon(Icon::Good(good.to_string())),
+        None => line("EMPTY. PUSH GOODS INTO IT, ONE KIND AT A TIME.", TEXT_DIM),
+    }];
+    let used: f64 = wagon.stock.iter().map(|(d, _)| g.data.good(&d.good).storage_volume).sum();
+    first.push(line(format!("ROOM {used:.1} OF {:.1}", wagon.room), TEXT).bar(used / wagon.room));
+    first.push(if wagon.open { line("TAILGATE OPEN: PARKED, IT UNLOADS BEHIND.", TEXT_GOOD) } else { line("TAILGATE SHUT. SPACE AT ITS BACK OPENS IT.", TEXT_DIM) });
+    let c = g.controlled;
+    let details = vec![
+        line(format!("LOAD WEIGHS {:.0}. {} PULLS {:.0} AT FULL SPEED.", g.load_weight(w), g.monsters[c].name, g.pull_capacity(c, w)), TEXT).icon(Icon::Weight),
+        line("PULLING POWER: THE WAGON, ITS LEADER'S CHA AND WAGON DRIVING.", TEXT_DIM),
+        line("THE TOWN'S WAGON, ON LOAN.", TEXT_DIM),
+    ];
+    Card::two("WAGON", first, details, at)
+}
+
 fn board_card(g: &Game, b: usize) -> Card {
     let board = &g.world.boards[b];
     let name = g.good_name(&board.wants);
@@ -204,7 +236,9 @@ fn board_card(g: &Game, b: usize) -> Card {
         vec![line("DONE! THANK YOU, EVERYONE.", TEXT_GOOD)]
     } else {
         vec![
-            line(format!("{} OF {} {name}", board.have, board.need), TEXT).icon(Icon::Good(board.wants.clone())).bar(board.have as f64 / board.need.max(1) as f64),
+            line(format!("{} OF {} {name}", board.have, board.need), TEXT)
+                .icon(Icon::Good(g.data.goods.iter().find(|p| p.id == board.wants || p.type_tags.contains(&board.wants)).map_or(board.wants.clone(), |p| p.id.clone())))
+                .bar(board.have as f64 / board.need.max(1) as f64),
             line("EACH ONE EARNS RENOWN.", TEXT_DIM).icon(Icon::Renown),
         ]
     };
@@ -236,7 +270,7 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
         first.extend(quality(q, q, q));
     }
     // Renown only means something for goods a drop-off or a project takes.
-    let wanted = g.world.bins.iter().any(|b| b.scores && b.takes(&item.good)) || g.world.boards.iter().any(|b| !b.done() && b.wants == item.good);
+    let wanted = g.world.bins.iter().any(|b| b.scores && b.takes(&item.good)) || (0..g.world.boards.len()).any(|b| !g.world.boards[b].done() && g.board_takes(b, &item.good));
     let mut details = Vec::new();
     if wanted {
         first.push(line(format!("WORTH {} RENOWN", (item.value * RENOWN_PER_VALUE).round()), TEXT).icon(Icon::Renown));

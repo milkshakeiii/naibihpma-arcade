@@ -19,7 +19,7 @@ enum ToolSource {
 
 /// A town workshop's built-in tool, used when nothing better hangs on its peg.
 fn builtin_tool(id: &str) -> ItemData {
-    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new() }
+    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
 }
 
 /// What a work spot would make right now, for the forecast card.
