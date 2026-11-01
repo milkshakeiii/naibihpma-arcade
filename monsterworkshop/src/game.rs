@@ -193,6 +193,9 @@ pub struct Monster {
     /// The monster it's waiting on this tick, if any.
     #[serde(skip)]
     pub waiting_on: Option<usize>,
+    /// Giving way to another monster: off its way, until it has gone by.
+    #[serde(default)]
+    pub giving_way: Option<crate::motion::GiveWay>,
     /// The tick it last finished a step of its loop (or started the loop): who has gone longest
     /// without finishing one goes first.
     #[serde(default)]
@@ -274,6 +277,7 @@ impl Monster {
             cooldown: Vec::new(),
             turns: Vec::new(),
             waiting_on: None,
+            giving_way: None,
             since: 0,
             loops: 0,
             steps: 0,

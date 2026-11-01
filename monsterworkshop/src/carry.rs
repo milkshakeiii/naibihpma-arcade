@@ -7,7 +7,7 @@
 
 use crate::game::{Game, Sfx, StepRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
 use crate::sched::Hold;
-use crate::motion::{Going, EXCUSE_ME, LOOK_AROUND_EVERY};
+use crate::motion::{Going, EXCUSE_ME, LOOK_AROUND_EVERY, SETTLE_AFTER};
 use crate::world::{Dir, Tile, DIRS};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -348,6 +348,10 @@ impl Game {
                 if let Some((plan, _)) = self.plan_carry_for(i, at, to, &good).filter(|(p, _)| !p.is_empty()) {
                     self.monsters[i].carry_plan = plan;
                 }
+            }
+            // A loop only waiting there gives way (see `motion.rs`).
+            if let Some(o) = o.filter(|&o| still && self.monsters[i].wait >= SETTLE_AFTER && self.standing_still(o)) {
+                self.settle(i, o);
             }
             return Going::Waiting(EXCUSE_ME.into());
         }

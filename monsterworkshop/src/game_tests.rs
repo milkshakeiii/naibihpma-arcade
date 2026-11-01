@@ -1111,7 +1111,6 @@ fn whoever_has_waited_longest_for_the_plant_harvests_first() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn monsters_sharing_one_plant_all_get_to_harvest_it() {
     let mut g = Game::new();
     let p = g.world.plant_at(8, 8).unwrap();

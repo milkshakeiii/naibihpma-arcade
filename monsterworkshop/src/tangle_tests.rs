@@ -101,12 +101,13 @@ impl Walkers {
                 continue;
             }
             g.monsters[k].waiting_on = None;
-            let went = g.go_toward(k, stops[self.next[k]], None, &mut sfx);
+            let went = if g.monsters[k].giving_way.is_some() { g.give_way_tick(k, &mut sfx) } else { g.go_toward(k, stops[self.next[k]], None, &mut sfx) };
+            let frame = g.frame;
             let m = &mut g.monsters[k];
             match went {
                 Going::Arrived => {
                     self.next[k] = (self.next[k] + 1) % stops.len();
-                    m.steps += 1;
+                    (m.steps, m.since) = (m.steps + 1, frame);
                     (m.wait, m.wait_reason) = (0, String::new());
                 }
                 Going::Waiting(msg) | Going::Stuck(msg) => {
@@ -204,7 +205,6 @@ fn three_copies_of_the_whole_chain_and_a_stray_thread_in_the_loom_house() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn five_copies_of_the_whole_chain() {
     let mut g = on_one_loop(5, full_chain);
     let before = g.cloth_stored();
@@ -213,7 +213,6 @@ fn five_copies_of_the_whole_chain() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn copies_starting_at_different_goals_meet_head_on() {
     // Each starts somewhere else in the loop, so they cross paths going opposite ways.
     let mut g = on_one_loop(4, full_chain);
@@ -238,7 +237,6 @@ fn strays_in_every_doorway_on_the_way() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn harvest_loops_and_whole_chains_together() {
     // Two only harvest and bin bolls; three run the whole chain off the same bin.
     let mut g = on_one_loop(5, full_chain);
@@ -327,7 +325,6 @@ fn no_one_held_up_for_long(seed: u64) {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn forty_random_tangles() {
     for seed in 1..=40 {
         no_one_held_up_for_long(seed);
@@ -408,7 +405,6 @@ fn a_walker_goes_around_a_monster_standing_in_its_way() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn two_walkers_meet_head_on_in_a_long_one_tile_tunnel() {
     let (mut g, mut walk) = walkers(&TUNNEL, &[&[(1, 1), (16, 5)], &[(16, 1), (1, 5)]]);
     keeps_going(&mut g, &mut walk, 9000, 600);
@@ -422,7 +418,6 @@ fn four_walkers_cross_both_ways_through_a_one_tile_tunnel() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn two_walkers_share_a_dead_end_tunnel_and_back_out_for_each_other() {
     // Both walk to the end of a dead end four tiles deep: whoever is coming in when the other
     // wants out has to back out into the room and let it by.
@@ -432,7 +427,6 @@ fn two_walkers_share_a_dead_end_tunnel_and_back_out_for_each_other() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn walkers_cross_between_two_rooms_through_one_doorway() {
     let rooms = ["###############", "#.....#.......#", "#.....#.......#", "#.............#", "#.....#.......#", "#.....#.......#", "###############"];
     let (mut g, mut walk) = walkers(&rooms, &[&[(1, 1), (13, 5)], &[(13, 1), (1, 5)], &[(2, 5), (12, 1)], &[(12, 5), (2, 1)]]);
@@ -440,7 +434,6 @@ fn walkers_cross_between_two_rooms_through_one_doorway() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn walkers_in_and_out_of_a_dead_end_room_behind_a_one_tile_doorway() {
     let room = ["############", "#..........#", "#..........#", "#####.######", "#####.######", "###.....####", "###.....####", "###.....####", "############"];
     let (mut g, mut walk) = walkers(&room, &[&[(1, 1), (3, 7)], &[(10, 1), (7, 7)], &[(10, 2), (5, 6)]]);
@@ -448,7 +441,6 @@ fn walkers_in_and_out_of_a_dead_end_room_behind_a_one_tile_doorway() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn a_good_pushed_to_and_fro_through_a_tunnel_and_a_walker_going_the_other_way() {
     let ground = ["################", "#.....####.....#", "#..............#", "#.....####.....#", "################"];
     let (mut g, mut walk) = walkers(&ground, &[&[(14, 1), (1, 3)], &[(1, 1)]]);

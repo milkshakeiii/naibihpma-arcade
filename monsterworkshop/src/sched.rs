@@ -389,7 +389,7 @@ impl Game {
         m.turns.clear();
         m.cooldown.clear();
         (m.carry_plan, m.path) = (Vec::new(), Vec::new());
-        m.waiting_on = None;
+        (m.waiting_on, m.giving_way) = (None, None);
     }
 
     /// One tick of a looping monster.
@@ -404,6 +404,15 @@ impl Game {
             c.1 = c.1.saturating_sub(1);
         }
         m.cooldown.retain(|&(_, t)| t > 0);
+        // Giving way: its goal waits until the one it gave way to has gone by.
+        if m.giving_way.is_some() {
+            match self.give_way_tick(i, sfx) {
+                Going::Waiting(msg) => self.waiting(i, msg),
+                _ => self.not_waiting(i),
+            }
+            return;
+        }
+        let m = &mut self.monsters[i];
         if m.task.is_none() {
             if let Some(why) = self.choose(i) {
                 self.monsters[i].waiting_on = why.on;

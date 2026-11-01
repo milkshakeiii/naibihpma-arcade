@@ -12,11 +12,22 @@
 //!    planned around like a wall, when there's a way around; one on the move is waited for, as it
 //!    moves on. While waiting behind one standing still, a monster looks again for a way around
 //!    every second. Guarantee: nobody waits for ever behind someone who isn't going anywhere when
-//!    there's another way. Two that are both waiting, each in the other's only way (head-on in a
-//!    lane), still wait: that's for the next principle.
+//!    there's another way.
+//! 2. **A loop that's only waiting gives way.** When a monster's only way is through a loop
+//!    that's waiting (not working, not leading a wagon), that one gives way: it goes, through no
+//!    one, to the nearest tile off the other's way, says "AFTER YOU.", and waits there until the
+//!    other has gone by (or has stopped, or ten seconds have passed), then carries on with its own
+//!    goal. Of two waiting on each other, each in the other's only way (head-on in a lane, one
+//!    going into a dead end as the other comes out), the one later in line gives way: whoever has
+//!    gone longest without finishing a goal goes first. If that one has nowhere to go (a dead end
+//!    behind it), the other gives way instead. Guarantee: two that are each in the other's way get
+//!    past each other whenever one of them has somewhere off the other's way it can reach.
+//!    Bigger knots (a third monster boxing in the one that has to give way) are for the next
+//!    principle.
 
 use crate::game::{Game, Sfx, StepRes};
 use crate::world::{Dir, DIRS};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 /// What a monster says when no path at all leads where it's going.
@@ -25,6 +36,25 @@ pub(crate) const NO_WAY: &str = "I CAN'T FIND A WAY THERE.";
 pub(crate) const EXCUSE_ME: &str = "EXCUSE ME!";
 /// Ticks between looks for a way around someone standing still, while waiting behind them.
 pub(crate) const LOOK_AROUND_EVERY: u16 = 15;
+/// What a monster giving way says.
+const AFTER_YOU: &str = "AFTER YOU.";
+/// Ticks held up by a waiting loop, with no way around, before one of them gives way.
+pub(crate) const SETTLE_AFTER: u16 = 3;
+/// The longest a monster gives way for, in ticks.
+const GIVE_WAY_MAX: u16 = 150;
+/// Ticks the one given way to can stand still before the one giving way stops waiting for it.
+const PASSER_STOPPED: u16 = 10;
+
+/// A monster giving way: to whom (by id), the tile off their way it's waiting on, for how long
+/// it has been giving way, and how long it has been waiting on that tile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GiveWay {
+    pub to: u32,
+    pub spot: (i32, i32),
+    pub ticks: u16,
+    #[serde(default)]
+    pub at_spot: u16,
+}
 
 pub(crate) enum Going {
     Arrived,
@@ -133,6 +163,9 @@ impl Game {
         let next = self.monsters[i].path[0];
         if let Some(o) = self.monster_at(next.0, next.1) {
             self.monsters[i].waiting_on = Some(o);
+            if self.monsters[i].wait >= SETTLE_AFTER && self.standing_still(o) {
+                self.settle(i, o);
+            }
             return Going::Waiting(EXCUSE_ME.into());
         }
         match self.try_step(i, dir_to(here, next), sfx) {
@@ -220,6 +253,137 @@ impl Game {
             }
         }
         self.step_on(i, sfx)
+    }
+
+    /// The tiles monster `k` is about to pass through: its planned walk, and where the good it's
+    /// moving and it will go.
+    pub(crate) fn way_of(&self, k: usize) -> Vec<(i32, i32)> {
+        let m = &self.monsters[k];
+        let mut way = m.path.clone();
+        if let Some(mut b) = m.carry {
+            for &(d, pull) in &m.carry_plan {
+                let (dx, dy) = d.delta();
+                let next = (b.0 + dx, b.1 + dy);
+                // Pushing, it stands behind the good; pulling, it stands ahead and backs away.
+                way.extend(if pull { [b, next, (b.0 + 2 * dx, b.1 + 2 * dy)] } else { [(b.0 - dx, b.1 - dy), b, next] });
+                b = next;
+            }
+        }
+        way
+    }
+
+    /// Monster `i` is held up by `o`, standing still in its only way. If `o` is a loop that's
+    /// only waiting, it gives way. Of two waiting on each other, the one later in line gives way,
+    /// or the other if that one has nowhere to go.
+    pub(crate) fn settle(&mut self, i: usize, o: usize) {
+        if self.monsters[i].giving_way.is_some() || self.monsters[o].giving_way.is_some() {
+            return;
+        }
+        // One working stays at it, one leading a wagon can't step aside, and one you've left
+        // standing is yours to move.
+        let can_give = |k: usize| {
+            let m = &self.monsters[k];
+            m.playing && !m.busy && m.wait > 0 && self.led_wagon(k).is_none()
+        };
+        if !can_give(o) {
+            return;
+        }
+        // Each in the other's way: not just waiting on something the other has reserved.
+        let mutual = self.monsters[o].waiting_on == Some(i) && self.way_of(o).contains(&(self.monsters[i].x, self.monsters[i].y));
+        let later = |a: usize, b: usize| (self.monsters[a].since, a) > (self.monsters[b].since, b);
+        let first = if mutual && can_give(i) && later(i, o) { i } else { o };
+        let second = if first == i { o } else { i };
+        let fallback = mutual && can_give(second);
+        if !self.start_giving_way(first, second) && fallback {
+            self.start_giving_way(second, first);
+        }
+    }
+
+    /// Monster `g` starts giving way to `p`: off to the nearest tile off `p`'s way it can reach
+    /// through no one. False if there's none.
+    fn start_giving_way(&mut self, g: usize, p: usize) -> bool {
+        let mut keep = self.way_of(p);
+        keep.push((self.monsters[p].x, self.monsters[p].y));
+        let Some(path) = self.retreat(g, &keep) else { return false };
+        let spot = path[path.len() - 1];
+        let to = self.monsters[p].id;
+        let m = &mut self.monsters[g];
+        m.giving_way = Some(GiveWay { to, spot, ticks: 0, at_spot: 0 });
+        m.path = path;
+        self.say(g, AFTER_YOU, false);
+        true
+    }
+
+    /// The way for monster `g`, through no one, to the nearest tile not in `keep`.
+    fn retreat(&self, g: usize, keep: &[(i32, i32)]) -> Option<Vec<(i32, i32)>> {
+        let (w, h) = (self.world.w, self.world.h);
+        let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
+        let from = (self.monsters[g].x, self.monsters[g].y);
+        let mut prev = vec![usize::MAX; (w * h) as usize];
+        prev[idx(from)] = idx(from);
+        let mut queue = VecDeque::from([from]);
+        while let Some(q) = queue.pop_front() {
+            if q != from && !keep.contains(&q) {
+                let mut path = vec![q];
+                let mut at = idx(q);
+                while prev[at] != idx(from) {
+                    at = prev[at];
+                    path.push(((at as i32) % w, (at as i32) / w));
+                }
+                path.reverse();
+                return Some(path);
+            }
+            for d in DIRS {
+                let n = (q.0 + d.delta().0, q.1 + d.delta().1);
+                if n.0 < 0 || n.1 < 0 || n.0 >= w || n.1 >= h || prev[idx(n)] != usize::MAX || !self.open(n.0, n.1) || self.monster_at(n.0, n.1).is_some() {
+                    continue;
+                }
+                prev[idx(n)] = idx(q);
+                queue.push_back(n);
+            }
+        }
+        None
+    }
+
+    /// Has monster `p` gone by one giving way to it: nothing it's about to pass is next to the
+    /// spot any more? Or, with the way clear for a while, has it not moved, so it isn't coming?
+    fn gone_by(&self, p: usize, gw: GiveWay) -> bool {
+        let near = |t: &(i32, i32)| (t.0 - gw.spot.0).abs() + (t.1 - gw.spot.1).abs() <= 1;
+        let stopped = gw.at_spot >= PASSER_STOPPED && self.standing_still(p) && self.monsters[p].wait >= gw.at_spot;
+        stopped || !self.way_of(p).iter().any(near)
+    }
+
+    /// One tick of monster `g` giving way: off to its spot, then waiting there until the one it
+    /// gave way to has gone by.
+    pub(crate) fn give_way_tick(&mut self, g: usize, sfx: &mut Vec<Sfx>) -> Going {
+        let Some(mut gw) = self.monsters[g].giving_way else { return Going::Moving };
+        gw.ticks = gw.ticks.saturating_add(1);
+        if (self.monsters[g].x, self.monsters[g].y) == gw.spot {
+            gw.at_spot = gw.at_spot.saturating_add(1);
+        }
+        self.monsters[g].giving_way = Some(gw);
+        let passer = self.monsters.iter().position(|m| m.id == gw.to);
+        if gw.ticks >= GIVE_WAY_MAX || passer.is_none_or(|p| self.gone_by(p, gw)) {
+            self.end_give_way(g);
+            return Going::Moving;
+        }
+        if (self.monsters[g].x, self.monsters[g].y) == gw.spot {
+            return Going::Waiting(AFTER_YOU.into());
+        }
+        match self.go_toward(g, gw.spot, None, sfx) {
+            Going::Stuck(_) => {
+                self.end_give_way(g);
+                Going::Moving
+            }
+            Going::Waiting(_) => Going::Waiting(AFTER_YOU.into()),
+            _ => Going::Moving,
+        }
+    }
+
+    pub(crate) fn end_give_way(&mut self, g: usize) {
+        let m = &mut self.monsters[g];
+        m.giving_way = None;
+        m.path.clear();
     }
 
     /// The leader's way, for a wagon train standing at `[leader, pumpkin, bed]`, to end with its
