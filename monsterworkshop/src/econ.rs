@@ -120,16 +120,6 @@ pub struct ItemData {
     /// Who brought it here by wagon from somewhere else.
     #[serde(default)]
     pub carted: Option<u32>,
-    /// Set aside by a loop for one of its own later steps; other loops leave it alone.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub claim: Option<Claim>,
-}
-
-/// Which looping monster has set a good aside, and for which step of its loop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Claim {
-    pub monster: u32,
-    pub step: usize,
 }
 
 impl ItemData {
@@ -468,7 +458,7 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
         .map(|_| {
             let quality = roll_quality(c, rng);
             let value = value(c.recipe, &raw, depth, quality, Some(c.crafter.stats));
-            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0, haul: Vec::new(), carted: None, claim: None }
+            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0, haul: Vec::new(), carted: None }
         })
         .collect()
 }

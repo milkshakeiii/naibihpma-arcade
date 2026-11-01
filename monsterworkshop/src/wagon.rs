@@ -202,7 +202,6 @@ impl Game {
                     let (value, shares) = (data.value, data.shares.clone());
                     self.score(value, &shares, bx, by);
                 }
-                data.claim = None;
                 self.world.bins[b].stock.push(data);
                 self.world.bins[b].bounce = 4;
                 self.world.burst(bx, by, PKind::Spark, 4);

@@ -162,6 +162,10 @@ impl Slide {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Item {
+    /// Its own, for keeping track of it wherever it goes; given out the first time something
+    /// needs it (0 until then).
+    #[serde(default)]
+    pub id: u32,
     pub x: i32,
     pub y: i32,
     pub data: ItemData,
@@ -172,7 +176,7 @@ pub struct Item {
 
 impl Item {
     pub fn new(x: i32, y: i32, data: ItemData) -> Self {
-        Self { x, y, data, slide: None, hop: 0, locked: false }
+        Self { id: 0, x, y, data, slide: None, hop: 0, locked: false }
     }
 
     pub fn good(&self) -> &str {
@@ -187,10 +191,6 @@ pub struct Job {
     pub recipe: String,
     pub t: u32,
     pub total: u32,
-    /// The step of the monster's loop whose Space started it, if a loop did: what it makes
-    /// is set aside for the steps that one feeds.
-    #[serde(default)]
-    pub step: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -473,6 +473,8 @@ pub struct World {
     pub starts: Vec<(i32, i32)>,
     /// Where applicants wait in the gathering hall.
     pub stands: Vec<(i32, i32)>,
+    /// The last id given to an item.
+    pub last_item_id: u32,
     seed: u32,
 }
 
@@ -597,7 +599,7 @@ impl World {
             })
             .into_iter()
             .collect();
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, ferry, bridge, wagons, signs, labels, starts, stands, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, ferry, bridge, wagons, signs, labels, starts, stands, last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     pub fn tile(&self, x: i32, y: i32) -> Tile {
@@ -652,6 +654,20 @@ impl World {
 
     pub fn sign_at(&self, x: i32, y: i32) -> Option<&Sign> {
         self.signs.iter().find(|s| s.x == x && s.y == y)
+    }
+
+    /// Item `k`'s id, giving it one if it has none yet.
+    pub fn item_id(&mut self, k: usize) -> u32 {
+        if self.items[k].id == 0 {
+            self.last_item_id += 1;
+            self.items[k].id = self.last_item_id;
+        }
+        self.items[k].id
+    }
+
+    /// The item with this id, if it's still lying about.
+    pub fn find_item(&self, id: u32) -> Option<usize> {
+        (id != 0).then(|| self.items.iter().position(|it| it.id == id)).flatten()
     }
 
     pub fn item_at(&self, x: i32, y: i32) -> Option<usize> {

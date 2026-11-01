@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 6;
+pub const VERSION: u32 = 7;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -40,6 +40,7 @@ struct SaveRef<'a> {
     applicant_timers: &'a [u32],
     roster_timer: u32,
     next_id: u32,
+    last_item_id: u32,
 }
 
 /// Read first, so a save from another version is reported as such rather than as unreadable.
@@ -70,6 +71,7 @@ struct SaveData {
     applicant_timers: Vec<u32>,
     roster_timer: u32,
     next_id: u32,
+    last_item_id: u32,
 }
 
 pub fn to_json(g: &Game) -> String {
@@ -94,6 +96,7 @@ pub fn to_json(g: &Game) -> String {
         applicant_timers: &g.applicant_timers,
         roster_timer: g.roster_timer,
         next_id: g.next_id,
+        last_item_id: g.world.last_item_id,
     };
     serde_json::to_string(&save).expect("world state serializes")
 }
@@ -132,6 +135,7 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     g.applicant_timers = d.applicant_timers;
     g.roster_timer = d.roster_timer;
     g.next_id = d.next_id;
+    g.world.last_item_id = d.last_item_id;
     Ok(g)
 }
 

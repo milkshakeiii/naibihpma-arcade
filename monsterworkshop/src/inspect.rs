@@ -277,9 +277,10 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
     } else {
         details.push(line(format!("VALUE {:.1}", item.value), TEXT_DIM));
     }
-    // Why other loops won't touch it.
-    if let Some(m) = item.claim.and_then(|c| g.monsters.iter().find(|m| m.id == c.monster)) {
-        first.push(line(format!("SET ASIDE FOR {}'S LOOP", m.name), TEXT_DIM));
+    // Why other monsters leave it alone.
+    let id = g.world.item_at(at.0, at.1).map_or(0, |k| g.world.items[k].id);
+    if let Some(m) = g.monsters.iter().find(|m| id != 0 && m.holds.contains(&crate::sched::Hold::Item(id))) {
+        first.push(line(format!("{} IS SEEING TO IT", m.name), TEXT_DIM));
     }
     if is_tool(g, item) {
         let left = item.durability_left();

@@ -167,21 +167,38 @@ pub struct Monster {
     pub path: Vec<(i32, i32)>,
     #[serde(default)]
     pub blocked: u16,
-    /// Where the good of the current "move" goal is now, once it has been moved, and the
-    /// pushes and pulls still planned for it.
+    /// Where the good it's moving is, as of its last push, and the pushes and pulls still
+    /// planned for it.
     #[serde(default)]
     pub carry: Option<(i32, i32)>,
     #[serde(default)]
     pub carry_plan: Vec<crate::carry::CarryStep>,
+    /// A stray it's shoving out of its way first (by id), and where to.
     #[serde(default)]
-    pub carry_retry: u16,
+    pub shove: Option<(u32, (i32, i32))>,
     /// Walking itself back to its flag to finish a recording (R away from the flag).
     #[serde(default)]
     pub homing: bool,
-    /// Steps to come back to: the loop went back to make again what one of them needed.
+    /// The step of its loop it's doing (by the index of its act), once it has picked one.
     #[serde(default)]
-    pub detour: Vec<usize>,
+    pub task: Option<usize>,
+    /// What that step has reserved: the good it's going for, the tiles it's about to use.
+    #[serde(default)]
+    pub holds: Vec<crate::sched::Hold>,
+    /// Steps it gave up recently, and ticks before it tries each again.
+    #[serde(default)]
+    pub cooldown: Vec<(usize, u16)>,
+    /// What it's waiting its turn for (a plant or work spot, or where a good is taken from),
+    /// and since which tick.
+    #[serde(default)]
+    pub turns: Vec<((i32, i32), u32)>,
+    /// The monster it's waiting on this tick, if any.
+    #[serde(skip)]
+    pub waiting_on: Option<usize>,
     pub loops: u32,
+    /// Steps of its loop finished, for telling a loop that's working from one that's stuck.
+    #[serde(default)]
+    pub steps: u32,
     /// Renown credited to this monster from scored goods.
     pub earned: f64,
     /// What the last finished job taught, for skill popups.
@@ -249,10 +266,15 @@ impl Monster {
             blocked: 0,
             carry: None,
             carry_plan: Vec::new(),
-            carry_retry: 0,
+            shove: None,
             homing: false,
-            detour: Vec::new(),
+            task: None,
+            holds: Vec::new(),
+            cooldown: Vec::new(),
+            turns: Vec::new(),
+            waiting_on: None,
             loops: 0,
+            steps: 0,
             earned: 0.0,
             learned: None,
         }
@@ -260,6 +282,14 @@ impl Monster {
 
     pub fn idle(&self) -> bool {
         self.slide.is_none() && !self.busy
+    }
+
+    /// Round the end of its loop and back to the start, facing the way it started.
+    pub(crate) fn lap(&mut self) {
+        self.loops += 1;
+        if let Some(f) = self.routine.as_ref().map(|r| r.facing) {
+            self.facing = f;
+        }
     }
 
 }
@@ -621,11 +651,12 @@ impl Game {
         self.player_input(inp, sfx);
         for i in 0..self.monsters.len() {
             if self.monsters[i].playing {
-                self.replay(i, sfx);
+                self.run_loop(i, sfx);
             } else if self.monsters[i].homing && self.monsters[i].idle() {
                 self.walk_home(i, sfx);
             }
         }
+        self.give_way();
         self.advance_motion();
         self.tick_ferry();
         self.tick_wagons(sfx);
@@ -753,9 +784,9 @@ impl Game {
                 }
                 // Still part of a routine: on replay there's usually room by then, and if not
                 // the loop skips it.
-                UseRes::Full(label) => {
+                UseRes::Full(msg) => {
                     self.record_use(c, leading);
-                    self.say(c, &format!("THE {label} IS FULL. CLEAR ITS OUTPUT MAT."), true);
+                    self.say(c, &msg, true);
                     sfx.push(Sfx::Deny);
                 }
                 UseRes::Nothing => self.say(c, "NOTHING TO USE HERE.", false),
@@ -834,7 +865,7 @@ impl Game {
     }
 
     /// The item a monster would drag by backing away in `d`: the one right in front of it.
-    fn pulled_item(&self, i: usize, d: Dir) -> Option<usize> {
+    pub(crate) fn pulled_item(&self, i: usize, d: Dir) -> Option<usize> {
         let (dx, dy) = d.delta();
         let m = &self.monsters[i];
         self.world.item_at(m.x - dx, m.y - dy)
@@ -887,32 +918,9 @@ impl Game {
         self.world.dust(ix, iy, d);
         self.world.burst(ix, iy, PKind::Dust, 3);
         sfx.push(Sfx::Push);
-        self.follow_good(i, (ix, iy), (x, y));
         let m = &mut self.monsters[i];
         (m.x, m.y, m.slide, m.bump) = (tx, ty, slide, None);
         StepRes::Moved(Some(good))
-    }
-
-    /// A good was just pushed or pulled from one tile to another (or into a bin, board or
-    /// wagon there). A loop partway through moving it keeps track of it, whoever moved it, and
-    /// plans again from where it is now.
-    fn follow_good(&mut self, mover: usize, from: (i32, i32), to: (i32, i32)) {
-        for (k, m) in self.monsters.iter_mut().enumerate() {
-            // A looping mover is moving its own good, and keeps track of that itself.
-            if !(k == mover && m.playing) && m.carry == Some(from) {
-                (m.carry, m.carry_plan) = (Some(to), Vec::new());
-            }
-        }
-        // A good set aside for a loop, knocked off where it lay by anyone but that loop: it's
-        // no longer set aside, and the loop makes another.
-        if let Some(it) = self.world.item_at(to.0, to.1) {
-            if let Some(c) = self.world.items[it].data.claim {
-                let kept = self.monsters.iter().enumerate().any(|(k, m)| m.id == c.monster && (m.carry == Some(to) || (k == mover && m.playing)));
-                if !kept {
-                    self.world.items[it].data.claim = None;
-                }
-            }
-        }
     }
 
     pub(crate) fn try_step(&mut self, i: usize, d: Dir, sfx: &mut Vec<Sfx>) -> StepRes {
@@ -968,7 +976,6 @@ impl Game {
                 }
                 let bin = &mut self.world.bins[b];
                 let scored = bin.scores.then(|| (item.data.value, item.data.shares.clone()));
-                item.data.claim = None;
                 bin.stock.push(item.data);
                 bin.bounce = 4;
                 self.world.burst(bx, by, PKind::Spark, 5);
@@ -1001,7 +1008,6 @@ impl Game {
                 self.world.dust(tx, ty, d);
                 sfx.push(Sfx::Push);
             }
-            self.follow_good(i, (tx, ty), (bx, by));
             self.practice(i, "hauling", ticks);
             pushed = Some(good);
         } else if i == self.controlled {
@@ -1030,7 +1036,7 @@ impl Game {
         good == wants || self.data.try_good(good).is_some_and(|g| g.type_tags.iter().any(|t| t == wants))
     }
 
-    fn try_use(&mut self, i: usize, sfx: &mut Vec<Sfx>) -> UseRes {
+    pub(crate) fn try_use(&mut self, i: usize, sfx: &mut Vec<Sfx>) -> UseRes {
         self.face_something_usable(i);
         if let Some(res) = self.use_wagon_ahead(i, sfx) {
             return res;
@@ -1048,155 +1054,6 @@ impl Game {
             return UseRes::Done;
         }
         UseRes::Nothing
-    }
-
-    fn replay(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
-        if !self.monsters[i].idle() {
-            return;
-        }
-        let Some(act) = self.monsters[i].routine.as_ref().and_then(|r| r.acts.get(self.monsters[i].pc).cloned()) else {
-            self.monsters[i].playing = false;
-            self.release_claims(i);
-            return;
-        };
-        let pc = self.monsters[i].pc;
-        let outcome: Result<(), String> = match act {
-            Act::Move { good, from, to } => match self.carry_toward(i, &good, from, to, sfx) {
-                crate::walk::Going::Arrived => Ok(()),
-                crate::walk::Going::Waiting(msg) => Err(msg),
-                crate::walk::Going::Redo(j) if self.redo(i, j, &good) => return,
-                crate::walk::Going::Redo(_) => Err(format!("WAITING FOR {}.", self.good_name(&good))),
-                crate::walk::Going::First(u) if self.detour(i, u) => return,
-                crate::walk::Going::First(_) => Err(format!("THE {} IS IN THE WAY.", self.good_name(&good))),
-                crate::walk::Going::Moving => {
-                    let m = &mut self.monsters[i];
-                    if m.wait >= WAIT_BEFORE_SAYING {
-                        m.bubble = None;
-                    }
-                    m.wait = 0;
-                    m.wait_reason.clear();
-                    return;
-                }
-            },
-            Act::Go { to, facing } => match self.go_toward(i, to, facing, sfx) {
-                // (Walking never asks to go back or ahead.)
-                crate::walk::Going::Arrived | crate::walk::Going::Redo(_) | crate::walk::Going::First(_) => Ok(()),
-                crate::walk::Going::Waiting(msg) => Err(msg),
-                crate::walk::Going::Moving => {
-                    let m = &mut self.monsters[i];
-                    if m.wait >= WAIT_BEFORE_SAYING {
-                        m.bubble = None;
-                    }
-                    m.wait = 0;
-                    m.wait_reason.clear();
-                    return;
-                }
-            },
-            Act::Step(d, expect) => {
-                let (dx, dy) = d.delta();
-                let (tx, ty) = (self.monsters[i].x + dx, self.monsters[i].y + dy);
-                let here = self.world.item_at(tx, ty).map(|k| self.world.items[k].good().to_string());
-                match (expect, here) {
-                    (Some(k), Some(h)) if k == h => match self.try_step(i, d, sfx) {
-                        StepRes::Moved(_) => Ok(()),
-                        StepRes::Blocked(msg) => Err(if msg.is_empty() { "WAITING...".into() } else { msg }),
-                    },
-                    (Some(k), None) => Err(format!("WAITING FOR {}.", self.good_name(&k))),
-                    (_, Some(_)) => Err("SOMETHING'S IN MY WAY.".into()),
-                    (None, None) => match self.try_step(i, d, sfx) {
-                        StepRes::Moved(_) => Ok(()),
-                        StepRes::Blocked(msg) => Err(if msg.is_empty() { "WAITING...".into() } else { msg }),
-                    },
-                }
-            }
-            Act::Pull(d, expect) => {
-                let here = self.pulled_item(i, d).map(|k| self.world.items[k].good().to_string());
-                match here {
-                    Some(h) if h == expect => match self.try_pull(i, d, sfx) {
-                        StepRes::Moved(_) => Ok(()),
-                        StepRes::Blocked(msg) => Err(if msg.is_empty() { "WAITING...".into() } else { msg }),
-                    },
-                    None => Err(format!("WAITING FOR {}.", self.good_name(&expect))),
-                    Some(_) => Err("THAT'S NOT WHAT I PULL.".into()),
-                }
-            }
-            Act::Use => {
-                // Pressed where it was recorded: go there first. (Usually it's there already, but
-                // a loop that went back to make something again comes from elsewhere.)
-                let there = match self.use_spot(i, pc) {
-                    Some((spot, facing)) => self.go_toward(i, spot, facing, sfx),
-                    None => crate::walk::Going::Arrived,
-                };
-                match there {
-                    crate::walk::Going::Moving => {
-                        let m = &mut self.monsters[i];
-                        if m.wait >= WAIT_BEFORE_SAYING {
-                            m.bubble = None;
-                        }
-                        m.wait = 0;
-                        m.wait_reason.clear();
-                        return;
-                    }
-                    crate::walk::Going::Waiting(msg) => Err(msg),
-                    // Nothing to make: what it would make already lies there, or is set aside
-                    // for every step that takes it.
-                    _ if self.already_made(i, pc) => Ok(()),
-                    _ => match self.try_use(i, sfx) {
-                        UseRes::Done => Ok(()),
-                        UseRes::Wait(msg) => Err(msg),
-                        // No room for more. If some of what's there is set aside for a later step
-                        // of this loop, that step makes room: carry on. Otherwise someone else
-                        // has to clear it.
-                        UseRes::Full(label) if self.feeds_any_claimed(i, pc) => {
-                            self.say(i, &format!("THE {label} IS FULL. ON TO THE NEXT STEP."), false);
-                            Ok(())
-                        }
-                        UseRes::Full(label) => Err(format!("THE {label} IS FULL. CLEAR ITS OUTPUT MAT.")),
-                        // Its inputs aren't on the pads: if an earlier step of this loop brings
-                        // them, go back and bring them.
-                        UseRes::Missing(msg) => match self.missing_input_step(i, pc) {
-                            Some((j, good)) if self.redo(i, j, &good) => return,
-                            _ => Err(msg),
-                        },
-                        // At the very spot it was pressed, nothing to use means what was used
-                        // has moved, and only wagons move: wait for it.
-                        UseRes::Nothing => Err("WAITING FOR THE WAGON.".into()),
-                    },
-                }
-            }
-        };
-        let m = &mut self.monsters[i];
-        match outcome {
-            Ok(()) => {
-                if m.wait >= WAIT_BEFORE_SAYING {
-                    m.bubble = None;
-                }
-                m.wait = 0;
-                m.wait_reason.clear();
-                self.step_done(i, pc);
-                let m = &mut self.monsters[i];
-                // Back from making something again, to the step that needed it.
-                if let Some(back) = m.detour.pop() {
-                    m.pc = back;
-                    return;
-                }
-                m.pc += 1;
-                if m.pc >= m.routine.as_ref().map_or(0, |r| r.acts.len()) {
-                    m.pc = 0;
-                    m.loops += 1;
-                    if let Some(f) = m.routine.as_ref().map(|r| r.facing) {
-                        m.facing = f;
-                    }
-                }
-            }
-            Err(msg) => {
-                m.wait = m.wait.saturating_add(1);
-                if m.wait >= WAIT_BEFORE_SAYING {
-                    m.bubble = Some(Bubble { text: msg.clone(), ttl: 3, warn: false, waiting: true });
-                }
-                m.wait_reason = msg;
-            }
-        }
     }
 
     fn toggle_record(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
@@ -1233,10 +1090,9 @@ impl Game {
     }
 
     fn save_recording(&mut self, i: usize, r: Routine, sfx: &mut Vec<Sfx>) {
-        self.release_claims(i);
+        self.leave_loop(i);
         let m = &mut self.monsters[i];
         m.routine = Some(r);
-        m.detour.clear();
         m.pc = 0;
         m.paused_at = None;
         self.say(i, "GOT IT! PRESS P TO LOOP.", false);
@@ -1251,7 +1107,7 @@ impl Game {
             return;
         };
         match self.go_toward(i, flag, facing, sfx) {
-            crate::walk::Going::Moving | crate::walk::Going::Redo(_) | crate::walk::Going::First(_) => {}
+            crate::walk::Going::Moving => {}
             crate::walk::Going::Arrived => {
                 let m = &mut self.monsters[i];
                 m.homing = false;
@@ -1259,7 +1115,7 @@ impl Game {
                 record(&mut r, Act::Go { to: flag, facing });
                 self.save_recording(i, r, sfx);
             }
-            crate::walk::Going::Waiting(msg) if msg == crate::walk::NO_WAY => {
+            crate::walk::Going::Stuck(_) => {
                 self.monsters[i].homing = false;
                 self.say(i, "I CAN'T FIND THE WAY BACK. WALK ME TO THE FLAG, THEN R.", true);
                 sfx.push(Sfx::Deny);
@@ -1279,7 +1135,7 @@ impl Game {
         if m.playing {
             m.playing = false;
             m.paused_at = Some((m.x, m.y));
-            self.release_claims(i);
+            self.leave_loop(i);
             self.say(i, "TAKING A BREAK.", false);
             sfx.push(Sfx::LoopOff);
             return;
@@ -1319,10 +1175,8 @@ impl Game {
         m.wait = 0;
         m.path.clear();
         m.carry_plan.clear();
-        // Resumed partway through moving a good: carry on with that one.
         if !resuming {
-            m.carry = None;
-            m.detour.clear();
+            self.leave_loop(i);
         }
         self.say(i, &cheer, false);
         sfx.push(Sfx::LoopOn);
@@ -1501,3 +1355,7 @@ pub mod routes {
 #[cfg(test)]
 #[path = "game_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tangle_tests.rs"]
+mod tangle_tests;

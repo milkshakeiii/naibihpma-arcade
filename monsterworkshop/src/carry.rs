@@ -1,20 +1,19 @@
 //! Moving a good where a loop wants it (phase 2 of routines that scale). A recorded run of
 //! pushes (and pulls) of one good is saved as its goal: "move the thread from the spinnery's
 //! output mat to the loom house's pad". On replay the monster plans its own pushes from
-//! wherever it stands, around whatever is in the way, pulling only when nothing else works. A
-//! good already where it belongs needs nothing; a good not there yet is waited for. If the goal
-//! is still taken (the loom busy with the last thread), the good is brought up next to it and
-//! goes in the moment it's free.
+//! wherever it stands, around whatever is in the way, pulling only when nothing else works. If
+//! the goal is still taken (the loom busy with the last thread), the good is brought up next to
+//! it and goes in the moment it's free. A stray good in the way there is shoved aside first.
 
-use crate::econ::Claim;
 use crate::game::{Game, Sfx, StepRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
+use crate::sched::Hold;
 use crate::walk::{Going, REPLAN_AFTER};
-use crate::world::{Dir, DIRS};
+use crate::world::{Dir, Tile, DIRS};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 
-/// After a plan fails, ticks before trying again (the world has to change first anyway).
-const RETRY_TICKS: u16 = 15;
+/// How far a stray is shoved to get it out of the way, at most, in tiles.
+const SHOVE_REACH: i32 = 4;
 
 /// One move of the good: the way it goes, and whether it is pulled rather than pushed.
 pub(crate) type CarryStep = (Dir, bool);
@@ -35,6 +34,11 @@ impl Game {
     /// it when this is asked is being worked, so about to be gone. Ties break in a fixed order,
     /// so the same world always gives the same plan.
     pub(crate) fn plan_carry(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str, around_monsters: bool) -> Option<(Vec<CarryStep>, u32)> {
+        self.plan_carry_with(from, to, me, good, around_monsters, false)
+    }
+
+    /// The same, but as if strays weren't there (for finding which to shove aside).
+    fn plan_carry_with(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str, around_monsters: bool, through_strays: bool) -> Option<(Vec<CarryStep>, u32)> {
         if from == to {
             return Some((Vec::new(), 0));
         }
@@ -46,8 +50,8 @@ impl Game {
         let at = |i: usize| (i as i32 % w, i as i32 / w);
         // What each tile allows, worked out once. The good itself has left `from` once it moves.
         let mut taken = vec![false; cells];
-        for p in self.world.items.iter().map(|it| (it.x, it.y)).filter(|&p| p != from) {
-            taken[idx(p)] = true;
+        for it in self.world.items.iter().filter(|it| (it.x, it.y) != from && !(through_strays && self.is_stray(it))) {
+            taken[idx((it.x, it.y))] = true;
         }
         let mut blocked = vec![false; cells];
         let monsters = self.monsters.iter().map(|m| (m.x, m.y)).filter(|&p| around_monsters && p != me);
@@ -161,74 +165,157 @@ impl Game {
         Some((steps, best[goal]))
     }
 
-    /// One step toward a "move this good" goal: walk to where the next push or pull is made
-    /// from, then make it.
-    pub(crate) fn carry_toward(&mut self, i: usize, good: &str, from: (i32, i32), to: (i32, i32), sfx: &mut Vec<Sfx>) -> Going {
-        let started = self.monsters[i].carry.is_some();
-        let at = self.monsters[i].carry.unwrap_or(from);
-        let step = self.monsters[i].pc;
-        // Someone else put it where it belongs (pushed it into the bin, say): done.
-        if started && at == to {
-            let m = &mut self.monsters[i];
-            (m.carry, m.carry_plan) = (None, Vec::new());
-            if let Some(it) = self.world.item_at(to.0, to.1) {
-                self.pass_on(i, step, it);
-            }
+    /// One step of moving good `id` (reserved for it) to `to`: walk to where the next push or
+    /// pull is made from, then make it. A stray (a good nobody is moving or using) lying where it
+    /// goes is shoved aside first.
+    pub(crate) fn move_good(&mut self, i: usize, id: u32, to: (i32, i32), sfx: &mut Vec<Sfx>) -> Going {
+        // Used up or put away by someone else: this step is over.
+        let Some(k) = self.world.find_item(id) else { return Going::Stuck(String::new()) };
+        if (self.world.items[k].x, self.world.items[k].y) == to {
             return Going::Arrived;
         }
-        // Already where it belongs (and not another loop's): nothing to do but hand it on. Not
-        // if a workshop is busy using that one, though: it's about to be gone, so bring this
-        // one up ready to go in after it.
-        let met = self.world.item_at(to.0, to.1).filter(|&k| {
-            let it = &self.world.items[k];
-            it.good() == good && !it.locked && self.usable(i, &it.data)
-        });
-        if let (false, Some(it)) = (started, met) {
-            self.pass_on(i, step, it);
-            return Going::Arrived;
-        }
-        let here_now = self.world.item_at(at.0, at.1).filter(|&k| self.world.items[k].good() == good);
-        let Some(k) = here_now.filter(|&k| started || self.usable(i, &self.world.items[k].data)) else {
-            // Not there yet, or used up or put away somewhere else (pushed elsewhere, it would
-            // have been followed), or set aside for another loop.
-            let m = &mut self.monsters[i];
-            (m.carry, m.carry_plan) = (None, Vec::new());
-            // If nothing is bringing one and an earlier step of this loop makes it, go back and
-            // make it. Otherwise wait for one where the loop takes it from.
-            if here_now.is_none() && !self.coming_for(i, from, good) {
-                if let Some(j) = self.producer_of(i, step, &(Some(good.to_string()), from)) {
-                    return Going::Redo(j);
-                }
-            }
-            return Going::Waiting(format!("WAITING FOR {}.", self.good_name(good)));
-        };
         if self.world.items[k].locked {
             return Going::Waiting("THAT'S BEING WORKED ON.".into());
         }
-        // Something else sits where it's going and isn't being used up.
         if let Some(o) = self.world.item_at(to.0, to.1).filter(|&o| o != k && !self.world.items[o].locked) {
-            // One of the kind this loop may use, that a later step of it takes from there:
-            // that step clears the way, so do it first, then come back and bring this one.
-            let ours = self.world.items[o].good() == good && self.usable(i, &self.world.items[o].data);
-            if let Some(u) = self.fed_by(i, step, good).into_iter().next().filter(|_| ours) {
-                self.world.items[o].data.claim = Some(Claim { monster: self.monsters[i].id, step: u });
-                return Going::First(u);
+            let name = self.good_name(self.world.items[o].good());
+            let oid = self.world.items[o].id;
+            if let Some(m) = (oid != 0).then(|| (0..self.monsters.len()).find(|&m| m != i && self.monsters[m].holds.contains(&Hold::Item(oid)))).flatten() {
+                self.monsters[i].waiting_on = Some(m);
+                return Going::Waiting(format!("THE {name} IS IN THE WAY."));
             }
-            // Otherwise wait for it to move on.
-            return Going::Waiting(format!("THE {} IS IN THE WAY.", self.good_name(self.world.items[o].good())));
+            return if self.start_shove(i, o, &[to]) { Going::Moving } else { Going::Stuck(format!("THE {name} IS IN THE WAY.")) };
+        }
+        self.push_good(i, k, to, true, sfx)
+    }
+
+    /// Is this a stray: a good nobody is moving or using?
+    pub(crate) fn is_stray(&self, it: &crate::world::Item) -> bool {
+        !it.locked && (it.id == 0 || !self.monsters.iter().any(|m| m.holds.contains(&Hold::Item(it.id))))
+    }
+
+    /// Starts shoving stray item `o` aside, off the tiles in `avoid`. False if there's nowhere
+    /// it can be pushed.
+    pub(crate) fn start_shove(&mut self, i: usize, o: usize, avoid: &[(i32, i32)]) -> bool {
+        let Some(target) = self.shove_spot(i, o, avoid) else { return false };
+        let sid = self.world.item_id(o);
+        let m = &mut self.monsters[i];
+        m.holds.extend([Hold::Item(sid), Hold::Tile(target)]);
+        (m.shove, m.carry, m.carry_plan) = (Some((sid, target)), None, Vec::new());
+        true
+    }
+
+    /// A walk from `from` to `to` as if strays weren't there (other goods and `avoid` are in
+    /// the way), not counting `from`.
+    fn walk_through_strays(&self, from: (i32, i32), to: (i32, i32), avoid: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        let (w, h) = (self.world.w, self.world.h);
+        let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
+        let open = |(x, y): (i32, i32)| {
+            x >= 0 && y >= 0 && x < w && y < h && (x, y) != avoid && self.world.walkable(x, y) && !self.world.on_deck(x, y) && !self.world.cart_at(x, y) && self.world.item_at(x, y).is_none_or(|k| self.is_stray(&self.world.items[k]))
+        };
+        let mut prev = vec![usize::MAX; (w * h) as usize];
+        prev[idx(from)] = idx(from);
+        let mut queue = VecDeque::from([from]);
+        while let Some(q) = queue.pop_front() {
+            if q == to {
+                let mut path = vec![to];
+                let mut at = idx(to);
+                while prev[at] != idx(from) {
+                    at = prev[at];
+                    path.push(((at as i32) % w, (at as i32) / w));
+                }
+                path.reverse();
+                return Some(path);
+            }
+            for d in DIRS {
+                let n = (q.0 + d.delta().0, q.1 + d.delta().1);
+                if open(n) && prev[idx(n)] == usize::MAX {
+                    prev[idx(n)] = idx(q);
+                    queue.push_back(n);
+                }
+            }
+        }
+        None
+    }
+
+    /// The first stray on the way if monster `i` walks to `to`, and that way.
+    pub(crate) fn stray_on_walk(&self, i: usize, to: (i32, i32)) -> Option<(usize, Vec<(i32, i32)>)> {
+        let path = self.walk_through_strays((self.monsters[i].x, self.monsters[i].y), to, (-1, -1))?;
+        let first = path.iter().find_map(|&(x, y)| self.world.item_at(x, y))?;
+        Some((first, path))
+    }
+
+    /// When item `k` can't be got to `to`: the first stray on the way it could go if strays
+    /// weren't there (where it's pushed, where pushes are made from, the walks between), and
+    /// all of that way.
+    fn stray_on_route(&self, i: usize, k: usize, to: (i32, i32)) -> Option<(usize, Vec<(i32, i32)>)> {
+        let it = &self.world.items[k];
+        let (at, good) = ((it.x, it.y), it.good().to_string());
+        let me = (self.monsters[i].x, self.monsters[i].y);
+        let (plan, _) = self.plan_carry_with(at, to, me, &good, false, true)?;
+        let (mut b, mut pos, mut route) = (at, me, Vec::new());
+        for (d, pull) in plan {
+            let (dx, dy) = d.delta();
+            let stand = if pull { (b.0 + dx, b.1 + dy) } else { (b.0 - dx, b.1 - dy) };
+            route.extend(self.walk_through_strays(pos, stand, b).unwrap_or_default());
+            let next = (b.0 + dx, b.1 + dy);
+            route.extend([stand, next]);
+            pos = if pull { (b.0 + 2 * dx, b.1 + 2 * dy) } else { b };
+            b = next;
+        }
+        let first = route.iter().find_map(|&(x, y)| self.world.item_at(x, y).filter(|&s| s != k && self.is_stray(&self.world.items[s])))?;
+        Some((first, route))
+    }
+
+    /// The shove is over: back to the good the step is for.
+    pub(crate) fn end_shove(&mut self, i: usize) {
+        let m = &mut self.monsters[i];
+        if let Some((sid, target)) = m.shove.take() {
+            m.holds.retain(|&h| h != Hold::Item(sid) && h != Hold::Tile(target));
+        }
+        (m.carry, m.carry_plan) = (None, Vec::new());
+    }
+
+    /// Where to shove stray item `o` so it's out of the way: the nearest free floor it can be
+    /// pushed to (not a pad, mat, work spot, peg or doorway, nor any tile in `avoid`).
+    fn shove_spot(&self, i: usize, o: usize, avoid: &[(i32, i32)]) -> Option<(i32, i32)> {
+        let it = &self.world.items[o];
+        let (from, good) = ((it.x, it.y), it.good().to_string());
+        let me = (self.monsters[i].x, self.monsters[i].y);
+        let held = |t: (i32, i32)| self.monsters.iter().any(|m| m.holds.contains(&Hold::Tile(t)));
+        let mut spots: Vec<(i32, i32)> = (-SHOVE_REACH..=SHOVE_REACH)
+            .flat_map(|dy| (-SHOVE_REACH..=SHOVE_REACH).map(move |dx| (from.0 + dx, from.1 + dy)))
+            .filter(|&t| t != from && !avoid.contains(&t) && !held(t))
+            .filter(|&(x, y)| matches!(self.world.tile(x, y), Tile::Floor | Tile::Grass | Tile::Path) && self.world.item_floor(x, y))
+            .filter(|&(x, y)| self.world.item_at(x, y).is_none() && self.monster_at(x, y).is_none())
+            .collect();
+        spots.sort_by_key(|&(x, y)| ((x - from.0).abs() + (y - from.1).abs(), y, x));
+        spots.into_iter().take(12).filter_map(|t| self.plan_carry(from, t, me, &good, false).map(|(_, cost)| (cost, t))).min().map(|(_, t)| t)
+    }
+
+    /// One push or pull, or a step of the walk to make it, of item `k` toward `to`. With
+    /// `may_shove`, strays in the way get shoved aside.
+    pub(crate) fn push_good(&mut self, i: usize, k: usize, to: (i32, i32), may_shove: bool, sfx: &mut Vec<Sfx>) -> Going {
+        let at = (self.world.items[k].x, self.world.items[k].y);
+        let good = self.world.items[k].good().to_string();
+        // Moved by someone else since the plan was made: plan again from where it is now.
+        if self.monsters[i].carry != Some(at) {
+            let m = &mut self.monsters[i];
+            (m.carry, m.carry_plan) = (Some(at), Vec::new());
         }
         let here = (self.monsters[i].x, self.monsters[i].y);
         if self.monsters[i].carry_plan.is_empty() {
-            if self.monsters[i].carry_retry > 0 {
-                self.monsters[i].carry_retry -= 1;
-                return Going::Waiting(format!("I CAN'T GET THE {} THERE.", self.good_name(good)));
-            }
-            match self.plan_carry(at, to, here, good, false) {
+            match self.plan_carry(at, to, here, &good, false) {
                 Some((plan, _)) if plan.is_empty() => return Going::Arrived,
                 Some((plan, _)) => self.monsters[i].carry_plan = plan,
                 None => {
-                    self.monsters[i].carry_retry = RETRY_TICKS;
-                    return Going::Waiting(format!("I CAN'T GET THE {} THERE.", self.good_name(good)));
+                    // Strays in the way: shove the first aside, off the way it would go.
+                    if let Some((s, route)) = self.stray_on_route(i, k, to).filter(|_| may_shove) {
+                        if self.start_shove(i, s, &route) {
+                            return Going::Moving;
+                        }
+                    }
+                    return Going::Stuck(format!("I CAN'T GET THE {} THERE.", self.good_name(&good)));
                 }
             }
         }
@@ -246,8 +333,9 @@ impl Game {
         let in_way = |(x, y): (i32, i32)| self.monster_at(x, y).is_some_and(|o| o != i) || self.world.wagons.iter().any(|w| w.leader.is_some() && (w.at == (x, y) || w.pumpkin == (x, y)));
         let near = (here.0 - stand.0).abs() + (here.1 - stand.1).abs() <= 1;
         let blocking = if near && in_way(stand) { Some(stand) } else if here == stand && in_way(dest) { Some(dest) } else { None };
-        // One that's only waiting there, and doesn't need to be, steps aside.
         if let Some(o) = blocking.and_then(|(x, y)| self.monster_at(x, y)).filter(|&o| o != i) {
+            self.monsters[i].waiting_on = Some(o);
+            // One that's only waiting there, and doesn't need to be, steps aside.
             if self.make_way(o, &[here, stand, dest, at], i) {
                 return Going::Waiting("EXCUSE ME!".into());
             }
@@ -257,8 +345,8 @@ impl Game {
             m.blocked = m.blocked.saturating_add(1);
             if m.blocked % REPLAN_AFTER == 0 {
                 let waited = self.monsters[i].blocked as u32;
-                let through = self.plan_carry(at, to, here, good, false).map_or(u32::MAX, |(_, c)| c);
-                if let Some((plan, around)) = self.plan_carry(at, to, here, good, true).filter(|(p, _)| !p.is_empty()) {
+                let through = self.plan_carry(at, to, here, &good, false).map_or(u32::MAX, |(_, c)| c);
+                if let Some((plan, around)) = self.plan_carry(at, to, here, &good, true).filter(|(p, _)| !p.is_empty()) {
                     if around <= through.saturating_add(waited) {
                         self.monsters[i].carry_plan = plan;
                     }
@@ -274,6 +362,11 @@ impl Game {
         if here != stand {
             return match self.go_toward(i, stand, if pull { d.opposite() } else { d }, sfx) {
                 Going::Arrived => Going::Moving,
+                // No way there for strays: shove the first aside.
+                Going::Stuck(msg) => match self.stray_on_walk(i, stand).filter(|_| may_shove) {
+                    Some((s, path)) if self.start_shove(i, s, &path) => Going::Moving,
+                    _ => Going::Stuck(msg),
+                },
                 other => other,
             };
         }
@@ -290,22 +383,11 @@ impl Game {
             StepRes::Moved(_) => {
                 m.carry_plan.remove(0);
                 m.blocked = 0;
-                let moved = self.world.item_at(next.0, next.1);
                 if next == to {
-                    let m = &mut self.monsters[i];
                     (m.carry, m.carry_plan) = (None, Vec::new());
-                    // Put down: on to the step that takes it from here, if this loop has one.
-                    if let Some(it) = moved {
-                        self.pass_on(i, step, it);
-                    }
                     return Going::Arrived;
                 }
-                self.monsters[i].carry = Some(next);
-                // Set aside while it's being moved, so no other loop takes it.
-                let claim = self.loop_step(i).map(|step| Claim { monster: self.monsters[i].id, step });
-                if let Some(it) = moved {
-                    self.world.items[it].data.claim = claim;
-                }
+                m.carry = Some(next);
                 Going::Moving
             }
             StepRes::Blocked(msg) => {

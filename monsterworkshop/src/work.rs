@@ -19,7 +19,7 @@ enum ToolSource {
 
 /// A town workshop's built-in tool, used when nothing better hangs on its peg.
 fn builtin_tool(id: &str) -> ItemData {
-    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None, claim: None }
+    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
 }
 
 /// What a work spot would make right now, for the forecast card.
@@ -50,14 +50,10 @@ impl Game {
     }
 
     /// Space on a plant: harvest it if it is ripe. A plant that still holds goods sets them
-    /// out on its own, so Space there just succeeds, unless they're all set aside for another
-    /// loop: then there's a wait for it to finish and regrow.
+    /// out on its own, so Space there just succeeds.
     pub(crate) fn use_plant(&mut self, i: usize, p: usize, _sfx: &mut Vec<Sfx>) -> UseRes {
         let plant = &self.world.plants[p];
         if !plant.stock.is_empty() {
-            if plant.stock.iter().all(|d| !self.usable(i, d)) {
-                return UseRes::Wait("SOMEONE ELSE'S HARVEST IS STILL COMING OUT.".into());
-            }
             return UseRes::Done;
         }
         if plant.harvest.is_some() {
@@ -75,9 +71,8 @@ impl Game {
         }
         let (good, x, y) = (plant.good.clone(), plant.x, plant.y);
         let total = self.job_ticks(&good, i);
-        let step = self.loop_step(i);
         let plant = &mut self.world.plants[p];
-        plant.harvest = Some(Job { monster: i, recipe: good, t: 0, total, step });
+        plant.harvest = Some(Job { monster: i, recipe: good, t: 0, total });
         plant.drop = Some((drop, facing));
         self.monsters[i].busy = true;
         self.world.burst(x, y, PKind::Leaf, 3);
@@ -120,10 +115,10 @@ impl Game {
         let kind = shop.kind;
         // Extra output waits inside, so a loop that takes one per cycle never jams.
         if shop.pending.len() >= OUTPUT_BUFFER {
-            return UseRes::Full(kind.label().to_string());
+            return UseRes::Full(format!("THE {} IS FULL. CLEAR ITS OUTPUT MAT.", kind.label()));
         }
-        // A loop leaves what other loops have set aside on the pads alone.
-        let ok = |it: usize| self.usable(i, &self.world.items[it].data);
+        // A loop leaves what another monster has reserved on the pads alone.
+        let ok = |it: usize| self.may_take(i, it);
         let Some((recipe, inputs)) = self.best_recipe(s, kind.recipes(), &ok) else {
             let first = self.data.good(shop.default_recipe(&self.data));
             let want = first.input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
@@ -136,8 +131,7 @@ impl Game {
             self.world.items[it].locked = true;
         }
         let total = self.job_ticks(&recipe, i);
-        let step = self.loop_step(i);
-        self.world.shops[s].job = Some(Job { monster: i, recipe, t: 0, total, step });
+        self.world.shops[s].job = Some(Job { monster: i, recipe, t: 0, total });
         self.monsters[i].busy = true;
         sfx.push(Sfx::Spin);
         UseRes::Done
@@ -186,6 +180,11 @@ impl Game {
             used.push(found);
         }
         Some(used)
+    }
+
+    /// The tool a recipe needs that this workshop doesn't have, if any.
+    pub(crate) fn missing_tool(&self, s: usize, recipe: &str) -> Result<(), String> {
+        self.match_tools(s, recipe).map(|_| ())
     }
 
     /// For each tool the recipe needs: a working tool on a peg, or the workshop's own.
@@ -261,13 +260,7 @@ impl Game {
         let m = job.monster;
         let recipe = self.data.good(&job.recipe).clone();
         let (stats, skills, id) = (self.monsters[m].stats.clone(), self.monsters[m].skills.clone(), self.monsters[m].id);
-        let mut items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills }, &self.data, &mut self.rng);
-        // A loop's harvest goes to the pushes that follow it, one each.
-        if let Some(step) = job.step {
-            for (d, c) in items.iter_mut().zip(self.claims_for_made(m, step, &recipe.id)) {
-                d.claim = Some(c);
-            }
-        }
+        let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills }, &self.data, &mut self.rng);
         let secs = econ::production_seconds(&recipe, &stats);
         let learned = econ::learn(&mut self.monsters[m].skills, &stats, &recipe, &self.data, secs);
         self.monsters[m].learned = Some((recipe.id.clone(), learned, LEARNED_POPUP_TICKS));
@@ -306,13 +299,7 @@ impl Game {
         let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares: Vec::new() });
         let (stats, skills, id) = (self.monsters[m].stats.clone(), self.monsters[m].skills.clone(), self.monsters[m].id);
         let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: workshop.as_ref() };
-        let mut produced = econ::produce(&craft, &self.data, &mut self.rng);
-        // A loop's output goes to the steps that take it from the mat, one each.
-        if let Some(step) = job.step {
-            for (d, c) in produced.iter_mut().zip(self.claims_for_made(m, step, &recipe.id)) {
-                d.claim = Some(c);
-            }
-        }
+        let produced = econ::produce(&craft, &self.data, &mut self.rng);
         let secs = econ::production_seconds(&recipe, &stats);
         let learned = econ::learn(&mut self.monsters[m].skills, &stats, &recipe, &self.data, secs);
 

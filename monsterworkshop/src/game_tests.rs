@@ -18,7 +18,6 @@ fn boll(data: &Data) -> ItemData {
         wear: 0,
         haul: Vec::new(),
         carted: None,
-        claim: None,
     }
 }
 
@@ -190,7 +189,7 @@ fn extra_output_waits_inside_so_loops_never_jam() {
 }
 
 #[test]
-fn a_loop_skips_a_full_workshop_backed_up_with_what_it_would_make() {
+fn a_loop_makes_nothing_more_for_a_full_workshop_backed_up_with_its_product() {
     let full_bench = |on_mat: &str| {
         let mut g = Game::new();
         let bench = g.world.shop_at_spot(14, 9).unwrap();
@@ -205,14 +204,12 @@ fn a_loop_skips_a_full_workshop_backed_up_with_what_it_would_make() {
         g.run_ticks(60);
         (g, bench)
     };
-    // More slivers stuck on the mat: this loop's own later step hauls them, so waiting here would
-    // be forever. Skip it.
+    // More slivers already out on the mat: nothing to make. Not stuck waiting on a full bench.
     let (g, bench) = full_bench("cotton_slivers");
-    assert!(g.monsters[0].loops >= 1, "{}", g.monsters[0].wait_reason);
     assert!(g.world.shops[bench].job.is_none() && g.world.item_at(13, 9).is_some(), "nothing made, the boll left for later");
+    assert!(!g.monsters[0].wait_reason.contains("FULL"), "{}", g.monsters[0].wait_reason);
     // Something else stuck there: wait for someone to clear it.
     let (g, _) = full_bench("thread");
-    assert_eq!(g.monsters[0].loops, 0);
     assert!(g.monsters[0].wait_reason.contains("CLEAR ITS OUTPUT MAT"), "{}", g.monsters[0].wait_reason);
 }
 
@@ -695,10 +692,12 @@ fn a_run_of_pushes_records_as_one_goal_even_around_a_corner() {
 #[test]
 fn a_goal_already_met_needs_nothing_and_a_blocked_one_goes_around() {
     let mut g = Game::new();
-    // Already there: the slivers sit on the spinnery's pad, so "move them onto the pad" is done.
+    // Already there: slivers sit on the spinnery's pad, so "move them onto the pad" isn't wanted.
     g.world.items.push(Item::new(30, 9, good_like(&g.data, "cotton_slivers", 0.8)));
-    let mut sfx = Vec::new();
-    assert!(matches!(g.carry_toward(0, "cotton_slivers", (15, 9), (30, 9), &mut sfx), crate::walk::Going::Arrived));
+    g.world.items.push(Item::new(15, 9, good_like(&g.data, "cotton_slivers", 0.8)));
+    start_loop(&mut g, 0, Routine { flag: (14, 10), acts: vec![Act::Move { good: "cotton_slivers".into(), from: (15, 9), to: (30, 9) }], facing: Dir::Down }, (14, 10));
+    g.run_ticks(60);
+    assert!(g.world.item_at(15, 9).is_some(), "the other slivers stay put");
 
     // In the way: a bolt sits on the straight line, so the plan pushes around it.
     let mut g = Game::new();
@@ -769,17 +768,14 @@ fn the_next_good_waits_ready_beside_a_pad_still_being_worked() {
 }
 
 #[test]
-fn something_idle_on_the_goal_is_waited_out_from_where_the_good_is() {
+fn a_stray_on_the_goal_is_shoved_aside_and_the_good_goes_in() {
     let mut g = Game::new();
-    g.world.items.push(Item::new(44, 21, good_like(&g.data, "fabric", 0.8))); // not being used
+    g.world.items.push(Item::new(44, 21, good_like(&g.data, "fabric", 0.8))); // left on the loom pad
     g.world.items.push(Item::new(44, 17, good_like(&g.data, "thread", 0.8)));
-    stand(&mut g, (44, 16), Dir::Down);
-    let m = &mut g.monsters[0];
-    m.routine = Some(Routine { flag: (44, 16), acts: vec![Act::Move { good: "thread".into(), from: (44, 17), to: (44, 21) }], facing: Dir::Down });
-    (m.pc, m.playing) = (0, true);
-    g.run_ticks(60);
-    assert!(g.world.item_at(44, 17).is_some(), "the thread stays put");
-    assert!(g.monsters[0].wait_reason.contains("IN THE WAY"), "{}", g.monsters[0].wait_reason);
+    start_loop(&mut g, 0, Routine { flag: (44, 16), acts: vec![Act::Move { good: "thread".into(), from: (44, 17), to: (44, 21) }], facing: Dir::Down }, (44, 16));
+    g.run_ticks(600);
+    assert_eq!(g.world.item_at(44, 21).map(|k| g.world.items[k].good()), Some("thread"), "{}", g.monsters[0].wait_reason);
+    assert!(g.world.items.iter().any(|it| it.good() == "fabric" && (it.x, it.y) != (44, 21)), "the fabric moved aside, not gone");
 }
 
 #[test]
@@ -855,13 +851,16 @@ fn space_after_a_recorded_pull_still_happens_where_it_was_pressed() {
         Act::Go { to: (13, 9), facing: Dir::Left },
     ]);
     g.world.items.retain(|it| it.good() != "cotton_slivers");
+    let bench = g.world.shop_at_spot(14, 9).unwrap();
+    g.world.shops[bench].pending.clear();
     g.world.items.push(Item::new(12, 9, boll(&g.data)));
     let (plan, _) = g.plan_carry((12, 9), (13, 9), (13, 9), "cotton_bolls", false).unwrap();
     assert!(plan.iter().all(|s| !s.1), "replayed as a push, not the recorded pull: {plan:?}");
     g.script("p");
     g.run_ticks(200);
     assert!(g.monsters[0].playing, "never lost: {:?}", g.monsters[0].bubble.as_ref().map(|b| &b.text));
-    assert!(g.monsters[0].loops >= 1);
+    let slivers = g.world.items.iter().filter(|it| it.good() == "cotton_slivers").count() + g.world.shops[bench].pending.len();
+    assert!(slivers >= 1, "the bench was used from its spot");
 }
 
 #[test]
@@ -929,8 +928,8 @@ fn doorway_jam() -> Game {
 fn blocked_in_a_doorway_a_loop_waits_a_while_then_goes_the_long_way_round() {
     let mut g = doorway_jam();
     let m = &mut g.monsters[0];
-    m.routine = Some(Routine { flag: (30, 9), acts: vec![Act::Move { good: "thread".into(), from: (31, 9), to: (44, 21) }], facing: Dir::Right });
-    (m.pc, m.playing, m.carry) = (0, true, Some((36, 9))); // partway there
+    m.routine = Some(Routine { flag: (30, 9), acts: vec![Act::Move { good: "thread".into(), from: (36, 9), to: (44, 21) }], facing: Dir::Right });
+    (m.pc, m.playing) = (0, true);
     let (_, through) = g.plan_carry((36, 9), (44, 21), (35, 9), "thread", false).unwrap();
     let (_, around) = g.plan_carry((36, 9), (44, 21), (35, 9), "thread", true).expect("out the west door and round the spinnery");
     assert!(around > through + 60, "a long way round: {around} vs {through}");
@@ -1006,26 +1005,20 @@ fn binned(g: &Game, good: &str) -> usize {
 }
 
 #[test]
-fn a_harvest_is_set_aside_for_the_pushes_that_follow_it_one_each() {
+fn a_good_a_loop_goes_for_is_reserved_and_other_loops_leave_it() {
     let mut g = Game::new();
-    let p = g.world.plant_at(8, 8).unwrap();
-    start_loop(&mut g, 0, harvest_loop(2), (8, 10));
-    for _ in 0..400 {
-        if g.world.item_at(9, 8).is_some() {
-            break;
-        }
-        g.run_ticks(1);
-    }
-    let id = g.monsters[0].id;
-    let claims: Vec<_> = g.world.items.iter().map(|it| it.data.claim).chain(g.world.plants[p].stock.iter().map(|d| d.claim)).collect();
-    for step in [2, 3] {
-        assert_eq!(claims.iter().filter(|&&c| c == Some(crate::econ::Claim { monster: id, step })).count(), 1, "one boll for step {step}: {claims:?}");
-    }
-    assert!(claims.iter().filter(|c| c.is_some()).count() == 2, "any more stay unclaimed: {claims:?}");
-    // Another loop that takes bolls from there leaves Mogg's alone.
-    start_loop(&mut g, 1, Routine { flag: (10, 9), acts: vec![Act::Move { good: "cotton_bolls".into(), from: (9, 8), to: (12, 8) }], facing: Dir::Down }, (10, 9));
-    let mut sfx = Vec::new();
-    assert!(matches!(g.carry_toward(1, "cotton_bolls", (9, 8), (12, 8), &mut sfx), crate::walk::Going::Waiting(_)), "Bruna waits rather than take Mogg's boll");
+    g.world.items.push(Item::new(9, 8, boll(&g.data)));
+    let one_push = || Routine { flag: (10, 10), acts: vec![Act::Move { good: "cotton_bolls".into(), from: (9, 8), to: (12, 8) }], facing: Dir::Down };
+    start_loop(&mut g, 0, one_push(), (8, 10));
+    g.run_ticks(1);
+    let id = g.world.items[g.world.item_at(9, 8).unwrap()].id;
+    assert!(g.monsters[0].holds.contains(&crate::sched::Hold::Item(id)), "Mogg is going for it");
+    start_loop(&mut g, 1, one_push(), (10, 9));
+    g.run_ticks(1);
+    assert!(g.monsters[1].holds.is_empty() && g.monsters[1].waiting_on == Some(0), "Bruna waits on Mogg rather than go for the same boll");
+    g.run_ticks(200);
+    // In the bin, or already set out of its chute.
+    assert_eq!(binned(&g, "cotton_bolls") + g.world.item_at(12, 9).iter().count(), 1);
 }
 
 #[test]
@@ -1060,7 +1053,7 @@ fn a_harvest_short_of_bolls_is_made_up_by_harvesting_again() {
 }
 
 #[test]
-fn a_set_aside_good_taken_by_hand_is_made_again() {
+fn a_good_taken_by_hand_is_made_again() {
     let mut g = Game::new();
     let p = g.world.plant_at(8, 8).unwrap();
     g.world.plants[p].regrow = 20;
@@ -1072,32 +1065,23 @@ fn a_set_aside_good_taken_by_hand_is_made_again() {
         g.run_ticks(1);
     }
     g.world.plants[p].stock.clear();
-    // Bruna, steered by hand, shoves Mogg's boll off before he gets to it.
+    // Bruna, steered by hand, shoves the boll off before Mogg pushes it.
     g.controlled = 1;
     stand(&mut g, (9, 7), Dir::Down);
-    g.script("D");
-    let shoved = g.world.item_at(9, 9).expect("shoved down");
-    assert_eq!(g.world.items[shoved].data.claim, None, "no longer set aside");
-    g.script("U"); // out of the way
+    g.script("DU");
     g.run_ticks(600);
-    assert!(binned(&g, "cotton_bolls") >= 1, "Mogg harvested another: {}", g.monsters[0].wait_reason);
-    assert!(g.world.item_at(9, 9).is_some(), "and left the shoved one alone");
+    assert!(binned(&g, "cotton_bolls") >= 1, "Mogg got one into the bin: {}", g.monsters[0].wait_reason);
 }
 
 #[test]
-fn stopping_a_loop_gives_up_what_it_set_aside() {
+fn stopping_a_loop_gives_up_what_it_reserved() {
     let mut g = Game::new();
+    g.world.items.push(Item::new(9, 8, boll(&g.data)));
     start_loop(&mut g, 0, harvest_loop(2), (8, 10));
-    for _ in 0..400 {
-        if g.world.item_at(9, 8).is_some() {
-            break;
-        }
-        g.run_ticks(1);
-    }
-    assert!(g.world.items.iter().any(|it| it.data.claim.is_some()));
+    g.run_ticks(2);
+    assert!(!g.monsters[0].holds.is_empty());
     g.script("p"); // Mogg is the one you steer
-    let p = g.world.plant_at(8, 8).unwrap();
-    assert!(g.world.items.iter().all(|it| it.data.claim.is_none()) && g.world.plants[p].stock.iter().all(|d| d.claim.is_none()));
+    assert!(g.monsters[0].holds.is_empty() && g.monsters[0].task.is_none());
 }
 
 /// Not a check: replays a saved world to see how its loops get on. MW_SAVE is the save's
@@ -1118,28 +1102,65 @@ fn replay_a_saved_world() {
     }
     println!("{:?}", t.elapsed());
     for m in &g.monsters {
-        println!("{} at ({},{}) pc {} detour {:?} carry {:?} playing {} busy {}", m.name, m.x, m.y, m.pc, m.detour, m.carry, m.playing, m.busy);
+        println!("{} at ({},{}) pc {} task {:?} holds {:?} playing {} busy {}", m.name, m.x, m.y, m.pc, m.task, m.holds, m.playing, m.busy);
     }
     for it in &g.world.items {
-        println!("item {} ({},{}) claim {:?} locked {}", it.good(), it.x, it.y, it.data.claim, it.locked);
+        println!("item {} #{} ({},{}) locked {}", it.good(), it.id, it.x, it.y, it.locked);
     }
     let p = g.world.plant_at(8, 8).unwrap();
     let pl = &g.world.plants[p];
-    println!("plant growth {}/{} stock {:?} harvest {:?} drop {:?}", pl.growth, pl.regrow, pl.stock.iter().map(|d| d.claim).collect::<Vec<_>>(), pl.harvest.as_ref().map(|j| j.monster), pl.drop);
+    println!("plant growth {}/{} stock {} harvest {:?} drop {:?}", pl.growth, pl.regrow, pl.stock.len(), pl.harvest.as_ref().map(|j| j.monster), pl.drop);
     for (k, m) in g.monsters.iter().enumerate() {
         println!("{} id {} k {}", m.name, m.id, k);
     }
 }
 
 #[test]
-fn examining_a_set_aside_good_says_whose_loop_it_is_for() {
+fn examining_a_good_a_monster_is_going_for_says_who() {
     let mut g = Game::new();
-    let mut data = boll(&g.data);
-    data.claim = Some(crate::econ::Claim { monster: g.monsters[1].id, step: 2 });
-    g.world.items.push(Item::new(5, 10, data));
+    g.world.items.push(Item::new(5, 10, boll(&g.data)));
+    let id = g.world.item_id(g.world.item_at(5, 10).unwrap());
+    g.monsters[1].holds.push(crate::sched::Hold::Item(id));
     stand(&mut g, (4, 10), Dir::Right);
     g.inspecting = true;
     let card = crate::inspect::card(&g);
     let text: Vec<String> = card.pages[0].iter().map(|l| l.text.clone()).collect();
-    assert!(text.iter().any(|t| t == "SET ASIDE FOR BRUNA'S LOOP"), "{text:?}");
+    assert!(text.iter().any(|t| t == "BRUNA IS SEEING TO IT"), "{text:?}");
+}
+
+#[test]
+fn whoever_has_waited_longest_for_the_plant_harvests_first() {
+    let mut g = Game::new();
+    let p = g.world.plant_at(8, 8).unwrap();
+    (g.world.plants[p].growth, g.world.plants[p].regrow) = (0, 60);
+    start_loop(&mut g, 0, harvest_loop(2), (3, 10)); // Mogg, the long way off, starts waiting first
+    g.run_ticks(20);
+    start_loop(&mut g, 1, harvest_loop(2), (8, 9)); // Bruna, right beside it, comes later
+    for _ in 0..200 {
+        if g.world.plants[p].harvest.is_some() {
+            break;
+        }
+        g.run_ticks(1);
+    }
+    assert_eq!(g.world.plants[p].harvest.as_ref().map(|j| j.monster), Some(0), "Mogg's turn: {:?}", g.monsters[1].wait_reason);
+}
+
+#[test]
+fn monsters_sharing_one_plant_all_get_to_harvest_it() {
+    let mut g = Game::new();
+    let p = g.world.plant_at(8, 8).unwrap();
+    g.world.plants[p].regrow = 40;
+    for (k, name) in ["ISKA", "WREN"].into_iter().enumerate() {
+        let skills = g.monsters[0].skills.clone();
+        g.monsters.push(Monster::new(10 + k as u32, name, "goblin", &g.data, (0, 0), skills));
+    }
+    // Two stand near the plant, two far off.
+    for (k, at) in [(9, 9), (7, 9), (3, 12), (20, 12)].into_iter().enumerate() {
+        start_loop(&mut g, k, harvest_loop(2), at);
+    }
+    let before: Vec<f64> = g.monsters.iter().map(|m| m.skills.applied("harvesting")).collect();
+    g.run_ticks(15_000);
+    for (k, m) in g.monsters.iter().enumerate() {
+        assert!(m.skills.applied("harvesting") > before[k], "{} never got a turn: {}", m.name, m.wait_reason);
+    }
 }

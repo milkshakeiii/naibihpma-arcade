@@ -1,6 +1,5 @@
 mod audio;
 mod carry;
-mod claim;
 #[allow(dead_code)] // the schema mirrors the JSON; some fields are read in later stages
 mod data;
 #[allow(dead_code)] // tiers, value, weight and the forecast feed stages 3 and 4
@@ -12,6 +11,7 @@ mod inspect;
 mod palette;
 mod render;
 mod save;
+mod sched;
 mod sprites;
 mod tutorial;
 mod wagon;
