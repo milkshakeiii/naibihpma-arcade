@@ -195,6 +195,19 @@ pub struct Monster {
     /// The monster it's waiting on this tick, if any.
     #[serde(skip)]
     pub waiting_on: Option<usize>,
+    /// Whether that one is standing in its way (rather than holding something it needs).
+    #[serde(skip)]
+    pub held_up: bool,
+    /// The tick it last finished a step of its loop (or started the loop): who has gone longest
+    /// without finishing one goes first.
+    #[serde(default)]
+    pub since: u32,
+    /// Real moves it and the monsters round it are making so it can get by, in order.
+    #[serde(default)]
+    pub untangle: Option<crate::tangle::Untangle>,
+    /// Ticks before it looks again for a way through, having found none.
+    #[serde(default)]
+    pub no_room: u16,
     pub loops: u32,
     /// Steps of its loop finished, for telling a loop that's working from one that's stuck.
     #[serde(default)]
@@ -273,6 +286,10 @@ impl Monster {
             cooldown: Vec::new(),
             turns: Vec::new(),
             waiting_on: None,
+            held_up: false,
+            since: 0,
+            untangle: None,
+            no_room: 0,
             loops: 0,
             steps: 0,
             earned: 0.0,
@@ -649,6 +666,7 @@ impl Game {
             sfx.push(Sfx::Switch);
         }
         self.player_input(inp, sfx);
+        self.run_untangles(sfx);
         for i in 0..self.monsters.len() {
             if self.monsters[i].playing {
                 self.run_loop(i, sfx);
@@ -1153,6 +1171,7 @@ impl Game {
             m.paused_at = None;
             cheer = format!("I'LL DO {name}'S LOOP TOO!");
         }
+        let frame = self.frame;
         let m = &mut self.monsters[i];
         let Some(flag) = m.routine.as_ref().map(|r| r.flag) else {
             self.say(i, "NO ROUTINE YET. R RECORDS ONE.", true);
@@ -1173,6 +1192,7 @@ impl Game {
         }
         m.playing = true;
         m.wait = 0;
+        m.since = frame;
         m.path.clear();
         m.carry_plan.clear();
         if !resuming {

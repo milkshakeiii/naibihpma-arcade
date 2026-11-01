@@ -13,6 +13,7 @@ mod render;
 mod save;
 mod sched;
 mod sprites;
+mod tangle;
 mod tutorial;
 mod wagon;
 mod walk;

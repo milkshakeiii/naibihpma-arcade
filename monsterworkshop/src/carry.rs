@@ -334,10 +334,10 @@ impl Game {
         let near = (here.0 - stand.0).abs() + (here.1 - stand.1).abs() <= 1;
         let blocking = if near && in_way(stand) { Some(stand) } else if here == stand && in_way(dest) { Some(dest) } else { None };
         if let Some(o) = blocking.and_then(|(x, y)| self.monster_at(x, y)).filter(|&o| o != i) {
-            self.monsters[i].waiting_on = Some(o);
-            // One that's only waiting there, and doesn't need to be, steps aside.
+            (self.monsters[i].waiting_on, self.monsters[i].held_up) = (Some(o), true);
+            // One that's waiting there and comes after this one in line makes way.
             if self.make_way(o, &[here, stand, dest, at], i) {
-                return Going::Waiting("EXCUSE ME!".into());
+                return Going::Waiting(self.excuse_me(i));
             }
         }
         if blocking.is_some() {
@@ -352,7 +352,7 @@ impl Game {
                     }
                 }
             }
-            return Going::Waiting("EXCUSE ME!".into());
+            return Going::Waiting(self.excuse_me(i));
         }
         // Something landed where this move is made from since planning: plan again.
         if self.world.item_at(stand.0, stand.1).is_some_and(|o| o != k) {

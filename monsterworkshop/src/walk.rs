@@ -1,10 +1,11 @@
 //! How a looping monster gets somewhere: a recorded stretch of plain walking replays as "go to
-//! this tile", and the monster finds its own way there around items and other monsters. Two
-//! monsters walking straight at each other squeeze past; one blocked by a monster that isn't
-//! moving waits a moment, then looks for a way around. Pushes, pulls and the ferry still
-//! replay step by step.
+//! this tile", and the monster finds its own way there around items and other monsters. One in
+//! the way of a monster that goes before it makes way: steps aside, or backs up ahead of it
+//! until it can. One blocked by a monster that isn't moving waits a moment, then looks for a
+//! way around. Nobody passes through anybody: every move is onto a tile that's free right then.
+//! Pushes, pulls and the ferry still replay step by step.
 
-use crate::game::{Act, Game, Sfx, StepRes, WALK_TICKS};
+use crate::game::{Game, Sfx, StepRes, WALK_TICKS};
 use crate::world::{Dir, Slide, DIRS};
 use std::collections::VecDeque;
 
@@ -12,6 +13,8 @@ use std::collections::VecDeque;
 pub(crate) const REPLAN_AFTER: u16 = 6;
 /// What a monster says when no path at all leads where it's going.
 pub(crate) const NO_WAY: &str = "I CAN'T FIND A WAY THERE.";
+/// How long a line of monsters, the one that needs the tile included, can make way in turn.
+const MAKE_WAY_DEPTH: usize = 4;
 
 pub(crate) enum Going {
     Arrived,
@@ -33,7 +36,7 @@ fn dir_to((x, y): (i32, i32), (nx, ny): (i32, i32)) -> Dir {
 impl Game {
     /// Can a walking monster pass this tile? Never through items (it would push them), and
     /// never onto the ferry: crossing stays a recorded step.
-    fn open(&self, x: i32, y: i32, around_monsters: bool) -> bool {
+    pub(crate) fn open(&self, x: i32, y: i32, around_monsters: bool) -> bool {
         self.world.walkable(x, y)
             && !self.world.on_deck(x, y)
             && self.world.item_at(x, y).is_none()
@@ -100,19 +103,11 @@ impl Game {
         }
         let next = self.monsters[i].path[0];
         if let Some(o) = self.monster_at(next.0, next.1) {
-            // Walking straight at each other: squeeze past.
-            let other = &self.monsters[o];
-            let other_going = other.routine.as_ref().and_then(|r| r.acts.get(other.pc)).is_some_and(|a| matches!(a, Act::Go { .. }));
-            let free_hands = self.led_wagon(i).is_none() && self.led_wagon(o).is_none();
-            if other.playing && other.idle() && other_going && other.path.first() == Some(&here) && free_hands {
-                self.squeeze_past(i, o);
-                return Going::Moving;
-            }
-            // One that's only waiting there, and doesn't need to be, steps aside.
+            // One that's waiting there and comes after this one in line makes way.
             let keep: Vec<(i32, i32)> = std::iter::once(here).chain(self.monsters[i].path.iter().copied()).collect();
-            self.monsters[i].waiting_on = Some(o);
+            (self.monsters[i].waiting_on, self.monsters[i].held_up) = (Some(o), true);
             if self.make_way(o, &keep, i) {
-                return Going::Waiting("EXCUSE ME!".into());
+                return Going::Waiting(self.excuse_me(i));
             }
             let m = &mut self.monsters[i];
             m.blocked += 1;
@@ -122,7 +117,7 @@ impl Game {
                     self.monsters[i].path = p;
                 }
             }
-            return Going::Waiting("EXCUSE ME!".into());
+            return Going::Waiting(self.excuse_me(i));
         }
         if !self.open(next.0, next.1, false) {
             // Something landed on the way since the path was planned.
@@ -142,80 +137,65 @@ impl Game {
         }
     }
 
-    /// A looping monster that's only waiting, on a tile its current step doesn't need it on,
-    /// steps aside for one that needs to get by: onto a free tile next to it, clear of
-    /// `keep_clear`. (Waiting at its own work spot, ready to push a good, or on a recorded
-    /// step, it stays put.)
-    /// Nor does it block `for_whom` if that's who it's waiting on, ready or not. With nowhere
-    /// to step, it trades places with `for_whom` if that one is right beside it.
+    /// What a monster held up by another says: having found no way through at all, that.
+    pub(crate) fn excuse_me(&self, i: usize) -> String {
+        if self.monsters[i].no_room > 0 { crate::tangle::NO_ROOM.into() } else { "EXCUSE ME!".into() }
+    }
+
+    /// Looping monster `o`, waiting in the way of `for_whom`, makes way if `for_whom` goes
+    /// before it in line (see `outranks`).
     pub(crate) fn make_way(&mut self, o: usize, keep_clear: &[(i32, i32)], for_whom: usize) -> bool {
-        let m = &self.monsters[o];
-        if !m.playing || !m.idle() || m.wait == 0 || self.led_wagon(o).is_some() {
+        self.outranks(for_whom, o) && self.move_over(o, keep_clear, for_whom, &mut vec![for_whom])
+    }
+
+    /// Monster `o`, waiting, moves off its tile for `for_whom`: onto a free tile beside it, clear
+    /// of `keep_clear` if it can be (else further along it, backing up ahead of `for_whom` until
+    /// it can step aside), or onto the tile of one beside it that makes way in turn (if that
+    /// one, too, comes after `for_whom`). Never onto a tile anyone is on, so nobody passes
+    /// through anybody. `chain` is who is making way already.
+    pub(crate) fn move_over(&mut self, o: usize, keep_clear: &[(i32, i32)], for_whom: usize, chain: &mut Vec<usize>) -> bool {
+        if !self.free_to_move(o) || self.monsters[o].wait == 0 {
             return false;
         }
-        let here = (m.x, m.y);
-        // With no step in hand it needs nowhere.
-        let needs_here = m.task.is_some()
-            && match m.routine.as_ref().and_then(|r| r.acts.get(m.pc)) {
-                Some(Act::Use) => self.use_spot(o, m.pc).is_none_or(|(p, _)| p == here),
-                // Moving a good, only where it's about to push or pull from (or waits, ready).
-                Some(Act::Move { .. }) => match (m.carry, m.carry_plan.first()) {
-                    (Some(at), Some(&(d, pull))) => here == if pull { (at.0 + d.delta().0, at.1 + d.delta().1) } else { (at.0 - d.delta().0, at.1 - d.delta().1) },
-                    _ => false,
-                },
-                Some(Act::Go { .. }) => false,
-                _ => true,
-            };
-        if needs_here && self.monsters[o].waiting_on != Some(for_whom) {
-            return false;
+        chain.push(o);
+        let here = (self.monsters[o].x, self.monsters[o].y);
+        // Off the way first, then onto one that makes way; free tiles before occupied ones.
+        let mut options: Vec<(bool, bool, usize, (i32, i32))> = Vec::new();
+        for (k, d) in DIRS.iter().enumerate() {
+            let n = (here.0 + d.delta().0, here.1 + d.delta().1);
+            if !self.open(n.0, n.1, false) {
+                continue;
+            }
+            match self.monster_at(n.0, n.1) {
+                None => options.push((keep_clear.contains(&n), false, k, n)),
+                Some(p) if chain.len() < MAKE_WAY_DEPTH && !chain.contains(&p) && self.outranks(for_whom, p) => options.push((keep_clear.contains(&n), true, k, n)),
+                Some(_) => {}
+            }
         }
-        if self.step_aside(o, keep_clear) {
+        options.sort();
+        for (_, taken, _, n) in options {
+            if taken && !self.monster_at(n.0, n.1).is_some_and(|p| self.move_over(p, keep_clear, for_whom, chain)) {
+                continue;
+            }
+            self.shift(o, n);
             return true;
         }
-        let w = &self.monsters[for_whom];
-        let beside = (here.0 - w.x).abs() + (here.1 - w.y).abs() == 1;
-        if beside && w.idle() && self.led_wagon(for_whom).is_none() {
-            self.squeeze_past(o, for_whom);
-            return true;
-        }
+        chain.pop();
         false
     }
 
-    /// Monster `o` steps onto a free tile next to it, clear of `keep_clear`, if there is one.
-    pub(crate) fn step_aside(&mut self, o: usize, keep_clear: &[(i32, i32)]) -> bool {
-        let here = (self.monsters[o].x, self.monsters[o].y);
-        let beside = |d: Dir| (here.0 + d.delta().0, here.1 + d.delta().1);
-        let Some(d) = DIRS.iter().copied().find(|&d| self.open(beside(d).0, beside(d).1, true) && !keep_clear.contains(&beside(d))) else {
-            return false;
-        };
+    /// Monster `o` steps onto the free tile `to` beside it, out of someone's way.
+    fn shift(&mut self, o: usize, to: (i32, i32)) {
         let m = &mut self.monsters[o];
-        (m.x, m.y) = beside(d);
+        let d = dir_to((m.x, m.y), to);
+        (m.x, m.y) = to;
         m.facing = d;
         if matches!(d, Dir::Left | Dir::Right) {
             m.flip = d == Dir::Left;
         }
         m.slide = Some(Slide { dir: d, left: WALK_TICKS, total: WALK_TICKS });
+        m.bump = None;
         m.path.clear();
-        true
-    }
-
-    /// Two walking monsters trade places.
-    pub(crate) fn squeeze_past(&mut self, a: usize, b: usize) {
-        let (pa, pb) = ((self.monsters[a].x, self.monsters[a].y), (self.monsters[b].x, self.monsters[b].y));
-        for (k, from, to) in [(a, pa, pb), (b, pb, pa)] {
-            let d = dir_to(from, to);
-            let m = &mut self.monsters[k];
-            (m.x, m.y) = to;
-            m.facing = d;
-            if matches!(d, Dir::Left | Dir::Right) {
-                m.flip = d == Dir::Left;
-            }
-            m.slide = Some(Slide { dir: d, left: WALK_TICKS, total: WALK_TICKS });
-            m.bump = None;
-            m.blocked = 0;
-            if m.path.first() == Some(&to) {
-                m.path.remove(0);
-            }
-        }
+        (m.waiting_on, m.held_up) = (None, false);
     }
 }

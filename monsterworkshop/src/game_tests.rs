@@ -489,13 +489,14 @@ fn walk_loop(g: &mut Game, i: usize, stops: &[((i32, i32), Dir)]) {
 }
 
 #[test]
-fn two_loops_squeeze_past_each_other_through_a_one_tile_gate() {
+fn two_loops_take_turns_head_on_through_a_one_tile_gate() {
     let mut g = Game::new();
     (g.monsters[0].x, g.monsters[0].y) = (46, 9);
     (g.monsters[1].x, g.monsters[1].y) = (52, 10);
     walk_loop(&mut g, 0, &[((52, 10), Dir::Right), ((46, 9), Dir::Left)]);
     walk_loop(&mut g, 1, &[((46, 9), Dir::Left), ((52, 10), Dir::Right)]);
-    g.run_ticks(1000);
+    // One makes way for the other: nobody passes through anybody.
+    super::tangle_tests::ticks_checked(&mut g, 1000);
     let (a, b) = (g.monsters[0].loops, g.monsters[1].loops);
     assert!(a >= 8 && b >= 8, "both kept looping head-on through the gate: {a} and {b}");
 }

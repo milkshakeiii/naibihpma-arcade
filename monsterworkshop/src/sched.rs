@@ -399,7 +399,7 @@ impl Game {
     /// Ends monster `i`'s step: done, or given up for a while.
     fn end_step(&mut self, i: usize, done: bool) {
         let units = self.units(i);
-        let n = self.acts(i).len();
+        let (n, frame) = (self.acts(i).len(), self.frame);
         let m = &mut self.monsters[i];
         let Some(key) = m.task.take() else { return };
         m.holds.clear();
@@ -412,6 +412,7 @@ impl Game {
                 m.lap();
             }
             m.steps += 1;
+            m.since = frame;
             m.cooldown.retain(|&(k, _)| k != key);
         } else {
             m.cooldown.push((key, RETRY_TICKS));
@@ -441,11 +442,12 @@ impl Game {
 
     /// One tick of a looping monster.
     pub(crate) fn run_loop(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
-        if !self.monsters[i].idle() {
+        // Making room so someone can get by: its loop waits until that's done.
+        if !self.monsters[i].idle() || self.in_untangle(i) {
             return;
         }
         let m = &mut self.monsters[i];
-        m.waiting_on = None;
+        (m.waiting_on, m.held_up) = (None, false);
         for c in m.cooldown.iter_mut() {
             c.1 = c.1.saturating_sub(1);
         }
@@ -466,6 +468,9 @@ impl Game {
             Outcome::Waiting(msg) => self.waiting(i, msg),
             Outcome::GiveUp(msg) => {
                 self.end_step(i, false);
+                // It couldn't be done: to the back of the line, as if it had finished one, so a
+                // step that keeps failing can't keep putting it ahead of the others.
+                self.monsters[i].since = self.frame;
                 self.waiting(i, msg);
             }
         }
@@ -476,7 +481,7 @@ impl Game {
         if m.wait >= WAIT_BEFORE_SAYING {
             m.bubble = None;
         }
-        m.wait = 0;
+        (m.wait, m.no_room) = (0, 0);
         m.wait_reason.clear();
     }
 
@@ -489,13 +494,18 @@ impl Game {
         m.wait_reason = msg;
     }
 
-    /// Looping monsters waiting on each other in a circle: the one that has waited least gives
-    /// way to the one waiting on it, so whoever has waited longest gets through, and in time
-    /// everyone does. Giving way means giving up its step and what it reserved, and stepping
-    /// out of the way (or trading places, if there's no room to step aside).
+    /// Looping monsters waiting on each other in a circle: the last of them in line (see
+    /// `outranks`) gives way to the one waiting on it, so whoever has waited longest gets
+    /// through, and in time everyone does. If something it reserved is part of the circle, it
+    /// gives up its step and all it reserved; either way, if it's in the way, it makes way. Then
+    /// whoever is first in line of those still held up by a monster that can't just step aside
+    /// looks for real moves that get it by (see `untangle_if_held`).
     pub(crate) fn give_way(&mut self) {
         let n = self.monsters.len();
-        let stuck = |k: usize| self.monsters[k].playing && self.monsters[k].wait >= GIVE_WAY_AFTER;
+        let stuck = |k: usize| {
+            let m = &self.monsters[k];
+            m.playing && m.idle() && m.wait >= GIVE_WAY_AFTER && !self.in_untangle(k)
+        };
         let mut seen = vec![false; n];
         let mut circles = Vec::new();
         for a in 0..n {
@@ -517,24 +527,31 @@ impl Game {
             }
         }
         for circle in circles {
-            let Some(&y) = circle.iter().min_by_key(|&&k| (self.monsters[k].wait, std::cmp::Reverse(k))) else { continue };
+            let Some(&y) = circle.iter().max_by_key(|&&k| self.rank(k)) else { continue };
             let p = circle.iter().position(|&k| k == y).unwrap_or(0);
             let w = circle[(p + circle.len() - 1) % circle.len()];
-            self.give_way_to(y, w);
+            // Only in each other's way, nobody need give anything up: that's a tangle.
+            let reserved = circle.iter().any(|&k| !self.monsters[k].held_up);
+            self.give_way_to(y, w, reserved);
         }
+        self.untangle_if_held();
     }
 
-    /// Monster `y` gives way to monster `w`, which is waiting on it.
-    fn give_way_to(&mut self, y: usize, w: usize) {
-        self.give_up(y, GAVE_WAY_TICKS);
+    /// Monster `y` gives way to monster `w`, which is waiting on it: gives up its step if
+    /// `give_up`, and makes way if it's in the way. Steps played as recorded are never given up
+    /// partway: they couldn't be taken up again from anywhere else.
+    fn give_way_to(&mut self, y: usize, w: usize, give_up: bool) {
+        if give_up && !self.on_recorded_steps(y) {
+            self.give_up(y, GAVE_WAY_TICKS);
+        }
         let wm = &self.monsters[w];
         let keep: Vec<(i32, i32)> = std::iter::once((wm.x, wm.y)).chain(wm.path.iter().copied()).collect();
         let (yp, wp) = ((self.monsters[y].x, self.monsters[y].y), (wm.x, wm.y));
         let in_the_way = keep.contains(&yp) || (yp.0 - wp.0).abs() + (yp.1 - wp.1).abs() == 1;
-        if in_the_way && !self.step_aside(y, &keep) && (yp.0 - wp.0).abs() + (yp.1 - wp.1).abs() == 1 {
-            self.squeeze_past(y, w);
+        let moved = in_the_way && self.move_over(y, &keep, w, &mut vec![w]);
+        if give_up || moved {
+            self.say(y, "AFTER YOU.", false);
         }
-        self.say(y, "AFTER YOU.", false);
     }
 
     /// One tick of the step monster `i` picked.
@@ -620,9 +637,29 @@ impl Game {
         }
     }
 
+    /// The tiles monster `i`'s next step played as recorded needs clear of other monsters: where
+    /// it steps (or backs away to), and where a good it pushes goes.
+    pub(crate) fn recorded_way(&self, i: usize) -> Vec<(i32, i32)> {
+        let m = &self.monsters[i];
+        let ahead = |k: i32, d: Dir| (m.x + k * d.delta().0, m.y + k * d.delta().1);
+        match self.acts(i).get(m.pc) {
+            Some(&Act::Step(d, Some(_))) => vec![ahead(1, d), ahead(2, d)],
+            Some(&Act::Step(d, None) | &Act::Pull(d, _)) => vec![ahead(1, d)],
+            _ => Vec::new(),
+        }
+    }
+
     /// One act played exactly as recorded.
     fn do_literal(&mut self, i: usize, pc: usize, sfx: &mut Vec<Sfx>) -> Outcome {
         let Some(act) = self.acts(i).get(pc).cloned() else { return Outcome::Done };
+        // Steps played as recorded can't go around anyone: one waiting in the way makes way.
+        let way = self.recorded_way(i);
+        if let Some(o) = way.iter().find_map(|&(x, y)| self.monster_at(x, y)).filter(|&o| o != i) {
+            (self.monsters[i].waiting_on, self.monsters[i].held_up) = (Some(o), true);
+            let keep: Vec<(i32, i32)> = way.iter().copied().chain([(self.monsters[i].x, self.monsters[i].y)]).collect();
+            self.make_way(o, &keep, i);
+            return Outcome::Waiting(self.excuse_me(i));
+        }
         let stepped = |res: StepRes| match res {
             StepRes::Moved(_) => Outcome::Done,
             StepRes::Blocked(msg) => Outcome::Waiting(if msg.is_empty() { "WAITING...".into() } else { msg }),
