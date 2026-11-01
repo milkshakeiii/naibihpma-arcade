@@ -190,29 +190,41 @@ fn extra_output_waits_inside_so_loops_never_jam() {
 
 #[test]
 fn a_loop_makes_nothing_more_for_a_full_workshop_backed_up_with_its_product() {
-    let full_bench = |on_mat: &str| {
+    let full_bench = |waiting: &str| {
         let mut g = Game::new();
         let bench = g.world.shop_at_spot(14, 9).unwrap();
-        let slivers = good_like(&g.data, "cotton_slivers", 0.8);
-        g.world.shops[bench].pending = vec![slivers; crate::world::OUTPUT_BUFFER];
-        g.world.items.push(Item::new(15, 9, good_like(&g.data, on_mat, 0.8)));
+        g.world.shops[bench].pending = vec![good_like(&g.data, waiting, 0.8); crate::world::OUTPUT_BUFFER];
+        g.world.items.push(Item::new(15, 9, good_like(&g.data, waiting, 0.8)));
         g.world.items.push(Item::new(13, 9, boll(&g.data))); // would make slivers
-        stand(&mut g, (14, 9), Dir::Down);
-        let m = &mut g.monsters[0];
-        m.routine = Some(Routine { flag: (14, 9), goals: vec![Goal::Activate(Thing::Shop(bench))] });
-        (m.pc, m.playing) = (0, true);
+        start_loop(&mut g, 0, Routine { flag: (14, 9), goals: vec![Goal::Activate(Thing::Shop(bench))] }, (14, 9));
         g.run_ticks(60);
         (g, bench)
     };
-    // More slivers already out on the mat: nothing to make. Not stuck waiting on a full bench.
+    // Its output all taken up with slivers already: nothing to make. Not stuck waiting on it.
     let (g, bench) = full_bench("cotton_slivers");
     assert!(g.world.shops[bench].job.is_none() && g.world.item_at(13, 9).is_some(), "nothing made, the boll left for later");
     assert!(!g.monsters[0].wait_reason.contains("FULL"), "{}", g.monsters[0].wait_reason);
-    // Something else stuck there: wait for someone to clear it.
+    // Taken up with something else: wait for someone to clear it.
     let (g, _) = full_bench("thread");
     assert!(g.monsters[0].wait_reason.contains("CLEAR ITS OUTPUT MAT"), "{}", g.monsters[0].wait_reason);
 }
 
+#[test]
+fn a_loop_keeps_a_workshop_working_while_its_product_waits_on_the_mat() {
+    // Slivers on the bench's mat, two more waiting inside: room for plenty more, so the loop
+    // works the bolls it has rather than waiting for the slivers to be taken away.
+    let mut g = Game::new();
+    let bench = g.world.shop_at_spot(14, 9).unwrap();
+    g.world.shops[bench].pending = vec![good_like(&g.data, "cotton_slivers", 0.8); 2];
+    g.world.items.push(Item::new(15, 9, good_like(&g.data, "cotton_slivers", 0.8)));
+    g.world.items.push(Item::new(13, 9, boll(&g.data)));
+    g.world.items.push(Item::new(12, 9, boll(&g.data)));
+    let chute_to_pad = Goal::Move { good: "cotton_bolls".into(), from: (12, 9), to: (13, 9) };
+    start_loop(&mut g, 0, Routine { flag: (14, 10), goals: vec![chute_to_pad, Goal::Activate(Thing::Shop(bench))] }, (14, 10));
+    (g.monsters[1].x, g.monsters[1].y) = (20, 13); // Bruna, off out of the way
+    g.run_ticks(400);
+    assert_eq!(g.world.shops[bench].pending.len(), 4, "both bolls worked: {}", g.monsters[0].wait_reason);
+}
 
 #[test]
 fn examining_a_plant_forecasts_the_harvest() {

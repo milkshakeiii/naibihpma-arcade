@@ -5,12 +5,15 @@
 //! wagon somewhere. They're linked by what they make and take: a harvest or a workshop's work
 //! puts goods on a tile, a move takes a good from a tile, a workshop takes what's on its pads.
 //! Whenever a monster is free it works on the first goal of its loop that is both wanted and
-//! possible right now. A goal is wanted unless its work is already done where it would be: what
-//! a harvest or workshop makes already lies on its output tile, the good a move brings already
-//! lies where it goes, the wagon is already parked there, the tailgate already open (or shut).
-//! So nothing piles up, a short harvest is made up by harvesting again, work further up the
-//! chain carries on while a workshop is busy, and a loop never waits on one of its own later
-//! goals: while one can't be done, it does another. A loop that leads a wagon goes through its
+//! possible right now. A goal is wanted unless where it puts things is already full of what it
+//! would put there: a tile holds one good, so a harvest isn't wanted while its last harvest
+//! lies on its drop tile, nor a move while one of its good lies where it goes; a workshop's
+//! output holds its mat and nine more waiting inside, so it keeps working until that's all
+//! taken up with what it makes. The same for wagons: not wanted if it's already parked there,
+//! or its tailgate already open (or shut). So nothing piles up past where it can go, a short
+//! harvest is made up by harvesting again, work further up the chain carries on while a
+//! workshop is busy, and a loop never waits on one of its own later goals: while one can't be
+//! done, it does another. A loop that leads a wagon goes through its
 //! goals strictly in order instead: it's a journey.
 //!
 //! A goal reserves the good it's going for, the tiles it's about to use and the wagon it leads,
@@ -116,12 +119,12 @@ impl Game {
         !self.monsters[i].playing || id == 0 || self.holder(i, Hold::Item(id)).is_none()
     }
 
-    /// Which goals of a loop are wanted right now: every one whose work isn't already done where
-    /// it would be. A harvest or a workshop's work isn't wanted while something it makes lies
-    /// unused on its output tile, nor a move while one of its good already lies where it goes
-    /// (one being worked there doesn't count: the next is brought up ready beside it), nor
-    /// leading a wagon already parked there, nor a tailgate already as it should be.
-    /// Deliveries always are.
+    /// Which goals of a loop are wanted right now: every one whose destination isn't already
+    /// full of what it would put there. A tile holds one good: a harvest isn't wanted while one
+    /// of its goods lies unused on its drop tile, nor a move while one of its good lies where it
+    /// goes (one being worked there doesn't count: the next is brought up ready beside it). A
+    /// workshop's output holds more (see `output_full`). Nor is leading a wagon already parked
+    /// there wanted, nor a tailgate already as it should be. Deliveries always are.
     fn wanted(&self, goals: &[Goal]) -> Vec<bool> {
         let lying = |(g, t): &(String, (i32, i32))| self.world.item_at(t.0, t.1).is_some_and(|k| self.world.items[k].good() == g && !self.world.items[k].locked);
         goals
@@ -129,9 +132,24 @@ impl Game {
             .map(|g| match g {
                 Goal::Lead { wagon, bed, pumpkin } => self.world.wagons.get(*wagon).is_some_and(|w| (w.at, w.pumpkin) != (*bed, *pumpkin)),
                 Goal::Activate(Thing::Tailgate { wagon, open }) => self.world.wagons.get(*wagon).is_some_and(|w| w.open != *open),
+                Goal::Activate(Thing::Shop(s)) => !self.output_full(*s),
                 _ => !self.puts(g).iter().any(lying),
             })
             .collect()
+    }
+
+    /// Is workshop `s`'s output full of what it would make next? Its output is its mat and up to
+    /// `OUTPUT_BUFFER` more waiting inside to be set out on it; full of something else (made from
+    /// what was on the pads before), it isn't, and a loop waits for it to be cleared.
+    fn output_full(&self, s: usize) -> bool {
+        let shop = &self.world.shops[s];
+        if shop.pending.len() < crate::world::OUTPUT_BUFFER {
+            return false;
+        }
+        match self.best_recipe(s, shop.kind.recipes(), &|_| true) {
+            Some((making, _)) => shop.pending.iter().any(|d| d.good == making),
+            None => shop.kind.recipes().iter().any(|r| shop.pending.iter().any(|d| d.good == *r)),
+        }
     }
 
     /// Can goal `g` be worked on right now, and what would it reserve? Cheap checks only:
