@@ -84,6 +84,10 @@ pub struct RawMaterial {
     pub good: String,
     pub base_value: f64,
     pub density: f64,
+    /// Used up in the making (burned as fuel, or absorbed as lye, lime or dye): it still
+    /// counts toward value, but not toward weight.
+    #[serde(default)]
+    pub spent: bool,
 }
 
 /// Credit toward a good: renown from scoring it is split by share count.
@@ -107,9 +111,20 @@ pub struct ItemData {
     pub shares: Vec<Share>,
     /// Durability spent so far (tools and frontier workshops).
     pub wear: u32,
+    /// Who has pushed or pulled it since it was made, and how many tiles each.
+    #[serde(default)]
+    pub haul: Vec<(u32, u32)>,
 }
 
 impl ItemData {
+    /// One more tile moved by this monster.
+    pub fn hauled_by(&mut self, monster: u32) {
+        match self.haul.iter_mut().find(|h| h.0 == monster) {
+            Some(h) => h.1 += 1,
+            None => self.haul.push((monster, 1)),
+        }
+    }
+
     pub fn tags(&self, data: &Data) -> Vec<String> {
         let mut t = data.good(&self.good).type_tags.clone();
         t.extend(self.carried_tags.iter().cloned());
@@ -291,8 +306,21 @@ pub fn carried_tags(recipe: &GoodType, inputs: &[&ItemData], data: &Data) -> Vec
 }
 
 /// All raw materials behind the inputs, and the refinement depth of the output.
-pub fn lineage(inputs: &[&ItemData]) -> (Vec<RawMaterial>, u32) {
-    let raw = inputs.iter().flat_map(|i| i.raw.iter().cloned()).collect();
+/// Inputs with these tags are used up in the making.
+const SPENT: [&str; 4] = ["fuel", "lye", "lime", "dye"];
+
+/// Every raw material behind the inputs, and the refinement depth of the output. Inputs that
+/// fill a fuel, lye, lime or dye slot of the recipe are marked spent.
+pub fn lineage(recipe: &GoodType, inputs: &[&ItemData]) -> (Vec<RawMaterial>, u32) {
+    let groups: Vec<&Vec<String>> = recipe.input_groups().map(|(_, g)| g).collect();
+    let raw = inputs
+        .iter()
+        .enumerate()
+        .flat_map(|(k, i)| {
+            let spent = groups.get(k).is_some_and(|g| g.iter().any(|t| SPENT.contains(&t.as_str())));
+            i.raw.iter().map(move |r| RawMaterial { spent: r.spent || spent, ..r.clone() })
+        })
+        .collect();
     let depth = 1 + inputs.iter().map(|i| i.depth).max().unwrap_or(0);
     (raw, depth)
 }
@@ -301,10 +329,12 @@ pub fn weight(recipe: &GoodType, item: &ItemData) -> f64 {
     if let Some(d) = recipe.raw_material_density {
         return d * recipe.storage_volume;
     }
-    if item.raw.is_empty() {
+    let kept: Vec<f64> = item.raw.iter().filter(|r| !r.spent).map(|r| r.density).collect();
+    let dens: Vec<f64> = if kept.is_empty() { item.raw.iter().map(|r| r.density).collect() } else { kept };
+    if dens.is_empty() {
         return recipe.storage_volume;
     }
-    item.raw.iter().map(|r| r.density).sum::<f64>() / item.raw.len() as f64 * recipe.storage_volume
+    dens.iter().sum::<f64>() / dens.len() as f64 * recipe.storage_volume
 }
 
 /// Value fixed when the item is made: raw materials scale gently with quality; refined goods
@@ -320,6 +350,17 @@ pub fn value(recipe: &GoodType, raw: &[RawMaterial], depth: u32, quality: f64, c
     match crafter {
         Some(st) => v * (10.0 + ability(st, crate::data::CHA) / 2.0) / 10.0,
         None => v,
+    }
+}
+
+/// A good pays its haulers when it is used (by a workshop, a drop-off or a project): one share
+/// between them, split by the tiles each moved it. Pushing it in circles earns no more.
+pub fn pay_haul(item: &mut ItemData) {
+    let total: u32 = item.haul.iter().map(|h| h.1).sum();
+    if total > 0 {
+        for (monster, tiles) in std::mem::take(&mut item.haul) {
+            add_share(&mut item.shares, monster, tiles as f64 / total as f64);
+        }
     }
 }
 
@@ -367,14 +408,14 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
     let carried = carried_tags(c.recipe, &c.inputs, data);
     let (raw, depth) = if c.recipe.is_raw() {
         let r = c.recipe;
-        (vec![RawMaterial { good: r.id.clone(), base_value: r.raw_material_base_value.unwrap_or(0.0), density: r.raw_material_density.unwrap_or(0.0) }], 0)
+        (vec![RawMaterial { good: r.id.clone(), base_value: r.raw_material_base_value.unwrap_or(0.0), density: r.raw_material_density.unwrap_or(0.0), spent: false }], 0)
     } else {
         // A recipe's normal yield shares its inputs: those units carry the inputs' value times
         // the square root of the yield between them. Each unit's share is fixed by the recipe,
         // not the roll, so extra units from a good roll are each worth as much as a normal one;
         // a monster is never penalized per unit for rolling high. (A harvest's units are each
         // their own raw material.)
-        let (mut raw, depth) = lineage(&c.inputs);
+        let (mut raw, depth) = lineage(c.recipe, &c.inputs);
         let share = 1.0 / (c.recipe.quantity.max(1) as f64).sqrt();
         raw.iter_mut().for_each(|r| r.base_value *= share);
         (raw, depth)
@@ -384,7 +425,7 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
         .map(|_| {
             let quality = roll_quality(c, rng);
             let value = value(c.recipe, &raw, depth, quality, Some(c.crafter.stats));
-            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0 }
+            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0, haul: Vec::new() }
         })
         .collect()
 }

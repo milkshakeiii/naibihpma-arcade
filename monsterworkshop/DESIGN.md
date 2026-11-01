@@ -85,7 +85,7 @@ Literally replaying a recorded routine works for two monsters and turns into tra
 - **Sokoban stays a small element:** in your own hands-on play, and in how efficiently a layout lets loops run. That's enough. A separate puzzle-heavy side zone is an option for later.
 - **No extra tie-in visualization for now.** Monsters waiting and saying what for, and goods visibly piling up, may make it plain enough how loops connect.
 - **Phases:**
-  1. Walking only: the stretches of a recording where a monster just walks become "go to this tile", pathfound around others; pushes still replay as recorded. Before wagons.
+  1. Walking only (built, M2 stage 3): the stretches of a recording where a monster just walks become "go to this tile, then face this way"; pushes, pulls, using a spot and ferry steps still replay as recorded. A looping monster finds the shortest way there around items, by breadth-first search in a fixed direction order. Two monsters walking straight at each other squeeze past (they trade tiles); one blocked by a monster that isn't moving says "EXCUSE ME!", waits a moment, then looks for a way around. Nobody gets shoved aside.
   2. Goal-based pushes: "move this good from here to there", planned around obstacles.
   3. General sources: a goal can take its good from wherever it waits, not one particular mat, and loops that want the same thing take turns.
 
@@ -160,7 +160,20 @@ Hold **E** ("examine") to show a card anchored next to the tile you're facing. U
 The card is drawn in the same beveled style as the help overlay. It never pauses the world.
 
 ### Wagons and roads
-Wagons are fully physical. Press Space on a wagon's handle to hitch it, and it follows behind you. Push items onto its bed, where they stack visibly, and push them off at the destination. Roads leave the map edge at signposts naming the next town. Recorded loops can include wagon trips.
+Wagons are fully physical, and roads leave the map edge at signposts naming the next town.
+
+Decided 2026-10-31:
+- **Something pulls the wagon, and the monster leads it with CHA.** CHA was always meant to drive wagons (the original rules gave wagons a capacity of (1 + wagon driving) × CHA); it needs more uses, and leading a draft creature is one. The puller is a magical walking pumpkin: not a monster, it doesn't join or craft, it just follows a charismatic leader anywhere. Later pumpkins can grow in a patch; at first the town lends one with its wagon.
+- **The monster walks ahead, leading the pumpkin,** and the wagon rolls behind it: three tiles in a line. Wagons don't fit the two-tile ferry, and that's fine: the bridge is what opens the river to them.
+- **Pulling power** is the wagon's power (from its value) times (1 + wagon driving) times the leader's CHA. Load beyond it slows the wagon down; it never refuses goods.
+- **A wagon is a dispenser.** Goods pushed into it go into its bed; parked, it sets them out one at a time like a chute. **A dispenser holds one type of good.** Bigger wagons, later, have several dispensers.
+- **A wagon's power comes from its value,** so a better-made wagon (quality, oak over hemlock, more steps) pulls more.
+- **The town lends a wagon at first,** like its tools. Later, wagons of different qualities and sizes are built.
+- **A bridge comes from a project,** away from the ferry: a second road leaves Pinewater from its southeast corner, by the cloth store, and crosses the river further south. Monsters deliver about 12 logs to its board on the far bank, where the woods are; once it's built, two tiles wide so wagons can pass, wagons drive straight across. The ferry keeps carrying monsters on foot.
+- **Weight only has to feel right.** A log may weigh as much as 180 cotton bolls; even bolls are pushed around Sokoban-style.
+- **Hauling earns shares when a good is used, not each time it moves** (built for pushing and pulling; the wagon part comes with wagons). A good remembers who has moved it since it was last set down at a workshop, drop-off or wagon. When a workshop uses it, or a drop-off or board takes it, those haulers get 1 share between them, split by the tiles each pushed, and the share flows on into whatever the good becomes. If it reached its town by wagon, the wagon's leader gets 2 more, as in the original rules. Pushing a good in circles or shuffling it between pads pays nothing extra; a good pays at most 3 hauling shares before it becomes something else.
+- **Used-up inputs don't count toward weight** (built). An input filling a fuel, lye, lime or dye slot is marked spent in the good's history: it still counts toward value, not weight. A dyed bolt now weighs what a plain bolt does (its storage volume was also corrected to match).
+- **Wagon Wright is back** as an applied skill (it was in the original skill list), and the wagon's production tree (wheels and the rest) is designed later. Its new goods need approval like any others.
 
 ### Equipment (v1.5)
 Gloves, glasses and the like are crafted goods from the tech tree, not bought with renown. Push one into a monster to equip it. It then shows on the sprite (a goblin in glasses), and its bonus appears on the inspect card.

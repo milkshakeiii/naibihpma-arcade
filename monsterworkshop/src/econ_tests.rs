@@ -16,10 +16,10 @@ fn stats(d: &Data, kind: &str) -> Stats {
 fn item(d: &Data, id: &str, quality: f64, carried: &[&str]) -> ItemData {
     let g = d.good(id);
     let (raw, depth) = match g.raw_material_base_value {
-        Some(v) => (vec![RawMaterial { good: id.into(), base_value: v, density: g.raw_material_density.unwrap_or(0.0) }], 0),
+        Some(v) => (vec![RawMaterial { good: id.into(), base_value: v, density: g.raw_material_density.unwrap_or(0.0), spent: false }], 0),
         None => (Vec::new(), 1),
     };
-    ItemData { good: id.into(), quality, carried_tags: carried.iter().map(|s| s.to_string()).collect(), raw, depth, value: 0.0, shares: Vec::new(), wear: 0 }
+    ItemData { good: id.into(), quality, carried_tags: carried.iter().map(|s| s.to_string()).collect(), raw, depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new() }
 }
 
 /// Every skill the recipe uses at `level`, with the given transferable skills.
@@ -224,8 +224,8 @@ fn value_and_weight_follow_the_raw_materials() {
     let ramie = item(&d, "ramie_stalks", 1.0, &[]);
     let make = |log: &str| {
         let l = item(&d, log, 1.0, &[]);
-        let (raw, depth) = lineage(&[&l, &l, &bamboo, &bamboo, &bamboo, &ramie]);
-        let it = ItemData { good: loom.id.clone(), quality: 1.0, carried_tags: Vec::new(), raw: raw.clone(), depth, value: 0.0, shares: Vec::new(), wear: 0 };
+        let (raw, depth) = lineage(loom, &[&l, &l, &bamboo, &bamboo, &bamboo, &ramie]);
+        let it = ItemData { good: loom.id.clone(), quality: 1.0, carried_tags: Vec::new(), raw: raw.clone(), depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new() };
         (value(loom, &raw, depth, 1.0, None), weight(loom, &it))
     };
     let (oak_value, oak_weight) = make("oak_log");
@@ -240,10 +240,10 @@ fn value_and_weight_follow_the_raw_materials() {
 fn depth_counts_refinement_steps() {
     let d = Data::load();
     let bolls = item(&d, "cotton_bolls", 1.0, &[]);
-    let (_, slivers_depth) = lineage(&[&bolls]);
+    let (_, slivers_depth) = lineage(d.good("cotton_slivers"), &[&bolls]);
     assert_eq!(slivers_depth, 1);
     let slivers = ItemData { depth: slivers_depth, ..item(&d, "cotton_slivers", 1.0, &[]) };
-    assert_eq!(lineage(&[&slivers]).1, 2);
+    assert_eq!(lineage(d.good("thread"), &[&slivers]).1, 2);
 }
 
 #[test]
@@ -343,4 +343,24 @@ fn a_recipes_normal_yield_shares_its_inputs_and_extra_units_cost_nothing_per_uni
 
     let oak = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &Skills::default() }, &d, &mut Rng::new(7));
     assert!(oak.iter().all(|u| close(u.raw[0].base_value, d.good("oak_log").raw_material_base_value.unwrap())), "each harvested unit is a whole raw material");
+}
+
+#[test]
+fn used_up_inputs_count_toward_value_but_not_weight() {
+    let d = Data::load();
+    let st = stats(&d, "cyclops");
+    let made = |id: &str, inputs: Vec<&ItemData>| {
+        let g = d.good(id);
+        produce(&craft(g, &st, &skilled(g, 0.5, &[]), inputs, vec![], None), &d, &mut Rng::new(3)).remove(0)
+    };
+    let (sticks, leaves, ramie, limestone) = (item(&d, "elder_sticks", 1.0, &[]), item(&d, "indigofera_leaves", 1.0, &[]), item(&d, "ramie_stalks", 1.0, &[]), item(&d, "limestone", 1.0, &[]));
+    let lye = made("lye", vec![&ramie, &sticks]);
+    let lime = made("quicklime", vec![&limestone, &sticks]);
+    let indigo = made("indigo", vec![&leaves, &lye, &lime, &lime, &sticks]);
+    let fabric = made("fabric", vec![&made("thread", vec![&made("cotton_slivers", vec![&item(&d, "cotton_bolls", 1.0, &[])])])]);
+    let dyed = made("dyed_fabric", vec![&fabric, &indigo]);
+    let (w_plain, w_dyed) = (weight(d.good("fabric"), &fabric), weight(d.good("dyed_fabric"), &dyed));
+    assert!(close(w_plain, w_dyed), "a dyed bolt weighs what a plain one does: {w_plain} vs {w_dyed}");
+    assert!(dyed.raw.iter().any(|r| r.spent && r.good == "elder_sticks"), "the burned fuel is in its history");
+    assert!(dyed.value > fabric.value, "and still adds value");
 }

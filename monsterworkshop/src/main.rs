@@ -12,6 +12,7 @@ mod render;
 mod save;
 mod sprites;
 mod tutorial;
+mod walk;
 mod work;
 mod world;
 

@@ -11,11 +11,12 @@ fn boll(data: &Data) -> ItemData {
         good: g.id.clone(),
         quality: 0.5,
         carried_tags: Vec::new(),
-        raw: vec![crate::econ::RawMaterial { good: g.id.clone(), base_value: g.raw_material_base_value.unwrap(), density: g.raw_material_density.unwrap() }],
+        raw: vec![crate::econ::RawMaterial { good: g.id.clone(), base_value: g.raw_material_base_value.unwrap(), density: g.raw_material_density.unwrap(), spent: false }],
         depth: 0,
         value: 0.0,
         shares: Vec::new(),
         wear: 0,
+        haul: Vec::new(),
     }
 }
 
@@ -436,4 +437,60 @@ fn tanglemere_dyes_cotton_indigo_from_kiln_to_cloth_hall() {
     g.script("U");
     assert!(g.renown > renown, "the cloth hall takes dyed fabric for renown");
     assert!(g.world.bins.iter().any(|b| b.stock.iter().any(|d| d.good == "dyed_fabric")));
+}
+
+#[test]
+fn walking_records_as_go_to_and_pushes_stay_literal() {
+    let mut g = Game::new();
+    g.script(&format!("r{MOGG_HARVEST}"));
+    let acts = &g.monsters[0].rec.as_ref().unwrap().acts;
+    assert_eq!(acts[0], Act::Go { to: (8, 8), facing: Dir::Right }, "six steps of walking are one goal");
+    assert_eq!(acts[1], Act::Use);
+    assert!(matches!(acts[2], Act::Step(Dir::Right, Some(_))), "pushing the boll stays a recorded step");
+}
+
+/// Gives a monster a loop of "go to" goals from where it stands, and starts it.
+fn walk_loop(g: &mut Game, i: usize, stops: &[((i32, i32), Dir)]) {
+    let m = &mut g.monsters[i];
+    m.routine = Some(Routine { flag: (m.x, m.y), acts: stops.iter().map(|&(to, facing)| Act::Go { to, facing }).collect() });
+    (m.pc, m.playing) = (0, true);
+}
+
+#[test]
+fn two_loops_squeeze_past_each_other_through_a_one_tile_gate() {
+    let mut g = Game::new();
+    (g.monsters[0].x, g.monsters[0].y) = (46, 9);
+    (g.monsters[1].x, g.monsters[1].y) = (52, 10);
+    walk_loop(&mut g, 0, &[((52, 10), Dir::Right), ((46, 9), Dir::Left)]);
+    walk_loop(&mut g, 1, &[((46, 9), Dir::Left), ((52, 10), Dir::Right)]);
+    g.run_ticks(1000);
+    let (a, b) = (g.monsters[0].loops, g.monsters[1].loops);
+    assert!(a >= 8 && b >= 8, "both kept looping head-on through the gate: {a} and {b}");
+}
+
+#[test]
+fn a_loop_walks_around_a_monster_standing_in_its_way() {
+    let mut g = Game::new();
+    (g.monsters[0].x, g.monsters[0].y) = (20, 13);
+    (g.monsters[1].x, g.monsters[1].y) = (25, 13); // Bruna stands still on the way
+    walk_loop(&mut g, 0, &[((30, 13), Dir::Right), ((20, 13), Dir::Left)]);
+    g.run_ticks(600);
+    assert!(g.monsters[0].loops >= 5, "Mogg looped {} times", g.monsters[0].loops);
+    assert_eq!((g.monsters[1].x, g.monsters[1].y), (25, 13), "nobody shoved Bruna aside");
+}
+
+#[test]
+fn hauling_pays_one_share_when_a_good_is_used_however_far_it_was_pushed() {
+    let mut g = Game::new();
+    g.world.items.push(Item::new(41, 27, good_like(&g.data, "fabric", 0.8)));
+    stand(&mut g, (40, 27), Dir::Right);
+    g.script("RR<R<R<RR"); // pushed back and forth: six pushes, three pulls
+    let k = g.world.items.iter().position(|it| it.good() == "fabric").unwrap();
+    assert_eq!(g.world.items[k].data.haul, vec![(1, 9)], "nine tiles, all Mogg's");
+    assert_eq!((g.world.items[k].x, g.world.items[k].y), (44, 27));
+    g.script("URD"); // around, then down into the cloth store
+    let stored = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").expect("delivered");
+    let mogg = stored.shares.iter().find(|s| s.monster == 1).map_or(0.0, |s| s.count);
+    assert!((mogg - 1.0).abs() < 1e-9, "one hauling share, not ten: {mogg}");
+    assert!(stored.haul.is_empty() && g.monsters[0].earned > 0.0);
 }

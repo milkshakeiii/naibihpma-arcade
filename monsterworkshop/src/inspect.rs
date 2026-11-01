@@ -262,6 +262,11 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
             .collect();
         details.push(line(format!("CREDIT: {}", credit.join(", ")), TEXT_DIM));
     }
+    if !item.haul.is_empty() {
+        let name = |id: u32| g.monsters.iter().find(|m| m.id == id).map_or("?", |m| m.name.as_str());
+        let moved: Vec<String> = item.haul.iter().map(|&(id, tiles)| format!("{} {tiles}", name(id))).collect();
+        details.push(line(format!("HAULED (TILES): {}. PAID WHEN IT'S USED.", moved.join(", ")), TEXT_DIM));
+    }
     Card::two(display_name(g, item), first, details, at)
 }
 

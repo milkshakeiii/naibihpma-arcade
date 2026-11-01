@@ -32,7 +32,8 @@
     "casting",
     "stone_carving",
     "carpentry",
-    "blacksmithing"
+    "blacksmithing",
+    "wagon_wright"
   ],
   "relevant_transferable_skills": {
     "hauling": ["athletics", "outdoorsmonstership", "social"],

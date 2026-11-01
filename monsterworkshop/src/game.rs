@@ -104,6 +104,8 @@ pub enum Species {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Act {
     Step(Dir, Option<String>),
+    /// A stretch of plain walking: get to this tile however you can, then face this way.
+    Go { to: (i32, i32), facing: Dir },
     /// Backing away in this direction, dragging this good from the tile in front.
     Pull(Dir, String),
     Use,
@@ -148,6 +150,11 @@ pub struct Monster {
     pub paused_at: Option<(i32, i32)>,
     pub wait: u16,
     pub wait_reason: String,
+    /// The way to the current "go to" goal, and how long it has been blocked by another monster.
+    #[serde(default)]
+    pub path: Vec<(i32, i32)>,
+    #[serde(default)]
+    pub blocked: u16,
     pub loops: u32,
     /// Renown credited to this monster from scored goods.
     pub earned: f64,
@@ -212,6 +219,8 @@ impl Monster {
             paused_at: None,
             wait: 0,
             wait_reason: String::new(),
+            path: Vec::new(),
+            blocked: 0,
             loops: 0,
             earned: 0.0,
             learned: None,
@@ -673,11 +682,20 @@ impl Game {
         let res = if pulling { self.try_pull(c, d, sfx) } else { self.try_step(c, d, sfx) };
         match res {
             StepRes::Moved(moved) => {
+                let (dx, dy) = d.delta();
+                let to = (self.monsters[c].x, self.monsters[c].y);
+                let ferry = self.world.ferry.as_ref().is_some_and(|f| f.crossing(to.0, to.1) || f.crossing(to.0 - dx, to.1 - dy));
                 if let Some(r) = self.monsters[c].rec.as_mut() {
-                    r.acts.push(match (pulling, moved) {
+                    let act = match (pulling, moved) {
                         (true, Some(good)) => Act::Pull(d, good),
+                        (_, None) if !ferry => Act::Go { to, facing: d },
                         (_, moved) => Act::Step(d, moved),
-                    });
+                    };
+                    // Consecutive walking merges into one "go to".
+                    match (act, r.acts.last_mut()) {
+                        (Act::Go { to, facing }, Some(Act::Go { to: last, facing: last_facing })) => (*last, *last_facing) = (to, facing),
+                        (act, _) => r.acts.push(act),
+                    }
                 }
                 if pulling {
                     self.say(c, "HNNNG...", false);
@@ -738,7 +756,9 @@ impl Game {
             return StepRes::Blocked("I CAN'T PULL IT ONTO A WORK SPOT.".into());
         }
         let slide = Some(Slide { dir: d, left: PULL_TICKS, total: PULL_TICKS });
+        let id = self.monsters[i].id;
         let item = &mut self.world.items[it];
+        item.data.hauled_by(id);
         let good = item.good().to_string();
         let (ix, iy) = (item.x, item.y);
         (item.x, item.y, item.hop, item.slide) = (x, y, 0, slide);
@@ -780,7 +800,9 @@ impl Game {
                 if board.wants != good {
                     return StepRes::Blocked(format!("THE BOARD WANTS {}.", self.good_name(&board.wants)));
                 }
-                let item = self.world.items.remove(it);
+                let mut item = self.world.items.remove(it);
+                item.data.hauled_by(self.monsters[i].id);
+                crate::econ::pay_haul(&mut item.data);
                 self.contribute(b, item.data, sfx);
                 self.events.push(Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
@@ -789,7 +811,11 @@ impl Game {
                     let names: Vec<String> = self.world.bins[b].accepts.iter().map(|a| self.good_name(a)).collect();
                     return StepRes::Blocked(format!("ONLY {} GOES IN THERE.", names.join(" OR ")));
                 }
-                let item = self.world.items.remove(it);
+                let mut item = self.world.items.remove(it);
+                item.data.hauled_by(self.monsters[i].id);
+                if self.world.bins[b].scores {
+                    crate::econ::pay_haul(&mut item.data);
+                }
                 let bin = &mut self.world.bins[b];
                 let scored = bin.scores.then(|| (item.data.value, item.data.shares.clone()));
                 bin.stock.push(item.data);
@@ -805,10 +831,12 @@ impl Game {
                 if !free {
                     return StepRes::Blocked(self.water_note(bx, by));
                 }
+                let id = self.monsters[i].id;
                 let item = &mut self.world.items[it];
                 item.x = bx;
                 item.y = by;
                 item.hop = 0;
+                item.data.hauled_by(id);
                 item.slide = Some(Slide { dir: d, left: PUSH_TICKS, total: PUSH_TICKS });
                 if let Some((s, k)) = self.world.pad_owner(bx, by) {
                     self.world.shops[s].pad_flash[k] = 5;
@@ -850,6 +878,19 @@ impl Game {
             return;
         };
         let outcome: Result<(), String> = match act {
+            Act::Go { to, facing } => match self.go_toward(i, to, facing, sfx) {
+                crate::walk::Going::Arrived => Ok(()),
+                crate::walk::Going::Waiting(msg) => Err(msg),
+                crate::walk::Going::Moving => {
+                    let m = &mut self.monsters[i];
+                    if m.wait >= WAIT_BEFORE_SAYING {
+                        m.bubble = None;
+                    }
+                    m.wait = 0;
+                    m.wait_reason.clear();
+                    return;
+                }
+            },
             Act::Step(d, expect) => {
                 let (dx, dy) = d.delta();
                 let (tx, ty) = (self.monsters[i].x + dx, self.monsters[i].y + dy);
@@ -976,6 +1017,7 @@ impl Game {
         }
         m.playing = true;
         m.wait = 0;
+        m.path.clear();
         self.say(i, "ON IT!", false);
         sfx.push(Sfx::LoopOn);
     }

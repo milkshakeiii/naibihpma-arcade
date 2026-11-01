@@ -19,7 +19,7 @@ enum ToolSource {
 
 /// A town workshop's built-in tool, used when nothing better hangs on its peg.
 fn builtin_tool(id: &str) -> ItemData {
-    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0 }
+    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new() }
 }
 
 /// What a work spot would make right now, for the forecast card.
@@ -272,7 +272,15 @@ impl Game {
         let recipe = self.data.good(&job.recipe).clone();
         let inputs_idx = self.match_inputs(s, &job.recipe).unwrap_or_default();
         let tool_src = self.match_tools(s, &job.recipe).unwrap_or_default();
-        let inputs: Vec<ItemData> = inputs_idx.iter().map(|&i| self.world.items[i].data.clone()).collect();
+        // Using the inputs pays whoever hauled them here; that credit flows into the output.
+        let inputs: Vec<ItemData> = inputs_idx
+            .iter()
+            .map(|&i| {
+                let mut d = self.world.items[i].data.clone();
+                econ::pay_haul(&mut d);
+                d
+            })
+            .collect();
         let tools: Vec<ItemData> = tool_src
             .iter()
             .map(|t| match t {
