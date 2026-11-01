@@ -87,6 +87,8 @@ pub struct Input {
     pub cancel_pressed: bool,
     pub help_pressed: bool,
     pub quit_pressed: bool,
+    /// Del, on the title screen: delete the picked world.
+    pub delete_pressed: bool,
     /// E held down: examine.
     pub inspect: bool,
     /// Shift held down: stepping away from an item drags it along.
@@ -106,6 +108,9 @@ pub enum Act {
     Step(Dir, Option<String>),
     /// A stretch of plain walking: get to this tile however you can, then face this way.
     Go { to: (i32, i32), facing: Dir },
+    /// A run of pushes (and pulls) of one good: get the good lying at `from` to `to` however
+    /// you can. `to` may be a bin, board or wagon that takes it.
+    Move { good: String, from: (i32, i32), to: (i32, i32) },
     /// Backing away in this direction, dragging this good from the tile in front.
     Pull(Dir, String),
     Use,
@@ -162,6 +167,20 @@ pub struct Monster {
     pub path: Vec<(i32, i32)>,
     #[serde(default)]
     pub blocked: u16,
+    /// Where the good of the current "move" goal is now, once it has been moved, and the
+    /// pushes and pulls still planned for it.
+    #[serde(default)]
+    pub carry: Option<(i32, i32)>,
+    #[serde(default)]
+    pub carry_plan: Vec<crate::carry::CarryStep>,
+    #[serde(default)]
+    pub carry_retry: u16,
+    /// Walking itself back to its flag to finish a recording (R away from the flag).
+    #[serde(default)]
+    pub homing: bool,
+    /// Steps to come back to: the loop went back to make again what one of them needed.
+    #[serde(default)]
+    pub detour: Vec<usize>,
     pub loops: u32,
     /// Renown credited to this monster from scored goods.
     pub earned: f64,
@@ -228,6 +247,11 @@ impl Monster {
             wait_reason: String::new(),
             path: Vec::new(),
             blocked: 0,
+            carry: None,
+            carry_plan: Vec::new(),
+            carry_retry: 0,
+            homing: false,
+            detour: Vec::new(),
             loops: 0,
             earned: 0.0,
             learned: None,
@@ -238,6 +262,38 @@ impl Monster {
         self.slide.is_none() && !self.busy
     }
 
+}
+
+/// Adds a recorded act, keeping recordings about goals: walking merges into one "go to", and
+/// moving the same good on from where its last move left it extends that move. Walks up to a
+/// move, or in between to get behind the good again, are the planner's business on replay:
+/// recorded, they'd send a loop to stand on tiles that may well hold the next good by then.
+fn record(r: &mut Routine, act: Act) {
+    match act {
+        Act::Go { to, facing } => match r.acts.last_mut() {
+            Some(Act::Go { to: last, facing: last_facing }) => (*last, *last_facing) = (to, facing),
+            _ => r.acts.push(Act::Go { to, facing }),
+        },
+        Act::Move { good, from, to } => {
+            let k = r.acts.iter().rposition(|a| !matches!(a, Act::Go { .. }));
+            if let Some(k) = k {
+                if let Act::Move { good: g, from: first, to: last_to } = &mut r.acts[k] {
+                    if *g == good && *last_to == from {
+                        *last_to = to;
+                        // Put back where it started (a slip, corrected): nothing to record.
+                        let undone = *first == to;
+                        r.acts.truncate(if undone { k } else { k + 1 });
+                        return;
+                    }
+                }
+            }
+            if matches!(r.acts.last(), Some(Act::Go { .. })) {
+                r.acts.pop();
+            }
+            r.acts.push(Act::Move { good, from, to });
+        }
+        act => r.acts.push(act),
+    }
 }
 
 fn starting_skills(transferable: &[&str], applied: &[(&str, f64)]) -> Skills {
@@ -256,6 +312,10 @@ pub(crate) enum StepRes {
 pub(crate) enum UseRes {
     Done,
     Wait(String),
+    /// This workshop (its label) has no room for what it would make.
+    Full(String),
+    /// What it would make from isn't on its pads (what to put there).
+    Missing(String),
     Nothing,
 }
 
@@ -562,6 +622,8 @@ impl Game {
         for i in 0..self.monsters.len() {
             if self.monsters[i].playing {
                 self.replay(i, sfx);
+            } else if self.monsters[i].homing && self.monsters[i].idle() {
+                self.walk_home(i, sfx);
             }
         }
         self.advance_motion();
@@ -634,11 +696,16 @@ impl Game {
             self.toggle_record(c, sfx);
         }
         if inp.cancel_pressed && self.monsters[c].rec.take().is_some() {
+            self.monsters[c].homing = false;
             self.say(c, "RECORDING CANCELLED.", false);
             sfx.push(Sfx::Deny);
         }
         if inp.play_pressed {
             self.toggle_play(c, sfx);
+        }
+        // Steering a monster that's walking itself home takes over: walk it back yourself.
+        if self.monsters[c].homing && (fresh.is_some() || inp.use_pressed) {
+            self.monsters[c].homing = false;
         }
 
         let m = &self.monsters[c];
@@ -671,22 +738,24 @@ impl Game {
         }
         if inp.use_pressed || std::mem::take(&mut self.queued_use) {
             self.queued = None;
+            let leading = self.led_wagon(c).is_some();
             match self.try_use(c, sfx) {
-                UseRes::Done => {
-                    if let Some(r) = self.monsters[c].rec.as_mut() {
-                        r.acts.push(Act::Use);
-                    }
-                }
-                UseRes::Wait(msg) => {
+                UseRes::Done => self.record_use(c, leading),
+                UseRes::Wait(msg) | UseRes::Missing(msg) => {
                     // Space on a plant is always part of a routine, ripe or not: on replay the
                     // monster waits there until it can harvest.
                     let m = &self.monsters[c];
                     if self.world.plant_at(m.x, m.y).is_some() {
-                        if let Some(r) = self.monsters[c].rec.as_mut() {
-                            r.acts.push(Act::Use);
-                        }
+                        self.record_use(c, leading);
                     }
                     self.say(c, &msg, true);
+                    sfx.push(Sfx::Deny);
+                }
+                // Still part of a routine: on replay there's usually room by then, and if not
+                // the loop skips it.
+                UseRes::Full(label) => {
+                    self.record_use(c, leading);
+                    self.say(c, &format!("THE {label} IS FULL. CLEAR ITS OUTPUT MAT."), true);
                     sfx.push(Sfx::Deny);
                 }
                 UseRes::Nothing => self.say(c, "NOTHING TO USE HERE.", false),
@@ -706,19 +775,26 @@ impl Game {
                 let to = (self.monsters[c].x, self.monsters[c].y);
                 let ferry = self.world.ferry.as_ref().is_some_and(|f| f.crossing(to.0, to.1) || f.crossing(to.0 - dx, to.1 - dy));
                 let leading = self.led_wagon(c).is_some();
+                // Where the good went: pushed on ahead, or pulled along into the tile left.
+                let (good_from, good_to) = if pulling { ((to.0 - 2 * dx, to.1 - 2 * dy), (to.0 - dx, to.1 - dy)) } else { (to, (to.0 + dx, to.1 + dy)) };
+                let ferry_good = self.world.ferry.as_ref().is_some_and(|f| f.crossing(good_from.0, good_from.1) || f.crossing(good_to.0, good_to.1));
+                let from = (to.0 - dx, to.1 - dy);
+                let from_deck = self.world.on_deck(from.0, from.1);
                 if let Some(r) = self.monsters[c].rec.as_mut() {
                     let act = match (pulling, moved) {
+                        // Moving a good: record where it went, not how. Leading a wagon or
+                        // using the ferry, the route itself matters, so those stay as recorded.
+                        (_, Some(good)) if !leading && !ferry && !ferry_good => Act::Move { good, from: good_from, to: good_to },
                         (true, Some(good)) => Act::Pull(d, good),
-                        // Leading a wagon, the route itself matters (the wagon follows it), so
-                        // those steps stay as recorded.
                         (_, None) if !ferry && !leading => Act::Go { to, facing: d },
                         (_, moved) => Act::Step(d, moved),
                     };
-                    // Consecutive walking merges into one "go to".
-                    match (act, r.acts.last_mut()) {
-                        (Act::Go { to, facing }, Some(Act::Go { to: last, facing: last_facing })) => (*last, *last_facing) = (to, facing),
-                        (act, _) => r.acts.push(act),
+                    // A step replayed as recorded starts where this one did; a planned move just
+                    // before it may end somewhere else, so go there first.
+                    if matches!(act, Act::Step(..) | Act::Pull(..)) && matches!(r.acts.last(), Some(Act::Move { .. })) && !from_deck {
+                        r.acts.push(Act::Go { to: from, facing: if pulling { d.opposite() } else { d } });
                     }
+                    record(r, act);
                 }
                 if pulling {
                     self.say(c, "HNNNG...", false);
@@ -739,6 +815,21 @@ impl Game {
                     }
                 }
             }
+        }
+    }
+
+    /// Records a Space, after a "go to" right here facing this way: the act before it may leave
+    /// the monster somewhere else on replay (a planned move ends wherever its last push does,
+    /// not where a recorded pull did). Leading a wagon, the steps here were recorded as they were.
+    fn record_use(&mut self, c: usize, leading: bool) {
+        let m = &self.monsters[c];
+        let (here, facing) = ((m.x, m.y), m.facing);
+        let anchor = !leading && !self.world.on_deck(here.0, here.1);
+        if let Some(r) = self.monsters[c].rec.as_mut() {
+            if anchor {
+                record(r, Act::Go { to: here, facing });
+            }
+            r.acts.push(Act::Use);
         }
     }
 
@@ -796,9 +887,32 @@ impl Game {
         self.world.dust(ix, iy, d);
         self.world.burst(ix, iy, PKind::Dust, 3);
         sfx.push(Sfx::Push);
+        self.follow_good(i, (ix, iy), (x, y));
         let m = &mut self.monsters[i];
         (m.x, m.y, m.slide, m.bump) = (tx, ty, slide, None);
         StepRes::Moved(Some(good))
+    }
+
+    /// A good was just pushed or pulled from one tile to another (or into a bin, board or
+    /// wagon there). A loop partway through moving it keeps track of it, whoever moved it, and
+    /// plans again from where it is now.
+    fn follow_good(&mut self, mover: usize, from: (i32, i32), to: (i32, i32)) {
+        for (k, m) in self.monsters.iter_mut().enumerate() {
+            // A looping mover is moving its own good, and keeps track of that itself.
+            if !(k == mover && m.playing) && m.carry == Some(from) {
+                (m.carry, m.carry_plan) = (Some(to), Vec::new());
+            }
+        }
+        // A good set aside for a loop, knocked off where it lay by anyone but that loop: it's
+        // no longer set aside, and the loop makes another.
+        if let Some(it) = self.world.item_at(to.0, to.1) {
+            if let Some(c) = self.world.items[it].data.claim {
+                let kept = self.monsters.iter().enumerate().any(|(k, m)| m.id == c.monster && (m.carry == Some(to) || (k == mover && m.playing)));
+                if !kept {
+                    self.world.items[it].data.claim = None;
+                }
+            }
+        }
     }
 
     pub(crate) fn try_step(&mut self, i: usize, d: Dir, sfx: &mut Vec<Sfx>) -> StepRes {
@@ -854,6 +968,7 @@ impl Game {
                 }
                 let bin = &mut self.world.bins[b];
                 let scored = bin.scores.then(|| (item.data.value, item.data.shares.clone()));
+                item.data.claim = None;
                 bin.stock.push(item.data);
                 bin.bounce = 4;
                 self.world.burst(bx, by, PKind::Spark, 5);
@@ -886,6 +1001,7 @@ impl Game {
                 self.world.dust(tx, ty, d);
                 sfx.push(Sfx::Push);
             }
+            self.follow_good(i, (tx, ty), (bx, by));
             self.practice(i, "hauling", ticks);
             pushed = Some(good);
         } else if i == self.controlled {
@@ -940,11 +1056,31 @@ impl Game {
         }
         let Some(act) = self.monsters[i].routine.as_ref().and_then(|r| r.acts.get(self.monsters[i].pc).cloned()) else {
             self.monsters[i].playing = false;
+            self.release_claims(i);
             return;
         };
+        let pc = self.monsters[i].pc;
         let outcome: Result<(), String> = match act {
-            Act::Go { to, facing } => match self.go_toward(i, to, facing, sfx) {
+            Act::Move { good, from, to } => match self.carry_toward(i, &good, from, to, sfx) {
                 crate::walk::Going::Arrived => Ok(()),
+                crate::walk::Going::Waiting(msg) => Err(msg),
+                crate::walk::Going::Redo(j) if self.redo(i, j, &good) => return,
+                crate::walk::Going::Redo(_) => Err(format!("WAITING FOR {}.", self.good_name(&good))),
+                crate::walk::Going::First(u) if self.detour(i, u) => return,
+                crate::walk::Going::First(_) => Err(format!("THE {} IS IN THE WAY.", self.good_name(&good))),
+                crate::walk::Going::Moving => {
+                    let m = &mut self.monsters[i];
+                    if m.wait >= WAIT_BEFORE_SAYING {
+                        m.bubble = None;
+                    }
+                    m.wait = 0;
+                    m.wait_reason.clear();
+                    return;
+                }
+            },
+            Act::Go { to, facing } => match self.go_toward(i, to, facing, sfx) {
+                // (Walking never asks to go back or ahead.)
+                crate::walk::Going::Arrived | crate::walk::Going::Redo(_) | crate::walk::Going::First(_) => Ok(()),
                 crate::walk::Going::Waiting(msg) => Err(msg),
                 crate::walk::Going::Moving => {
                     let m = &mut self.monsters[i];
@@ -984,18 +1120,50 @@ impl Game {
                     Some(_) => Err("THAT'S NOT WHAT I PULL.".into()),
                 }
             }
-            Act::Use => match self.try_use(i, sfx) {
-                UseRes::Done => Ok(()),
-                UseRes::Wait(msg) => Err(msg),
-                UseRes::Nothing => {
-                    let m = &mut self.monsters[i];
-                    m.playing = false;
-                    m.paused_at = Some((m.x, m.y));
-                    self.say(i, "I GOT LOST. TAKE ME TO MY FLAG.", true);
-                    sfx.push(Sfx::LoopOff);
-                    return;
+            Act::Use => {
+                // Pressed where it was recorded: go there first. (Usually it's there already, but
+                // a loop that went back to make something again comes from elsewhere.)
+                let there = match self.use_spot(i, pc) {
+                    Some((spot, facing)) => self.go_toward(i, spot, facing, sfx),
+                    None => crate::walk::Going::Arrived,
+                };
+                match there {
+                    crate::walk::Going::Moving => {
+                        let m = &mut self.monsters[i];
+                        if m.wait >= WAIT_BEFORE_SAYING {
+                            m.bubble = None;
+                        }
+                        m.wait = 0;
+                        m.wait_reason.clear();
+                        return;
+                    }
+                    crate::walk::Going::Waiting(msg) => Err(msg),
+                    // Nothing to make: what it would make already lies there, or is set aside
+                    // for every step that takes it.
+                    _ if self.already_made(i, pc) => Ok(()),
+                    _ => match self.try_use(i, sfx) {
+                        UseRes::Done => Ok(()),
+                        UseRes::Wait(msg) => Err(msg),
+                        // No room for more. If some of what's there is set aside for a later step
+                        // of this loop, that step makes room: carry on. Otherwise someone else
+                        // has to clear it.
+                        UseRes::Full(label) if self.feeds_any_claimed(i, pc) => {
+                            self.say(i, &format!("THE {label} IS FULL. ON TO THE NEXT STEP."), false);
+                            Ok(())
+                        }
+                        UseRes::Full(label) => Err(format!("THE {label} IS FULL. CLEAR ITS OUTPUT MAT.")),
+                        // Its inputs aren't on the pads: if an earlier step of this loop brings
+                        // them, go back and bring them.
+                        UseRes::Missing(msg) => match self.missing_input_step(i, pc) {
+                            Some((j, good)) if self.redo(i, j, &good) => return,
+                            _ => Err(msg),
+                        },
+                        // At the very spot it was pressed, nothing to use means what was used
+                        // has moved, and only wagons move: wait for it.
+                        UseRes::Nothing => Err("WAITING FOR THE WAGON.".into()),
+                    },
                 }
-            },
+            }
         };
         let m = &mut self.monsters[i];
         match outcome {
@@ -1005,6 +1173,13 @@ impl Game {
                 }
                 m.wait = 0;
                 m.wait_reason.clear();
+                self.step_done(i, pc);
+                let m = &mut self.monsters[i];
+                // Back from making something again, to the step that needed it.
+                if let Some(back) = m.detour.pop() {
+                    m.pc = back;
+                    return;
+                }
                 m.pc += 1;
                 if m.pc >= m.routine.as_ref().map_or(0, |r| r.acts.len()) {
                     m.pc = 0;
@@ -1025,6 +1200,7 @@ impl Game {
     }
 
     fn toggle_record(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
+        let leading = self.led_wagon(i).is_some();
         let m = &mut self.monsters[i];
         if m.playing {
             self.say(i, "STOP MY LOOP FIRST (P).", true);
@@ -1035,22 +1211,61 @@ impl Game {
         match m.rec.take() {
             None => {
                 m.rec = Some(Routine { flag: pos, acts: Vec::new(), facing: m.facing });
-                self.say(i, "RECORDING! BRING ME BACK HERE, THEN R.", false);
+                self.say(i, "RECORDING! R AGAIN TO FINISH.", false);
                 sfx.push(Sfx::RecOn);
             }
-            Some(r) if r.flag != pos => {
+            Some(r) if r.acts.is_empty() => self.say(i, "NOTHING RECORDED YET.", false),
+            // A wagon's route home matters (it follows every step), so that walk is the player's.
+            Some(r) if r.flag != pos && leading => {
                 m.rec = Some(r);
-                self.say(i, "STAND ON THE FLAG TO SAVE.", true);
+                self.say(i, "WALK US BACK TO THE FLAG, THEN R.", true);
                 sfx.push(Sfx::Deny);
             }
-            Some(r) if r.acts.is_empty() => self.say(i, "NOTHING RECORDED YET.", false),
-            Some(r) => {
-                m.routine = Some(r);
-                m.pc = 0;
-                m.paused_at = None;
-                self.say(i, "GOT IT! PRESS P TO LOOP.", false);
-                sfx.push(Sfx::RecSave);
+            // Away from the flag: walk back to it, then save. The walk is the loop's last act.
+            Some(r) if r.flag != pos => {
+                m.rec = Some(r);
+                m.homing = true;
+                (m.path, m.blocked) = (Vec::new(), 0);
+                self.say(i, "HEADING BACK TO MY FLAG.", false);
             }
+            Some(r) => self.save_recording(i, r, sfx),
+        }
+    }
+
+    fn save_recording(&mut self, i: usize, r: Routine, sfx: &mut Vec<Sfx>) {
+        self.release_claims(i);
+        let m = &mut self.monsters[i];
+        m.routine = Some(r);
+        m.detour.clear();
+        m.pc = 0;
+        m.paused_at = None;
+        self.say(i, "GOT IT! PRESS P TO LOOP.", false);
+        sfx.push(Sfx::RecSave);
+    }
+
+    /// One step of a monster walking itself back to its flag to finish recording. There, the
+    /// walk home goes on the end of the recording, and it's saved.
+    fn walk_home(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
+        let Some((flag, facing)) = self.monsters[i].rec.as_ref().map(|r| (r.flag, r.facing)) else {
+            self.monsters[i].homing = false;
+            return;
+        };
+        match self.go_toward(i, flag, facing, sfx) {
+            crate::walk::Going::Moving | crate::walk::Going::Redo(_) | crate::walk::Going::First(_) => {}
+            crate::walk::Going::Arrived => {
+                let m = &mut self.monsters[i];
+                m.homing = false;
+                let Some(mut r) = m.rec.take() else { return };
+                record(&mut r, Act::Go { to: flag, facing });
+                self.save_recording(i, r, sfx);
+            }
+            crate::walk::Going::Waiting(msg) if msg == crate::walk::NO_WAY => {
+                self.monsters[i].homing = false;
+                self.say(i, "I CAN'T FIND THE WAY BACK. WALK ME TO THE FLAG, THEN R.", true);
+                sfx.push(Sfx::Deny);
+            }
+            // Someone in the way, most likely: keep at it.
+            crate::walk::Going::Waiting(msg) => self.say(i, &msg, false),
         }
     }
 
@@ -1064,17 +1279,31 @@ impl Game {
         if m.playing {
             m.playing = false;
             m.paused_at = Some((m.x, m.y));
+            self.release_claims(i);
             self.say(i, "TAKING A BREAK.", false);
             sfx.push(Sfx::LoopOff);
             return;
         }
         let pos = (m.x, m.y);
+        let resuming = m.paused_at == Some(pos) && m.pc > 0;
+        let own_flag = m.routine.as_ref().is_some_and(|r| r.flag == pos);
+        // On another monster's flag: take up their loop, flag and all, and start it.
+        let theirs = (0..self.monsters.len()).find(|&o| o != i && self.monsters[o].routine.as_ref().is_some_and(|r| r.flag == pos));
+        let mut cheer = "ON IT!".to_string();
+        if let Some(o) = theirs.filter(|_| !resuming && !own_flag) {
+            let (routine, name) = (self.monsters[o].routine.clone(), self.monsters[o].name.clone());
+            let m = &mut self.monsters[i];
+            m.routine = routine;
+            m.paused_at = None;
+            cheer = format!("I'LL DO {name}'S LOOP TOO!");
+        }
+        let m = &mut self.monsters[i];
         let Some(flag) = m.routine.as_ref().map(|r| r.flag) else {
             self.say(i, "NO ROUTINE YET. R RECORDS ONE.", true);
             sfx.push(Sfx::Deny);
             return;
         };
-        if m.paused_at == Some(pos) && m.pc > 0 {
+        if resuming {
             // Resume where the loop was stopped.
         } else if pos == flag {
             m.pc = 0;
@@ -1089,7 +1318,13 @@ impl Game {
         m.playing = true;
         m.wait = 0;
         m.path.clear();
-        self.say(i, "ON IT!", false);
+        m.carry_plan.clear();
+        // Resumed partway through moving a good: carry on with that one.
+        if !resuming {
+            m.carry = None;
+            m.detour.clear();
+        }
+        self.say(i, &cheer, false);
         sfx.push(Sfx::LoopOn);
     }
 
@@ -1183,7 +1418,7 @@ impl Game {
         } else if m.slide.is_some_and(|s| s.total == PULL_TICKS) {
             ("PULLING. HEAVY GOING".to_string(), false)
         } else if let Some(r) = &m.rec {
-            (format!("RECORDING ({} ACTIONS)", r.acts.len()), false)
+            (format!("RECORDING ({} ACTIONS){}", r.acts.len(), if m.homing { ". HEADING BACK TO THE FLAG" } else { "" }), false)
         } else if m.playing && m.wait >= WAIT_BEFORE_SAYING {
             (m.wait_reason.trim_end_matches('.').to_string(), true)
         } else if m.playing {

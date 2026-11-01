@@ -303,13 +303,16 @@ fn make_icon(kind_cotton: bool) -> Sprite {
         s.set(3, 6, WOOD + 1);
         s.set(4, 6, WOOD + 1);
     } else {
-        for x in 1..=6 {
-            s.set(x, 1, WOOD + 2);
-            s.set(x, 6, WOOD + 2);
-        }
-        for y in 2..=5 {
-            for x in 2..=5 {
-                s.set(x, y, if y % 2 == 0 { THREAD + 1 } else { THREAD + 2 });
+        // The hank of thread as it lies in the world, small: a white ball lit from the top
+        // left, wound with two diagonal strands.
+        for y in 1..=6 {
+            for x in 1..=6 {
+                if (x == 1 || x == 6) && (y == 1 || y == 6) {
+                    continue;
+                }
+                let strand = x - y == 1 || x - y == -2;
+                let c = if strand || x + y >= 11 { COTTON } else if x + y <= 4 { COTTON + 2 } else { COTTON + 1 };
+                s.set(x, y, c);
             }
         }
     }
@@ -407,6 +410,99 @@ fn make_loom() -> Sprite {
     s.outline()
 }
 
+/// A hand roller gin set down on the floor: two rollers between posts on a base plank, a crank
+/// on the right, a tuft of cotton waiting at the top.
+fn make_gin() -> Sprite {
+    let mut s = Sprite::blank(16, 12);
+    for x in 1..=14 {
+        s.set(x, 10, WOOD + 2);
+        s.set(x, 11, WOOD);
+    }
+    for y in 2..=9 {
+        s.set(2, y, if y == 2 { WOOD + 3 } else { WOOD + 1 });
+        s.set(11, y, if y == 2 { WOOD + 3 } else { WOOD + 1 });
+    }
+    for x in 3..=10 {
+        for (y, c) in [(4, WOOD + 3), (5, WOOD + 2), (7, WOOD + 3), (8, WOOD + 2)] {
+            s.set(x, y, c);
+        }
+    }
+    for (x, y, c) in [(5, 3, COTTON + 1), (6, 3, COTTON + 2), (7, 3, COTTON + 2), (8, 3, COTTON + 1), (6, 2, COTTON + 2)] {
+        s.set(x, y, c);
+    }
+    for x in 12..=13 {
+        s.set(x, 5, WOOD + 2);
+    }
+    for y in 3..=5 {
+        s.set(14, y, WOOD + 3);
+    }
+    s.outline()
+}
+
+/// A cotton bow lying on its back: an arched wooden bow, its string along the floor.
+fn make_bow() -> Sprite {
+    let mut s = Sprite::blank(16, 7);
+    for (x, y) in [(1, 6), (2, 5), (3, 4), (4, 3), (11, 3), (12, 4), (13, 5), (14, 6)] {
+        s.set(x, y, WOOD + 2);
+    }
+    for x in 5..=10 {
+        s.set(x, 2, WOOD + 3);
+        s.set(x, 3, if (7..=8).contains(&x) { WOOD + 1 } else { WOOD + 2 });
+    }
+    for x in 2..=13 {
+        s.set(x, 6, COTTON + 2);
+    }
+    s.outline()
+}
+
+/// A small spinning wheel set down on the floor: smaller than the spinnery's, and bare.
+fn make_wheel_tool() -> Sprite {
+    let mut s = Sprite::blank(14, 13);
+    let (cx, cy, r) = (7, 5, 4);
+    for k in -(r - 1)..=(r - 1) {
+        s.set(cx + k, cy, WOOD + 2);
+        s.set(cx, cy + k, WOOD + 2);
+    }
+    for a in 0..48 {
+        let t = a as f32 / 48.0 * std::f32::consts::TAU;
+        let x = cx + (t.cos() * r as f32).round() as i32;
+        let y = cy + (t.sin() * r as f32).round() as i32;
+        s.set(x, y, if y < cy { WOOD + 3 } else { WOOD + 2 });
+    }
+    s.set(cx, cy, SPARK);
+    for (x0, x1) in [(5, 3), (9, 11)] {
+        for y in 9..=11 {
+            s.set(x0 + (x1 - x0) * (y - 9) / 2, y, WOOD + 1);
+        }
+    }
+    for x in 2..=12 {
+        s.set(x, 12, WOOD);
+    }
+    s.outline()
+}
+
+/// A waist loom laid flat: the far beam, the warp running down to a strip already woven, and
+/// the beam that sits at the weaver's waist.
+fn make_waist_loom() -> Sprite {
+    let mut s = Sprite::blank(16, 10);
+    for x in 1..=14 {
+        s.set(x, 2, WOOD + 3);
+        s.set(x, 9, WOOD + 2);
+    }
+    for x in (3..=13).step_by(2) {
+        for y in 3..=5 {
+            s.set(x, y, COTTON + 1);
+        }
+    }
+    for x in 2..=13 {
+        s.set(x, 4, if x % 2 == 1 { COTTON + 1 } else { WOOD + 3 });
+        for y in 6..=8 {
+            s.set(x, y, if y == 6 { COTTON + 2 } else { COTTON + 1 });
+        }
+    }
+    s.outline()
+}
+
 fn make_crate() -> Sprite {
     let mut s = Sprite::blank(12, 10);
     for y in 1..=9 {
@@ -475,11 +571,20 @@ fn make_tool_icon(id: &str) -> Sprite {
             }
             circle_fill(&mut s, 6, 3, 1, [WOOD + 2, WOOD + 3, WOOD + 3]);
         }
+        // Small versions of how they lie in the world: ramie a tied bundle, bamboo loose canes.
         "ramie_stalks" => {
-            for x in [1, 3, 5] {
-                for y in 1..=7 {
-                    s.set(x, y, LEAF + 1);
-                    s.set(x + 1, y, LEAF + 2);
+            for y in 2..=5 {
+                for x in 0..=7 {
+                    s.set(x, y, if y == 2 { LEAF + 2 } else if (x + y) % 3 == 0 { LEAF } else { LEAF + 1 });
+                }
+                s.set(5, y, WOOD + 2);
+            }
+        }
+        "arrow_bamboo" => {
+            for (y, c) in [(1, LEAF + 2), (3, LEAF + 1), (5, LEAF + 1)] {
+                for x in 0..=7 {
+                    s.set(x, y, if x % 4 == 3 { LEAF } else { c });
+                    s.set(x, y + 1, LEAF);
                 }
             }
         }
@@ -540,14 +645,16 @@ fn make_tool_icon(id: &str) -> Sprite {
                 s.set(x, y, COTTON + 2);
             }
         }
+        // Wooden flanges around wound red thread, as the spool lies in the world.
         "spool" => {
-            for x in 2..=5 {
+            for x in 1..=6 {
                 s.set(x, 1, WOOD + 3);
                 s.set(x, 6, WOOD + 2);
             }
             for y in 2..=5 {
-                s.set(3, y, COTTON + 2);
-                s.set(4, y, COTTON + 1);
+                for x in 2..=5 {
+                    s.set(x, y, if x == 2 || x == 5 { THREAD } else if y % 2 == 0 { THREAD + 1 } else { THREAD + 2 });
+                }
             }
         }
         _ => {
@@ -1107,6 +1214,11 @@ pub struct Sprites {
     pub pumpkin: [Sprite; 2],
     /// Tailgate shut, open.
     pub wagon: [Sprite; 2],
+    /// Tools lying on the floor (on a peg they hang as their icon).
+    pub gin: Sprite,
+    pub bow: Sprite,
+    pub wheel_tool: Sprite,
+    pub waist_loom: Sprite,
 }
 
 impl Sprites {
@@ -1121,7 +1233,7 @@ impl Sprites {
             bench: make_bench(),
             loom: make_loom(),
             crate_: make_crate(),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "indigofera_leaves"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
             wheel: [make_wheel(0), make_wheel(1)],
@@ -1153,6 +1265,10 @@ impl Sprites {
             tub: make_tub(),
             pumpkin: [make_pumpkin(0), make_pumpkin(1)],
             wagon: [make_wagon(false), make_wagon(true)],
+            gin: make_gin(),
+            bow: make_bow(),
+            wheel_tool: make_wheel_tool(),
+            waist_loom: make_waist_loom(),
         }
     }
 }
@@ -1178,6 +1294,10 @@ impl Sprites {
             "quicklime" => &self.quicklime,
             "indigo" => &self.indigo,
             "wooden_tub" => &self.tub,
+            "cotton_gin" => &self.gin,
+            "cotton_bow" => &self.bow,
+            "spinning_wheel" => &self.wheel_tool,
+            "waist_loom" => &self.waist_loom,
             other => self.icon(other).unwrap_or(&self.crate_),
         }
     }
@@ -1210,7 +1330,7 @@ mod tests {
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
         let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1]];
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);

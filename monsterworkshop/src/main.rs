@@ -1,4 +1,6 @@
 mod audio;
+mod carry;
+mod claim;
 #[allow(dead_code)] // the schema mirrors the JSON; some fields are read in later stages
 mod data;
 #[allow(dead_code)] // tiers, value, weight and the forecast feed stages 3 and 4
@@ -50,13 +52,14 @@ fn main() {
 
 /// The title screen's list of worlds, or the world being played.
 enum Screen {
-    Title { worlds: Vec<PathBuf>, sel: usize, error: Option<String> },
+    /// `deleting`: Del was pressed once on the picked world; Del again deletes it.
+    Title { worlds: Vec<PathBuf>, sel: usize, error: Option<String>, deleting: bool },
     Play { game: Box<Game>, path: PathBuf, since_save: u32 },
 }
 
 impl Screen {
     fn title(error: Option<String>) -> Self {
-        Screen::Title { worlds: save::list_worlds(), sel: 0, error }
+        Screen::Title { worlds: save::list_worlds(), sel: 0, error, deleting: false }
     }
 }
 
@@ -130,6 +133,7 @@ fn run_window(audio: &mut Audio, windowed: bool) {
         let mut crt = true;
         let mut dirs: [Edge; 4] = Default::default();
         let (mut e_use, mut e_rec, mut e_play, mut e_tab, mut e_cancel, mut e_f1, mut e_f2, mut e_esc) = Default::default();
+        let mut e_del = Edge::default();
 
         let tick = Duration::from_micros(66_667);
         let mut next_tick = Instant::now();
@@ -167,6 +171,7 @@ fn run_window(audio: &mut Audio, windowed: bool) {
                 latched.cancel_pressed |= Edge::rose(&mut e_cancel, key_down(VK_BACK));
                 latched.help_pressed |= Edge::rose(&mut e_f1, key_down(VK_F1));
                 latched.quit_pressed |= Edge::rose(&mut e_esc, key_down(VK_ESCAPE));
+                latched.delete_pressed |= Edge::rose(&mut e_del, key_down(VK_DELETE));
                 if Edge::rose(&mut e_f2, key_down(VK_F2)) {
                     crt = !crt;
                 }
@@ -184,20 +189,36 @@ fn run_window(audio: &mut Audio, windowed: bool) {
 
             let inp = std::mem::take(&mut latched);
             match &mut screen {
-                Screen::Title { worlds, sel, error } => {
+                Screen::Title { worlds, sel, error, deleting } => {
                     let count = worlds.len() + 1; // "NEW WORLD" first, then saved worlds
+                    // Anything but a second Del keeps the world.
+                    let kept = *deleting && (inp.pressed.iter().any(|&p| p) || inp.use_pressed || inp.quit_pressed);
+                    if kept {
+                        (*deleting, *error) = (false, None);
+                    } else if inp.quit_pressed {
+                        break 'running;
+                    }
                     if inp.pressed[0] {
                         *sel = (*sel + count - 1) % count;
                     }
                     if inp.pressed[1] {
                         *sel = (*sel + 1) % count;
                     }
-                    if inp.quit_pressed {
-                        break 'running;
+                    if inp.delete_pressed && *sel > 0 {
+                        let path = worlds[*sel - 1].clone();
+                        if *deleting {
+                            let failed = save::delete(&path).err().map(|e| format!("COULDN'T DELETE IT: {e}"));
+                            let left = save::list_worlds();
+                            *sel = (*sel).min(left.len());
+                            (*worlds, *error, *deleting) = (left, failed, false);
+                        } else {
+                            *deleting = true;
+                            *error = Some(format!("DEL AGAIN DELETES {} FOR GOOD. ESC KEEPS IT.", save::display_name(&path)));
+                        }
                     }
                     let names: Vec<String> = worlds.iter().map(|p| save::display_name(p)).collect();
-                    render::draw_title(&mut fb, &names, *sel, error.as_deref());
-                    if inp.use_pressed {
+                    render::draw_title(&mut fb, &names, *sel, error.as_deref(), *deleting);
+                    if inp.use_pressed && !kept {
                         let started = if *sel == 0 {
                             Ok((Game::new(), save::new_world_path()))
                         } else {
@@ -461,7 +482,63 @@ fn export_screenshots(dir: &Path) {
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (bx + 2, by + 1, game::Dir::Right);
     g.run_ticks(3);
     save(&g, "31_bridge.png");
-    render::draw_title(&mut fb, &["WORLD 2".to_string(), "WORLD 1".to_string()], 1, None);
+
+    // A loop's next thread brought up ready beside the loom, still busy with the last one.
+    let mut lg = Game::new();
+    lg.monsters[0].bubble = None;
+    lg.world.items.push(world::Item::new(44, 21, good("thread", &["cotton"])));
+    (lg.monsters[0].x, lg.monsters[0].y, lg.monsters[0].facing) = (43, 21, game::Dir::Right);
+    use_now(&mut lg);
+    lg.world.items.push(world::Item::new(44, 17, good("thread", &["cotton"])));
+    let m = &mut lg.monsters[1];
+    (m.x, m.y, m.facing) = (44, 16, game::Dir::Down);
+    m.routine = Some(game::Routine { flag: (44, 16), acts: vec![game::Act::Move { good: "thread".into(), from: (44, 17), to: (44, 21) }], facing: game::Dir::Down });
+    (m.pc, m.playing) = (0, true);
+    for _ in 0..300 {
+        if lg.monsters[1].bubble.is_some() {
+            break;
+        }
+        lg.run_ticks(1);
+    }
+    save(&lg, "32_ready_at_the_loom.png");
+    let titles = ["WORLD 2".to_string(), "WORLD 1".to_string()];
+    render::draw_title(&mut fb, &titles, 1, None, false);
     fb.save_png(&dir.join("12_title.png"), &pal, &pal, 0);
+    render::draw_title(&mut fb, &titles, 2, Some("DEL AGAIN DELETES WORLD 1 FOR GOOD. ESC KEEPS IT."), true);
+    fb.save_png(&dir.join("33_delete_world.png"), &pal, &pal, 0);
+
+    // Every good with art of its own: how it lies in the world, then its icon, to check they
+    // read as the same thing.
+    let goods = [
+        "cotton_bolls", "cotton_slivers", "thread", "fabric", "dyed_fabric", "rope", "spool", "cotton_gin", "cotton_bow", "spinning_wheel", "waist_loom", "wooden_tub",
+        "hemlock_log", "oak_log", "elder_sticks", "rhododendron_sticks", "arrow_bamboo", "ramie_stalks", "indigofera_leaves", "lye", "limestone", "quicklime", "indigo",
+    ];
+    fb.rect_fill(0, 0, 400, 300, palette::PLANK + 1);
+    for (k, id) in goods.iter().enumerate() {
+        let (x, y) = ((k % 3) as i32 * 133 + 6, (k / 3) as i32 * 37 + 6);
+        let s = sprites.item(id);
+        fb.blit(s, x + (16 - s.w) / 2, y + 16 - s.h, false);
+        match sprites.icon(id) {
+            Some(icon) => fb.blit(icon, x + 22, y + 4, false),
+            None => fb.text("-", x + 24, y + 4, palette::TEXT, Some(palette::OUTLINE), 1),
+        }
+        for (l, line) in tutorial::wrap(&g.good_name(id), 15).iter().enumerate() {
+            fb.text(line, x + 34, y + 2 + l as i32 * 10, palette::TEXT, Some(palette::OUTLINE), 1);
+        }
+    }
+    fb.save_png(&dir.join("34_sprites_and_icons.png"), &pal, &pal, 0);
+
+    // A tool hangs on its peg as its icon; set down on the floor it's its full sprite.
+    let mut tg = Game::new();
+    tg.monsters[0].bubble = None;
+    tg.world.items.push(world::Item::new(13, 8, good("cotton_gin", &[])));
+    tg.world.items.push(world::Item::new(17, 10, good("cotton_bow", &[])));
+    tg.world.items.push(world::Item::new(19, 10, good("cotton_gin", &[])));
+    tg.world.items.push(world::Item::new(21, 10, good("spinning_wheel", &[])));
+    tg.world.items.push(world::Item::new(23, 10, good("waist_loom", &[])));
+    (tg.monsters[0].x, tg.monsters[0].y) = (16, 12);
+    tg.run_ticks(2);
+    render::draw(&tg, &sprites, &mut fb);
+    fb.save_png(&dir.join("35_tools.png"), &pal, &pal, 0);
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

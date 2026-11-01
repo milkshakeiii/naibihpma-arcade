@@ -187,6 +187,10 @@ pub struct Job {
     pub recipe: String,
     pub t: u32,
     pub total: u32,
+    /// The step of the monster's loop whose Space started it, if a loop did: what it makes
+    /// is set aside for the steps that one feeds.
+    #[serde(default)]
+    pub step: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

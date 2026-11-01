@@ -9,12 +9,20 @@ use crate::world::{Dir, Slide, DIRS};
 use std::collections::VecDeque;
 
 /// Ticks a monster waits behind another before looking for a way around it.
-const REPLAN_AFTER: u16 = 6;
+pub(crate) const REPLAN_AFTER: u16 = 6;
+/// What a monster says when no path at all leads where it's going.
+pub(crate) const NO_WAY: &str = "I CAN'T FIND A WAY THERE.";
 
 pub(crate) enum Going {
     Arrived,
     Moving,
     Waiting(String),
+    /// Only from moving a good: it isn't there, and this earlier step of the loop makes it. Go
+    /// back and make it again.
+    Redo(usize),
+    /// Only from moving a good: where it's going is taken by one this later step of the loop
+    /// uses. Do that step first, then come back.
+    First(usize),
 }
 
 fn dir_to((x, y): (i32, i32), (nx, ny): (i32, i32)) -> Dir {
@@ -91,7 +99,7 @@ impl Game {
         if !path_ok {
             match self.plan(here, to, false) {
                 Some(p) => self.monsters[i].path = p,
-                None => return Going::Waiting("I CAN'T FIND A WAY THERE.".into()),
+                None => return Going::Waiting(NO_WAY.into()),
             }
         }
         let next = self.monsters[i].path[0];
@@ -103,6 +111,11 @@ impl Game {
             if other.playing && other.idle() && other_going && other.path.first() == Some(&here) && free_hands {
                 self.squeeze_past(i, o);
                 return Going::Moving;
+            }
+            // One that's only waiting there, and doesn't need to be, steps aside.
+            let keep: Vec<(i32, i32)> = std::iter::once(here).chain(self.monsters[i].path.iter().copied()).collect();
+            if self.make_way(o, &keep, i) {
+                return Going::Waiting("EXCUSE ME!".into());
             }
             let m = &mut self.monsters[i];
             m.blocked += 1;
@@ -129,6 +142,56 @@ impl Game {
                 self.monsters[i].path.clear();
                 Going::Waiting(if msg.is_empty() { "WAITING...".into() } else { msg })
             }
+        }
+    }
+
+    /// A looping monster that's only waiting, on a tile its current step doesn't need it on,
+    /// steps aside for one that needs to get by: onto a free tile next to it, clear of
+    /// `keep_clear`. (Waiting at its own work spot, ready to push a good, or on a recorded
+    /// step, it stays put.)
+    /// Nor does it block `for_whom` if that's who it's waiting on, ready or not.
+    pub(crate) fn make_way(&mut self, o: usize, keep_clear: &[(i32, i32)], for_whom: usize) -> bool {
+        let m = &self.monsters[o];
+        if !m.playing || !m.idle() || m.wait == 0 || self.led_wagon(o).is_some() {
+            return false;
+        }
+        let here = (m.x, m.y);
+        let needs_here = match m.routine.as_ref().and_then(|r| r.acts.get(m.pc)) {
+            Some(Act::Use) => self.use_spot(o, m.pc).is_none_or(|(p, _)| p == here),
+            // Moving a good, only where it's about to push or pull from (or waits, ready).
+            Some(Act::Move { .. }) => match (m.carry, m.carry_plan.first()) {
+                (Some(at), Some(&(d, pull))) => here == if pull { (at.0 + d.delta().0, at.1 + d.delta().1) } else { (at.0 - d.delta().0, at.1 - d.delta().1) },
+                _ => false,
+            },
+            Some(Act::Go { .. }) => false,
+            _ => true,
+        };
+        if needs_here && !self.waits_on(o, for_whom) {
+            return false;
+        }
+        let beside = |d: Dir| (here.0 + d.delta().0, here.1 + d.delta().1);
+        let Some(d) = DIRS.iter().copied().find(|&d| self.open(beside(d).0, beside(d).1, true) && !keep_clear.contains(&beside(d))) else {
+            return false;
+        };
+        let m = &mut self.monsters[o];
+        (m.x, m.y) = beside(d);
+        m.facing = d;
+        if matches!(d, Dir::Left | Dir::Right) {
+            m.flip = d == Dir::Left;
+        }
+        m.slide = Some(Slide { dir: d, left: WALK_TICKS, total: WALK_TICKS });
+        m.path.clear();
+        true
+    }
+
+    /// Is monster `o` waiting on monster `r`: moving a good from or to a tile where one of
+    /// `r`'s set-aside goods lies?
+    fn waits_on(&self, o: usize, r: usize) -> bool {
+        let m = &self.monsters[o];
+        let held_by_r = |(x, y): (i32, i32)| self.world.item_at(x, y).is_some_and(|k| self.world.items[k].data.claim.is_some_and(|c| c.monster == self.monsters[r].id));
+        match m.routine.as_ref().and_then(|rt| rt.acts.get(m.pc)) {
+            Some(Act::Move { from, to, .. }) => held_by_r(*to) || (m.carry.is_none() && held_by_r(*from)),
+            _ => false,
         }
     }
 

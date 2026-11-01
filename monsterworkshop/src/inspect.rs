@@ -277,6 +277,10 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
     } else {
         details.push(line(format!("VALUE {:.1}", item.value), TEXT_DIM));
     }
+    // Why other loops won't touch it.
+    if let Some(m) = item.claim.and_then(|c| g.monsters.iter().find(|m| m.id == c.monster)) {
+        first.push(line(format!("SET ASIDE FOR {}'S LOOP", m.name), TEXT_DIM));
+    }
     if is_tool(g, item) {
         let left = item.durability_left();
         first.push(line(format!("{left}/{} USES LEFT", econ::TOOL_DURABILITY), TEXT).icon(Icon::Wear).bar(left as f64 / econ::TOOL_DURABILITY as f64));

@@ -318,7 +318,7 @@ fn draw_applicant_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) 
     let h = lines.len() as i32 * 9 + 4;
     let (px, py) = v.px(sx, sy);
     let cx = px + 8;
-    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py + TS + 6).min(VIEW_H - h - 2), w, h, cx, above: false, lines, icon: None, warn: g.renown < a.cost as f64 };
+    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py + TS + 6).min(VIEW_H - h - 2), w, h, cx, above: false, lines, icon: None, mark: None, warn: g.renown < a.cost as f64 };
     draw_bubble(fb, sp, &b);
 }
 
@@ -645,12 +645,16 @@ fn draw_bin(sp: &Sprites, fb: &mut Framebuffer, v: &View, b: &Bin) {
 }
 
 fn draw_flags(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    // Flags sharing a tile (a copied loop) stand side by side.
+    let mut drawn: Vec<(i32, i32)> = Vec::new();
     for m in &g.monsters {
         let flag = if m.species == Species::Goblin { &sp.flag_goblin } else { &sp.flag_cyclops };
         if let Some((fx, fy)) = m.rec.as_ref().or(m.routine.as_ref()).map(|r| r.flag) {
+            let n = drawn.iter().filter(|&&p| p == (fx, fy)).count() as i32;
+            drawn.push((fx, fy));
             if v.sees(fx, fy) {
                 let (x, y) = v.px(fx, fy);
-                fb.blit(flag, x + 1, y + TS - flag.h, false);
+                fb.blit(flag, x + 1 + n * 5, y + TS - flag.h, false);
             }
         }
     }
@@ -690,13 +694,17 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         match b {
             Body::Item(i) => {
                 let it = &g.world.items[i];
-                let s = sp.item(it.good());
+                // A tool on a peg hangs there as its icon, where the empty peg's ghost was.
+                let hung = g.world.tile(it.x, it.y) == Tile::Peg && it.slide.is_none();
+                let s = sp.icon(it.good()).filter(|_| hung).unwrap_or_else(|| sp.item(it.good()));
                 let (ox, oy) = Slide::offset(it.slide);
                 let (tx, ty) = v.px(it.x, it.y);
                 let jitter = if it.locked { (g.frame / 2 % 2) as i32 } else { 0 };
                 let x = tx + ox + (TS - s.w) / 2 + jitter;
-                let y = ty + TS - s.h + oy - HOP[it.hop.min(6) as usize];
-                fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
+                let y = if hung { ty + 5 } else { ty + TS - s.h + oy - HOP[it.hop.min(6) as usize] };
+                if !hung {
+                    fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
+                }
                 // Ungraded goods have no quality to show: no tint, no twinkle.
                 let graded = g.data.try_good(it.good()).is_some_and(|gt| gt.has_quality);
                 let q = it.data.quality;
@@ -866,14 +874,17 @@ fn draw_edge_markers(g: &Game, fb: &mut Framebuffer, v: &View) {
     let mut placed: Vec<(i32, i32)> = Vec::new();
     for (i, m) in g.monsters.iter().enumerate().filter(|(_, m)| !v.sees(m.x, m.y)) {
         let (px, py) = v.px(m.x, m.y);
-        let (mut x, mut y) = ((px + 8).clamp(9, 391), (py + 8).clamp(9, VIEW_H - 9));
-        while placed.iter().any(|&(ox, oy)| (ox - x).abs() < 14 && (oy - y).abs() < 14) {
-            if x == 9 || x == 391 {
-                y = if y + 14 <= VIEW_H - 9 { y + 14 } else { y - 14 };
-            } else {
-                x = if x + 14 <= 391 { x + 14 } else { x - 14 };
-            }
-        }
+        let (x, y) = ((px + 8).clamp(9, 391), (py + 8).clamp(9, VIEW_H - 9));
+        // Markers sharing a spot slide along the edge to the nearest clear one; if the edge is
+        // full, they overlap.
+        let clear = |(x, y): (i32, i32)| !placed.iter().any(|&(ox, oy)| (ox - x).abs() < 14 && (oy - y).abs() < 14);
+        let along = x == 9 || x == 391;
+        let (x, y) = (0..30)
+            .flat_map(|k| [k * 14, -k * 14])
+            .map(|o| if along { (x, y + o) } else { (x + o, y) })
+            .filter(|&(x, y)| (9..=391).contains(&x) && (9..=VIEW_H - 9).contains(&y))
+            .find(|&p| clear(p))
+            .unwrap_or((x, y));
         placed.push((x, y));
         let (_, col) = state_of(g, i);
         fb.rect_fill(x - 6, y - 6, 13, 13, OUTLINE);
@@ -956,6 +967,8 @@ struct BubbleBox {
     above: bool, // bubble sits above the monster, tail points down
     lines: Vec<String>,
     icon: Option<String>,
+    /// A card icon after the good's, such as the hourglass of a ready wait.
+    mark: Option<Icon>,
     warn: bool,
 }
 
@@ -977,14 +990,17 @@ fn layout_bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
         } else {
             None
         };
+        // Brought up beside its goal, waiting its turn: the good and an hourglass, not "?".
+        let mark = (compact && icon.is_some() && m.wait_reason.starts_with("READY")).then_some(Icon::Time);
         let lines = match (compact, &icon) {
             (false, _) => wrap(&b.text, 24),
+            (true, Some(_)) if mark.is_some() => Vec::new(),
             (true, Some(_)) => vec!["?".to_string()],
             (true, None) => vec!["...".to_string()],
         };
-        let icon_w = if icon.is_some() { 9 } else { 0 };
+        let icon_w = if icon.is_some() { 9 } else { 0 } + if mark.is_some() { 7 } else { 0 };
         let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6 + icon_w;
-        let h = lines.len() as i32 * 9 + 4;
+        let h = lines.len().max(1) as i32 * 9 + 4;
         let (ox, oy) = Slide::offset(m.slide);
         let (mx, my) = v.px(m.x, m.y);
         let cx = mx + ox + 8;
@@ -1018,7 +1034,7 @@ fn layout_bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
                 y = y.max(2);
             }
         }
-        placed.push(BubbleBox { x, y, w, h, cx, above, lines, icon, warn: b.warn });
+        placed.push(BubbleBox { x, y, w, h, cx, above, lines, icon, mark, warn: b.warn });
     }
     placed
 }
@@ -1039,6 +1055,9 @@ fn draw_bubble(fb: &mut Framebuffer, sp: &Sprites, b: &BubbleBox) {
     if let Some(icon) = b.icon.as_deref().and_then(|id| sp.icon(id)) {
         fb.blit(icon, b.x + 3, b.y + 2, false);
         tx += 9;
+    }
+    if let Some(mark) = &b.mark {
+        draw_icon(fb, sp, mark, tx - 1, b.y + 3);
     }
     for (k, line) in b.lines.iter().enumerate() {
         fb.text(line, tx, b.y + 3 + k as i32 * 9, INK, None, 1);
@@ -1061,8 +1080,9 @@ fn draw_hud(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     let _ = sp;
 }
 
-/// The title screen: start a new world or pick a saved one.
-pub fn draw_title(fb: &mut Framebuffer, worlds: &[String], sel: usize, error: Option<&str>) {
+/// The title screen: start a new world or pick a saved one. `deleting`: the picked world is
+/// one Del away from being deleted.
+pub fn draw_title(fb: &mut Framebuffer, worlds: &[String], sel: usize, error: Option<&str>, deleting: bool) {
     fb.rect_fill(0, 0, 400, 300, HEDGE);
     fb.rect_checker(0, 0, 400, 300, GRASS);
     fb.text_centered("MONSTER WORKSHOP", 200, 40, SPARK + 2, Some(OUTLINE), 3);
@@ -1079,18 +1099,20 @@ pub fn draw_title(fb: &mut Framebuffer, worlds: &[String], sel: usize, error: Op
                 fb.rect_fill(x + 10 + k as i32, ly + 3 - h / 2, 1, *h, SPARK + 2);
             }
         }
-        fb.text(name, x + 22, ly, if k == sel { TEXT } else { TEXT_DIM }, Some(HUD_SHADOW), 1);
+        let col = if k == sel && deleting { TEXT_WARN } else if k == sel { TEXT } else { TEXT_DIM };
+        fb.text(name, x + 22, ly, col, Some(HUD_SHADOW), 1);
     }
     if let Some(e) = error {
         for (k, l) in wrap(e, 60).iter().enumerate() {
             fb.text_centered(l, 200, y + h + 10 + k as i32 * 10, TEXT_WARN, Some(OUTLINE), 1);
         }
     }
-    fb.text_centered("ARROWS PICK  SPACE STARTS  ESC QUITS", 200, 282, TEXT, Some(OUTLINE), 1);
+    fb.text_centered("ARROWS PICK  SPACE STARTS  DEL DELETES  ESC QUITS", 200, 282, TEXT, Some(OUTLINE), 1);
 }
 
 fn draw_help(fb: &mut Framebuffer) {
-    let (w, h) = (252, HELP.len() as i32 * 11 + 34);
+    let w = HELP.iter().map(|l| Framebuffer::text_width(l, 1)).max().unwrap_or(0) + 24;
+    let h = HELP.len() as i32 * 11 + 34;
     let (x, y) = ((400 - w) / 2, (VIEW_H - h) / 2);
     fb.rect_checker(0, 0, 400, VIEW_H, OUTLINE);
     fb.rect_bevel(x, y, w, h, HUD_FILL, HUD_HI, HUD_SHADOW);

@@ -180,6 +180,17 @@ pub fn save(g: &Game, path: &Path) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+/// Deletes a world: its save, both backups and any half-written save.
+pub fn delete(path: &Path) -> std::io::Result<()> {
+    for extra in ["bak1", "bak2", "json.tmp"] {
+        let p = path.with_extension(extra);
+        if p.exists() {
+            std::fs::remove_file(p)?;
+        }
+    }
+    std::fs::remove_file(path)
+}
+
 pub fn load(path: &Path) -> Result<Game, String> {
     let json = std::fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
     from_json(&json)
@@ -232,6 +243,11 @@ mod tests {
         assert!(path.exists() && path.with_extension("bak1").exists() && path.with_extension("bak2").exists());
         assert!(!path.with_extension("json.tmp").exists());
         assert_eq!(load(&path).expect("loads").frame, g.frame);
+        let other = dir.join("world-2.json");
+        save(&g, &other).expect("saves");
+        delete(&path).expect("deletes");
+        assert!(!path.exists() && !path.with_extension("bak1").exists() && !path.with_extension("bak2").exists(), "gone, backups and all");
+        assert!(other.exists(), "and only that world");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
