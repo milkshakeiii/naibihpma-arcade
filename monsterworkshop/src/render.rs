@@ -60,7 +60,6 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
         let s = sp.plant(&p.good, p.stage());
         fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
     }
-    draw_ferry(g, sp, fb, &v);
     draw_boards_and_signs(g, sp, fb, &v);
     for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1)) {
         let (x, y) = v.px(s.spot.0, s.spot.1);
@@ -129,7 +128,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
             let h = hash(wx + x, wy + y);
             let c = match ground {
                 Tile::Grass | Tile::Bin | Tile::Tree | Tile::Sign => grass(h),
-                Tile::Water => {
+                Tile::Water | Tile::Footbridge => {
                     // Slow ripples drifting downstream; a lighter lip where the bank begins.
                     let drift = (y + (g.frame / 10) as i32) % TS;
                     if y == 0 && g.world.tile(tx, ty - 1) != Tile::Water {
@@ -204,6 +203,23 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
             if g.world.tile(tx, ty + dy) != Tile::Bridge {
                 fb.rect_fill(x0, y0 + row, TS, 2, WOOD);
                 fb.rect_fill(x0, y0 + row + if dy < 0 { 1 } else { 0 }, TS, 1, WOOD + 2);
+            }
+        }
+    }
+    if tile == Tile::Footbridge {
+        // Planks laid across between two ropes, and a post where each end meets the bank.
+        for x in 0..TS {
+            let seam = (x + tx * 2) % 4 == 3;
+            fb.rect_fill(x0 + x, y0 + 4, 1, 8, if seam { PLANK } else { PLANK + 1 });
+            fb.pset(x0 + x, y0 + 4, PLANK + 2);
+        }
+        for row in [3, 12] {
+            fb.rect_fill(x0, y0 + row, TS, 1, OUTLINE);
+        }
+        for (dx, px) in [(-1, 0), (1, TS - 2)] {
+            if g.world.tile(tx + dx, ty) != Tile::Footbridge {
+                fb.rect_fill(x0 + px, y0 + 1, 2, 13, OUTLINE);
+                fb.rect_fill(x0 + px, y0 + 2, 1, 11, WOOD + 2);
             }
         }
     }
@@ -572,28 +588,6 @@ fn draw_trees(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     }
 }
 
-/// The ferry's rope across the river (once it is strung) and the boat on it.
-fn draw_ferry(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
-    let Some(f) = &g.world.ferry else { return };
-    if !(v.sees(f.west - 1, f.y) || v.sees(f.east + 2, f.y)) {
-        return;
-    }
-    let (x0, y) = v.px(f.west - 1, f.y);
-    let (x1, _) = v.px(f.east + 2, f.y);
-    for x in [x0 + 11, x1 + 3] {
-        fb.rect_fill(x, y - 3, 3, 12, OUTLINE);
-        fb.rect_fill(x + 1, y - 2, 1, 10, WOOD + 2);
-    }
-    if f.rigged {
-        fb.rect_fill(x0 + 13, y - 1, x1 - x0 - 10, 1, WOOD + 3);
-        fb.rect_fill(x0 + 13, y, x1 - x0 - 10, 1, OUTLINE);
-    }
-    let (bx, by) = v.px(f.x, f.y);
-    let ox = Slide::offset(f.slide).0;
-    let bob = if f.moving && g.frame / 6 % 2 == 0 { 1 } else { 0 };
-    fb.blit(&sp.boat, bx + ox, by + TS - 6 + bob, false);
-}
-
 /// Project boards with their progress, and signposts with where they point.
 fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     for b in g.world.boards.iter().filter(|b| v.sees(b.x, b.y)) {
@@ -783,9 +777,7 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
 fn monster_pose<'a>(g: &Game, sp: &'a Sprites, v: &View, i: usize) -> (i32, i32, &'a Sprite, bool) {
     let m = &g.monsters[i];
     let frames = if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops };
-    // Riders stand still while the ferry carries them.
-    let riding = g.world.ferry.as_ref().is_some_and(|f| f.slide.is_some() && f.on_deck(m.x, m.y));
-    let frame = if m.slide.is_some() && !riding {
+    let frame = if m.slide.is_some() {
         2 + m.walk_frame as usize
     } else if m.busy {
         (g.frame / 2 % 2) as usize

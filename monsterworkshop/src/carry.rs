@@ -7,7 +7,7 @@
 
 use crate::game::{Game, Sfx, StepRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
 use crate::sched::Hold;
-use crate::walk::{Going, REPLAN_AFTER};
+use crate::motion::{Going, EXCUSE_ME};
 use crate::world::{Dir, Tile, DIRS};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -30,15 +30,15 @@ impl Game {
     /// standing at `me`, and what they cost. Costs are ticks: walking between moves, pushes, and
     /// very slow pulls. A* over (where the good is, which side of it the monster stands), over
     /// the whole map, so a route that has to go a long way round is still found. Other monsters
-    /// are ignored (most move on) unless `around_monsters`. The goal counts as free: anything on
-    /// it when this is asked is being worked, so about to be gone. Ties break in a fixed order,
-    /// so the same world always gives the same plan.
-    pub(crate) fn plan_carry(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str, around_monsters: bool) -> Option<(Vec<CarryStep>, u32)> {
-        self.plan_carry_with(from, to, me, good, around_monsters, false)
+    /// are ignored: they move on. The goal counts as free: anything on it when this is asked is
+    /// being worked, so about to be gone. Ties break in a fixed order, so the same world always
+    /// gives the same plan.
+    pub(crate) fn plan_carry(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str) -> Option<(Vec<CarryStep>, u32)> {
+        self.plan_carry_with(from, to, me, good, false)
     }
 
     /// The same, but as if strays weren't there (for finding which to shove aside).
-    fn plan_carry_with(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str, around_monsters: bool, through_strays: bool) -> Option<(Vec<CarryStep>, u32)> {
+    fn plan_carry_with(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str, through_strays: bool) -> Option<(Vec<CarryStep>, u32)> {
         if from == to {
             return Some((Vec::new(), 0));
         }
@@ -54,18 +54,17 @@ impl Game {
             taken[idx((it.x, it.y))] = true;
         }
         let mut blocked = vec![false; cells];
-        let monsters = self.monsters.iter().map(|m| (m.x, m.y)).filter(|&p| around_monsters && p != me);
         // A parked wagon stays put; one being led moves on, like a monster.
-        let carts = self.world.wagons.iter().filter(|wg| around_monsters || wg.leader.is_none()).flat_map(|wg| [wg.at, wg.pumpkin]);
+        let carts = self.world.wagons.iter().filter(|wg| wg.leader.is_none()).flat_map(|wg| [wg.at, wg.pumpkin]);
         let stands = self.world.stands.iter().zip(&self.applicants).filter(|(_, a)| a.is_some()).map(|(&s, _)| s);
-        for p in monsters.chain(carts).chain(stands).filter(|&p| inside(p)) {
+        for p in carts.chain(stands).filter(|&p| inside(p)) {
             blocked[idx(p)] = true;
         }
         let mut walk = vec![false; cells];
         let mut rest = vec![false; cells];
         for c in 0..cells {
             let p = at(c);
-            let clear = !blocked[c] && !self.world.on_deck(p.0, p.1);
+            let clear = !blocked[c];
             walk[c] = !taken[c] && clear && self.world.walkable(p.0, p.1);
             rest[c] = (!taken[c] || p == to) && clear && self.world.item_floor(p.0, p.1);
         }
@@ -211,7 +210,7 @@ impl Game {
         let (w, h) = (self.world.w, self.world.h);
         let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
         let open = |(x, y): (i32, i32)| {
-            x >= 0 && y >= 0 && x < w && y < h && (x, y) != avoid && self.world.walkable(x, y) && !self.world.on_deck(x, y) && !self.world.cart_at(x, y) && self.world.item_at(x, y).is_none_or(|k| self.is_stray(&self.world.items[k]))
+            x >= 0 && y >= 0 && x < w && y < h && (x, y) != avoid && self.world.walkable(x, y) && !self.world.cart_at(x, y) && self.world.item_at(x, y).is_none_or(|k| self.is_stray(&self.world.items[k]))
         };
         let mut prev = vec![usize::MAX; (w * h) as usize];
         prev[idx(from)] = idx(from);
@@ -252,7 +251,7 @@ impl Game {
         let it = &self.world.items[k];
         let (at, good) = ((it.x, it.y), it.good().to_string());
         let me = (self.monsters[i].x, self.monsters[i].y);
-        let (plan, _) = self.plan_carry_with(at, to, me, &good, false, true)?;
+        let (plan, _) = self.plan_carry_with(at, to, me, &good, true)?;
         let (mut b, mut pos, mut route) = (at, me, Vec::new());
         for (d, pull) in plan {
             let (dx, dy) = d.delta();
@@ -290,7 +289,7 @@ impl Game {
             .filter(|&(x, y)| self.world.item_at(x, y).is_none() && self.monster_at(x, y).is_none())
             .collect();
         spots.sort_by_key(|&(x, y)| ((x - from.0).abs() + (y - from.1).abs(), y, x));
-        spots.into_iter().take(12).filter_map(|t| self.plan_carry(from, t, me, &good, false).map(|(_, cost)| (cost, t))).min().map(|(_, t)| t)
+        spots.into_iter().take(12).filter_map(|t| self.plan_carry(from, t, me, &good).map(|(_, cost)| (cost, t))).min().map(|(_, t)| t)
     }
 
     /// One push or pull, or a step of the walk to make it, of item `k` toward `to`. With
@@ -305,7 +304,7 @@ impl Game {
         }
         let here = (self.monsters[i].x, self.monsters[i].y);
         if self.monsters[i].carry_plan.is_empty() {
-            match self.plan_carry(at, to, here, &good, false) {
+            match self.plan_carry(at, to, here, &good) {
                 Some((plan, _)) if plan.is_empty() => return Going::Arrived,
                 Some((plan, _)) => self.monsters[i].carry_plan = plan,
                 None => {
@@ -327,32 +326,13 @@ impl Game {
         // along behind a monster backing away.
         let dest = if pull { (at.0 + 2 * dx, at.1 + 2 * dy) } else { next };
         // Another monster, or a wagon being led, where this move is made from (once next to it)
-        // or where it goes (once making it) holds it up. Those move on, mostly; going around
-        // costs extra, so wait about that long first, then go around. (Waiting it out never
-        // costs more than twice the best choice in hindsight.)
+        // or where it goes (once making it) is waited for: greedy, for now (see `motion.rs`).
         let in_way = |(x, y): (i32, i32)| self.monster_at(x, y).is_some_and(|o| o != i) || self.world.wagons.iter().any(|w| w.leader.is_some() && (w.at == (x, y) || w.pumpkin == (x, y)));
         let near = (here.0 - stand.0).abs() + (here.1 - stand.1).abs() <= 1;
         let blocking = if near && in_way(stand) { Some(stand) } else if here == stand && in_way(dest) { Some(dest) } else { None };
-        if let Some(o) = blocking.and_then(|(x, y)| self.monster_at(x, y)).filter(|&o| o != i) {
-            (self.monsters[i].waiting_on, self.monsters[i].held_up) = (Some(o), true);
-            // One that's waiting there and comes after this one in line makes way.
-            if self.make_way(o, &[here, stand, dest, at], i) {
-                return Going::Waiting(self.excuse_me(i));
-            }
-        }
-        if blocking.is_some() {
-            let m = &mut self.monsters[i];
-            m.blocked = m.blocked.saturating_add(1);
-            if m.blocked % REPLAN_AFTER == 0 {
-                let waited = self.monsters[i].blocked as u32;
-                let through = self.plan_carry(at, to, here, &good, false).map_or(u32::MAX, |(_, c)| c);
-                if let Some((plan, around)) = self.plan_carry(at, to, here, &good, true).filter(|(p, _)| !p.is_empty()) {
-                    if around <= through.saturating_add(waited) {
-                        self.monsters[i].carry_plan = plan;
-                    }
-                }
-            }
-            return Going::Waiting(self.excuse_me(i));
+        if let Some((x, y)) = blocking {
+            self.monsters[i].waiting_on = self.monster_at(x, y).filter(|&o| o != i);
+            return Going::Waiting(EXCUSE_ME.into());
         }
         // Something landed where this move is made from since planning: plan again.
         if self.world.item_at(stand.0, stand.1).is_some_and(|o| o != k) {
@@ -360,7 +340,7 @@ impl Game {
             return Going::Waiting("SOMETHING'S IN THE WAY.".into());
         }
         if here != stand {
-            return match self.go_toward(i, stand, if pull { d.opposite() } else { d }, sfx) {
+            return match self.go_toward(i, stand, Some(if pull { d.opposite() } else { d }), sfx) {
                 Going::Arrived => Going::Moving,
                 // No way there for strays: shove the first aside.
                 Going::Stuck(msg) => match self.stray_on_walk(i, stand).filter(|_| may_shove) {
@@ -382,7 +362,6 @@ impl Game {
         match res {
             StepRes::Moved(_) => {
                 m.carry_plan.remove(0);
-                m.blocked = 0;
                 if next == to {
                     (m.carry, m.carry_plan) = (None, Vec::new());
                     return Going::Arrived;

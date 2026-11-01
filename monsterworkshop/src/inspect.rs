@@ -6,7 +6,7 @@ use crate::data::{matches, GoodType};
 use crate::econ::{self, chance_at_least, tier_name, Craft, Crafter, Forecast, ItemData, EXCEPTIONAL, MASTERWORK};
 use crate::game::{Game, RENOWN_PER_VALUE};
 use crate::palette::*;
-use crate::world::{Dir, Ferry, Project, Tile, TS};
+use crate::world::{Dir, Project, Tile, TS};
 
 /// Small pictures that lead a line. Each means the same thing on every card.
 #[derive(Clone, Debug, PartialEq)]
@@ -202,8 +202,8 @@ pub fn card(g: &Game) -> Card {
         };
         return Card::one("SIGNPOST", vec![line(format!("{} LIES {way}.", s.text), TEXT)], (fx, fy));
     }
-    if let Some(f) = g.world.ferry.as_ref().filter(|f| f.crossing(fx, fy) || f.on_deck(m.x, m.y)) {
-        return ferry_card(g, f, (fx, fy));
+    if g.world.footbridge.contains(&(fx, fy)) {
+        return footbridge_card(g, (fx, fy));
     }
     if g.world.tile(fx, fy) == Tile::Tree {
         return Card::one("TREE", vec![line("AN OLD TREE. IT ISN'T FOR GATHERING.", TEXT), line("LIGHTER, YOUNGER TREES GIVE WOOD.", TEXT_DIM)], (fx, fy));
@@ -245,16 +245,15 @@ fn board_card(g: &Game, b: usize) -> Card {
     Card::one(board.title.clone(), lines, (board.x, board.y))
 }
 
-fn ferry_card(g: &Game, f: &Ferry, at: (i32, i32)) -> Card {
-    let lines = if !f.rigged {
-        let board = g.world.boards.iter().find(|b| b.project == Project::Ferry);
+fn footbridge_card(g: &Game, at: (i32, i32)) -> Card {
+    let lines = if !g.world.footbridge_built() {
+        let board = g.world.boards.iter().find(|b| b.project == Project::Footbridge);
         let left = board.map_or(0, |b| b.need - b.have.min(b.need));
-        vec![line("NO ROPE TO PULL IT ACROSS YET.", TEXT_WARN).icon(Icon::Warn), line(format!("{left} MORE ROPE FOR THE BOARD ON THE BANK."), TEXT_DIM).icon(Icon::Good("rope".into()))]
+        vec![line("NO ROPE ACROSS YET.", TEXT_WARN).icon(Icon::Warn), line(format!("{left} MORE ROPE FOR THE BOARD ON THE BANK."), TEXT_DIM).icon(Icon::Good("rope".into()))]
     } else {
-        let state = if f.moving { "CROSSING NOW." } else { "WAITING AT THE BANK." };
-        vec![line(state, TEXT_GOOD), line("ANYTHING ON ITS DECK RIDES ACROSS.", TEXT), line("IT WAITS FOR ANYONE ON THE LANDING.", TEXT_DIM)]
+        vec![line("MONSTERS AND GOODS CROSS IT.", TEXT_GOOD), line("WAGONS DON'T FIT: THEY CROSS AT THE BRIDGE.", TEXT_DIM)]
     };
-    Card::one("THE FERRY", lines, at)
+    Card::one("THE FOOTBRIDGE", lines, at)
 }
 
 fn is_tool(g: &Game, item: &ItemData) -> bool {

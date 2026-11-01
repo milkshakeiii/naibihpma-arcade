@@ -926,27 +926,6 @@ fn make_rope() -> Sprite {
     s.outline()
 }
 
-/// The ferry: a flat two-tile boat with a plank deck.
-fn make_boat() -> Sprite {
-    let mut s = Sprite::blank(32, 9);
-    for y in 1..=7 {
-        let inset = (y - 4).max(0);
-        for x in 1 + inset..=30 - inset {
-            let c = match y {
-                1 => WOOD + 3,
-                2 | 3 => if (x + 2) % 8 == 0 { PLANK } else { PLANK + 2 },
-                4 => WOOD + 2,
-                _ => WOOD + (y == 5) as u8,
-            };
-            s.set(x, y, c);
-        }
-    }
-    for x in [2, 29] {
-        s.set(x, 0, WOOD + 3);
-    }
-    s.outline()
-}
-
 fn make_signpost() -> Sprite {
     let mut s = Sprite::blank(14, 16);
     for y in 5..=15 {
@@ -1200,7 +1179,6 @@ pub struct Sprites {
     pub stalk_bundle: Sprite,
     pub leaves: Sprite,
     pub rope: Sprite,
-    pub boat: Sprite,
     pub signpost: Sprite,
     pub board: Sprite,
     pub kiln: [Sprite; 2],
@@ -1252,7 +1230,6 @@ impl Sprites {
             stalk_bundle: make_stalk_bundle(),
             leaves: make_leaves(),
             rope: make_rope(),
-            boat: make_boat(),
             signpost: make_signpost(),
             board: make_board(),
             kiln: [make_kiln(0), make_kiln(1)],

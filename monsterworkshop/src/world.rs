@@ -1,5 +1,5 @@
 //! The world as data: region maps (`data/*.map`) laid side by side, with their workshops,
-//! bins, plants, project boards and the ferry, plus the items lying around. No monsters
+//! bins, plants, project boards and the footbridge, plus the items lying around. No monsters
 //! here; `game.rs` moves them and asks the world what is where.
 
 use crate::data::{matches, Data};
@@ -17,7 +17,7 @@ pub const TOWN_WORKSHOP_QUALITY: f64 = 0.8;
 pub const OUTPUT_BUFFER: usize = 9;
 
 // `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `Y` tree  `w` water
-// `F` the ferry's boat, docked at the west bank  `s` signpost  `b` project board
+// `F` where the footbridge starts, at the west bank  `s` signpost  `b` project board
 // `X` water where the bridge will go  `U` the town wagon  `P` its pumpkin
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
@@ -45,7 +45,7 @@ const REGIONS: [Region; 3] = [
         map: include_str!("../data/wilderness.map"),
         labels: &[],
         signs: &[("TANGLEMERE", Dir::Right)],
-        boards: &[("A ROPE FOR THE FERRY", "rope", 3, Project::Ferry), ("A BRIDGE ACROSS THE RIVER", "log", 12, Project::Bridge)],
+        boards: &[("A ROPE FOR THE FOOTBRIDGE", "rope", 3, Project::Footbridge), ("A BRIDGE ACROSS THE RIVER", "log", 12, Project::Bridge)],
     },
     Region {
         map: include_str!("../data/tanglemere.map"),
@@ -126,6 +126,9 @@ pub enum Tile {
     Sign,
     /// Planks over the river, once the bridge project is done.
     Bridge,
+    /// A rope footbridge over the river, once its project is done: monsters cross it and push
+    /// goods over it, but wagons don't fit.
+    Footbridge,
 }
 
 impl Tile {
@@ -241,8 +244,8 @@ pub struct Bin {
 /// What finishing a project does to the world.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Project {
-    /// The rope is strung and the ferry starts running.
-    Ferry,
+    /// Ropes strung across the river make a footbridge.
+    Footbridge,
     /// The bridge goes up where the river was, and wagons can cross.
     Bridge,
 }
@@ -311,46 +314,6 @@ impl Wagon {
     /// The one kind of good it is carrying, if any.
     pub fn good(&self) -> Option<&str> {
         self.stock.first().map(|(d, _)| d.good.as_str())
-    }
-}
-
-/// A rope ferry: a two-tile boat pulled back and forth across the river along its rope.
-/// Anything on its deck rides along. It waits at each bank, and never leaves while someone
-/// stands on the landing or is still stepping aboard.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Ferry {
-    pub y: i32,
-    /// The boat's west tile when docked at the west and east banks.
-    pub west: i32,
-    pub east: i32,
-    /// The boat's west tile now.
-    pub x: i32,
-    /// The way it goes next: 1 east, -1 west.
-    pub heading: i32,
-    pub moving: bool,
-    pub timer: u32,
-    /// The rope is strung, so the ferry runs.
-    pub rigged: bool,
-    pub slide: Option<Slide>,
-}
-
-impl Ferry {
-    pub fn on_deck(&self, x: i32, y: i32) -> bool {
-        y == self.y && (x == self.x || x == self.x + 1)
-    }
-
-    /// The bank tile the boat is docked against, if it is docked.
-    pub fn landing(&self) -> Option<(i32, i32)> {
-        match (self.moving, self.x == self.west, self.x == self.east) {
-            (false, true, _) => Some((self.west - 1, self.y)),
-            (false, _, true) => Some((self.east + 2, self.y)),
-            _ => None,
-        }
-    }
-
-    /// Is this a water tile of the ferry's crossing?
-    pub fn crossing(&self, x: i32, y: i32) -> bool {
-        y == self.y && x >= self.west && x <= self.east + 1
     }
 }
 
@@ -464,7 +427,8 @@ pub struct World {
     pub shops: Vec<Shop>,
     pub particles: Vec<Particle>,
     pub boards: Vec<Board>,
-    pub ferry: Option<Ferry>,
+    /// Where the footbridge goes up when its project is done.
+    pub footbridge: Vec<(i32, i32)>,
     /// Where the bridge goes up when its project is done.
     pub bridge: Vec<(i32, i32)>,
     pub wagons: Vec<Wagon>,
@@ -573,13 +537,13 @@ impl World {
                 b.mouth = Some(m);
             }
         }
-        // The boat docks at the west bank; the east dock is the far end of the same stretch of water.
-        let ferry = boat.iter().min().map(|&(west, y)| {
+        // The footbridge spans the stretch of water from its west end to the far bank.
+        let footbridge: Vec<(i32, i32)> = boat.iter().min().map_or_else(Vec::new, |&(west, y)| {
             let mut far = west;
             while tiles[(y * w + far + 1) as usize] == Tile::Water {
                 far += 1;
             }
-            Ferry { y, west, east: far - 1, x: west, heading: 1, moving: false, timer: 0, rigged: false, slide: None }
+            (west..=far).map(|x| (x, y)).collect()
         });
         let wagons = wagon_at
             .zip(pumpkin_at)
@@ -599,7 +563,7 @@ impl World {
             })
             .into_iter()
             .collect();
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, ferry, bridge, wagons, signs, labels, starts, stands, last_item_id: 0, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     pub fn tile(&self, x: i32, y: i32) -> Tile {
@@ -610,18 +574,19 @@ impl World {
         }
     }
 
-    /// Can a monster stand here? Water can't be walked on, except the ferry's deck.
+    /// Can a monster stand here?
     pub fn walkable(&self, x: i32, y: i32) -> bool {
-        self.tile(x, y).walkable() || self.on_deck(x, y)
+        self.tile(x, y).walkable()
     }
 
     /// Can an item lie here?
     pub fn item_floor(&self, x: i32, y: i32) -> bool {
-        self.tile(x, y).item_floor() || self.on_deck(x, y)
+        self.tile(x, y).item_floor()
     }
 
-    pub fn on_deck(&self, x: i32, y: i32) -> bool {
-        self.ferry.as_ref().is_some_and(|f| f.on_deck(x, y))
+    /// Can a wagon (or its pumpkin) roll here? Anywhere a monster walks, but the footbridge.
+    pub fn wagon_way(&self, x: i32, y: i32) -> bool {
+        self.walkable(x, y) && self.tile(x, y) != Tile::Footbridge
     }
 
     pub fn wagon_at(&self, x: i32, y: i32) -> Option<usize> {
@@ -642,6 +607,17 @@ impl World {
         for &(x, y) in &self.bridge {
             self.tiles[(y * self.w + x) as usize] = Tile::Bridge;
         }
+    }
+
+    /// Ropes strung across the river: the footbridge.
+    pub fn build_footbridge(&mut self) {
+        for &(x, y) in &self.footbridge {
+            self.tiles[(y * self.w + x) as usize] = Tile::Footbridge;
+        }
+    }
+
+    pub fn footbridge_built(&self) -> bool {
+        self.footbridge.first().is_some_and(|&(x, y)| self.tile(x, y) == Tile::Footbridge)
     }
 
     pub fn bridge_built(&self) -> bool {

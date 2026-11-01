@@ -8,12 +8,12 @@
 use crate::econ::Rng;
 use crate::game::{Applicant, Game, Monster};
 use crate::tutorial::Tutorial;
-use crate::world::{Bin, Board, Ferry, Item, Plant, Project, Shop, Wagon};
+use crate::world::{Bin, Board, Item, Plant, Project, Shop, Wagon};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 8;
+pub const VERSION: u32 = 9;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -33,7 +33,6 @@ struct SaveRef<'a> {
     bins: &'a [Bin],
     shops: &'a [Shop],
     boards: &'a [Board],
-    ferry: &'a Option<Ferry>,
     wagons: &'a [Wagon],
     monsters: &'a [Monster],
     applicants: &'a [Option<Applicant>],
@@ -64,7 +63,6 @@ struct SaveData {
     bins: Vec<Bin>,
     shops: Vec<Shop>,
     boards: Vec<Board>,
-    ferry: Option<Ferry>,
     wagons: Vec<Wagon>,
     monsters: Vec<Monster>,
     applicants: Vec<Option<Applicant>>,
@@ -89,7 +87,6 @@ pub fn to_json(g: &Game) -> String {
         bins: &g.world.bins,
         shops: &g.world.shops,
         boards: &g.world.boards,
-        ferry: &g.world.ferry,
         wagons: &g.world.wagons,
         monsters: &g.monsters,
         applicants: &g.applicants,
@@ -123,9 +120,11 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     g.world.bins = d.bins;
     g.world.shops = d.shops;
     g.world.boards = d.boards;
-    g.world.ferry = d.ferry;
     g.world.wagons = d.wagons;
     // Finished projects that changed the map change it again.
+    if g.world.boards.iter().any(|b| b.project == Project::Footbridge && b.done()) {
+        g.world.build_footbridge();
+    }
     if g.world.boards.iter().any(|b| b.project == Project::Bridge && b.done()) {
         g.world.build_bridge();
     }

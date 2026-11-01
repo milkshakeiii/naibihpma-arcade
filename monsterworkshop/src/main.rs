@@ -8,15 +8,14 @@ mod econ;
 mod framebuffer;
 mod game;
 mod inspect;
+mod motion;
 mod palette;
 mod render;
 mod save;
 mod sched;
 mod sprites;
-mod tangle;
 mod tutorial;
 mod wagon;
-mod walk;
 mod work;
 mod world;
 
@@ -354,7 +353,7 @@ fn export_screenshots(dir: &Path) {
     save(&g, "11_help.png");
     g.help = false;
 
-    // M2: the ferry's board, the ferry running, the wilderness and Tanglemere.
+    // M2: the footbridge's board, the footbridge, the wilderness and Tanglemere.
     g.renown = 0.0;
     let board = g.world.boards[0].clone();
     (g.monsters[0].x, g.monsters[0].y) = (board.x, board.y + 1);
@@ -362,7 +361,7 @@ fn export_screenshots(dir: &Path) {
     g.world.boards[0].have = board.need - 1;
     g.run_ticks(2);
     g.inspecting = true;
-    save(&g, "13_ferry_board.png");
+    save(&g, "13_footbridge_board.png");
     g.inspecting = false;
     let stored = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric in the cloth store");
     let mut rope = stored.clone();
@@ -371,20 +370,15 @@ fn export_screenshots(dir: &Path) {
     (g.monsters[0].x, g.monsters[0].y) = (board.x, board.y + 2);
     g.script("U");
     g.run_ticks(24);
-    save(&g, "14_the_ferry_runs.png");
-    let f = g.world.ferry.clone().expect("a ferry");
+    save(&g, "14_the_footbridge.png");
+    let (fx, fy) = *g.world.footbridge.first().expect("a footbridge");
     let mut cloth = stored;
     cloth.quality = 1.1;
-    g.world.items.push(world::Item::new(f.west - 1, f.y, cloth));
-    (g.monsters[0].x, g.monsters[0].y) = (f.west - 2, f.y);
-    g.script("RR");
-    for _ in 0..200 {
-        if g.world.ferry.as_ref().is_some_and(|f| f.moving && f.x == f.west + 2) {
-            break;
-        }
-        g.run_ticks(1);
-    }
-    save(&g, "15_ferry_crossing.png");
+    g.world.items.push(world::Item::new(fx - 1, fy, cloth));
+    (g.monsters[0].x, g.monsters[0].y) = (fx - 2, fy);
+    g.script("RRR");
+    g.run_ticks(12);
+    save(&g, "15_crossing_the_footbridge.png");
     (g.monsters[0].x, g.monsters[0].y) = (80, 7);
     g.run_ticks(3);
     save(&g, "16_thatch_hills.png");
@@ -493,7 +487,7 @@ fn export_screenshots(dir: &Path) {
     lg.world.items.push(world::Item::new(44, 17, good("thread", &["cotton"])));
     let m = &mut lg.monsters[1];
     (m.x, m.y, m.facing) = (44, 16, game::Dir::Down);
-    m.routine = Some(game::Routine { flag: (44, 16), acts: vec![game::Act::Move { good: "thread".into(), from: (44, 17), to: (44, 21) }], facing: game::Dir::Down });
+    m.routine = Some(game::Routine { flag: (44, 16), goals: vec![game::Goal::Move { good: "thread".into(), from: (44, 17), to: (44, 21) }] });
     (m.pc, m.playing) = (0, true);
     for _ in 0..300 {
         if lg.monsters[1].bubble.is_some() {
