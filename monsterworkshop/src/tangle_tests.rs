@@ -244,23 +244,180 @@ fn random_tangle(seed: u64) -> Game {
     g
 }
 
+/// Random tangle `seed` for 30,000 ticks. Random loops can lack a harvest, so some may have
+/// nothing ever come their way: that's idle, not tangled. What must never happen is waiting on
+/// another monster for long.
+fn no_one_held_up_for_long(seed: u64) {
+    let mut g = random_tangle(seed);
+    let n = g.monsters.len();
+    let (mut held_up, mut last) = (vec![0u32; n], g.monsters.iter().map(|m| m.steps).collect::<Vec<_>>());
+    for t in 1..=30_000 {
+        tick_checked(&mut g);
+        for (k, m) in g.monsters.iter().enumerate() {
+            held_up[k] = if m.waiting_on.is_some() && m.steps == last[k] { held_up[k] + 1 } else { 0 };
+            last[k] = m.steps;
+            assert!(held_up[k] < 3000, "tangle {seed}: {} waited on {:?} from tick {} on: at ({},{}), step {}, {:?}", m.name, m.waiting_on.map(|o| g.monsters[o].name.clone()), t - 3000, m.x, m.y, m.pc, m.wait_reason);
+        }
+    }
+}
+
 #[test]
 fn forty_random_tangles() {
-    // Random loops can lack a harvest, so some may have nothing ever come their way: that's
-    // idle, not tangled. What must never happen is waiting on another monster for long.
     for seed in 1..=40 {
-        let mut g = random_tangle(seed);
-        let n = g.monsters.len();
-        let (mut held_up, mut last) = (vec![0u32; n], g.monsters.iter().map(|m| m.steps).collect::<Vec<_>>());
-        for t in 1..=30_000 {
-            tick_checked(&mut g);
-            for (k, m) in g.monsters.iter().enumerate() {
-                held_up[k] = if m.waiting_on.is_some() && m.steps == last[k] { held_up[k] + 1 } else { 0 };
-                last[k] = m.steps;
-                assert!(held_up[k] < 3000, "tangle {seed}: {} waited on {:?} from tick {} on: at ({},{}), step {}, {:?}", m.name, m.waiting_on.map(|o| g.monsters[o].name.clone()), t - 3000, m.x, m.y, m.pc, m.wait_reason);
+        no_one_held_up_for_long(seed);
+    }
+}
+
+/// The seeds in `SEEDS` ("from..to", to not included), or `default`.
+fn seeds(default: std::ops::Range<u64>) -> std::ops::Range<u64> {
+    let var = std::env::var("SEEDS").ok();
+    let parsed = var.as_deref().and_then(|s| s.split_once("..")).and_then(|(a, b)| Some(a.parse().ok()?..b.parse().ok()?));
+    parsed.unwrap_or(default)
+}
+
+/// Seeds that fail `check`, each failure's message printed as it happens.
+fn failing(range: std::ops::Range<u64>, check: fn(u64)) -> Vec<u64> {
+    range
+        .filter(|&seed| {
+            eprintln!("seed {seed}");
+            std::panic::catch_unwind(|| check(seed)).is_err()
+        })
+        .collect()
+}
+
+#[test]
+#[ignore]
+fn many_random_tangles() {
+    let failed = failing(seeds(41..441), no_one_held_up_for_long);
+    assert!(failed.is_empty(), "tangles that failed: {failed:?}");
+}
+
+/// A seeded random ground: rooms joined by one-tile corridors, dead-end spurs, two to five
+/// monsters walking between random stops, and a few strays lying about. Returns the ground's
+/// rows too, for printing.
+fn random_ground(seed: u64) -> (Game, Vec<String>) {
+    let mut r = Lcg(seed);
+    let (w, h) = (18, 9);
+    let mut open = vec![vec![false; w]; h];
+    let mut centres = Vec::new();
+    for _ in 0..2 + r.next(3) {
+        let (rw, rh) = (2 + r.next(4), 1 + r.next(3));
+        let (x0, y0) = (1 + r.next(w - 1 - rw), 1 + r.next(h - 1 - rh));
+        for row in open.iter_mut().skip(y0).take(rh) {
+            row[x0..x0 + rw].fill(true);
+        }
+        centres.push((x0 + r.next(rw), y0 + r.next(rh)));
+    }
+    // Each room joined to the one before by a corridor, across then down or down then across.
+    for k in 1..centres.len() {
+        let ((ax, ay), (bx, by)) = (centres[k - 1], centres[k]);
+        let corner = if r.next(2) == 0 { (bx, ay) } else { (ax, by) };
+        for (p, q) in [((ax, ay), corner), (corner, (bx, by))] {
+            for row in open.iter_mut().take(p.1.max(q.1) + 1).skip(p.1.min(q.1)) {
+                row[p.0.min(q.0)..=p.0.max(q.0)].fill(true);
             }
         }
     }
+    for _ in 0..r.next(4) {
+        let (mut x, mut y) = (1 + r.next(w - 2), 1 + r.next(h - 2));
+        let d = DIRS[r.next(4)].delta();
+        if !open[y][x] {
+            continue;
+        }
+        for _ in 0..1 + r.next(4) {
+            let (nx, ny) = (x as i32 + d.0, y as i32 + d.1);
+            if nx < 1 || ny < 1 || nx >= w as i32 - 1 || ny >= h as i32 - 1 {
+                break;
+            }
+            (x, y) = (nx as usize, ny as usize);
+            open[y][x] = true;
+        }
+    }
+    let rows: Vec<String> = open.iter().map(|row| row.iter().map(|&o| if o { '.' } else { '#' }).collect()).collect();
+    let tiles: Vec<(i32, i32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| open[y][x]).map(|(x, y)| (x as i32, y as i32)).collect();
+    let n = (2 + r.next(4)).min(tiles.len().saturating_sub(2)).max(2);
+    let mut starts: Vec<(i32, i32)> = Vec::new();
+    while starts.len() < n {
+        let t = tiles[r.next(tiles.len())];
+        if !starts.contains(&t) {
+            starts.push(t);
+        }
+    }
+    // Two or three different stops each: a loop that only stands on one tile isn't walking.
+    let mut loops: Vec<Vec<(i32, i32)>> = Vec::new();
+    for &s in &starts {
+        let (mut stops, n) = (vec![s], 2 + r.next(2));
+        while stops.len() < n {
+            let t = tiles[r.next(tiles.len())];
+            if !stops.contains(&t) {
+                stops.push(t);
+            }
+        }
+        loops.push(stops);
+    }
+    let mut g = walkers(&rows.iter().map(|s| s.as_str()).collect::<Vec<_>>(), &loops.iter().map(|l| l.as_slice()).collect::<Vec<_>>());
+    for _ in 0..r.next(3) {
+        let t = tiles[r.next(tiles.len())];
+        let at = on_ground(t);
+        if !loops.iter().flatten().any(|&s| s == t) && g.world.item_at(at.0, at.1).is_none() && g.monster_at(at.0, at.1).is_none() {
+            let boll = cotton_good(&g, "cotton_bolls");
+            g.world.items.push(Item::new(at.0, at.1, boll));
+        }
+    }
+    (g, rows)
+}
+
+/// Random ground `seed` for 12,000 ticks with nobody passing through anybody. Any monster that
+/// finishes no step in the second half is printed with the ground (`o` its stops, `*` strays)
+/// and what it says, for judging by eye whether there really was no way.
+fn random_ground_runs(seed: u64) {
+    let (mut g, rows) = random_ground(seed);
+    ticks_checked(&mut g, 6000);
+    let half: Vec<u32> = g.monsters.iter().map(|m| m.steps).collect();
+    ticks_checked(&mut g, 6000);
+    let stuck: Vec<usize> = (0..g.monsters.len()).filter(|&k| g.monsters[k].playing && g.monsters[k].steps == half[k]).collect();
+    if stuck.is_empty() {
+        return;
+    }
+    let mut map: Vec<Vec<char>> = rows.iter().map(|r| r.chars().collect()).collect();
+    let mut mark = |(x, y): (i32, i32), c: char| {
+        let (gx, gy) = (x - GROUND.0, y - GROUND.1);
+        if gx >= 0 && gy >= 0 && (gy as usize) < map.len() && (gx as usize) < map[0].len() {
+            map[gy as usize][gx as usize] = c;
+        }
+    };
+    for it in &g.world.items {
+        mark((it.x, it.y), '*');
+    }
+    for m in &g.monsters {
+        for a in &m.routine.as_ref().unwrap().acts {
+            if let Act::Go { to, .. } = a {
+                mark(*to, 'o');
+            }
+        }
+    }
+    for (k, m) in g.monsters.iter().enumerate() {
+        mark((m.x, m.y), (b'A' + k as u8) as char);
+    }
+    println!("ground {seed}:");
+    for row in &map {
+        println!("  {}", row.iter().collect::<String>());
+    }
+    let letter = |k: usize| (b'A' + k as u8) as char;
+    let ground = |(x, y): (i32, i32)| (x - GROUND.0, y - GROUND.1);
+    for (k, m) in g.monsters.iter().enumerate() {
+        let stops: Vec<(i32, i32)> = m.routine.as_ref().unwrap().acts.iter().filter_map(|a| if let Act::Go { to, .. } = a { Some(ground(*to)) } else { None }).collect();
+        let state = if stuck.contains(&k) { "STUCK" } else { "ok" };
+        println!("  {} {state} at {:?} stops {stops:?} pc {} on {:?} untangle {} says {:?}", letter(k), ground((m.x, m.y)), m.pc, m.waiting_on.map(letter), m.untangle.is_some(), m.wait_reason);
+    }
+    panic!("ground {seed}: someone stuck");
+}
+
+#[test]
+#[ignore]
+fn random_grounds() {
+    let failed = failing(seeds(1..201), random_ground_runs);
+    assert!(failed.is_empty(), "grounds with someone stuck: {failed:?}");
 }
 
 /// Where test grounds are laid: the open meadow below the workshops.
