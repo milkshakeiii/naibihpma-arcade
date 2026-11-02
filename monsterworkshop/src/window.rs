@@ -1,7 +1,8 @@
 //! The player's game on Windows: a window showing the title screen's worlds, then a server's
 //! pictures. Playing a world alone runs its server inside the game; `--connect` plays on
 //! someone else's. Keys are polled at 250 Hz and sent the moment one goes down or what's held
-//! changes, and each picture is shown the moment it arrives.
+//! changes, and each picture is shown the moment it arrives. `--lag MS` slows every connection
+//! the window makes by that much each round trip, to feel a slow one.
 
 use crate::audio::Audio;
 use crate::client::{self, Connection};
@@ -63,14 +64,14 @@ impl Local {
 }
 
 /// Starts a world's server on a port only this computer can reach, and connects to it.
-fn play_alone(game: Game, path: PathBuf, key: &str) -> std::io::Result<Screen> {
+fn play_alone(game: Game, path: PathBuf, key: &str, lag: Duration) -> std::io::Result<Screen> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     let server = Server::new(game, path, listener)?;
     let stop = Arc::new(AtomicBool::new(false));
     let running = stop.clone();
     let thread = std::thread::spawn(move || server.run(&running));
-    let conn = Connection::connect(addr, key)?;
+    let conn = Connection::connect(addr, key, lag)?;
     Ok(Screen::Play { conn, local: Some(Local { stop, thread }) })
 }
 
@@ -132,8 +133,8 @@ impl Keys {
 }
 
 /// Opens the window: the title screen, or straight onto a server at `connect`, as `player`
-/// (see `client::player_key`).
-pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: Option<String>) {
+/// (see `client::player_key`). Every connection gets `lag` added to its round trips.
+pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: Option<String>, lag: Duration) {
     let key = client::player_key(player.as_deref());
     unsafe {
         SetProcessDPIAware();
@@ -164,7 +165,8 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
         } else {
             (WS_POPUP | WS_VISIBLE, 0, 0, sw, sh)
         };
-        let title = wide("MONSTER WORKSHOP [400x300 64-COLOR VGA | 15 FPS]");
+        let lagged = if lag.is_zero() { String::new() } else { format!(" | {} MS LAG", lag.as_millis()) };
+        let title = wide(&format!("MONSTER WORKSHOP [400x300 64-COLOR VGA | 15 FPS{lagged}]"));
         let hwnd = CreateWindowExW(0, class_name.as_ptr(), title.as_ptr(), style, x, y, w, h, null_mut(), null_mut(), hinstance, null_mut());
         if hwnd.is_null() {
             return;
@@ -207,7 +209,7 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
         let mut screen = match connect {
             Some(addr) => {
                 let addr = if addr.contains(':') { addr } else { format!("{addr}:{}", net::DEFAULT_PORT) };
-                match Connection::connect(addr.as_str(), &key) {
+                match Connection::connect(addr.as_str(), &key, lag) {
                     Ok(conn) => Screen::Play { conn, local: None },
                     Err(e) => Screen::title(Some(format!("COULDN'T REACH {addr}: {e}").to_uppercase())),
                 }
@@ -304,7 +306,7 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
                             let path = worlds[*sel - 1].clone();
                             save::load(&path).map(|g| (g, path))
                         };
-                        screen = match started.and_then(|(g, path)| play_alone(g, path, &key).map_err(|e| format!("COULDN'T START THE WORLD: {e}").to_uppercase())) {
+                        screen = match started.and_then(|(g, path)| play_alone(g, path, &key, lag).map_err(|e| format!("COULDN'T START THE WORLD: {e}").to_uppercase())) {
                             // The server's pictures start from a blank screen.
                             Ok(play) => {
                                 fb.px.fill(0);

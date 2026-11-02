@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn two_players_each_see_their_own_screen_as_the_server_draws_it() {
         let mut s = server();
-        let (mut a, b) = (Connection::connect(s.addr(), "key-a").unwrap(), Connection::connect(s.addr(), "key-b").unwrap());
+        let (mut a, b) = (Connection::connect(s.addr(), "key-a", Duration::ZERO).unwrap(), Connection::connect(s.addr(), "key-b", Duration::ZERO).unwrap());
         let (mut sa, mut sb) = (seen(), seen());
         tick_until(&mut s, |_| {
             take(&a, &mut sa);
@@ -319,15 +319,15 @@ mod tests {
     #[test]
     fn a_player_who_comes_back_gets_their_own_commune_and_the_old_connection_goes() {
         let mut s = server();
-        let first = Connection::connect(s.addr(), "key-a").unwrap();
-        let other = Connection::connect(s.addr(), "key-b").unwrap();
+        let first = Connection::connect(s.addr(), "key-a", Duration::ZERO).unwrap();
+        let other = Connection::connect(s.addr(), "key-b", Duration::ZERO).unwrap();
         let (mut s1, mut so) = (seen(), seen());
         tick_until(&mut s, |_| {
             take(&first, &mut s1);
             take(&other, &mut so);
             s1.commune.is_some() && so.commune.is_some()
         });
-        let again = Connection::connect(s.addr(), "key-a").unwrap();
+        let again = Connection::connect(s.addr(), "key-a", Duration::ZERO).unwrap();
         let mut s2 = seen();
         tick_until(&mut s, |_| {
             take(&again, &mut s2);
@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn a_player_hears_their_own_actions() {
         let mut s = server();
-        let mut a = Connection::connect(s.addr(), "key-a").unwrap();
+        let mut a = Connection::connect(s.addr(), "key-a", Duration::ZERO).unwrap();
         let mut sa = seen();
         tick_until(&mut s, |_| {
             take(&a, &mut sa);
@@ -356,10 +356,30 @@ mod tests {
     }
 
     #[test]
+    fn a_lagged_player_waits_a_round_trip_and_their_keys_arrive_half_of_one_late() {
+        let mut s = server();
+        let lag = Duration::from_millis(200);
+        let started = Instant::now();
+        let mut a = Connection::connect(s.addr(), "key-a", lag).unwrap();
+        let mut sa = seen();
+        tick_until(&mut s, |_| {
+            take(&a, &mut sa);
+            sa.commune.is_some()
+        });
+        assert!(started.elapsed() >= lag, "welcomed after {:?}", started.elapsed());
+        let m = s.game.communes[sa.commune.unwrap()].controlled;
+        let (y, pressed) = (s.game.monsters[m].y, Instant::now());
+        a.keys(&Input { held: [true, false, false, false], pressed: [true, false, false, false], ..Input::default() }).unwrap();
+        a.keys(&Input::default()).unwrap();
+        tick_until(&mut s, |s| s.game.monsters[m].y != y || s.game.monsters[m].bump.is_some());
+        assert!(pressed.elapsed() >= lag / 2, "the key arrived after {:?}", pressed.elapsed());
+    }
+
+    #[test]
     fn stopping_lets_everyone_go_and_saves_the_world_with_its_players() {
         let mut s = server();
-        let a = Connection::connect(s.addr(), "key-a").unwrap();
-        let b = Connection::connect(s.addr(), "key-b").unwrap();
+        let a = Connection::connect(s.addr(), "key-a", Duration::ZERO).unwrap();
+        let b = Connection::connect(s.addr(), "key-b", Duration::ZERO).unwrap();
         let (mut sa, mut sb) = (seen(), seen());
         tick_until(&mut s, |_| {
             take(&a, &mut sa);

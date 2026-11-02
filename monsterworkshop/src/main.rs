@@ -49,7 +49,15 @@ fn main() {
         return;
     }
     #[cfg(windows)]
-    window::run(&mut audio::Audio::new(), args.iter().any(|a| a == "--windowed"), after("--connect"), after("--player"));
+    {
+        let lag = match after("--lag").map(|l| l.parse::<u64>()) {
+            None => 0,
+            Some(Ok(ms)) => ms,
+            Some(Err(_)) => return eprintln!("--lag wants milliseconds"),
+        };
+        let lag = std::time::Duration::from_millis(lag);
+        window::run(&mut audio::Audio::new(), args.iter().any(|a| a == "--windowed"), after("--connect"), after("--player"), lag);
+    }
     #[cfg(not(windows))]
     eprintln!("Here the game runs only as a server: monster_workshop --server [--port N] [--world PATH]");
 }
