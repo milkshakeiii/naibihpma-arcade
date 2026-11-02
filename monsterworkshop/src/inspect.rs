@@ -393,7 +393,7 @@ fn plant_card(g: &Game, p: usize) -> Card {
     Card::two(plant_name(&plant.good), first, details, (plant.x, plant.y))
 }
 
-fn plant_name(good: &str) -> &'static str {
+pub(crate) fn plant_name(good: &str) -> &'static str {
     match good {
         "hemlock_log" => "HEMLOCK TREE",
         "oak_log" => "OAK TREE",

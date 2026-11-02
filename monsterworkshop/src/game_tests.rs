@@ -1130,6 +1130,22 @@ fn a_place_in_line_held_by_one_busy_elsewhere_doesnt_make_anyone_wait() {
 }
 
 #[test]
+fn waits_say_who_and_where_so_they_make_sense_from_anywhere() {
+    // Mogg waits across town for bolls at the chute, and for the bench Wren is using.
+    let mut g = Game::new();
+    let bench = g.world.shop_at_spot(14, 9).unwrap();
+    let chute_to_pad = Goal::Move { good: "cotton_bolls".into(), from: (12, 9), to: (13, 9) };
+    start_loop(&mut g, 0, Routine { flag: (30, 13), goals: vec![chute_to_pad] }, (30, 13));
+    g.run_ticks(20);
+    assert_eq!(g.monsters[0].wait_reason, "WAITING FOR COTTON BOLLS AT THE COTTON BOLLS BIN'S CHUTE.");
+    g.world.items.push(Item::new(13, 9, boll(&g.data)));
+    g.monsters[1].holds.push(crate::sched::Hold::Tile((14, 9)));
+    g.monsters[0].routine = Some(Routine { flag: (30, 13), goals: vec![Goal::Activate(Thing::Shop(bench))] });
+    g.run_ticks(20);
+    assert_eq!(g.monsters[0].wait_reason, format!("WAITING FOR {} AT THE WORKBENCH.", g.monsters[1].name));
+}
+
+#[test]
 fn monsters_sharing_one_plant_all_get_to_harvest_it() {
     let mut g = Game::new();
     let p = g.world.plant_at(8, 8).unwrap();

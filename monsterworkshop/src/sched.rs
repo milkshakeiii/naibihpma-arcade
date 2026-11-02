@@ -107,6 +107,32 @@ impl Game {
         }
     }
 
+    /// Where tile `t` is, said so that a monster's words make sense from anywhere on the map:
+    /// "AT THE SPINNERY'S PAD", "AT THE COTTON BOLLS BIN'S CHUTE", "BY THE COTTON PLANT".
+    pub(crate) fn place_name(&self, t: (i32, i32)) -> String {
+        let w = &self.world;
+        if let Some((s, _)) = w.pad_owner(t.0, t.1) {
+            return format!("AT THE {}'S PAD", w.shops[s].kind.label());
+        }
+        if let Some(s) = w.shops.iter().position(|s| s.outs.contains(&t)) {
+            return format!("AT THE {}'S MAT", w.shops[s].kind.label());
+        }
+        if let Some(s) = w.shop_at_spot(t.0, t.1) {
+            return format!("AT THE {}", w.shops[s].kind.label());
+        }
+        if let Some(b) = w.bins.iter().position(|b| b.mouth == Some(t)).or_else(|| w.bin_at(t.0, t.1)) {
+            let chute = if w.bins[b].mouth == Some(t) { "'S CHUTE" } else { "" };
+            return format!("AT THE {} BIN{chute}", self.good_name(&w.bins[b].accepts[0]));
+        }
+        if let Some(p) = w.plant_at(t.0, t.1) {
+            return format!("AT THE {}", crate::inspect::plant_name(&w.plants[p].good));
+        }
+        if let Some(p) = crate::world::DIRS.iter().find_map(|d| w.plant_at(t.0 + d.delta().0, t.1 + d.delta().1)) {
+            return format!("BY THE {}", crate::inspect::plant_name(&w.plants[p].good));
+        }
+        "WHERE I WAS SHOWN".into()
+    }
+
     /// Which monster holds this good, tile or wagon, other than `i`.
     fn holder(&self, i: usize, hold: Hold) -> Option<usize> {
         (0..self.monsters.len()).find(|&k| k != i && self.monsters[k].holds.contains(&hold))
@@ -156,21 +182,22 @@ impl Game {
     /// whether a good can actually be pushed there shows when the monster tries.
     fn possible(&self, i: usize, g: &Goal) -> Result<Vec<Want>, Why> {
         let name = |g: &str| self.good_name(g);
+        // Someone else using it: say who, and where, since they may be anywhere.
         let tile_free = |t: (i32, i32)| match self.holder(i, Hold::Tile(t)) {
-            Some(m) => Err(Why { msg: crate::motion::EXCUSE_ME.into(), on: Some(m) }),
+            Some(m) => Err(Why { msg: format!("WAITING FOR {} {}.", self.monsters[m].name, self.place_name(t)), on: Some(m) }),
             None => Ok(()),
         };
         match g {
             Goal::Move { good, from, to } => {
                 let Some(k) = self.world.item_at(from.0, from.1).filter(|&k| self.world.items[k].good() == good) else {
-                    return Err(Why::world(format!("WAITING FOR {}.", name(good))));
+                    return Err(Why::world(format!("WAITING FOR {} {}.", name(good), self.place_name(*from))));
                 };
                 let it = &self.world.items[k];
                 if it.locked {
                     return Err(Why::world("THAT'S BEING WORKED ON."));
                 }
                 if let Some(m) = (it.id != 0).then(|| self.holder(i, Hold::Item(it.id))).flatten() {
-                    return Err(Why { msg: format!("WAITING FOR {}.", name(good)), on: Some(m) });
+                    return Err(Why { msg: format!("{} IS TAKING THE {} {}.", self.monsters[m].name, name(good), self.place_name(*from)), on: Some(m) });
                 }
                 let mut wants = vec![Want::Item(k)];
                 if !self.takes_into(*to, good) {
@@ -180,7 +207,7 @@ impl Game {
                     if let Some(o) = self.world.item_at(to.0, to.1).filter(|&o| o != k) {
                         let other = &self.world.items[o];
                         if let Some(m) = (other.id != 0).then(|| self.holder(i, Hold::Item(other.id))).flatten() {
-                            return Err(Why { msg: format!("THE {} IS IN THE WAY.", name(other.good())), on: Some(m) });
+                            return Err(Why { msg: format!("THE {} IS IN THE WAY {}.", name(other.good()), self.place_name(*to)), on: Some(m) });
                         }
                     }
                     wants.push(Want::Tile(*to));
