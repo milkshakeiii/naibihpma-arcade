@@ -26,16 +26,21 @@ pub fn screen_of(x: i32, y: i32) -> (i32, i32) {
     (x.div_euclid(SCREEN_W) * SCREEN_W, y.div_euclid(SCREEN_H) * SCREEN_H)
 }
 
+/// One player's view: the screen their controlled monster is on.
 struct View {
     tx: i32,
     ty: i32,
+    /// Whose view: the commune, and the monster its player controls.
+    k: usize,
+    c: usize,
 }
 
 impl View {
-    fn of(g: &Game) -> Self {
-        let m = &g.monsters[g.controlled];
+    fn of(g: &Game, k: usize) -> Self {
+        let c = g.communes[k].controlled;
+        let m = &g.monsters[c];
         let (tx, ty) = screen_of(m.x, m.y);
-        Self { tx, ty }
+        Self { tx, ty, k, c }
     }
 
     fn sees(&self, x: i32, y: i32) -> bool {
@@ -48,8 +53,10 @@ impl View {
     }
 }
 
-pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
-    let v = View::of(g);
+/// What commune `k`'s player sees.
+pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
+    let v = View::of(g, k);
+    let me = &g.communes[k];
     fb.rect_fill(0, 0, 400, VIEW_H, OUTLINE);
     for ty in v.ty..v.ty + SCREEN_H {
         for tx in v.tx..v.tx + SCREEN_W {
@@ -110,15 +117,15 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     draw_progress(g, fb, &v);
     draw_applicant_pitch(g, sp, fb, &v);
     draw_floaters(g, fb, &v);
-    draw_banner(g, fb);
-    if g.inspecting && !g.help {
+    draw_banner(me, fb);
+    if me.inspecting && !me.help {
         draw_card(g, sp, fb, &v);
     }
-    if g.roster && !g.help {
-        draw_roster(g, sp, fb);
+    if me.roster && !me.help {
+        draw_roster(g, sp, fb, &v);
     }
-    draw_hud(g, sp, fb);
-    if g.help {
+    draw_hud(g, sp, fb, &v);
+    if me.help {
         draw_help(fb);
     }
 }
@@ -330,7 +337,7 @@ fn peg_hint(g: &Game, tx: i32, ty: i32) -> Option<&'static str> {
 
 /// Facing an applicant: who they are, their talents and what they cost.
 fn draw_applicant_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
-    let Some(k) = g.faced_applicant() else { return };
+    let Some(k) = g.faced_applicant(v.c) else { return };
     let Some(a) = &g.applicants[k] else { return };
     let (sx, sy) = g.world.stands[k];
     if !v.sees(sx, sy) {
@@ -343,7 +350,7 @@ fn draw_applicant_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) 
     let h = lines.len() as i32 * 9 + 4;
     let (px, py) = v.px(sx, sy);
     let cx = px + 8;
-    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py + TS + 6).min(VIEW_H - h - 2), w, h, cx, above: false, lines, icon: None, mark: None, warn: g.renown < a.cost as f64 };
+    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py + TS + 6).min(VIEW_H - h - 2), w, h, cx, above: false, lines, icon: None, mark: None, warn: g.communes[v.k].renown < a.cost as f64 };
     draw_bubble(fb, sp, &b);
 }
 
@@ -409,8 +416,8 @@ fn draw_popups(g: &Game, fb: &mut Framebuffer, v: &View) {
 /// The hold-E card, with corner brackets on what it describes. It shows one page at a time;
 /// a footer says Tab turns to the other.
 fn draw_card(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
-    let card = inspect::card(g);
-    let page = g.card_page % card.pages.len();
+    let card = inspect::card(g, v.k);
+    let page = g.communes[v.k].card_page % card.pages.len();
     let lines = &card.pages[page];
     let paged = card.pages.len() > 1;
     let bar_w = if lines.iter().any(|l| l.bar.is_some()) { 46 } else { 0 };
@@ -839,7 +846,7 @@ fn draw_markers(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         let (x, _, s, _) = monster_pose(g, sp, v, i);
         let (_, oy) = Slide::offset(m.slide);
         let top = v.px(m.x, m.y).1 + oy + 2;
-        if i == g.controlled {
+        if i == v.c {
             let bob = (g.frame / 8 % 2) as i32;
             fb.blit(&sp.marker, x + s.w / 2 - 3, top - 6 + bob, false);
         }
@@ -902,19 +909,21 @@ fn draw_edge_markers(g: &Game, fb: &mut Framebuffer, v: &View) {
     }
 }
 
-/// Holding Tab: every monster, where it is and what it is doing.
-fn draw_roster(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
-    let n = g.monsters.len() as i32;
+/// Holding Tab: every monster of the player's commune, and what it is doing.
+fn draw_roster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    let own: Vec<usize> = (0..g.monsters.len()).filter(|&i| g.monsters[i].commune == v.k).collect();
+    let n = own.len() as i32;
     let w = 96;
     let per_row = 4;
     let rows = (n + per_row - 1) / per_row;
     let h = rows * 26 + 6;
     let (x0, y0) = ((400 - per_row.min(n) * w - 6) / 2, VIEW_H - h - 4);
     fb.rect_bevel(x0, y0, per_row.min(n) * w + 6, h, HUD_FILL, HUD_HI, HUD_SHADOW);
-    for (i, m) in g.monsters.iter().enumerate() {
-        let (col, row) = (i as i32 % per_row, i as i32 / per_row);
+    for (n, &i) in own.iter().enumerate() {
+        let m = &g.monsters[i];
+        let (col, row) = (n as i32 % per_row, n as i32 / per_row);
         let (x, y) = (x0 + 3 + col * w, y0 + 3 + row * 26);
-        if i == g.controlled {
+        if i == v.c {
             fb.rect_fill(x, y, w, 26, HUD_MID);
         }
         let frames = if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops };
@@ -926,8 +935,8 @@ fn draw_roster(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
 }
 
 /// The area's name, shown for a moment on arrival.
-fn draw_banner(g: &Game, fb: &mut Framebuffer) {
-    let Some((name, t)) = g.banner else { return };
+fn draw_banner(me: &crate::game::Commune, fb: &mut Framebuffer) {
+    let Some((name, t)) = me.banner else { return };
     let drop = (45 - t as i32).min(4) * 2 - 8;
     let w = Framebuffer::text_width(name, 2) + 20;
     let (x, y) = ((400 - w) / 2, 10 + drop);
@@ -978,7 +987,7 @@ struct BubbleBox {
 /// otherwise below the feet, otherwise nudged upward until clear. Controlled monster first.
 fn layout_bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
     let mut placed: Vec<BubbleBox> = Vec::new();
-    let order = std::iter::once(g.controlled).chain((0..g.monsters.len()).filter(|&i| i != g.controlled));
+    let order = std::iter::once(v.c).chain((0..g.monsters.len()).filter(|&i| i != v.c));
     for i in order {
         let m = &g.monsters[i];
         let Some(b) = &m.bubble else { continue };
@@ -986,7 +995,7 @@ fn layout_bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
             continue;
         }
         // Monsters you are not steering only show what they wait for, not a sentence.
-        let compact = b.waiting && i != g.controlled;
+        let compact = b.waiting && i != v.c;
         let icon = if compact {
             g.data.goods.iter().find(|gd| m.wait_reason.contains(&gd.name.to_uppercase())).map(|gd| gd.id.clone())
         } else {
@@ -1066,21 +1075,22 @@ fn draw_bubble(fb: &mut Framebuffer, sp: &Sprites, b: &BubbleBox) {
     }
 }
 
-fn draw_hud(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
+fn draw_hud(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     fb.rect_bevel(0, VIEW_H, 400, 300 - VIEW_H, HUD_FILL, HUD_HI, HUD_SHADOW);
-    let done = g.tutorial.stage >= tutorial::DONE;
-    let objective = STAGES[g.tutorial.stage.min(tutorial::DONE)];
+    let me = &g.communes[v.k];
+    let done = me.tutorial.stage >= tutorial::DONE;
+    let objective = STAGES[me.tutorial.stage.min(tutorial::DONE)];
     for (k, line) in wrap(objective, 64).iter().enumerate() {
         fb.text(line, 6, VIEW_H + 5 + k as i32 * 10, if done { TEXT_GOOD } else { TEXT }, Some(HUD_SHADOW), 1);
     }
     fb.rect_fill(4, VIEW_H + 26, 392, 1, HUD_SHADOW);
     fb.rect_fill(4, VIEW_H + 27, 392, 1, HUD_MID);
-    let (status, warn) = g.status(g.controlled);
-    let renown = format!("RENOWN {}", g.renown.floor());
+    let (status, warn) = g.status(v.c);
+    let renown = format!("RENOWN {}", me.renown.floor());
     let renown_x = 394 - Framebuffer::text_width(&renown, 1);
     // The status gets the rest of the line, clear of the renown: without the monster's kind if
     // that isn't enough, then cut short (its bubble says it all).
-    let kind = format!(" THE {}", g.monsters[g.controlled].kind.to_uppercase());
+    let kind = format!(" THE {}", g.monsters[v.c].kind.to_uppercase());
     let status = fit_line(&status, &kind, ((renown_x - 12 - 6) / 6).max(0) as usize);
     fb.text(&status, 6, VIEW_H + 32, if warn { TEXT_WARN } else { TEXT_DIM }, Some(HUD_SHADOW), 1);
     fb.text(&renown, renown_x, VIEW_H + 32, SPARK + 2, Some(HUD_SHADOW), 1);
@@ -1113,7 +1123,7 @@ fn a_long_status_fits_beside_the_renown() {
 /// Facing a kit: the workshop it would set up, as a ghost on the ground (a checkerboard, so
 /// what's under it still shows), red on the tiles where something's in the way.
 fn draw_kit_ghost(g: &Game, fb: &mut Framebuffer, v: &View) {
-    let c = g.controlled;
+    let c = v.c;
     if g.monsters[c].slide.is_some() || g.monsters[c].playing {
         return;
     }

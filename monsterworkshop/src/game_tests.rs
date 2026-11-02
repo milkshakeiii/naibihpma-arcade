@@ -27,12 +27,12 @@ fn a_tap_moves_one_tile_and_a_long_hold_keeps_walking() {
         let mut g = Game::new();
         g.script("t"); // Bruna has open grass to the north
         let start = g.monsters[1].y;
-        let (mut req, mut sfx) = (Vec::new(), Vec::new());
+        let mut req = Vec::new();
         for t in 0..ticks {
             let mut inp = Input::default();
             inp.held[0] = true;
             inp.pressed[0] = t == 0;
-            g.update(&inp, &mut req, &mut sfx);
+            g.update(&[inp], &mut req);
         }
         g.run_ticks(10);
         start - g.monsters[1].y
@@ -71,7 +71,7 @@ fn harvesting_pops_a_boll_and_teaches_the_harvester() {
 fn the_whole_chain_makes_cotton_fabric_with_a_full_history() {
     let mut g = Game::new();
     g.script(MOGG_HARVEST);
-    assert_eq!(g.tutorial.stage, 3, "harvested and binned");
+    assert_eq!(g.communes[0].tutorial.stage, 3, "harvested and binned");
     g.script("t");
     g.run_ticks(10);
     g.script(&bruna_chain());
@@ -85,11 +85,11 @@ fn the_whole_chain_makes_cotton_fabric_with_a_full_history() {
     assert!(credited(1) && credited(2), "both the harvester and the weaver share in it: {:?}", fabric.shares);
     assert!(g.monsters[1].skills.applied("weaving") > 0.0);
     let paid = fabric.value * RENOWN_PER_VALUE;
-    assert!((g.renown - paid).abs() < 1e-9, "the cloth store paid renown for its value");
+    assert!((g.communes[0].renown - paid).abs() < 1e-9, "the cloth store paid renown for its value");
     let earned: f64 = g.monsters.iter().map(|m| m.earned).sum();
     assert!((earned - paid).abs() < 1e-9 && g.monsters.iter().all(|m| m.earned > 0.0), "credit split between both");
     assert!(g.floaters.iter().any(|f| f.text.contains("RENOWN")), "a renown celebration rises");
-    assert_eq!(g.tutorial.stage, 7);
+    assert_eq!(g.communes[0].tutorial.stage, 7);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn two_monsters_loop_the_chain_on_their_own() {
     g.run_ticks(10);
     g.script(&format!("r{}{}rp", bruna_chain(), bruna_home()));
     assert!(g.monsters[1].playing);
-    assert!(tutorial::STAGES[g.tutorial.stage].contains("GATHERING HALL"), "next the tutorial asks you to welcome a helper");
+    assert!(tutorial::STAGES[g.communes[0].tutorial.stage].contains("GATHERING HALL"), "next the tutorial asks you to welcome a helper");
 
     let before = g.cloth_stored();
     g.run_ticks(6000);
@@ -124,7 +124,7 @@ fn on_first_page(card: &crate::inspect::Card, needle: &str) -> bool {
 fn examining_a_boll_shows_its_quality_and_history() {
     let mut g = Game::new();
     g.script("RRRRRRu");
-    let card = crate::inspect::card(&g);
+    let card = crate::inspect::card(&g, 0);
     assert_eq!(card.title, "COTTON BOLLS");
     assert!(card.lines().all(|l| l.meter.is_none() && l.icon != Some(crate::inspect::Icon::Quality)), "bolls have no quality, so the card doesn't show one");
     assert!(!has_line(&card, "RENOWN"), "nothing takes bolls for renown, so the card doesn't promise any");
@@ -135,7 +135,7 @@ fn examining_a_boll_shows_its_quality_and_history() {
 fn examining_with_nothing_ahead_describes_your_monster() {
     let mut g = Game::new();
     g.monsters[0].facing = Dir::Left; // open grass, not the cotton plant to the east
-    let card = crate::inspect::card(&g);
+    let card = crate::inspect::card(&g, 0);
     assert_eq!(card.title, "MOGG THE GOBLIN");
     assert!(on_first_page(&card, "SPINNING"), "skills first");
     assert!(has_line(&card, "TALENTS: HANDCRAFTS") && !on_first_page(&card, "TALENTS"), "talents on page 2");
@@ -149,9 +149,9 @@ fn the_spinnery_forecast_shows_quality_odds_learning_and_what_holds_it_back() {
     slivers.carried_tags = vec!["cotton".into()];
     slivers.depth = 1;
     g.world.items.push(Item::new(30, 9, slivers));
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     (g.monsters[1].x, g.monsters[1].y) = (30, 8);
-    let card = crate::inspect::card(&g);
+    let card = crate::inspect::card(&g, 0);
     assert_eq!(card.title, "SPINNERY: THREAD");
     let first = &card.pages[0];
     assert!(first.len() <= 6, "the first page stays short: {:?}", first.iter().map(|l| &l.text).collect::<Vec<_>>());
@@ -164,7 +164,7 @@ fn the_spinnery_forecast_shows_quality_odds_learning_and_what_holds_it_back() {
     }
     assert!(g.status(1).0.contains("SPINNERY EXPECTS QUALITY"), "{}", g.status(1).0);
     g.world.items.clear();
-    assert!(has_line(&crate::inspect::card(&g), "PUT COTTON SLIVERS ON A PAD."));
+    assert!(has_line(&crate::inspect::card(&g, 0), "PUT COTTON SLIVERS ON A PAD."));
 }
 
 #[test]
@@ -175,10 +175,10 @@ fn extra_output_waits_inside_so_loops_never_jam() {
     g.world.shops[bench].pending = vec![extra.clone(), extra.clone()];
     g.world.items.push(Item::new(15, 9, extra.clone())); // one already out on the mat
     g.world.items.push(Item::new(13, 9, boll(&g.data))); // a fresh boll on the pad
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     (g.monsters[1].x, g.monsters[1].y) = (14, 9);
     g.script("u");
-    assert!(g.made.contains("cotton_slivers"), "the bench works even with output waiting");
+    assert!(g.communes[0].made.contains("cotton_slivers"), "the bench works even with output waiting");
     assert!(g.world.shops[bench].pending.len() >= 3, "new slivers queue behind the waiting ones");
 
     g.world.shops[bench].pending = vec![extra; crate::world::OUTPUT_BUFFER];
@@ -229,7 +229,7 @@ fn a_loop_keeps_a_workshop_working_while_its_product_waits_on_the_mat() {
 #[test]
 fn examining_a_plant_forecasts_the_harvest() {
     let g = Game::new(); // Mogg starts facing the first cotton plant
-    let card = crate::inspect::card(&g);
+    let card = crate::inspect::card(&g, 0);
     assert_eq!(card.title, "COTTON PLANT");
     for needle in ["RIPE", "COTTON BOLLS", "HARVESTING +"] {
         assert!(on_first_page(&card, needle), "page 1 misses {needle}: {:?}", card.pages[0].iter().map(|l| &l.text).collect::<Vec<_>>());
@@ -249,17 +249,17 @@ fn renown_welcomes_an_applicant_and_a_new_one_arrives() {
     assert_eq!(g.monsters.len(), 2, "not enough renown, nobody joins");
     assert!(g.monsters[0].bubble.as_ref().is_some_and(|b| b.text.contains("THEY JOIN AT")));
 
-    g.renown = cost + 7.0;
+    g.communes[0].renown = cost + 7.0;
     let name = g.applicants[1].as_ref().unwrap().name.clone();
     g.script("u");
     assert_eq!(g.monsters.len(), 3);
     assert_eq!(g.monsters[2].name, name);
     assert_eq!((g.monsters[2].x, g.monsters[2].y), stand);
-    assert!((g.renown - 7.0).abs() < 1e-9);
+    assert!((g.communes[0].renown - 7.0).abs() < 1e-9);
     assert!(g.applicants[1].is_none());
     g.run_ticks(400);
     assert!(g.applicants[1].is_none(), "nobody arrives while the newcomer still stands there");
-    g.controlled = 2;
+    g.communes[0].controlled = 2;
     g.script("UL");
     g.run_ticks(400);
     assert!(g.applicants[1].is_some(), "a new applicant arrives once the stand is clear");
@@ -271,7 +271,7 @@ fn good_like(data: &Data, id: &str, quality: f64) -> ItemData {
 
 /// Puts the controlled monster at a tile, facing a way.
 fn stand(g: &mut Game, (x, y): (i32, i32), facing: Dir) {
-    let c = g.controlled;
+    let c = g.communes[0].controlled;
     (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (x, y, facing);
 }
 
@@ -280,15 +280,15 @@ fn two_thread_on_the_gate_bench_twist_into_rope_by_hand() {
     let mut g = Game::new();
     let bench = g.world.shop_at_spot(42, 8).expect("the gate bench");
     assert_eq!(g.world.shops[bench].default_recipe(&g.data), "rope");
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     stand(&mut g, (42, 8), Dir::Down);
-    assert!(has_line(&crate::inspect::card(&g), "PUT THREAD ON A PAD."), "an empty gate bench asks for thread");
+    assert!(has_line(&crate::inspect::card(&g, 0), "PUT THREAD ON A PAD."), "an empty gate bench asks for thread");
     g.world.items.push(Item::new(40, 8, good_like(&g.data, "thread", 0.8)));
     g.world.items.push(Item::new(41, 8, good_like(&g.data, "thread", 0.8)));
-    assert_eq!(crate::inspect::card(&g).title, "WORKBENCH: ROPE");
+    assert_eq!(crate::inspect::card(&g, 0).title, "WORKBENCH: ROPE");
     g.script("u");
     g.run_ticks(20);
-    assert!(g.made.contains("rope"));
+    assert!(g.communes[0].made.contains("rope"));
     let rope = g.world.items.iter().find(|it| it.good() == "rope").expect("rope on the output mat");
     assert_eq!(rope.data.carried_tags, vec!["cotton".to_string()], "cotton rope keeps its fiber");
     assert!(g.world.items.iter().all(|it| it.good() != "thread"), "both thread were used");
@@ -309,10 +309,10 @@ fn rope_for_the_board_builds_a_footbridge_that_goods_cross() {
     g.world.boards[0].have = g.world.boards[0].need - 1;
     g.world.items.push(Item::new(bx, by + 1, good_like(&g.data, "rope", 0.9)));
     stand(&mut g, (bx, by + 2), Dir::Up);
-    let renown = g.renown;
+    let renown = g.communes[0].renown;
     g.script("U");
     assert!(g.world.boards[0].done() && g.world.footbridge_built(), "the last rope builds the footbridge");
-    assert!(g.renown > renown, "rope for the board earns renown");
+    assert!(g.communes[0].renown > renown, "rope for the board earns renown");
 
     // Push a bolt of cloth across it.
     g.world.items.push(Item::new(west - 1, y, good_like(&g.data, "fabric", 1.0)));
@@ -377,16 +377,16 @@ fn a_loop_pulls_out_of_a_corner_only_when_it_must_and_pays_for_it() {
 #[test]
 fn tab_turns_the_card_page_while_examining_and_switches_monsters_otherwise() {
     let mut g = Game::new();
-    let (mut req, mut sfx) = (Vec::new(), Vec::new());
+    let mut req = Vec::new();
     let examine = Input { inspect: true, ..Input::default() };
-    g.update(&examine, &mut req, &mut sfx);
-    g.update(&Input { tab_pressed: true, ..examine }, &mut req, &mut sfx);
-    assert_eq!((g.card_page, g.controlled), (1, 0), "Tab with E held turns the page");
-    g.update(&Input::default(), &mut req, &mut sfx);
-    g.update(&examine, &mut req, &mut sfx);
-    assert_eq!(g.card_page, 0, "a new look starts on page 1");
-    g.update(&Input { tab_pressed: true, ..Input::default() }, &mut req, &mut sfx);
-    assert_eq!(g.controlled, 1, "without E, Tab switches monsters");
+    g.update(&[examine], &mut req);
+    g.update(&[Input { tab_pressed: true, ..examine }], &mut req);
+    assert_eq!((g.communes[0].card_page, g.communes[0].controlled), (1, 0), "Tab with E held turns the page");
+    g.update(&[Input::default()], &mut req);
+    g.update(&[examine], &mut req);
+    assert_eq!(g.communes[0].card_page, 0, "a new look starts on page 1");
+    g.update(&[Input { tab_pressed: true, ..Input::default() }], &mut req);
+    assert_eq!(g.communes[0].controlled, 1, "without E, Tab switches monsters");
 }
 
 #[test]
@@ -395,9 +395,9 @@ fn two_logs_on_the_gate_bench_make_a_wooden_tub_with_the_towns_lent_tools() {
     let log = |d: &Data| ItemData { good: "oak_log".into(), quality: 0.8, carried_tags: Vec::new(), ..boll(d) };
     g.world.items.push(Item::new(40, 8, log(&g.data)));
     g.world.items.push(Item::new(41, 8, log(&g.data)));
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     stand(&mut g, (42, 8), Dir::Down);
-    assert_eq!(crate::inspect::card(&g).title, "WORKBENCH: WOODEN TUB");
+    assert_eq!(crate::inspect::card(&g, 0).title, "WORKBENCH: WOODEN TUB");
     g.script("u");
     g.run_ticks(20);
     let tub = g.world.items.iter().find(|it| it.good() == "wooden_tub").expect("a tub on the output mat");
@@ -427,7 +427,7 @@ fn work(g: &mut Game, spot: (i32, i32), goods: &[&str]) -> Vec<String> {
     for (k, id) in goods.iter().enumerate() {
         g.world.items.push(Item::new(pads[k].0, pads[k].1, good_like(&g.data, id, 0.8)));
     }
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     stand(g, spot, Dir::Up);
     g.script("u");
     g.run_ticks(10);
@@ -453,9 +453,9 @@ fn tanglemere_dyes_cotton_indigo_from_kiln_to_cloth_hall() {
     assert!(tags.contains(&"indigo".to_string()) && tags.contains(&"cotton".to_string()), "indigo cotton: {tags:?}");
     (g.world.items[k].x, g.world.items[k].y) = (hall.0, hall.1 + 1);
     stand(&mut g, (hall.0, hall.1 + 2), Dir::Up);
-    let renown = g.renown;
+    let renown = g.communes[0].renown;
     g.script("U");
-    assert!(g.renown > renown, "the cloth hall takes dyed fabric for renown");
+    assert!(g.communes[0].renown > renown, "the cloth hall takes dyed fabric for renown");
     assert!(g.world.bins.iter().any(|b| b.stock.iter().any(|d| d.good == "dyed_fabric")));
 }
 
@@ -506,7 +506,7 @@ fn twelve_logs_of_any_wood_build_the_bridge() {
     let &(x, y) = g.world.bridge.first().unwrap();
     stand(&mut g, (x - 1, y + 1), Dir::Right);
     g.script("RRRRRRR");
-    assert_eq!(g.monsters[g.controlled].x, x + 6, "walked across the river");
+    assert_eq!(g.monsters[g.communes[0].controlled].x, x + 6, "walked across the river");
 }
 
 /// Mogg beside the town wagon's pumpkin, facing it.
@@ -536,7 +536,7 @@ fn a_led_wagon_follows_takes_one_good_and_unloads_out_its_tailgate() {
     let (dx, dy) = (back.0 - w.at.0, back.1 - w.at.1);
     let dir = if dx > 0 { Dir::Left } else if dx < 0 { Dir::Right } else if dy > 0 { Dir::Up } else { Dir::Down };
     g.world.items.push(Item::new(back.0, back.1, good_like(&g.data, "fabric", 0.8)));
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     stand(&mut g, (back.0 + dx, back.1 + dy), dir);
     let key = match dir { Dir::Left => "L", Dir::Right => "R", Dir::Up => "U", Dir::Down => "D" };
     g.script(key);
@@ -703,7 +703,7 @@ fn the_next_good_waits_ready_beside_a_pad_still_being_worked() {
     // Mogg weaves the first thread at the loom...
     g.world.items.push(Item::new(44, 21, good_like(&g.data, "thread", 0.8)));
     stand(&mut g, (43, 21), Dir::Right);
-    g.update(&Input { use_pressed: true, ..Input::default() }, &mut Vec::new(), &mut Vec::new());
+    g.press(0, Input { use_pressed: true, ..Input::default() }, &mut Vec::new());
     let pad = |g: &Game| g.world.item_at(44, 21).map(|k| (g.world.items[k].good().to_string(), g.world.items[k].locked));
     assert_eq!(pad(&g), Some(("thread".into(), true)), "the loom is busy with it");
     // ...while Bruna's loop brings the next one.
@@ -943,11 +943,11 @@ fn several_monsters_off_screen_in_one_corner_still_draw() {
     let mut g = Game::new();
     for k in 0..4 {
         let skills = g.monsters[0].skills.clone();
-        g.monsters.push(Monster::new(10 + k, "TEST", "goblin", &g.data, (60 + k as i32, 30), skills));
+        g.monsters.push(Monster::new(10 + k, 0, "TEST", "goblin", &g.data, (60 + k as i32, 30), skills));
     }
     stand(&mut g, (5, 5), Dir::Down);
     let (sp, mut fb) = (crate::sprites::Sprites::new(), crate::framebuffer::Framebuffer::new());
-    crate::render::draw(&g, &sp, &mut fb);
+    crate::render::draw(&g, 0, &sp, &mut fb);
 }
 
 /// Harvest the plant at (8,8) facing the cotton bin, and push `pushes` bolls into the bin.
@@ -1030,7 +1030,7 @@ fn a_good_taken_by_hand_is_made_again() {
     }
     g.world.plants[p].stock.clear();
     // Bruna, steered by hand, shoves the boll off before Mogg pushes it.
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     stand(&mut g, (9, 7), Dir::Down);
     g.script("DU");
     (g.monsters[1].x, g.monsters[1].y) = (20, 13); // and off out of the way
@@ -1087,8 +1087,8 @@ fn examining_a_good_a_monster_is_going_for_says_who() {
     let id = g.world.item_id(g.world.item_at(5, 10).unwrap());
     g.monsters[1].holds.push(crate::sched::Hold::Item(id));
     stand(&mut g, (4, 10), Dir::Right);
-    g.inspecting = true;
-    let card = crate::inspect::card(&g);
+    g.communes[0].inspecting = true;
+    let card = crate::inspect::card(&g, 0);
     let text: Vec<String> = card.pages[0].iter().map(|l| l.text.clone()).collect();
     assert!(text.iter().any(|t| t == "BRUNA IS SEEING TO IT"), "{text:?}");
 }
@@ -1152,7 +1152,7 @@ fn a_loop_boxed_in_by_monsters_left_standing_gives_up_for_now_and_says_who() {
     // for ever, it lets go and says who's in the way.
     let mut g = Game::new();
     let skills = g.monsters[0].skills.clone();
-    g.monsters.push(Monster::new(10, "ISKA", "goblin", &g.data, (44, 19), skills));
+    g.monsters.push(Monster::new(10, 0, "ISKA", "goblin", &g.data, (44, 19), skills));
     (g.monsters[1].x, g.monsters[1].y) = (44, 25);
     g.world.items.push(Item::new(44, 22, good_like(&g.data, "fabric", 0.8)));
     start_loop(&mut g, 0, Routine { flag: (43, 22), goals: vec![Goal::Move { good: "fabric".into(), from: (44, 22), to: (44, 28) }] }, (43, 22));
@@ -1225,10 +1225,10 @@ fn a_loop_on_another_screen_isnt_heard() {
         let fabric = |from, to| Goal::Move { good: "fabric".into(), from, to };
         start_loop(&mut g, 1, Routine { flag: (65, 11), goals: vec![fabric((66, 11), (69, 11)), fabric((69, 11), (66, 11))] }, (65, 11));
         (g.monsters[0].x, g.monsters[0].y) = watch_from;
-        let (mut req, mut sfx, mut heard) = (Vec::new(), Vec::new(), 0);
+        let (mut req, mut heard) = (Vec::new(), 0);
         for _ in 0..300 {
-            g.update(&Input::default(), &mut req, &mut sfx);
-            heard += sfx.drain(..).filter(|s| *s == Sfx::Push).count();
+            g.update(&[], &mut req);
+            heard += g.sounds_for(0).into_iter().filter(|s| *s == Sfx::Push).count();
         }
         heard
     };
@@ -1243,7 +1243,7 @@ fn a_led_wagon_backs_out_of_a_pocket_it_cant_turn_round_in() {
     // steps back into the pumpkin over and over: the train backs out, its tail turning where
     // the way bends, until she can let go and walk off.
     let mut g = Game::new();
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     {
         let w = &mut g.world.wagons[0];
         (w.at, w.pumpkin, w.leader) = ((76, 15), (76, 16), None);
@@ -1270,7 +1270,7 @@ fn monsters_sharing_one_plant_all_get_to_harvest_it() {
     g.world.plants[p].regrow = 40;
     for (k, name) in ["ISKA", "WREN"].into_iter().enumerate() {
         let skills = g.monsters[0].skills.clone();
-        g.monsters.push(Monster::new(10 + k as u32, name, "goblin", &g.data, (0, 0), skills));
+        g.monsters.push(Monster::new(10 + k as u32, 0, name, "goblin", &g.data, (0, 0), skills));
     }
     // Two stand near the plant, two far off.
     for (k, at) in [(9, 9), (7, 9), (3, 12), (20, 12)].into_iter().enumerate() {

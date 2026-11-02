@@ -139,6 +139,8 @@ pub struct Bubble {
 #[derive(Serialize, Deserialize)]
 pub struct Monster {
     pub id: u32,
+    /// The commune it belongs to (an index into `Game::communes`).
+    pub commune: usize,
     pub name: String,
     pub kind: String,
     pub species: Species,
@@ -251,10 +253,11 @@ pub const RENOWN_PER_VALUE: f64 = 10.0;
 const ROSTER_REFRESH: u32 = 4500;
 
 impl Monster {
-    fn new(id: u32, name: &str, kind: &str, data: &Data, (x, y): (i32, i32), skills: Skills) -> Self {
+    fn new(id: u32, commune: usize, name: &str, kind: &str, data: &Data, (x, y): (i32, i32), skills: Skills) -> Self {
         let species = if kind == "goblin" { Species::Goblin } else { Species::Cyclops };
         Self {
             id,
+            commune,
             name: name.to_string(),
             kind: kind.to_string(),
             species,
@@ -359,32 +362,63 @@ pub(crate) enum Ev {
     Unloaded,
 }
 
+/// A player's commune: its renown, its tutorial, the monster its player controls, and what that
+/// player sees. A commune is one player. Its monsters each say which commune they belong to.
+/// Communes are only ever added, so a commune's index never changes.
+#[derive(Default, Serialize, Deserialize)]
+pub struct Commune {
+    pub renown: f64,
+    /// The monster this player controls, always one of the commune's own.
+    pub controlled: usize,
+    pub tutorial: Tutorial,
+    /// Goods its monsters have made at least once (tutorial progress).
+    pub made: BTreeSet<String>,
+    pub(crate) examine_hinted: bool,
+    #[serde(skip)]
+    queued: Option<Dir>,
+    #[serde(skip)]
+    queued_use: bool,
+    /// The direction held since its press, and for how many ticks.
+    #[serde(skip)]
+    hold: Option<(Dir, u8)>,
+    // What this player's screen shows. These move to the player's own game with networking.
+    #[serde(skip)]
+    pub help: bool,
+    /// Holding E: show the inspect card for whatever the controlled monster faces.
+    #[serde(skip)]
+    pub inspecting: bool,
+    /// Holding Tab: the roster strip shows the commune's monsters and what they're doing.
+    #[serde(skip)]
+    pub roster: bool,
+    /// Which page of the inspect card shows; Tab turns it while E is held.
+    #[serde(skip)]
+    pub card_page: usize,
+    /// The named area the view is in, and a banner announcing it on arrival.
+    #[serde(skip)]
+    pub(crate) area: &'static str,
+    #[serde(skip)]
+    pub banner: Option<(&'static str, u16)>,
+}
+
+/// Who hears a sound: everyone looking at the screen it's on, or only one commune's player
+/// (what their own actions sound like).
+#[derive(Clone, Copy)]
+pub(crate) enum Heard {
+    At((i32, i32)),
+    By(usize),
+}
+
 pub struct Game {
     pub data: Data,
     pub world: World,
     pub monsters: Vec<Monster>,
-    pub controlled: usize,
+    pub communes: Vec<Commune>,
     pub frame: u32,
-    pub help: bool,
-    pub tutorial: Tutorial,
     pub rng: Rng,
-    /// Goods made at least once (tutorial progress).
-    pub made: BTreeSet<String>,
-    queued: Option<Dir>,
-    queued_use: bool,
-    hold: Option<(Dir, u8)>, // direction held since its press, and for how many ticks
-    pub(crate) events: Vec<Ev>,
-    /// Holding E: show the inspect card for whatever the controlled monster faces.
-    pub inspecting: bool,
-    /// Holding Tab: the roster strip shows every monster and what it is doing.
-    pub roster: bool,
-    /// Which page of the inspect card shows; Tab turns it while E is held.
-    pub card_page: usize,
-    pub(crate) examine_hinted: bool,
-    pub renown: f64,
-    /// The named area the view is in, and a banner announcing it on arrival.
-    area: &'static str,
-    pub banner: Option<(&'static str, u16)>,
+    /// What happened this tick, and to which commune (tutorial progress).
+    pub(crate) events: Vec<(usize, Ev)>,
+    /// This tick's sounds. Each player hears theirs through `sounds_for`.
+    sounds: Vec<(Heard, Sfx)>,
     /// One slot per stand in the gathering hall; empty while a new applicant is on the way.
     pub applicants: Vec<Option<Applicant>>,
     pub(crate) applicant_timers: Vec<u32>,
@@ -394,46 +428,111 @@ pub struct Game {
 }
 
 impl Game {
+    /// A new world, with the first player's commune: Mogg and Bruna.
     pub fn new() -> Self {
         let data = Data::load();
         let world = World::new(&data);
-        let mogg = starting_skills(&["handcrafts", "science", "engineering"], &[("spinning", 0.3), ("textiles", 0.3), ("weaving", 0.2)]);
-        let bruna = starting_skills(&["outdoorsmonstership", "athletics", "social"], &[("harvesting", 0.3), ("gathering", 0.3)]);
-        let mut monsters = vec![
-            Monster::new(1, "MOGG", "goblin", &data, world.starts[0], mogg),
-            Monster::new(2, "BRUNA", "cyclops", &data, world.starts[1], bruna),
-        ];
         let stands = world.stands.len();
-        monsters[0].bubble = Some(Bubble { text: "HI, I'M MOGG! LET'S MAKE SOME CLOTH.".into(), ttl: 60, warn: false, waiting: false });
         let mut g = Self {
             data,
             world,
-            monsters,
-            controlled: 0,
+            monsters: Vec::new(),
+            communes: Vec::new(),
             frame: 0,
-            help: false,
-            tutorial: Tutorial::default(),
             rng: Rng::new(0x5EED_2026),
-            made: BTreeSet::new(),
-            queued: None,
-            queued_use: false,
-            hold: None,
             events: Vec::new(),
-            inspecting: false,
-            roster: false,
-            card_page: 0,
-            examine_hinted: false,
-            renown: 0.0,
-            area: area_name(0),
-            banner: None,
+            sounds: Vec::new(),
             applicants: Vec::new(),
             applicant_timers: vec![0; stands],
             roster_timer: 0,
-            next_id: 3,
+            next_id: 1,
             floaters: Vec::new(),
         };
+        g.found_commune(["MOGG", "BRUNA"]);
         g.applicants = (0..stands).map(|_| Some(g.roll_applicant())).collect();
         g
+    }
+
+    /// A new player joins: their commune starts at the first town's gate with two monsters, a
+    /// crafter and a gatherer, on the nearest free tiles. Returns the commune's index.
+    // Only tests have a second player until the server (M3b).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn join(&mut self) -> usize {
+        let roll = |rng: &mut Rng| NAMES[(rng.next_u64() % NAMES.len() as u64) as usize];
+        let crafter = roll(&mut self.rng);
+        let gatherer = roll(&mut self.rng);
+        self.found_commune([crafter, gatherer])
+    }
+
+    fn found_commune(&mut self, [crafter, gatherer]: [&str; 2]) -> usize {
+        let k = self.communes.len();
+        let skills = [
+            starting_skills(&["handcrafts", "science", "engineering"], &[("spinning", 0.3), ("textiles", 0.3), ("weaving", 0.2)]),
+            starting_skills(&["outdoorsmonstership", "athletics", "social"], &[("harvesting", 0.3), ("gathering", 0.3)]),
+        ];
+        let first = self.monsters.len();
+        for (n, ((name, kind), skills)) in [(crafter, "goblin"), (gatherer, "cyclops")].into_iter().zip(skills).enumerate() {
+            let at = self.free_tile_near(self.world.starts[n]);
+            self.monsters.push(Monster::new(self.next_id, k, name, kind, &self.data, at, skills));
+            self.next_id += 1;
+        }
+        self.monsters[first].bubble = Some(Bubble { text: format!("HI, I'M {crafter}! LET'S MAKE SOME CLOTH."), ttl: 60, warn: false, waiting: false });
+        let m = &self.monsters[first];
+        let area = area_name(crate::render::screen_of(m.x, m.y).0);
+        self.communes.push(Commune { controlled: first, area, ..Commune::default() });
+        k
+    }
+
+    /// The nearest tile to `from` that nothing stands on (itself, if free), searching outward
+    /// over walkable ground.
+    fn free_tile_near(&self, from: (i32, i32)) -> (i32, i32) {
+        let free = |(x, y): (i32, i32)| self.monster_at(x, y).is_none() && self.world.item_at(x, y).is_none() && !self.applicant_at(x, y) && !self.world.cart_at(x, y);
+        let mut seen = std::collections::HashSet::from([from]);
+        let mut queue = std::collections::VecDeque::from([from]);
+        while let Some(at) = queue.pop_front() {
+            if free(at) {
+                return at;
+            }
+            for d in DIRS {
+                let (dx, dy) = d.delta();
+                let next = (at.0 + dx, at.1 + dy);
+                if self.world.walkable(next.0, next.1) && seen.insert(next) {
+                    queue.push_back(next);
+                }
+            }
+        }
+        from
+    }
+
+    /// The commune whose player controls monster `i`, if any.
+    pub fn controller(&self, i: usize) -> Option<usize> {
+        let k = self.monsters[i].commune;
+        (self.communes[k].controlled == i).then_some(k)
+    }
+
+    /// What commune `k`'s player hears this tick: their own actions, and what happens on the
+    /// screen they're looking at.
+    pub fn sounds_for(&self, k: usize) -> Vec<Sfx> {
+        let m = &self.monsters[self.communes[k].controlled];
+        let screen = crate::render::screen_of(m.x, m.y);
+        self.sounds
+            .iter()
+            .filter(|(h, _)| match *h {
+                Heard::By(c) => c == k,
+                Heard::At((x, y)) => crate::render::screen_of(x, y) == screen,
+            })
+            .map(|&(_, s)| s)
+            .collect()
+    }
+
+    /// A sound at a tile, heard by whoever is looking at that screen.
+    pub(crate) fn sound(&mut self, at: (i32, i32), s: Sfx) {
+        self.sounds.push((Heard::At(at), s));
+    }
+
+    /// Something that happened to monster `i`'s commune, for its tutorial.
+    pub(crate) fn event(&mut self, i: usize, e: Ev) {
+        self.events.push((self.monsters[i].commune, e));
     }
 
     /// A new applicant: a type with three distinct talents, rolled from the world's dice.
@@ -456,15 +555,15 @@ impl Game {
         self.world.stands.iter().zip(&self.applicants).any(|(&s, a)| s == (x, y) && a.is_some())
     }
 
-    /// The applicant stand the controlled monster faces, if someone waits there.
-    pub fn faced_applicant(&self) -> Option<usize> {
-        let m = &self.monsters[self.controlled];
+    /// The applicant stand monster `c` faces, if someone waits there.
+    pub fn faced_applicant(&self, c: usize) -> Option<usize> {
+        let m = &self.monsters[c];
         let (dx, dy) = m.facing.delta();
         let k = self.world.stands.iter().position(|&s| s == (m.x + dx, m.y + dy))?;
         self.applicants[k].as_ref().map(|_| k)
     }
 
-    /// An applicant joins the commune; its renown makes room for them.
+    /// An applicant joins monster `c`'s commune; its renown makes room for them.
     fn welcome(&mut self, c: usize, k: usize, sfx: &mut Vec<Sfx>) {
         if self.monsters[c].rec.is_some() {
             self.say(c, "FINISH RECORDING FIRST (R).", true);
@@ -472,16 +571,17 @@ impl Game {
             return;
         }
         let Some(a) = self.applicants[k].clone() else { return };
-        if self.renown < a.cost as f64 {
+        let commune = self.monsters[c].commune;
+        if self.communes[commune].renown < a.cost as f64 {
             self.say(c, &format!("THEY JOIN AT {} RENOWN.", a.cost), true);
             sfx.push(Sfx::Deny);
             return;
         }
-        self.renown -= a.cost as f64;
+        self.communes[commune].renown -= a.cost as f64;
         self.applicants[k] = None;
         self.applicant_timers[k] = APPLICANT_ARRIVES;
         let skills = Skills { transferable: a.transferable.clone(), ..Skills::default() };
-        let mut m = Monster::new(self.next_id, &a.name, &a.kind, &self.data, self.world.stands[k], skills);
+        let mut m = Monster::new(self.next_id, commune, &a.name, &a.kind, &self.data, self.world.stands[k], skills);
         self.next_id += 1;
         m.facing = Dir::Up;
         m.bubble = Some(Bubble { text: format!("I'M {}! HAPPY TO JOIN.", a.name), ttl: BUBBLE_TICKS, warn: false, waiting: false });
@@ -489,10 +589,10 @@ impl Game {
         sfx.push(Sfx::RecSave);
     }
 
-    /// A scored good pays renown, and each contributor's share flies to it as credit.
+    /// A scored good pays renown, split by shares: each contributor's share goes to its commune,
+    /// and flies to it as credit.
     pub(crate) fn score(&mut self, value: f64, shares: &[Share], bx: i32, by: i32) {
         let value = value * RENOWN_PER_VALUE;
-        self.renown += value;
         let at = (bx * TS + 8, by * TS);
         self.floaters.push(Floater { text: format!("+{} RENOWN", value.round()), from: at, to: (at.0, at.1 - 26), t: 0, total: 40, delay: 0, color: SPARK + 2 });
         let total: f64 = shares.iter().map(|s| s.count).sum();
@@ -503,6 +603,7 @@ impl Game {
             let credit = value * s.count / total;
             if let Some(m) = self.monsters.iter_mut().find(|m| m.id == s.monster) {
                 m.earned += credit;
+                self.communes[m.commune].renown += credit;
                 if credit >= 0.5 {
                     let to = (m.x * TS + 8, m.y * TS - 6);
                     self.floaters.push(Floater { text: format!("{} +{}", m.name, credit.round()), from: (at.0, at.1 - 20), to, t: 0, total: 44, delay: 14, color: TEXT_GOOD });
@@ -578,48 +679,36 @@ impl Game {
         }
     }
 
-    pub fn update(&mut self, inp: &Input, req: &mut Vec<Request>, sfx: &mut Vec<Sfx>) {
+    /// One tick. `inputs[k]` is what commune `k`'s player pressed; a commune with none (its
+    /// player away) presses nothing, and its monsters carry on.
+    pub fn update(&mut self, inputs: &[Input], req: &mut Vec<Request>) {
         self.frame = self.frame.wrapping_add(1);
-        if inp.quit_pressed {
+        self.sounds.clear();
+        if inputs.iter().any(|i| i.quit_pressed) {
             req.push(Request::Quit);
             return;
         }
-        if inp.help_pressed {
-            self.help = !self.help;
+        for k in 0..self.communes.len() {
+            let mut sfx = Vec::new();
+            self.player_input(k, &inputs.get(k).copied().unwrap_or_default(), &mut sfx);
+            self.sounds.extend(sfx.into_iter().map(|s| (Heard::By(k), s)));
         }
-        if inp.inspect && !self.inspecting {
-            self.card_page = 0;
-        }
-        self.inspecting = inp.inspect;
-        self.roster = inp.tab_held && !inp.inspect;
-        if inp.tab_pressed && self.inspecting {
-            // While examining, Tab turns the card's page instead of switching monsters.
-            self.card_page += 1;
-        } else if inp.tab_pressed {
-            self.controlled = (self.controlled + 1) % self.monsters.len();
-            self.queued = None;
-            self.queued_use = false;
-            self.events.push(Ev::Switched);
-            sfx.push(Sfx::Switch);
-        }
-        self.player_input(inp, sfx);
         for i in 0..self.monsters.len() {
-            // What a monster does on another screen isn't heard.
+            // Heard on the screen where the monster ends its turn.
             let mut heard = Vec::new();
             if self.monsters[i].playing {
                 self.run_loop(i, &mut heard);
             } else if self.monsters[i].homing && self.monsters[i].idle() {
                 self.walk_home(i, &mut heard);
             }
-            if self.heard((self.monsters[i].x, self.monsters[i].y)) {
-                sfx.extend(heard);
-            }
+            let at = (self.monsters[i].x, self.monsters[i].y);
+            self.sounds.extend(heard.into_iter().map(|s| (Heard::At(at), s)));
         }
         // Knots' moves are only ever steps, which make no sound but yours.
         self.untangle(&mut Vec::new());
         self.advance_motion();
-        self.tick_wagons(sfx);
-        self.tick_work(sfx);
+        self.tick_wagons();
+        self.tick_work();
         self.tick_frontier();
         self.tick_hall();
         self.world.tick_particles(self.frame);
@@ -641,15 +730,17 @@ impl Game {
                 m.learned = None;
             }
         }
-        let c = &self.monsters[self.controlled];
-        let area = area_name(crate::render::screen_of(c.x, c.y).0);
-        if area != self.area {
-            self.area = area;
-            self.banner = Some((area, BANNER_TICKS));
-        } else if let Some((_, t)) = self.banner.as_mut() {
-            *t = t.saturating_sub(1);
-            if *t == 0 {
-                self.banner = None;
+        for c in self.communes.iter_mut() {
+            let m = &self.monsters[c.controlled];
+            let area = area_name(crate::render::screen_of(m.x, m.y).0);
+            if area != c.area {
+                c.area = area;
+                c.banner = Some((area, BANNER_TICKS));
+            } else if let Some((_, t)) = c.banner.as_mut() {
+                *t = t.saturating_sub(1);
+                if *t == 0 {
+                    c.banner = None;
+                }
             }
         }
         self.advance_tutorial();
@@ -667,16 +758,38 @@ impl Game {
         self.data.try_good(id).map_or_else(|| id.to_uppercase(), |g| g.name.to_uppercase())
     }
 
-    fn player_input(&mut self, inp: &Input, sfx: &mut Vec<Sfx>) {
-        let c = self.controlled;
+    /// Commune `k`'s player: the screen they look at, and the monster they control.
+    fn player_input(&mut self, k: usize, inp: &Input, sfx: &mut Vec<Sfx>) {
+        let me = &mut self.communes[k];
+        if inp.help_pressed {
+            me.help = !me.help;
+        }
+        if inp.inspect && !me.inspecting {
+            me.card_page = 0;
+        }
+        me.inspecting = inp.inspect;
+        me.roster = inp.tab_held && !inp.inspect;
+        if inp.tab_pressed && me.inspecting {
+            // While examining, Tab turns the card's page instead of switching monsters.
+            me.card_page += 1;
+        } else if inp.tab_pressed {
+            // The next of the commune's own monsters.
+            let (n, cur) = (self.monsters.len(), me.controlled);
+            me.controlled = (1..=n).map(|d| (cur + d) % n).find(|&j| self.monsters[j].commune == k).unwrap_or(cur);
+            (me.queued, me.queued_use) = (None, false);
+            self.events.push((k, Ev::Switched));
+            sfx.push(Sfx::Switch);
+        }
+        let c = self.communes[k].controlled;
         let held = |d: Dir| inp.held[DIRS.iter().position(|&x| x == d).unwrap_or(0)];
         let mut fresh = None;
-        for (k, d) in DIRS.iter().enumerate() {
-            if inp.pressed[k] {
+        for (n, d) in DIRS.iter().enumerate() {
+            if inp.pressed[n] {
                 fresh = Some(*d);
             }
         }
-        self.hold = match (fresh, self.hold) {
+        let me = &mut self.communes[k];
+        me.hold = match (fresh, me.hold) {
             (Some(d), _) => Some((d, 0)),
             (None, Some((d, t))) if held(d) => Some((d, t.saturating_add(1))),
             // Released, but another direction is still down: keep walking that way.
@@ -713,22 +826,23 @@ impl Game {
             return;
         }
         if m.slide.is_some() {
+            let me = &mut self.communes[k];
             if fresh.is_some() {
-                self.queued = fresh;
+                me.queued = fresh;
             }
-            self.queued_use |= inp.use_pressed;
+            me.queued_use |= inp.use_pressed;
             return;
         }
 
         if inp.use_pressed {
             self.face_something_usable(c);
-            if let Some(k) = self.faced_applicant() {
-                self.welcome(c, k, sfx);
+            if let Some(a) = self.faced_applicant(c) {
+                self.welcome(c, a, sfx);
                 return;
             }
         }
-        if inp.use_pressed || std::mem::take(&mut self.queued_use) {
-            self.queued = None;
+        if inp.use_pressed || std::mem::take(&mut self.communes[k].queued_use) {
+            self.communes[k].queued = None;
             self.face_something_usable(c);
             let (thing, led) = (self.thing_here(c), self.led_wagon(c));
             match self.try_use(c, sfx) {
@@ -764,8 +878,8 @@ impl Game {
             return;
         }
 
-        let pressed_now = self.queued.take().or(fresh);
-        let repeat = self.hold.filter(|&(_, t)| t >= HOLD_REPEAT_TICKS).map(|(d, _)| d);
+        let pressed_now = self.communes[k].queued.take().or(fresh);
+        let repeat = self.communes[k].hold.filter(|&(_, t)| t >= HOLD_REPEAT_TICKS).map(|(d, _)| d);
         let Some(d) = pressed_now.or(repeat) else { return };
         // Shift with an item in front and a step away from it: pull. Otherwise Shift is ignored.
         let pulling = inp.pull && self.pulled_item(c, d).is_some() && self.led_wagon(c).is_none();
@@ -784,7 +898,7 @@ impl Game {
                 if pulling {
                     self.say(c, "HNNNG...", false);
                 }
-                self.events.push(Ev::Walked);
+                self.events.push((k, Ev::Walked));
             }
             StepRes::Blocked(msg) => {
                 // Holding into a wall bumps once; each fresh press bumps again.
@@ -914,7 +1028,7 @@ impl Game {
                 item.data.hauled_by(id);
                 crate::econ::pay_haul(&mut item.data);
                 self.contribute(b, item.data, sfx);
-                self.events.push(Ev::Delivered(good.clone()));
+                self.event(i, Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else if let Some(b) = self.world.bin_at(bx, by) {
                 if !self.world.bins[b].takes(&good) {
@@ -934,7 +1048,7 @@ impl Game {
                 if let Some((value, shares)) = scored {
                     self.score(value, &shares, bx, by);
                 }
-                self.events.push(Ev::Delivered(good.clone()));
+                self.event(i, Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else if let Some(w) = self.world.wagon_at(bx, by) {
                 if let Err(msg) = self.load_wagon(w, it, id) {
@@ -968,7 +1082,7 @@ impl Game {
             }
             self.practice(i, "hauling", ticks);
             pushed = Some(good);
-        } else if i == self.controlled {
+        } else if self.controller(i).is_some() {
             sfx.push(Sfx::Step);
         }
         if let Some(w) = wagon {
@@ -1201,60 +1315,64 @@ impl Game {
         }
     }
 
+    /// Each commune's tutorial moves on. What a player does with their own monsters (making
+    /// things, loops, helpers, leading a wagon) counts only for their commune; a result in the
+    /// world (goods stored, a bridge built, a workshop set up) counts for everyone, so a newcomer
+    /// skips steps someone else has already done.
     fn advance_tutorial(&mut self) {
         let events = std::mem::take(&mut self.events);
-        for e in &events {
-            if let Ev::Made(g) = e {
-                self.made.insert(g.clone());
-            }
-        }
-        let t = &mut self.tutorial;
-        t.steps += events.iter().filter(|e| **e == Ev::Walked).count() as u32;
         let stored = |good: &str| self.world.bins.iter().any(|b| b.stock.iter().any(|d| d.good == good));
-        let playing = self.monsters.iter().filter(|m| m.playing).count();
-        let has_routine = self.monsters.iter().any(|m| m.routine.is_some());
-        loop {
-            let met = match t.stage {
-                0 => t.steps >= 4,
-                1 => self.made.contains("cotton_bolls"),
-                2 => stored("cotton_bolls") || self.made.contains("cotton_slivers"),
-                3 => self.made.contains("cotton_slivers"),
-                4 => self.made.contains("thread"),
-                5 => self.made.contains("fabric"),
-                6 => stored("fabric"),
-                7 => has_routine,
-                8 => playing >= 2,
-                9 => self.monsters.len() > 2,
-                10 => self.made.contains("rope"),
-                11 => self.world.footbridge_built(),
-                12 => self.monsters.iter().any(|m| area_name(m.x) == "TANGLEMERE"),
-                13 => self.made.contains("lye"),
-                14 => self.made.contains("quicklime"),
-                15 => self.made.contains("indigo"),
-                16 => stored("dyed_fabric"),
-                17 => self.world.wagons.iter().any(|w| w.last_leader.is_some()),
-                18 => events.contains(&Ev::Unloaded),
-                19 => self.world.bridge_built(),
-                20 => self.made.contains("kiln_kit") || self.made.contains("workbench_kit"),
-                21 => self.world.shops.iter().any(|s| s.frontier.as_ref().is_some_and(|f| !f.fallen)),
-                _ => false,
-            };
-            if !met || t.stage >= tutorial::DONE {
-                break;
+        for k in 0..self.communes.len() {
+            let mine: Vec<&Ev> = events.iter().filter(|(c, _)| *c == k).map(|(_, e)| e).collect();
+            let own = || self.monsters.iter().filter(move |m| m.commune == k);
+            let c = &mut self.communes[k];
+            for e in &mine {
+                if let Ev::Made(g) = e {
+                    c.made.insert(g.clone());
+                }
             }
-            t.stage += 1;
+            c.tutorial.steps += mine.iter().filter(|e| ***e == Ev::Walked).count() as u32;
+            let playing = own().filter(|m| m.playing).count();
+            let has_routine = own().any(|m| m.routine.is_some());
+            let led_wagon = self.world.wagons.iter().any(|w| w.last_leader.is_some_and(|id| own().any(|m| m.id == id)));
+            loop {
+                let made = |g: &str| c.made.contains(g);
+                let met = match c.tutorial.stage {
+                    0 => c.tutorial.steps >= 4,
+                    1 => made("cotton_bolls"),
+                    2 => stored("cotton_bolls") || made("cotton_slivers"),
+                    3 => made("cotton_slivers"),
+                    4 => made("thread"),
+                    5 => made("fabric"),
+                    6 => stored("fabric"),
+                    7 => has_routine,
+                    8 => playing >= 2,
+                    9 => own().count() > 2,
+                    10 => made("rope"),
+                    11 => self.world.footbridge_built(),
+                    12 => own().any(|m| area_name(m.x) == "TANGLEMERE"),
+                    13 => made("lye"),
+                    14 => made("quicklime"),
+                    15 => made("indigo"),
+                    16 => stored("dyed_fabric"),
+                    17 => led_wagon,
+                    18 => mine.contains(&&Ev::Unloaded),
+                    19 => self.world.bridge_built(),
+                    20 => made("kiln_kit") || made("workbench_kit"),
+                    21 => self.world.shops.iter().any(|s| s.frontier.as_ref().is_some_and(|f| !f.fallen)),
+                    _ => false,
+                };
+                if !met || c.tutorial.stage >= tutorial::DONE {
+                    break;
+                }
+                c.tutorial.stage += 1;
+            }
         }
     }
 
     /// Fabric in the cloth store: the HUD's running tally for now.
     pub fn cloth_stored(&self) -> usize {
         self.world.bins.iter().flat_map(|b| &b.stock).filter(|d| d.good == "fabric" || d.good == "dyed_fabric").count()
-    }
-
-    /// Is a sound at this tile heard: is it on the screen you're looking at?
-    pub(crate) fn heard(&self, (x, y): (i32, i32)) -> bool {
-        let m = &self.monsters[self.controlled];
-        crate::render::screen_of(x, y) == crate::render::screen_of(m.x, m.y)
     }
 
     /// The controlled monster's state for the HUD, and whether it is a warning.
@@ -1284,10 +1402,16 @@ impl Game {
         (format!("{who}: {}", state.0), state.1)
     }
 
-    /// Scripted play for tests and screenshots: `U D L R` move, `u` use, `r` record,
-    /// `p` play, `t` tab, `x` cancel, `h` help. Waits for each action to finish.
+    /// Scripted play for tests and screenshots, as the first commune's player: `U D L R` move,
+    /// `u` use, `r` record, `p` play, `t` tab, `x` cancel, `h` help. Waits for each action to
+    /// finish.
     pub fn script(&mut self, keys: &str) {
-        let (mut req, mut sfx) = (Vec::new(), Vec::new());
+        self.script_as(0, keys);
+    }
+
+    /// The same, as commune `k`'s player; the other players press nothing.
+    pub fn script_as(&mut self, k: usize, keys: &str) {
+        let mut req = Vec::new();
         for ch in keys.chars() {
             let mut inp = Input::default();
             match ch {
@@ -1311,20 +1435,27 @@ impl Game {
                 'h' => inp.help_pressed = true,
                 _ => continue,
             }
-            self.update(&inp, &mut req, &mut sfx);
+            self.press(k, inp, &mut req);
             for _ in 0..2000 {
-                if self.monsters[self.controlled].idle() {
+                if self.monsters[self.communes[k].controlled].idle() {
                     break;
                 }
-                self.update(&Input::default(), &mut req, &mut sfx);
+                self.update(&[], &mut req);
             }
         }
     }
 
+    /// One tick in which only commune `k`'s player presses anything.
+    pub fn press(&mut self, k: usize, inp: Input, req: &mut Vec<Request>) {
+        let mut inputs = vec![Input::default(); k + 1];
+        inputs[k] = inp;
+        self.update(&inputs, req);
+    }
+
     pub fn run_ticks(&mut self, n: u32) {
-        let (mut req, mut sfx) = (Vec::new(), Vec::new());
+        let mut req = Vec::new();
         for _ in 0..n {
-            self.update(&Input::default(), &mut req, &mut sfx);
+            self.update(&[], &mut req);
         }
     }
 }
@@ -1360,3 +1491,7 @@ mod tangle_tests;
 #[cfg(test)]
 #[path = "frontier_tests.rs"]
 mod frontier_tests;
+
+#[cfg(test)]
+#[path = "commune_tests.rs"]
+mod commune_tests;

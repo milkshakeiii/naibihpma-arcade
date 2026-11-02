@@ -164,7 +164,7 @@ fn on_one_loop(n: usize, make: fn(&Game) -> Routine) -> Game {
     while g.monsters.len() < n {
         let skills = g.monsters[0].skills.clone();
         let (id, name) = (10 + g.monsters.len() as u32, names[g.monsters.len() - 2]);
-        g.monsters.push(Monster::new(id, name, "goblin", &g.data, (0, 0), skills));
+        g.monsters.push(Monster::new(id, 0, name, "goblin", &g.data, (0, 0), skills));
     }
     let routine = make(&g);
     for (k, m) in g.monsters.iter_mut().enumerate().take(n) {
@@ -369,7 +369,7 @@ fn walkers(rows: &[&str], stops: &[&[(i32, i32)]]) -> (Game, Walkers) {
     while g.monsters.len() < stops.len() {
         let skills = g.monsters[0].skills.clone();
         let id = 10 + g.monsters.len() as u32;
-        g.monsters.push(Monster::new(id, "WALKER", "goblin", &g.data, (0, 0), skills));
+        g.monsters.push(Monster::new(id, 0, "WALKER", "goblin", &g.data, (0, 0), skills));
     }
     let w = g.world.w;
     for (y, row) in rows.iter().enumerate() {

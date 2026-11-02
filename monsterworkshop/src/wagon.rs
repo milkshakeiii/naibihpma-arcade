@@ -198,7 +198,7 @@ impl Game {
 
     /// Wagons slide along, and a parked wagon with its tailgate open sets its goods out behind
     /// it, one at a time, straight into a bin there if the bin takes them.
-    pub(crate) fn tick_wagons(&mut self, sfx: &mut Vec<Sfx>) {
+    pub(crate) fn tick_wagons(&mut self) {
         for w in 0..self.world.wagons.len() {
             let wagon = &mut self.world.wagons[w];
             for s in [&mut wagon.slide, &mut wagon.pumpkin_slide] {
@@ -233,7 +233,10 @@ impl Game {
                 data.carted = wagon.last_leader;
             }
             let back = dir_to(wagon.pumpkin, wagon.at);
-            self.events.push(Ev::Unloaded);
+            // The unloading counts for whoever last led the wagon.
+            if let Some(i) = wagon.last_leader.and_then(|id| self.monsters.iter().position(|m| m.id == id)) {
+                self.event(i, Ev::Unloaded);
+            }
             if let Some(b) = bin {
                 if self.world.bins[b].scores {
                     econ::pay_haul(&mut data);
@@ -243,15 +246,11 @@ impl Game {
                 self.world.bins[b].stock.push(data);
                 self.world.bins[b].bounce = 4;
                 self.world.burst(bx, by, PKind::Spark, 4);
-                if self.heard((bx, by)) {
-                    sfx.push(Sfx::Deposit);
-                }
+                self.sound((bx, by), Sfx::Deposit);
             } else {
                 let slide = Some(Slide { dir: back, left: PUSH_TICKS, total: PUSH_TICKS });
                 self.world.items.push(Item { slide, hop: 6, ..Item::new(bx, by, data) });
-                if self.heard((bx, by)) {
-                    sfx.push(Sfx::Pop);
-                }
+                self.sound((bx, by), Sfx::Pop);
             }
         }
     }

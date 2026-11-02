@@ -76,7 +76,7 @@ Henry composes the soundtrack. The arcade's Star Pond already streams WAV music,
 **v1.5:** equipment as physical crafted wearables; charity and great-works drop-offs; and an in-world quality sorter (see below).
 
 ## The living world (direction set 2026-11-01)
-The game is designed for a **community server of 50 or more players**: one or two official servers, plus player-run ones. Server settings can tune a world down to one player, but that's an odd setting, not the design. The fun is in providing goods and being provided with them. This is the original MonsterMakers idea in a walkable world. Goods are shared, and shares split a good's renown among everyone who helped make it, so one player's indigo in another player's cloth pays both.
+The game is designed for a **community server of 50 or more players**: one or two official servers, plus player-run ones. Server settings can tune a world down to one player, but that's an odd setting, not the design. Settings can also tune the game's constants, such as how many monsters a commune can have, so a handful of players with very large communes is fun too, much as one to five players build huge factories in Factorio. Monster loops are written to scale for that. The large server stays the first vision. The fun is in providing goods and being provided with them. This is the original MonsterMakers idea in a walkable world. Goods are shared, and shares split a good's renown among everyone who helped make it, so one player's indigo in another player's cloth pays both.
 
 - **A commune is one player.** Leaderboards rank communes.
 - **Provinces.** The world is 4–5 provinces holding the existing tech tree, with its missing parts filled in. No province makes every good. Each has its own industries and biomes. The geography stays loosely based on the book, with names translated as before.
@@ -191,7 +191,7 @@ There is no character-creation screen. A **gathering hall** in town holds monste
 Renown is a HUD counter. You spend it in the world: hiring at the hall, and contributing to **town project boards**. A project board shows what goods it wants and a progress bar. In 1.0 boards count goods of any quality, so a low-quality good always has somewhere useful to go. Finished projects unlock things like the road to the second town or new workshops. The Temple Bell is 1.0's great work (see The great works below), but it doesn't end the game.
 
 ### Delivery and shares
-Delivering a good is a small celebration. "+12 RENOWN" rises from the drop-off, then smaller credits fly to each monster that contributed ("MOGG 6, BRUNA 4"). This is how the shares system becomes visible. All renown still goes to the one commune.
+Delivering a good is a small celebration. "+12 RENOWN" rises from the drop-off, then smaller credits fly to each monster that contributed ("MOGG 6, BRUNA 4"). This is how the shares system becomes visible. Each contributor's share of the renown goes to its own commune (since M3a).
 
 ### Roster
 Tab cycles monsters. A monster that's off-screen gets an **edge marker**: an arrow at the screen edge with its state icon (looping, waiting, idle), so a stuck monster is noticeable from anywhere. Holding Tab shows a strip of portraits with states in the HUD.
@@ -396,6 +396,17 @@ Still code rather than data, each to move into data when the first new one shows
   - **One real applicant pool.** Everyone sees the same applicants at the gathering hall, first come first served; it feels more real when people see the same things. Stand count and arrival rate get tuned for a full server.
   - **Newcomers start at the first town's gate with two monsters.** The tutorial skips steps whose result already exists on the server, such as a bridge someone else built.
   - **Nobody controls another commune's monsters.** Everything else works as today until griefing is designed.
+
+### Communes in the simulation (M3a, built 2026-11-01)
+- **Every monster belongs to a commune,** and the game holds a list of communes, only ever added to. A commune keeps its renown, the monster its player controls, its tutorial and what it has made. It also keeps that player's screen state (help, the examine card and its page, the roster strip, the area banner), which moves to the player's own game in M3b.
+- **One tick takes every player's input.** A player who's away presses nothing, and their monsters carry on. Tab switches only among your own monsters.
+- **Renown follows shares.** A scored good's renown is split by its shares, and each share goes to its monster's commune: one player's indigo in another's cloth pays both.
+- **Hiring** spends the hirer's renown, and the helper joins the hirer's commune. Everyone shares one applicant pool.
+- **Joining:** a new commune gets a goblin crafter and a cyclops gatherer with Mogg's and Bruna's starting skills and new names, on the free tiles nearest where Mogg and Bruna start.
+- **Tutorials per commune.** What a player does with their own monsters (making things, recording and running loops, hiring, reaching Tanglemere, leading a wagon) counts only for their commune. A result in the world (goods stored, a bridge built, a frontier workshop standing) counts for everyone, so a newcomer skips those steps.
+- **Sounds per player:** each player hears their own actions, and whatever happens on the screen they're looking at. A plant setting out its harvest used to be heard from every screen; now it's heard only on its own.
+- **Saves are version 12** and hold the communes.
+- Nine two-player tests cover starting, control, renown, hiring, tutorials, sounds and saving. A one-player game is unchanged: all 41 screenshots are byte-identical to before.
 - **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
 ### Tanglemere's dye works (M2 stage 2)

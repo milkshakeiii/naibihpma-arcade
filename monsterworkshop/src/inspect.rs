@@ -148,19 +148,20 @@ pub fn display_name(g: &Game, item: &ItemData) -> String {
     words.join(" ")
 }
 
-pub fn card(g: &Game) -> Card {
-    let c = g.controlled;
+/// The card commune `k`'s player sees.
+pub fn card(g: &Game, k: usize) -> Card {
+    let c = g.communes[k].controlled;
     let m = &g.monsters[c];
     let (dx, dy) = m.facing.delta();
     let (fx, fy) = (m.x + dx, m.y + dy);
     if let Some(s) = g.world.shop_at_spot(m.x, m.y).or_else(|| g.world.shop_at_spot(fx, fy)) {
         return forecast_card(g, s, c);
     }
-    if let Some(k) = g.faced_applicant() {
-        return applicant_card(g, k);
+    if let Some(a) = g.faced_applicant(c) {
+        return applicant_card(g, a, k);
     }
     if let Some(i) = g.world.item_at(fx, fy) {
-        return item_card(g, &g.world.items[i].data, (fx, fy));
+        return item_card(g, &g.world.items[i].data, (fx, fy), c);
     }
     if g.world.tile(fx, fy) == Tile::Peg {
         if let Some(card) = town_tool_card(g, (fx, fy)) {
@@ -182,10 +183,10 @@ pub fn card(g: &Game) -> Card {
         return Card::one("PUMPKIN", lines, (fx, fy));
     }
     if let Some(w) = g.world.wagon_at(fx, fy) {
-        return wagon_card(g, w, (fx, fy));
+        return wagon_card(g, w, (fx, fy), c);
     }
     if let Some(p) = g.world.plant_at(fx, fy).or_else(|| g.world.plant_at(m.x, m.y)) {
-        return plant_card(g, p);
+        return plant_card(g, p, c);
     }
     if let Some(b) = g.world.bin_at(fx, fy) {
         return bin_card(g, b);
@@ -211,7 +212,8 @@ pub fn card(g: &Game) -> Card {
     monster_card(g, c)
 }
 
-fn wagon_card(g: &Game, w: usize, at: (i32, i32)) -> Card {
+/// A wagon's card, with the pulling power of `c`, the monster examining it.
+fn wagon_card(g: &Game, w: usize, at: (i32, i32), c: usize) -> Card {
     let wagon = &g.world.wagons[w];
     let mut first = vec![match wagon.good() {
         Some(good) => line(format!("{} {}", wagon.stock.len(), g.good_name(good)), TEXT).icon(Icon::Good(good.to_string())),
@@ -220,7 +222,6 @@ fn wagon_card(g: &Game, w: usize, at: (i32, i32)) -> Card {
     let used: f64 = wagon.stock.iter().map(|(d, _)| g.data.good(&d.good).storage_volume).sum();
     first.push(line(format!("ROOM {used:.1} OF {:.1}", wagon.room), TEXT).bar(used / wagon.room));
     first.push(if wagon.open { line("TAILGATE OPEN: PARKED, IT UNLOADS BEHIND.", TEXT_GOOD) } else { line("TAILGATE SHUT. SPACE AT ITS BACK OPENS IT.", TEXT_DIM) });
-    let c = g.controlled;
     let details = vec![
         line(format!("LOAD WEIGHS {:.0}. {} PULLS {:.0} AT FULL SPEED.", g.load_weight(w), g.monsters[c].name, g.pull_capacity(c, w)), TEXT).icon(Icon::Weight),
         line("PULLING POWER: THE WAGON, ITS LEADER'S CHA AND WAGON DRIVING.", TEXT_DIM),
@@ -261,7 +262,7 @@ fn is_tool(g: &Game, item: &ItemData) -> bool {
     g.data.goods.iter().any(|r| r.tools_required_tags.iter().any(|grp| !grp.is_empty() && matches(&tags, grp)))
 }
 
-fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
+fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
     let q = item.quality;
     let gt = g.data.good(&item.good);
     let mut first = Vec::new();
@@ -287,7 +288,6 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
     }
     if let Some(kind) = crate::frontier::kit_kind(&item.good) {
         first.push(line(format!("FACE IT AND PRESS SPACE TO SET UP A {}. NOT IN TOWN OR ON A ROAD.", kind.label()), TEXT));
-        let c = g.controlled;
         if let Some(why) = g.kit_ahead(c).filter(|&k| (g.world.items[k].x, g.world.items[k].y) == at).and_then(|k| g.footprint(c, k)).and_then(|fp| fp.why) {
             first.push(line(why, TEXT_WARN).icon(Icon::Warn));
         }
@@ -315,17 +315,20 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
     Card::two(display_name(g, item), first, details, at)
 }
 
-fn applicant_card(g: &Game, k: usize) -> Card {
-    let a = g.applicants[k].as_ref().expect("a faced applicant");
+/// Applicant `a`, as commune `k`'s player sees them: can they afford to welcome them?
+fn applicant_card(g: &Game, a: usize, k: usize) -> Card {
+    let stand = g.world.stands[a];
+    let a = g.applicants[a].as_ref().expect("a faced applicant");
     let s = &a.stats;
-    let affordable = g.renown >= a.cost as f64;
+    let renown = g.communes[k].renown;
+    let affordable = renown >= a.cost as f64;
     let first = vec![
-        line(format!("JOINS AT {} RENOWN. YOU HAVE {}.", a.cost, g.renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown),
+        line(format!("JOINS AT {} RENOWN. YOU HAVE {}.", a.cost, renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown),
         line(format!("TALENTS: {}", a.transferable.iter().map(|t| skill_name(t)).collect::<Vec<_>>().join(", ")), TEXT),
         line(if affordable { "SPACE WELCOMES THEM." } else { "EARN MORE RENOWN TO WELCOME THEM." }, TEXT_DIM),
     ];
     let details = vec![line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT)];
-    Card::two(format!("{} THE {}", a.name, a.kind.to_uppercase()), first, details, g.world.stands[k])
+    Card::two(format!("{} THE {}", a.name, a.kind.to_uppercase()), first, details, stand)
 }
 
 fn town_tool_card(g: &Game, at: (i32, i32)) -> Option<Card> {
@@ -363,7 +366,7 @@ fn monster_card(g: &Game, i: usize) -> Card {
     Card::two(format!("{} THE {}", m.name, m.kind.to_uppercase()), first, details, (m.x, m.y))
 }
 
-fn plant_card(g: &Game, p: usize) -> Card {
+fn plant_card(g: &Game, p: usize, c: usize) -> Card {
     let plant = &g.world.plants[p];
     let name = g.good_name(&plant.good);
     let state = if plant.harvest.is_some() {
@@ -378,7 +381,6 @@ fn plant_card(g: &Game, p: usize) -> Card {
     let mut first = vec![state];
     // What a harvest would give the monster you control: gathering is a craft with no
     // inputs or tools.
-    let c = g.controlled;
     let m = &g.monsters[c];
     let recipe = g.data.good(&plant.good);
     let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills }, inputs: Vec::new(), tools: Vec::new(), workshop: None };

@@ -33,7 +33,7 @@ fn bench_kit(g: &Game, wood: &str, quality: f64) -> ItemData {
 
 /// Puts the controlled monster at a tile, facing a way.
 fn stand(g: &mut Game, (x, y): (i32, i32), facing: Dir) {
-    let c = g.controlled;
+    let c = g.communes[0].controlled;
     (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (x, y, facing);
 }
 
@@ -65,11 +65,11 @@ fn the_builders_bench_makes_a_kiln_kit_from_six_goods_with_the_tools_it_lends() 
     for (k, data) in goods.into_iter().enumerate() {
         g.world.items.push(Item::new(pads[k].0, pads[k].1, data));
     }
-    g.controlled = 1;
+    g.communes[0].controlled = 1;
     stand(&mut g, (36, 28), Dir::Up);
     g.script("u");
     for _ in 0..4000 {
-        if g.made.contains("kiln_kit") {
+        if g.communes[0].made.contains("kiln_kit") {
             break;
         }
         g.run_ticks(1);
@@ -140,7 +140,7 @@ fn a_frontier_bench_lends_no_tools_but_twists_rope() {
     }
     g.script("u");
     g.run_ticks(600);
-    assert!(g.made.contains("rope"), "{:?}", g.monsters[0].bubble.as_ref().map(|b| &b.text));
+    assert!(g.communes[0].made.contains("rope"), "{:?}", g.monsters[0].bubble.as_ref().map(|b| &b.text));
 }
 
 #[test]
@@ -200,5 +200,5 @@ fn a_loop_works_a_frontier_workshop_like_any_other() {
     m.routine = Some(Routine { flag: (MEADOW.0, MEADOW.1 - 1), goals: vec![Goal::Activate(Thing::Shop(s))] });
     (m.pc, m.playing) = (0, true);
     g.run_ticks(600);
-    assert!(g.made.contains("rope"), "{}", g.monsters[0].wait_reason);
+    assert!(g.communes[0].made.contains("rope"), "{}", g.monsters[0].wait_reason);
 }

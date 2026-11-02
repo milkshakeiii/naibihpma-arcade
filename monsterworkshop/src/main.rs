@@ -235,7 +235,9 @@ fn run_window(audio: &mut Audio, windowed: bool) {
                     }
                 }
                 Screen::Play { game, path, since_save } => {
-                    game.update(&inp, &mut requests, &mut sfx);
+                    // Playing locally, you're the first commune's player.
+                    game.update(&[inp], &mut requests);
+                    sfx.extend(game.sounds_for(0));
                     *since_save += 1;
                     let quitting = requests.drain(..).any(|r| matches!(r, Request::Quit));
                     if quitting || *since_save >= save::AUTOSAVE_TICKS {
@@ -250,7 +252,7 @@ fn run_window(audio: &mut Audio, windowed: bool) {
                     for s in sfx.drain(..) {
                         audio.play_sfx(s);
                     }
-                    render::draw(game, &sprites, &mut fb);
+                    render::draw(game, 0, &sprites, &mut fb);
                 }
             }
             let mut rc: RECT = zeroed();
@@ -298,10 +300,10 @@ fn export_screenshots(dir: &Path) {
     let mut fb = Framebuffer::new();
     let mut g = Game::new();
     let mut save = |g: &Game, name: &str| {
-        render::draw(g, &sprites, &mut fb);
+        render::draw(g, 0, &sprites, &mut fb);
         fb.save_png(&dir.join(name), &pal, &pal, 0);
     };
-    let use_now = |g: &mut Game| g.update(&Input { use_pressed: true, ..Input::default() }, &mut Vec::new(), &mut Vec::new());
+    let use_now = |g: &mut Game| g.press(0, Input { use_pressed: true, ..Input::default() }, &mut Vec::new());
 
     g.run_ticks(2);
     save(&g, "01_fields.png");
@@ -310,9 +312,9 @@ fn export_screenshots(dir: &Path) {
     g.run_ticks(12);
     save(&g, "02_harvesting.png");
     g.run_ticks(30);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "03_examine_boll.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
     g.script("RRR");
     g.script("t");
     g.run_ticks(10);
@@ -322,12 +324,12 @@ fn export_screenshots(dir: &Path) {
     save(&g, "04_workbench.png");
     g.run_ticks(40);
     g.script(&format!("{}UR", "R".repeat(15)));
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "05_spinnery_forecast.png");
-    g.card_page = 1;
+    g.communes[0].card_page = 1;
     save(&g, "05b_spinnery_details.png");
-    g.card_page = 0;
-    g.inspecting = false;
+    g.communes[0].card_page = 0;
+    g.communes[0].inspecting = false;
     use_now(&mut g);
     g.run_ticks(84);
     save(&g, "06_thread_and_popup.png");
@@ -339,33 +341,33 @@ fn export_screenshots(dir: &Path) {
     g.script(&format!("R{}", "D".repeat(6)));
     g.run_ticks(4);
     save(&g, "08_cloth_store_renown.png");
-    g.monsters[g.controlled].facing = game::Dir::Left;
-    g.inspecting = true;
+    g.monsters[g.communes[0].controlled].facing = game::Dir::Left;
+    g.communes[0].inspecting = true;
     save(&g, "09_examine_bruna.png");
-    g.card_page = 1;
+    g.communes[0].card_page = 1;
     save(&g, "09b_bruna_details.png");
-    g.card_page = 0;
-    g.inspecting = false;
-    g.controlled = 0;
+    g.communes[0].card_page = 0;
+    g.communes[0].inspecting = false;
+    g.communes[0].controlled = 0;
     let stand = g.world.stands[1];
     (g.monsters[0].x, g.monsters[0].y) = (stand.0, stand.1 - 1);
     g.monsters[0].facing = game::Dir::Down;
-    g.renown = 60.0;
+    g.communes[0].renown = 60.0;
     save(&g, "10_gathering_hall.png");
-    g.help = true;
+    g.communes[0].help = true;
     save(&g, "11_help.png");
-    g.help = false;
+    g.communes[0].help = false;
 
     // M2: the footbridge's board, the footbridge, the wilderness and Tanglemere.
-    g.renown = 0.0;
+    g.communes[0].renown = 0.0;
     let board = g.world.boards[0].clone();
     (g.monsters[0].x, g.monsters[0].y) = (board.x, board.y + 1);
     g.monsters[0].facing = game::Dir::Up;
     g.world.boards[0].have = board.need - 1;
     g.run_ticks(2);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "13_footbridge_board.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
     let stored = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric in the cloth store");
     let mut rope = stored.clone();
     rope.good = "rope".into();
@@ -392,9 +394,9 @@ fn export_screenshots(dir: &Path) {
     g.run_ticks(3);
     save(&g, "18_tanglemere.png");
     g.run_ticks(60);
-    g.roster = true;
+    g.communes[0].roster = true;
     save(&g, "19_roster_and_edge_markers.png");
-    g.roster = false;
+    g.communes[0].roster = false;
 
     // Rope at the gate bench, and a pull out of a corner.
     let mut thread = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric");
@@ -403,9 +405,9 @@ fn export_screenshots(dir: &Path) {
     g.world.items.push(world::Item::new(41, 8, thread));
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (42, 8, game::Dir::Down);
     g.run_ticks(2);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "20_gate_bench.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
     let mut stuck = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric");
     stuck.quality = 0.8;
     g.world.items.push(world::Item::new(1, 1, stuck));
@@ -415,7 +417,7 @@ fn export_screenshots(dir: &Path) {
     let mut inp = Input { pull: true, ..Input::default() };
     inp.pressed[3] = true;
     inp.held[3] = true;
-    g.update(&inp, &mut Vec::new(), &mut Vec::new());
+    g.press(0, inp, &mut Vec::new());
     g.run_ticks(14);
     save(&g, "22_pulling.png");
 
@@ -428,9 +430,9 @@ fn export_screenshots(dir: &Path) {
     put(&mut g, (133, 21), "elder_sticks", &[]);
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (132, 21, game::Dir::Up);
     g.run_ticks(3);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "23_kiln_forecast.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
     use_now(&mut g);
     g.run_ticks(12);
     save(&g, "24_kiln_burning.png");
@@ -444,22 +446,22 @@ fn export_screenshots(dir: &Path) {
     g.run_ticks(40);
     put(&mut g, (141, 6), "dyed_fabric", &["cotton", "indigo"]);
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (141, 5, game::Dir::Down);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "26_dye_house.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (78, 19, game::Dir::Left);
     g.run_ticks(3);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "27_limestone.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
 
     // M2 stage 3: the town wagon and its pumpkin, and the bridge.
     let (bed, pumpkin) = (g.world.wagons[0].at, g.world.wagons[0].pumpkin);
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (pumpkin.0 + 1, pumpkin.1, game::Dir::Left);
     g.run_ticks(3);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "28_pumpkin.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
     g.world.wagons[0].stock = (0..3).map(|_| (good("fabric", &["cotton"]), "PINEWATER".to_string())).collect();
     use_now(&mut g);
     g.script("UL");
@@ -471,9 +473,9 @@ fn export_screenshots(dir: &Path) {
     let face = if back.0 < w.0 { game::Dir::Right } else if back.0 > w.0 { game::Dir::Left } else if back.1 < w.1 { game::Dir::Down } else { game::Dir::Up };
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (back.0, back.1, face);
     g.run_ticks(2);
-    g.inspecting = true;
+    g.communes[0].inspecting = true;
     save(&g, "30_wagon_card.png");
-    g.inspecting = false;
+    g.communes[0].inspecting = false;
     let _ = bed;
     g.world.build_bridge();
     let &(bx, by) = g.world.bridge.first().expect("a bridge site");
@@ -537,23 +539,23 @@ fn export_screenshots(dir: &Path) {
     tg.world.items.push(world::Item::new(23, 10, good("waist_loom", &[])));
     (tg.monsters[0].x, tg.monsters[0].y) = (16, 12);
     tg.run_ticks(2);
-    render::draw(&tg, &sprites, &mut fb);
+    render::draw(&tg, 0, &sprites, &mut fb);
     fb.save_png(&dir.join("35_tools.png"), &pal, &pal, 0);
 
     // M2 stage 4: the builders' bench, a kit's ghost (clear, then blocked by the road), and a
     // kiln unpacked in the Thatch Hills.
     let mut shot = |g: &Game, name: &str| {
-        render::draw(g, &sprites, &mut fb);
+        render::draw(g, 0, &sprites, &mut fb);
         fb.save_png(&dir.join(name), &pal, &pal, 0);
     };
     let mut fg = Game::new();
     fg.monsters[0].bubble = None;
-    fg.controlled = 1;
+    fg.communes[0].controlled = 1;
     (fg.monsters[1].x, fg.monsters[1].y, fg.monsters[1].facing) = (36, 28, game::Dir::Up);
     fg.run_ticks(2);
-    fg.inspecting = true;
+    fg.communes[0].inspecting = true;
     shot(&fg, "36_builders_bench.png");
-    (fg.inspecting, fg.controlled) = (false, 0);
+    (fg.communes[0].inspecting, fg.communes[0].controlled) = (false, 0);
     fg.world.items.push(world::Item::new(66, 11, good("workbench_kit", &["oak"])));
     (fg.monsters[0].x, fg.monsters[0].y, fg.monsters[0].facing) = (66, 10, game::Dir::Down);
     fg.run_ticks(2);
@@ -568,7 +570,7 @@ fn export_screenshots(dir: &Path) {
     fg.script("u");
     (fg.monsters[0].x, fg.monsters[0].y) = (88, 10);
     fg.run_ticks(40);
-    fg.inspecting = true;
+    fg.communes[0].inspecting = true;
     shot(&fg, "39_frontier_kiln.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

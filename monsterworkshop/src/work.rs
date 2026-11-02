@@ -80,7 +80,7 @@ impl Game {
     }
 
     /// A harvested plant sets its goods out on its drop tile, one at a time as it clears.
-    fn dispense_plant(&mut self, p: usize, sfx: &mut Vec<Sfx>) {
+    fn dispense_plant(&mut self, p: usize) {
         let plant = &self.world.plants[p];
         let Some(((x, y), dir)) = plant.drop else { return };
         if plant.stock.is_empty() {
@@ -104,7 +104,7 @@ impl Game {
         let slide = Some(Slide { dir, left: crate::game::PUSH_TICKS, total: crate::game::PUSH_TICKS });
         self.world.items.push(Item { slide, hop: 6, ..Item::new(x, y, data) });
         self.world.burst(px, py, PKind::Leaf, 4);
-        sfx.push(Sfx::Pop);
+        self.sound((x, y), Sfx::Pop);
     }
 
     pub(crate) fn use_shop(&mut self, i: usize, s: usize, sfx: &mut Vec<Sfx>) -> UseRes {
@@ -241,7 +241,7 @@ impl Game {
         Ok(out)
     }
 
-    pub(crate) fn tick_work(&mut self, sfx: &mut Vec<Sfx>) {
+    pub(crate) fn tick_work(&mut self) {
         for p in 0..self.world.plants.len() {
             let plant = &mut self.world.plants[p];
             if plant.stock.is_empty() && plant.harvest.is_none() {
@@ -257,35 +257,34 @@ impl Game {
             } else if self.world.plants[p].harvest.is_some() && self.frame % 5 == 0 {
                 self.world.burst(x, y, PKind::Leaf, 1);
             }
-            self.dispense_plant(p, sfx);
+            self.dispense_plant(p);
         }
         for s in 0..self.world.shops.len() {
-            let heard = self.heard(self.world.shops[s].spot);
             let shop = &mut self.world.shops[s];
-            let mut done = false;
-            let mut fluff = None;
+            let (mut done, mut fluff, mut spin) = (false, None, false);
             if let Some(j) = shop.job.as_mut() {
                 j.t += 1;
                 done = j.t >= j.total;
                 if j.t % 3 == 0 && !shop.pads.is_empty() {
                     fluff = Some(shop.pads[(j.t as usize / 3) % shop.pads.len()]);
                 }
-                if j.t % 6 == 0 && heard {
-                    sfx.push(Sfx::Spin);
-                }
+                spin = j.t % 6 == 0;
             }
             if let Some((px, py)) = fluff {
                 self.world.burst(px, py, PKind::Fluff, 1);
             }
-            if done {
-                self.finish_shop(s, sfx);
+            if spin {
+                self.sound(self.world.shops[s].spot, Sfx::Spin);
             }
-            self.place_output(s, sfx);
+            if done {
+                self.finish_shop(s);
+            }
+            self.place_output(s);
             for f in self.world.shops[s].pad_flash.iter_mut() {
                 *f = f.saturating_sub(1);
             }
         }
-        self.tick_bins(sfx);
+        self.tick_bins();
     }
 
     fn finish_harvest(&mut self, p: usize) {
@@ -302,10 +301,10 @@ impl Game {
         plant.stock = items;
         plant.growth = 0;
         plant.timer = DISPENSE_TICKS; // the first one comes out straight away
-        self.events.push(Ev::Made(recipe.id.clone()));
+        self.event(m, Ev::Made(recipe.id.clone()));
     }
 
-    fn finish_shop(&mut self, s: usize, sfx: &mut Vec<Sfx>) {
+    fn finish_shop(&mut self, s: usize) {
         let Some(job) = self.world.shops[s].job.take() else { return };
         let m = job.monster;
         let recipe = self.data.good(&job.recipe).clone();
@@ -363,20 +362,19 @@ impl Game {
         self.world.burst(sx, sy, PKind::Spark, 6);
         self.monsters[m].busy = false;
         self.monsters[m].learned = Some((recipe.id.clone(), learned, LEARNED_POPUP_TICKS));
-        self.events.push(Ev::Made(recipe.id.clone()));
-        if self.heard((sx, sy)) {
-            sfx.push(Sfx::Chime);
-        }
+        self.event(m, Ev::Made(recipe.id.clone()));
+        self.sound((sx, sy), Sfx::Chime);
+        let k = self.monsters[m].commune;
         if broke {
             self.say(m, "A TOOL WORE OUT!", true);
-        } else if !self.examine_hinted && m == self.controlled {
-            self.examine_hinted = true;
+        } else if !self.communes[k].examine_hinted && self.controller(m) == Some(k) {
+            self.communes[k].examine_hinted = true;
             self.say(m, "DONE! HOLD E TO EXAMINE THINGS.", false);
         }
     }
 
     /// Finished goods appear on a free output mat, one at a time.
-    fn place_output(&mut self, s: usize, sfx: &mut Vec<Sfx>) {
+    fn place_output(&mut self, s: usize) {
         let shop = &self.world.shops[s];
         if shop.pending.is_empty() {
             return;
@@ -393,13 +391,11 @@ impl Game {
         let data = shop.pending.remove(0);
         self.world.items.push(Item { hop: 5, ..Item::new(x, y, data) });
         self.world.burst(x, y, PKind::Spark, 10);
-        if self.heard((x, y)) {
-            sfx.push(Sfx::Plop);
-        }
+        self.sound((x, y), Sfx::Plop);
     }
 
     /// Bins with a chute push their oldest item out whenever the chute is clear.
-    fn tick_bins(&mut self, sfx: &mut Vec<Sfx>) {
+    fn tick_bins(&mut self) {
         for b in 0..self.world.bins.len() {
             let bin = &self.world.bins[b];
             let Some((mx, my)) = bin.mouth else {
@@ -424,9 +420,7 @@ impl Game {
             let data = bin.stock.remove(0);
             let slide = Some(Slide { dir, left: crate::game::PUSH_TICKS, total: crate::game::PUSH_TICKS });
             self.world.items.push(Item { slide, hop: 4, ..Item::new(mx, my, data) });
-            if self.heard((mx, my)) {
-                sfx.push(Sfx::Plop);
-            }
+            self.sound((mx, my), Sfx::Plop);
         }
     }
 }

@@ -6,14 +6,13 @@
 //! doesn't load, and the title screen says so.
 
 use crate::econ::Rng;
-use crate::game::{Applicant, Game, Monster};
-use crate::tutorial::Tutorial;
+use crate::game::{Applicant, Commune, Game, Monster};
 use crate::world::{Bin, Board, Item, Plant, Project, Shop, Wagon};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 11;
+pub const VERSION: u32 = 12;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -23,11 +22,7 @@ struct SaveRef<'a> {
     version: u32,
     frame: u32,
     rng: &'a Rng,
-    renown: f64,
-    controlled: usize,
-    tutorial: &'a Tutorial,
-    made: Vec<&'a String>,
-    examine_hinted: bool,
+    communes: &'a [Commune],
     items: &'a [Item],
     plants: &'a [Plant],
     bins: &'a [Bin],
@@ -53,11 +48,7 @@ struct Header {
 struct SaveData {
     frame: u32,
     rng: Rng,
-    renown: f64,
-    controlled: usize,
-    tutorial: Tutorial,
-    made: Vec<String>,
-    examine_hinted: bool,
+    communes: Vec<Commune>,
     items: Vec<Item>,
     plants: Vec<Plant>,
     bins: Vec<Bin>,
@@ -77,11 +68,7 @@ pub fn to_json(g: &Game) -> String {
         version: VERSION,
         frame: g.frame,
         rng: &g.rng,
-        renown: g.renown,
-        controlled: g.controlled,
-        tutorial: &g.tutorial,
-        made: g.made.iter().collect(),
-        examine_hinted: g.examine_hinted,
+        communes: &g.communes,
         items: &g.world.items,
         plants: &g.world.plants,
         bins: &g.world.bins,
@@ -111,10 +98,6 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     }
     g.frame = d.frame;
     g.rng = d.rng;
-    g.renown = d.renown;
-    g.tutorial = d.tutorial;
-    g.made = d.made.into_iter().collect();
-    g.examine_hinted = d.examine_hinted;
     g.world.items = d.items;
     g.world.plants = d.plants;
     g.world.bins = d.bins;
@@ -142,7 +125,15 @@ pub fn from_json(json: &str) -> Result<Game, String> {
         g.world.build_bridge();
     }
     g.monsters = d.monsters;
-    g.controlled = d.controlled.min(g.monsters.len().saturating_sub(1));
+    g.communes = d.communes;
+    for (k, c) in g.communes.iter_mut().enumerate() {
+        if g.monsters.get(c.controlled).is_none_or(|m| m.commune != k) {
+            return Err("UNREADABLE SAVE: A PLAYER CONTROLS SOMEONE ELSE'S MONSTER.".into());
+        }
+        // Already where they are: no banner announcing it.
+        let m = &g.monsters[c.controlled];
+        c.area = crate::world::area_name(crate::render::screen_of(m.x, m.y).0);
+    }
     g.applicants = d.applicants;
     g.applicant_timers = d.applicant_timers;
     g.roster_timer = d.roster_timer;
@@ -237,7 +228,7 @@ mod tests {
         g.run_ticks(3000);
         copy.run_ticks(3000);
         assert_eq!(to_json(&copy), to_json(&g), "both copies stay identical while they run");
-        assert!(g.cloth_stored() > 0 && g.renown > 0.0);
+        assert!(g.cloth_stored() > 0 && g.communes[0].renown > 0.0);
     }
 
     #[test]
