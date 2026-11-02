@@ -1111,6 +1111,25 @@ fn whoever_has_waited_longest_for_the_plant_harvests_first() {
 }
 
 #[test]
+fn a_place_in_line_held_by_one_busy_elsewhere_doesnt_make_anyone_wait() {
+    // Bruna joined the line for the plant earlier, then went off to work across the village:
+    // Mogg harvests rather than say "AFTER YOU, BRUNA." and wait for someone who can't come.
+    let mut g = Game::new();
+    let p = g.world.plant_at(8, 8).unwrap();
+    g.frame = 100;
+    start_loop(&mut g, 0, harvest_loop(1), (8, 9));
+    start_loop(&mut g, 1, harvest_loop(1), (40, 20));
+    (g.monsters[1].turns, g.monsters[1].busy) = (vec![((8, 8), 0)], true);
+    for _ in 0..60 {
+        if g.world.plants[p].harvest.is_some() {
+            break;
+        }
+        g.run_ticks(1);
+    }
+    assert_eq!(g.world.plants[p].harvest.as_ref().map(|j| j.monster), Some(0), "Mogg harvests: {}", g.monsters[0].wait_reason);
+}
+
+#[test]
 fn monsters_sharing_one_plant_all_get_to_harvest_it() {
     let mut g = Game::new();
     let p = g.world.plant_at(8, 8).unwrap();

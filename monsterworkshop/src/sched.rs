@@ -283,15 +283,24 @@ impl Game {
         let since = |k: usize| self.monsters[k].turns.iter().find(|(t, _)| *t == tile).map(|&(_, s)| s);
         let mine = since(i).unwrap_or(self.frame);
         (0..self.monsters.len())
-            .filter(|&k| k != i && self.monsters[k].playing && self.monsters[k].task.is_none())
+            .filter(|&k| k != i && self.free_to_choose(k))
             .filter_map(|k| since(k).filter(|&s| s < mine || (s == mine && k < i)).map(|s| (s, k)))
             .filter(|&(_, k)| {
                 let goals = self.goals(k);
                 let want = self.wanted(goals);
-                goals.iter().zip(want).any(|(g, w)| w && self.turn_tile(g) == Some(tile) && self.possible(k, g).is_ok())
+                let resting = |n: usize| self.monsters[k].cooldown.iter().any(|&(c, _)| c == n);
+                goals.iter().zip(want).enumerate().any(|(n, (g, w))| w && !resting(n) && self.turn_tile(g) == Some(tile) && self.possible(k, g).is_ok())
             })
             .min()
             .map(|(_, k)| k)
+    }
+
+    /// Could looping monster `k` pick a goal this very tick: between goals, and not busy working,
+    /// mid-step, giving way or in a knot? (A place in line held by one working across the
+    /// village doesn't make anyone wait for it.)
+    fn free_to_choose(&self, k: usize) -> bool {
+        let m = &self.monsters[k];
+        m.playing && m.task.is_none() && m.idle() && m.giving_way.is_none() && !self.in_knot(k)
     }
 
     /// Picks the goal monster `i` works on next, reserving what it needs. If there's nothing it
