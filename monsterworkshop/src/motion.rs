@@ -216,6 +216,12 @@ impl Game {
             }
             return Going::Waiting(self.excuse_me(i, Some(o)));
         }
+        // Something landed on the way since it was planned (a good set out, or pushed there):
+        // never push it by accident. Plan again next time, around it.
+        if !self.passable(next.0, next.1) {
+            self.monsters[i].path.clear();
+            return Going::Waiting("SOMETHING'S IN MY WAY.".into());
+        }
         match self.try_step(i, dir_to(here, next), sfx) {
             StepRes::Moved(_) => {
                 self.monsters[i].path.remove(0);
@@ -442,9 +448,10 @@ impl Game {
 
     /// The leader's way, for a wagon train standing at `[leader, pumpkin, bed]`, to end with its
     /// bed at `bed` and its pumpkin at `pumpkin`: each step, the pumpkin takes the tile the
-    /// leader left and the bed the pumpkin's. Breadth-first over where the leader is and which
-    /// way the pumpkin and bed trail behind it (a train can't back up, so turning round takes
-    /// room), only over tiles wagons fit and not through the tiles in `avoid`.
+    /// leader left and the bed the pumpkin's; or the leader steps back into the pumpkin and the
+    /// train backs up (see `back_up_to`). Breadth-first over where the leader is and which way the
+    /// pumpkin and bed trail behind it, only over tiles wagons fit and not through the tiles in
+    /// `avoid`.
     fn plan_lead(&self, [leader, pumpkin, bed]: [(i32, i32); 3], to_bed: (i32, i32), to_pumpkin: (i32, i32), avoid: &[(i32, i32)]) -> Option<Vec<(i32, i32)>> {
         let (w, h) = (self.world.w, self.world.h);
         let inside = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x < w && y < h;
@@ -480,12 +487,10 @@ impl Game {
             if !self.world.wagon_way(l.0, l.1) {
                 continue;
             }
-            for d in DIRS {
-                let n = (l.0 + d.delta().0, l.1 + d.delta().1);
-                if n == p || !rolls(n) {
-                    continue;
-                }
-                let Some(nk) = key(n, l, p) else { continue };
+            let forward = DIRS.iter().map(|d| (l.0 + d.delta().0, l.1 + d.delta().1)).filter(|&n| n != p && rolls(n)).map(|n| key(n, l, p));
+            // Backing up: the leader into the pumpkin's tile, the pumpkin into the bed's.
+            let back = Self::back_up_to(b, p, |t| t != l && rolls(t)).map(|to| key(p, b, to));
+            for nk in forward.chain(back).flatten() {
                 if prev[nk as usize] == u32::MAX {
                     prev[nk as usize] = k;
                     queue.push_back(nk);

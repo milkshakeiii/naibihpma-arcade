@@ -604,16 +604,23 @@ impl Game {
         }
         self.player_input(inp, sfx);
         for i in 0..self.monsters.len() {
+            // What a monster does on another screen isn't heard.
+            let mut heard = Vec::new();
             if self.monsters[i].playing {
-                self.run_loop(i, sfx);
+                self.run_loop(i, &mut heard);
             } else if self.monsters[i].homing && self.monsters[i].idle() {
-                self.walk_home(i, sfx);
+                self.walk_home(i, &mut heard);
+            }
+            if self.heard((self.monsters[i].x, self.monsters[i].y)) {
+                sfx.extend(heard);
             }
         }
-        self.untangle(sfx);
+        // Knots' moves are only ever steps, which make no sound but yours.
+        self.untangle(&mut Vec::new());
         self.advance_motion();
         self.tick_wagons(sfx);
         self.tick_work(sfx);
+        self.tick_frontier();
         self.tick_hall();
         self.world.tick_particles(self.frame);
         for f in self.floaters.iter_mut() {
@@ -869,6 +876,10 @@ impl Game {
         if dx != 0 {
             self.monsters[i].flip = dx < 0;
         }
+        // Leading a wagon, stepping back into the pumpkin backs the train up.
+        if let Some(w) = self.led_wagon(i).filter(|&w| self.world.wagons[w].pumpkin == (tx, ty)) {
+            return self.back_up(i, w, d);
+        }
         if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) || self.world.cart_at(tx, ty) {
             return StepRes::Blocked(self.water_note(tx, ty));
         }
@@ -931,6 +942,12 @@ impl Game {
                 }
                 self.world.burst(bx, by, PKind::Spark, 3);
                 sfx.push(Sfx::Deposit);
+            } else if let Some(s) = self.world.shop_at_spot(bx, by).filter(|&s| self.world.shops[s].frontier.is_some()) {
+                // A kit pushed onto a frontier workshop's work spot renews it.
+                if let Err(msg) = self.renew_shop(s, it, id) {
+                    return StepRes::Blocked(msg);
+                }
+                sfx.push(Sfx::Chime);
             } else {
                 let free = self.world.item_floor(bx, by) && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none() && !self.applicant_at(bx, by) && !self.world.cart_at(bx, by);
                 if !free {
@@ -994,6 +1011,9 @@ impl Game {
         if let Some(p) = self.world.plant_at(x, y) {
             return self.use_plant(i, p, sfx);
         }
+        if let Some(k) = self.kit_ahead(i) {
+            return self.unpack_kit(i, k, sfx);
+        }
         UseRes::Nothing
     }
 
@@ -1019,7 +1039,7 @@ impl Game {
     pub(crate) fn activation_spot(&self, t: Thing) -> Option<((i32, i32), Option<Dir>)> {
         match t {
             Thing::Plant { at, facing } => Some((at, Some(facing))),
-            Thing::Shop(s) => self.world.shops.get(s).map(|s| (s.spot, None)),
+            Thing::Shop(s) => self.world.shops.get(s).filter(|s| s.frontier.as_ref().is_none_or(|f| !f.fallen)).map(|s| (s.spot, None)),
             Thing::Tailgate { wagon, .. } => self.world.wagons.get(wagon).map(|w| {
                 let back = w.behind();
                 let d = DIRS.iter().copied().find(|d| (back.0 + d.delta().0, back.1 + d.delta().1) == w.at).unwrap_or(Dir::Up);
@@ -1229,6 +1249,12 @@ impl Game {
         self.world.bins.iter().flat_map(|b| &b.stock).filter(|d| d.good == "fabric" || d.good == "dyed_fabric").count()
     }
 
+    /// Is a sound at this tile heard: is it on the screen you're looking at?
+    pub(crate) fn heard(&self, (x, y): (i32, i32)) -> bool {
+        let m = &self.monsters[self.controlled];
+        crate::render::screen_of(x, y) == crate::render::screen_of(m.x, m.y)
+    }
+
     /// The controlled monster's state for the HUD, and whether it is a warning.
     pub fn status(&self, i: usize) -> (String, bool) {
         let m = &self.monsters[i];
@@ -1328,3 +1354,7 @@ mod tests;
 #[cfg(test)]
 #[path = "tangle_tests.rs"]
 mod tangle_tests;
+
+#[cfg(test)]
+#[path = "frontier_tests.rs"]
+mod frontier_tests;

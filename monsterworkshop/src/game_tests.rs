@@ -164,7 +164,7 @@ fn the_spinnery_forecast_shows_quality_odds_learning_and_what_holds_it_back() {
     }
     assert!(g.status(1).0.contains("SPINNERY EXPECTS QUALITY"), "{}", g.status(1).0);
     g.world.items.clear();
-    assert!(has_line(&crate::inspect::card(&g), "NEEDS COTTON SLIVERS ON THE PAD."));
+    assert!(has_line(&crate::inspect::card(&g), "PUT COTTON SLIVERS ON A PAD."));
 }
 
 #[test]
@@ -282,7 +282,7 @@ fn two_thread_on_the_gate_bench_twist_into_rope_by_hand() {
     assert_eq!(g.world.shops[bench].default_recipe(&g.data), "rope");
     g.controlled = 1;
     stand(&mut g, (42, 8), Dir::Down);
-    assert!(has_line(&crate::inspect::card(&g), "NEEDS THREAD ON THE PAD."), "an empty gate bench asks for thread");
+    assert!(has_line(&crate::inspect::card(&g), "PUT THREAD ON A PAD."), "an empty gate bench asks for thread");
     g.world.items.push(Item::new(40, 8, good_like(&g.data, "thread", 0.8)));
     g.world.items.push(Item::new(41, 8, good_like(&g.data, "thread", 0.8)));
     assert_eq!(crate::inspect::card(&g).title, "WORKBENCH: ROPE");
@@ -525,8 +525,8 @@ fn a_led_wagon_follows_takes_one_good_and_unloads_out_its_tailgate() {
     assert_eq!(g.world.wagons[0].leader, Some(1), "Mogg leads the pumpkin");
     g.script("U");
     assert_eq!((g.world.wagons[0].pumpkin, g.world.wagons[0].at), ((pumpkin.0 + 1, pumpkin.1), pumpkin), "pumpkin and wagon follow, snake-like");
-    g.script("D"); // into the pumpkin: blocked
-    assert_eq!(g.monsters[0].y, pumpkin.1 - 1);
+    g.script("D"); // back into the pumpkin: the train backs up, here right where it started
+    assert_eq!(((g.monsters[0].x, g.monsters[0].y), g.world.wagons[0].pumpkin, g.world.wagons[0].at), ((pumpkin.0 + 1, pumpkin.1), pumpkin, bed));
     g.script("u");
     assert!(g.world.wagons[0].leader.is_none(), "Space with nothing else to do lets go");
 
@@ -1184,6 +1184,83 @@ fn a_loop_with_nothing_to_do_keeps_off_where_goods_come_and_go() {
     g.run_ticks(10);
     assert_ne!((g.monsters[0].x, g.monsters[0].y), (20, 13), "{}", g.monsters[0].wait_reason);
     assert!(g.monsters[0].wait_reason.starts_with("WAITING FOR FABRIC"));
+}
+
+#[test]
+fn a_workshop_says_what_its_pads_lack_and_what_to_swap() {
+    // Henry's indigo house: quicklime, leaves, lye, lye and sticks. Indigo takes two quicklime and
+    // one lye, and every pad is taken.
+    let mut g = Game::new();
+    let vats = g.world.shop_at_spot(154, 2).expect("the indigo house");
+    let pads = g.world.shops[vats].pads.clone();
+    for (k, id) in ["quicklime", "indigofera_leaves", "lye", "lye", "elder_sticks"].iter().enumerate() {
+        g.world.items.push(Item::new(pads[k].0, pads[k].1, good_like(&g.data, id, 0.8)));
+    }
+    assert_eq!(g.pads_note(vats, &|_| true), "SWAP THE LYE FOR ANOTHER QUICKLIME.");
+    // With the second lye gone, there's a pad for it.
+    g.world.items.retain(|it| (it.x, it.y) != pads[3]);
+    assert_eq!(g.pads_note(vats, &|_| true), "PUT ANOTHER QUICKLIME ON A PAD.");
+}
+
+#[test]
+fn a_good_that_lands_on_a_loops_way_is_walked_around_not_pushed() {
+    // Mogg heads for the bench across the meadow; a bolt is set down right in front of him.
+    let mut g = Game::new();
+    let bench = g.world.shop_at_spot(14, 9).unwrap();
+    start_loop(&mut g, 0, Routine { flag: (24, 13), goals: vec![Goal::Activate(Thing::Shop(bench))] }, (24, 13));
+    g.world.items.push(Item::new(13, 9, boll(&g.data)));
+    g.run_ticks(1);
+    let next = g.monsters[0].path[0];
+    g.world.items.push(Item::new(next.0, next.1, good_like(&g.data, "fabric", 0.8)));
+    g.run_ticks(60);
+    assert!(g.world.item_at(next.0, next.1).is_some_and(|k| g.world.items[k].good() == "fabric"), "the bolt stayed where it was set down");
+}
+
+#[test]
+fn a_loop_on_another_screen_isnt_heard() {
+    // Bruna pushes a bolt to and fro out in Tinless, a screen east of Pinewater.
+    let pushes = |watch_from: (i32, i32)| {
+        let mut g = Game::new();
+        g.world.items.push(Item::new(66, 11, good_like(&g.data, "fabric", 0.8)));
+        let fabric = |from, to| Goal::Move { good: "fabric".into(), from, to };
+        start_loop(&mut g, 1, Routine { flag: (65, 11), goals: vec![fabric((66, 11), (69, 11)), fabric((69, 11), (66, 11))] }, (65, 11));
+        (g.monsters[0].x, g.monsters[0].y) = watch_from;
+        let (mut req, mut sfx, mut heard) = (Vec::new(), Vec::new(), 0);
+        for _ in 0..300 {
+            g.update(&Input::default(), &mut req, &mut sfx);
+            heard += sfx.drain(..).filter(|s| *s == Sfx::Push).count();
+        }
+        heard
+    };
+    assert_eq!(pushes((5, 13)), 0, "Mogg is back in Pinewater");
+    assert!(pushes((70, 13)) > 0, "standing by, Mogg hears them");
+}
+
+#[test]
+fn a_led_wagon_backs_out_of_a_pocket_it_cant_turn_round_in() {
+    // Henry's spot in the Thatch Hills: Bruna has led the wagon into a pocket with trees on
+    // three sides of her, the pumpkin on the fourth, and let go. Taking the lead again, she
+    // steps back into the pumpkin over and over: the train backs out, its tail turning where
+    // the way bends, until she can let go and walk off.
+    let mut g = Game::new();
+    g.controlled = 1;
+    {
+        let w = &mut g.world.wagons[0];
+        (w.at, w.pumpkin, w.leader) = ((76, 15), (76, 16), None);
+    }
+    stand(&mut g, (77, 16), Dir::Right);
+    g.script("R");
+    assert_eq!((g.monsters[1].x, g.monsters[1].y), (77, 16), "boxed in");
+    g.script("u");
+    assert_eq!(g.world.wagons[0].leader, Some(g.monsters[1].id), "Space turned her to the pumpkin and she took its lead");
+    g.script("L");
+    let w = &g.world.wagons[0];
+    assert_eq!(((g.monsters[1].x, g.monsters[1].y), w.pumpkin, w.at), ((76, 16), (76, 15), (75, 15)), "a tree straight behind: its tail turned west");
+    g.script("ULL");
+    let w = &g.world.wagons[0];
+    assert_eq!(((g.monsters[1].x, g.monsters[1].y), w.pumpkin, w.at), ((74, 15), (73, 15), (72, 15)));
+    g.script("uU");
+    assert_eq!((g.monsters[1].x, g.monsters[1].y), (74, 14), "let go and walked off");
 }
 
 #[test]

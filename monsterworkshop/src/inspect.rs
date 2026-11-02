@@ -285,6 +285,13 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32)) -> Card {
         let left = item.durability_left();
         first.push(line(format!("{left}/{} USES LEFT", econ::TOOL_DURABILITY), TEXT).icon(Icon::Wear).bar(left as f64 / econ::TOOL_DURABILITY as f64));
     }
+    if let Some(kind) = crate::frontier::kit_kind(&item.good) {
+        first.push(line(format!("FACE IT AND PRESS SPACE TO SET UP A {}. NOT IN TOWN OR ON A ROAD.", kind.label()), TEXT));
+        let c = g.controlled;
+        if let Some(why) = g.kit_ahead(c).filter(|&k| (g.world.items[k].x, g.world.items[k].y) == at).and_then(|k| g.footprint(c, k)).and_then(|fp| fp.why) {
+            first.push(line(why, TEXT_WARN).icon(Icon::Warn));
+        }
+    }
     details.push(line(format!("WEIGHS {:.1}", econ::weight(gt, item)), TEXT).icon(Icon::Weight));
     details.push(if item.depth == 0 {
         line("RAW MATERIAL", TEXT_DIM)
@@ -475,7 +482,7 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     }
     let (mut lo, mut hi, mut held) = (1, 1, None);
     match (&pv.inputs, &pv.tools, forecast(g, s, i)) {
-        (Err(need), _, _) => first.push(line(format!("NEEDS {need} ON THE PAD."), TEXT_WARN).icon(Icon::Warn)),
+        (Err(need), _, _) => first.push(line(need.clone(), TEXT_WARN).icon(Icon::Warn)),
         (_, Err(tool), _) => first.push(line(format!("MISSING A TOOL: {tool}."), TEXT_WARN).icon(Icon::Warn)),
         (Ok(inputs), Ok(tools), Some(f)) => {
             let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: pv.workshop.as_ref() };
@@ -511,7 +518,21 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     let (learns, more) = learning(g, recipe, i, "CRAFTS");
     first.push(learns);
     details.extend(more);
-    Card::two(format!("{}: {}", shop.kind.label(), recipe.name.to_uppercase()), first, details, shop.spot)
+    if let Some(fr) = &shop.frontier {
+        if g.worn_out(s) {
+            first.insert(0, line(g.worn_note(s), TEXT_WARN).icon(Icon::Warn));
+        }
+        let left = crate::frontier::LIFETIME_TICKS.saturating_sub(fr.worked);
+        details.push(line(format!("WEAR: {}% LEFT", left * 100 / crate::frontier::LIFETIME_TICKS), TEXT).icon(Icon::Wear).bar(left as f64 / crate::frontier::LIFETIME_TICKS as f64));
+        if fr.speed > 1.005 {
+            details.push(line(format!("WORKS {:.0}% FASTER THAN A TOWN WORKSHOP", (fr.speed - 1.0) * 100.0), TEXT_DIM));
+        }
+        let makers: Vec<&str> = fr.shares.iter().filter_map(|sh| g.monsters.iter().find(|m| m.id == sh.monster)).map(|m| m.name.as_str()).collect();
+        if !makers.is_empty() {
+            details.push(line(format!("BUILT BY {}: THEY SHARE IN ITS WORK.", makers.join(", ")), TEXT_DIM));
+        }
+    }
+    Card::two(format!("{}: {}", g.shop_name(s), recipe.name.to_uppercase()), first, details, shop.spot)
 }
 
 /// "[time] 5.5S  [rope] 1 ROPE": how long a job takes this monster and what comes out.

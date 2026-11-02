@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 9;
+pub const VERSION: u32 = 10;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -106,7 +106,7 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     let d: SaveData = serde_json::from_str(json).map_err(|e| format!("UNREADABLE SAVE: {e}"))?;
     let mut g = Game::new();
     let w = &g.world;
-    if d.plants.len() != w.plants.len() || d.bins.len() != w.bins.len() || d.shops.len() != w.shops.len() || d.boards.len() != w.boards.len() {
+    if d.plants.len() != w.plants.len() || d.bins.len() != w.bins.len() || d.shops.len() < w.shops.len() || d.boards.len() != w.boards.len() {
         return Err("THE SAVE WAS MADE ON A DIFFERENT MAP.".into());
     }
     g.frame = d.frame;
@@ -118,7 +118,20 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     g.world.items = d.items;
     g.world.plants = d.plants;
     g.world.bins = d.bins;
-    g.world.shops = d.shops;
+    // A town workshop's layout (its kind, spot, pads, pegs and mat) comes from the map, so a
+    // change to the map doesn't need a new world; only what it was doing comes from the save.
+    // Frontier workshops, listed after the map's, come from the save whole and lay their tiles
+    // on the map again.
+    let town = g.world.shops.len();
+    for (s, saved) in d.shops.into_iter().enumerate() {
+        match g.world.shops.get_mut(s) {
+            Some(shop) => (shop.job, shop.pending, shop.out_timer) = (saved.job, saved.pending, saved.out_timer),
+            None => g.world.shops.push(saved),
+        }
+    }
+    for s in town..g.world.shops.len() {
+        g.world.lay_shop(s);
+    }
     g.world.boards = d.boards;
     g.world.wagons = d.wagons;
     // Finished projects that changed the map change it again.

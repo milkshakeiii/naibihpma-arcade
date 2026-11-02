@@ -5,7 +5,7 @@
 //! goes depends on its load against the wagon's power, the leader's CHA and wagon driving.
 
 use crate::econ::{self, ItemData};
-use crate::game::{Ev, Game, Sfx, UseRes, PUSH_TICKS};
+use crate::game::{Ev, Game, Sfx, StepRes, UseRes, PUSH_TICKS, WALK_TICKS};
 use crate::world::*;
 
 /// The most a heavy load or a heavy good can slow a move, in extra ticks per tile.
@@ -108,7 +108,10 @@ impl Game {
             return;
         }
         let usable = |(x, y): (i32, i32)| {
-            self.world.pumpkin_at(x, y).is_some() || self.world.wagon_at(x, y).is_some_and(|w| self.world.wagons[w].behind() == here) || self.applicant_at(x, y)
+            self.world.pumpkin_at(x, y).is_some()
+                || self.world.wagon_at(x, y).is_some_and(|w| self.world.wagons[w].behind() == here)
+                || self.applicant_at(x, y)
+                || self.world.item_at(x, y).is_some_and(|k| crate::frontier::kit_kind(self.world.items[k].good()).is_some())
         };
         let ahead = |d: Dir| (here.0 + d.delta().0, here.1 + d.delta().1);
         if usable(ahead(m.facing)) {
@@ -126,6 +129,41 @@ impl Game {
     pub(crate) fn let_go(&mut self, w: usize, sfx: &mut Vec<Sfx>) {
         self.world.wagons[w].leader = None;
         sfx.push(Sfx::RecSave);
+    }
+
+    /// Where the wagon with its bed at `bed` and its pumpkin at `pumpkin` backs up to: straight
+    /// back, away from the pumpkin, if `free` says it can, otherwise the first other way it can
+    /// turn its tail. (Planning a wagon's way uses the same, so plans match what happens.)
+    pub(crate) fn back_up_to(bed: (i32, i32), pumpkin: (i32, i32), free: impl Fn((i32, i32)) -> bool) -> Option<(i32, i32)> {
+        let straight = (2 * bed.0 - pumpkin.0, 2 * bed.1 - pumpkin.1);
+        std::iter::once(straight)
+            .chain(DIRS.iter().map(|d| (bed.0 + d.delta().0, bed.1 + d.delta().1)))
+            .find(|&t| t != pumpkin && free(t))
+    }
+
+    /// Leading wagon `w`, monster `i` steps back into the pumpkin, the way `d`: the whole train
+    /// backs up a tile, slowly. The wagon rolls back (see `back_up_to`), the pumpkin into its
+    /// place, the leader into the pumpkin's. A train can't turn round in a dead end, but it can
+    /// back out of one.
+    pub(crate) fn back_up(&mut self, i: usize, w: usize, d: Dir) -> StepRes {
+        let (bed, pumpkin) = (self.world.wagons[w].at, self.world.wagons[w].pumpkin);
+        let free = |t: (i32, i32)| self.world.wagon_way(t.0, t.1) && self.world.item_at(t.0, t.1).is_none() && self.monster_at(t.0, t.1).is_none() && !self.applicant_at(t.0, t.1) && !self.world.cart_at(t.0, t.1);
+        let Some(to) = Self::back_up_to(bed, pumpkin, free) else {
+            return StepRes::Blocked("NO ROOM BEHIND THE WAGON TO BACK UP.".into());
+        };
+        let ticks = self.wagon_ticks(i, w).max(WALK_TICKS) * 2;
+        let m = &mut self.monsters[i];
+        (m.x, m.y) = pumpkin;
+        m.slide = Some(Slide { dir: d, left: ticks, total: ticks });
+        m.bump = None;
+        let wagon = &mut self.world.wagons[w];
+        wagon.pumpkin_slide = Some(Slide { dir: dir_to(pumpkin, bed), left: ticks, total: ticks });
+        wagon.slide = Some(Slide { dir: dir_to(bed, to), left: ticks, total: ticks });
+        (wagon.pumpkin, wagon.at) = (bed, to);
+        if !self.world.wagons[w].stock.is_empty() {
+            self.practice(i, "wagon_driving", ticks);
+        }
+        StepRes::Moved(None)
     }
 
     /// After its leader steps away from `from`: the pumpkin takes that tile, the wagon the
@@ -205,11 +243,15 @@ impl Game {
                 self.world.bins[b].stock.push(data);
                 self.world.bins[b].bounce = 4;
                 self.world.burst(bx, by, PKind::Spark, 4);
-                sfx.push(Sfx::Deposit);
+                if self.heard((bx, by)) {
+                    sfx.push(Sfx::Deposit);
+                }
             } else {
                 let slide = Some(Slide { dir: back, left: PUSH_TICKS, total: PUSH_TICKS });
                 self.world.items.push(Item { slide, hop: 6, ..Item::new(bx, by, data) });
-                sfx.push(Sfx::Pop);
+                if self.heard((bx, by)) {
+                    sfx.push(Sfx::Pop);
+                }
             }
         }
     }

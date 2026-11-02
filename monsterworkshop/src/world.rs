@@ -19,6 +19,7 @@ pub const OUTPUT_BUFFER: usize = 9;
 // `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `Y` tree  `w` water
 // `F` where the footbridge starts, at the west bank  `s` signpost  `b` project board
 // `X` water where the bridge will go  `U` the town wagon  `P` its pumpkin
+// `Z` the builders' bench's work spot (`B` an ordinary bench's)
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
@@ -326,6 +327,9 @@ impl Bin {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ShopKind {
     Workbench,
+    /// Pinewater's big public bench, where workshop kits are made: six pads, and the tools for
+    /// building.
+    BuildersBench,
     Spinnery,
     LoomHouse,
     /// Burns ash into lye, or limestone into quicklime.
@@ -338,6 +342,7 @@ impl ShopKind {
     pub fn label(self) -> &'static str {
         match self {
             ShopKind::Workbench => "WORKBENCH",
+            ShopKind::BuildersBench => "BUILDERS' BENCH",
             ShopKind::Spinnery => "SPINNERY",
             ShopKind::LoomHouse => "LOOM HOUSE",
             ShopKind::Kiln => "KILN",
@@ -349,6 +354,7 @@ impl ShopKind {
     pub fn recipes(self) -> &'static [&'static str] {
         match self {
             ShopKind::Workbench => &["cotton_slivers", "rope", "wooden_tub"],
+            ShopKind::BuildersBench => &["workbench_kit", "kiln_kit"],
             ShopKind::Spinnery => &["thread"],
             ShopKind::LoomHouse => &["fabric"],
             ShopKind::Kiln => &["lye", "quicklime"],
@@ -361,6 +367,7 @@ impl ShopKind {
     pub fn builtin_tools(self) -> &'static [&'static str] {
         match self {
             ShopKind::Workbench => &["cotton_gin", "cotton_bow", "saw", "metal_chisel"],
+            ShopKind::BuildersBench => &["saw", "metal_chisel", "stone_hammer"],
             ShopKind::Spinnery => &["spool", "spinning_wheel"],
             ShopKind::LoomHouse => &["waist_loom"],
             ShopKind::DyeHouse => &["wooden_tub"],
@@ -370,7 +377,7 @@ impl ShopKind {
 
     /// Walk-in workshops count as a weight-8 tool; an outdoor bench does not.
     pub fn is_building(self) -> bool {
-        self != ShopKind::Workbench
+        !matches!(self, ShopKind::Workbench | ShopKind::BuildersBench)
     }
 }
 
@@ -387,6 +394,9 @@ pub struct Shop {
     pub pending: Vec<ItemData>,
     pub pad_flash: Vec<u8>,
     pub out_timer: u8,
+    /// Built from a kit out in the wilds (see `frontier.rs`); town workshops have none.
+    #[serde(default)]
+    pub frontier: Option<crate::frontier::Frontier>,
 }
 
 impl Shop {
@@ -472,7 +482,7 @@ impl World {
                         'p' => Tile::Pad,
                         'g' => Tile::Peg,
                         'o' => Tile::OutMat,
-                        'B' | 'S' | 'L' | 'K' | 'I' | 'V' => Tile::Spot,
+                        'B' | 'Z' | 'S' | 'L' | 'K' | 'I' | 'V' => Tile::Spot,
                         'C' | 'T' | 'b' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
@@ -502,16 +512,17 @@ impl World {
                         'a' => stands.push((x, y)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
-                        'B' | 'S' | 'L' | 'K' | 'I' | 'V' => {
+                        'B' | 'Z' | 'S' | 'L' | 'K' | 'I' | 'V' => {
                             let kind = match ch {
                                 'B' => ShopKind::Workbench,
+                                'Z' => ShopKind::BuildersBench,
                                 'S' => ShopKind::Spinnery,
                                 'K' => ShopKind::Kiln,
                                 'I' => ShopKind::IndigoHouse,
                                 'V' => ShopKind::DyeHouse,
                                 _ => ShopKind::LoomHouse,
                             };
-                            shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0 })
+                            shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None })
                         }
                         '1' | '2' => starts[(ch as u8 - b'1') as usize] = (x, y),
                         _ => {}
@@ -659,7 +670,7 @@ impl World {
     }
 
     pub fn shop_at_spot(&self, x: i32, y: i32) -> Option<usize> {
-        self.shops.iter().position(|s| s.spot == (x, y))
+        self.shops.iter().position(|s| s.spot == (x, y) && s.frontier.as_ref().is_none_or(|f| !f.fallen))
     }
 
     pub fn pad_owner(&self, x: i32, y: i32) -> Option<(usize, usize)> {

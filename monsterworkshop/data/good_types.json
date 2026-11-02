@@ -6609,6 +6609,156 @@
         "tub"
       ],
       "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 12,
+      "has_quality": true,
+      "id": "workbench_kit",
+      "input_goods_tags_carryover": [
+        [
+          "oak",
+          "hemlock"
+        ],
+        [
+          "oak",
+          "hemlock"
+        ],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "log"
+        ],
+        [
+          "log"
+        ],
+        [
+          "rope"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Workbench Kit",
+      "primary_applied_skill": "carpentry",
+      "production_time": 900,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "textiles"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 3.0,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "kit",
+        "workbench kit"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 24,
+      "has_quality": true,
+      "id": "kiln_kit",
+      "input_goods_tags_carryover": [
+        [
+          "limestone"
+        ],
+        [
+          "limestone"
+        ],
+        [
+          "limestone"
+        ],
+        [],
+        [],
+        [
+          "oak",
+          "hemlock"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "stone"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "lime"
+        ],
+        [
+          "rope"
+        ],
+        [
+          "log"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Kiln Kit",
+      "primary_applied_skill": "stone_carving",
+      "production_time": 2400,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "carpentry",
+        "firing"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 4.0,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "science"
+      ],
+      "type_tags": [
+        "kit",
+        "kiln kit"
+      ],
+      "value_added_shares": 8
     }
   ]
 }

@@ -108,6 +108,9 @@ impl Game {
     }
 
     pub(crate) fn use_shop(&mut self, i: usize, s: usize, sfx: &mut Vec<Sfx>) -> UseRes {
+        if self.worn_out(s) {
+            return UseRes::Wait(self.worn_note(s));
+        }
         let shop = &self.world.shops[s];
         if shop.job.is_some() {
             return UseRes::Wait(format!("THE {} IS BUSY.", shop.kind.label()));
@@ -120,9 +123,7 @@ impl Game {
         // A loop leaves what another monster has reserved on the pads alone.
         let ok = |it: usize| self.may_take(i, it);
         let Some((recipe, inputs)) = self.best_recipe(s, kind.recipes(), &ok) else {
-            let first = self.data.good(shop.default_recipe(&self.data));
-            let want = first.input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
-            return UseRes::Missing(format!("PUT {want} ON THE PAD."));
+            return UseRes::Missing(self.pads_note(s, &ok));
         };
         if let Err(missing) = self.match_tools(s, &recipe) {
             return UseRes::Wait(format!("MISSING A TOOL: {missing}."));
@@ -130,11 +131,44 @@ impl Game {
         for &it in &inputs {
             self.world.items[it].locked = true;
         }
-        let total = self.job_ticks(&recipe, i);
+        // A frontier workshop works faster the more its kit's materials were worth.
+        let speed = self.world.shops[s].frontier.as_ref().map_or(1.0, |f| f.speed);
+        let total = ((self.job_ticks(&recipe, i) as f64 / speed).round() as u32).max(1);
         self.world.shops[s].job = Some(Job { monster: i, recipe, t: 0, total });
         self.monsters[i].busy = true;
         sfx.push(Sfx::Spin);
         UseRes::Done
+    }
+
+    /// What workshop `s`'s pads lack, said so it's clear what to do: the first input not there
+    /// yet of the recipe they come closest to ("PUT ANOTHER QUICKLIME ON A PAD." when indigo has
+    /// one of its two), or, with every pad taken, what to swap for it ("SWAP THE LYE FOR ANOTHER
+    /// QUICKLIME."). Only pad items `ok` accepts count.
+    pub(crate) fn pads_note(&self, s: usize, ok: &dyn Fn(usize) -> bool) -> String {
+        let shop = &self.world.shops[s];
+        let on_pads: Vec<usize> = shop.pads.iter().filter_map(|&(x, y)| self.world.item_at(x, y)).filter(|&it| ok(it)).collect();
+        let taken = shop.pads.iter().filter(|&&(x, y)| self.world.item_at(x, y).is_some()).count();
+        let shown = shop.default_recipe(&self.data);
+        // How close each recipe comes: using the most of what's there, then the one an empty
+        // workshop shows (the one that fills its pads), then the fewest inputs missing.
+        let closest = shop.kind.recipes().iter().enumerate().map(|(n, &r)| {
+            let (mut used, mut missing) = (Vec::new(), Vec::new());
+            for (_, group) in self.data.good(r).input_groups() {
+                match on_pads.iter().copied().find(|&it| !used.contains(&it) && self.world.item_matches(&self.data, it, group)) {
+                    Some(it) => used.push(it),
+                    None => missing.push(group.clone()),
+                }
+            }
+            ((std::cmp::Reverse(used.len()), r != shown, missing.len(), n), missing, used)
+        });
+        let Some((_, missing, used)) = closest.min_by_key(|(key, _, _)| *key) else { return String::new() };
+        let Some(group) = missing.first() else { return String::new() };
+        let another = used.iter().any(|&it| self.world.item_matches(&self.data, it, group));
+        let want = format!("{}{}", if another { "ANOTHER " } else { "" }, self.describe_group(group));
+        match on_pads.iter().find(|it| !used.contains(it)) {
+            Some(&spare) if taken >= shop.pads.len() => format!("SWAP THE {} FOR {want}.", self.good_name(self.world.items[spare].good())),
+            _ => format!("PUT {want} ON A PAD."),
+        }
     }
 
     pub(crate) fn preview(&self, s: usize) -> Preview {
@@ -142,11 +176,7 @@ impl Game {
         let found = self.best_recipe(s, kind.recipes(), &|_| true);
         let (recipe, inputs) = match found {
             Some((r, idx)) => (r, Ok(idx.iter().map(|&i| self.world.items[i].data.clone()).collect())),
-            None => {
-                let r = self.world.shops[s].default_recipe(&self.data);
-                let want = self.data.good(r).input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
-                (r.to_string(), Err(want))
-            }
+            None => (self.world.shops[s].default_recipe(&self.data).to_string(), Err(self.pads_note(s, &|_| true))),
         };
         let tools = self.match_tools(s, &recipe).map(|src| {
             src.iter()
@@ -157,7 +187,9 @@ impl Game {
                 .collect()
         });
         let shop = &self.world.shops[s];
-        let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares: Vec::new() });
+        // A frontier workshop's makers share in everything made there.
+        let shares = shop.frontier.as_ref().map_or_else(Vec::new, |f| f.shares.clone());
+        let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares });
         Preview { recipe, inputs, tools, workshop }
     }
 
@@ -200,7 +232,7 @@ impl Game {
             if let Some(it) = on_peg {
                 used.push(it);
                 out.push(ToolSource::Peg(it));
-            } else if let Some(id) = shop.kind.builtin_tools().iter().find(|id| matches(&self.data.good(id).type_tags, group)) {
+            } else if let Some(id) = shop.kind.builtin_tools().iter().filter(|_| shop.frontier.is_none()).find(|id| matches(&self.data.good(id).type_tags, group)) {
                 out.push(ToolSource::Builtin(id));
             } else {
                 return Err(self.describe_group(group));
@@ -228,6 +260,7 @@ impl Game {
             self.dispense_plant(p, sfx);
         }
         for s in 0..self.world.shops.len() {
+            let heard = self.heard(self.world.shops[s].spot);
             let shop = &mut self.world.shops[s];
             let mut done = false;
             let mut fluff = None;
@@ -237,7 +270,7 @@ impl Game {
                 if j.t % 3 == 0 && !shop.pads.is_empty() {
                     fluff = Some(shop.pads[(j.t as usize / 3) % shop.pads.len()]);
                 }
-                if j.t % 6 == 0 {
+                if j.t % 6 == 0 && heard {
                     sfx.push(Sfx::Spin);
                 }
             }
@@ -296,7 +329,9 @@ impl Game {
             })
             .collect();
         let shop = &self.world.shops[s];
-        let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares: Vec::new() });
+        // A frontier workshop's makers share in everything made there.
+        let shares = shop.frontier.as_ref().map_or_else(Vec::new, |f| f.shares.clone());
+        let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares });
         let (stats, skills, id) = (self.monsters[m].stats.clone(), self.monsters[m].skills.clone(), self.monsters[m].id);
         let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: workshop.as_ref() };
         let produced = econ::produce(&craft, &self.data, &mut self.rng);
@@ -329,7 +364,9 @@ impl Game {
         self.monsters[m].busy = false;
         self.monsters[m].learned = Some((recipe.id.clone(), learned, LEARNED_POPUP_TICKS));
         self.events.push(Ev::Made(recipe.id.clone()));
-        sfx.push(Sfx::Chime);
+        if self.heard((sx, sy)) {
+            sfx.push(Sfx::Chime);
+        }
         if broke {
             self.say(m, "A TOOL WORE OUT!", true);
         } else if !self.examine_hinted && m == self.controlled {
@@ -356,7 +393,9 @@ impl Game {
         let data = shop.pending.remove(0);
         self.world.items.push(Item { hop: 5, ..Item::new(x, y, data) });
         self.world.burst(x, y, PKind::Spark, 10);
-        sfx.push(Sfx::Plop);
+        if self.heard((x, y)) {
+            sfx.push(Sfx::Plop);
+        }
     }
 
     /// Bins with a chute push their oldest item out whenever the chute is clear.
@@ -385,7 +424,9 @@ impl Game {
             let data = bin.stock.remove(0);
             let slide = Some(Slide { dir, left: crate::game::PUSH_TICKS, total: crate::game::PUSH_TICKS });
             self.world.items.push(Item { slide, hop: 4, ..Item::new(mx, my, data) });
-            sfx.push(Sfx::Plop);
+            if self.heard((mx, my)) {
+                sfx.push(Sfx::Plop);
+            }
         }
     }
 }

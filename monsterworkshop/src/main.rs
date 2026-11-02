@@ -6,6 +6,7 @@ mod data;
 mod econ;
 #[allow(dead_code)] // shared copy of the arcade framebuffer; line/circle unused here
 mod framebuffer;
+mod frontier;
 mod game;
 mod inspect;
 mod knot;
@@ -536,5 +537,36 @@ fn export_screenshots(dir: &Path) {
     tg.run_ticks(2);
     render::draw(&tg, &sprites, &mut fb);
     fb.save_png(&dir.join("35_tools.png"), &pal, &pal, 0);
+
+    // M2 stage 4: the builders' bench, a kit's ghost (clear, then blocked by the road), and a
+    // kiln unpacked in the Thatch Hills.
+    let mut shot = |g: &Game, name: &str| {
+        render::draw(g, &sprites, &mut fb);
+        fb.save_png(&dir.join(name), &pal, &pal, 0);
+    };
+    let mut fg = Game::new();
+    fg.monsters[0].bubble = None;
+    fg.controlled = 1;
+    (fg.monsters[1].x, fg.monsters[1].y, fg.monsters[1].facing) = (36, 28, game::Dir::Up);
+    fg.run_ticks(2);
+    fg.inspecting = true;
+    shot(&fg, "36_builders_bench.png");
+    (fg.inspecting, fg.controlled) = (false, 0);
+    fg.world.items.push(world::Item::new(66, 11, good("workbench_kit", &["oak"])));
+    (fg.monsters[0].x, fg.monsters[0].y, fg.monsters[0].facing) = (66, 10, game::Dir::Down);
+    fg.run_ticks(2);
+    shot(&fg, "37_kit_ghost.png");
+    fg.world.items.retain(|it| it.good() != "workbench_kit");
+    fg.world.items.push(world::Item::new(62, 13, good("workbench_kit", &["oak"])));
+    (fg.monsters[0].x, fg.monsters[0].y) = (62, 12);
+    fg.run_ticks(2);
+    shot(&fg, "38_kit_ghost_blocked.png");
+    fg.world.items.push(world::Item::new(88, 10, good("kiln_kit", &["limestone", "oak"])));
+    (fg.monsters[0].x, fg.monsters[0].y, fg.monsters[0].facing) = (88, 9, game::Dir::Down);
+    fg.script("u");
+    (fg.monsters[0].x, fg.monsters[0].y) = (88, 10);
+    fg.run_ticks(40);
+    fg.inspecting = true;
+    shot(&fg, "39_frontier_kiln.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

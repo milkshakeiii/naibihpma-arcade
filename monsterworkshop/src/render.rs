@@ -61,12 +61,12 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
         fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
     }
     draw_boards_and_signs(g, sp, fb, &v);
-    for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1)) {
+    for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1) && s.frontier.as_ref().is_none_or(|f| !f.fallen)) {
         let (x, y) = v.px(s.spot.0, s.spot.1);
         match s.kind {
             ShopKind::Spinnery => fb.blit(&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], x, y - 5, false),
             ShopKind::LoomHouse => fb.blit(&sp.loom, x, y - 5, false),
-            ShopKind::Workbench => fb.blit(&sp.bench, x, y + TS - sp.bench.h - 4, false),
+            ShopKind::Workbench | ShopKind::BuildersBench => fb.blit(&sp.bench, x, y + TS - sp.bench.h - 4, false),
             ShopKind::Kiln => fb.blit(&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], x, y - 5, false),
             ShopKind::IndigoHouse => fb.blit(&sp.indigo_vat, x, y - 4, false),
             ShopKind::DyeHouse => fb.blit(&sp.dye_vat, x, y - 4, false),
@@ -75,6 +75,7 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
         draw_bin(sp, fb, &v, b);
     }
+    draw_kit_ghost(g, fb, &v);
     // How many more goods wait inside a workshop or a harvested plant.
     for s in &g.world.shops {
         if let Some(&(x, y)) = s.outs.first().filter(|_| !s.pending.is_empty()) {
@@ -553,7 +554,8 @@ fn blit_ghost(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32) {
 
 fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
     let mut named: Vec<((i32, i32), &str)> = Vec::new();
-    for s in g.world.shops.iter().filter(|s| s.kind.is_building()) {
+    // Town workshops' buildings; frontier ones are open-air, with no walls to put a name on.
+    for s in g.world.shops.iter().filter(|s| s.kind.is_building() && s.frontier.is_none()) {
         // Up from the work spot to the building's top wall; a door in that wall counts too.
         let (sx, mut wy) = s.spot;
         while wy > 0 && !matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
@@ -1098,6 +1100,28 @@ fn a_long_status_fits_beside_the_renown() {
     assert_eq!(fit_line(status, " THE GOBLIN", 64), "MOGG: WAITING FOR COTTON BOLLS AT THE COTTON BOLLS BIN'S CHUTE.");
     let cut = fit_line(status, " THE GOBLIN", 50);
     assert!(cut.len() == 50 && cut.starts_with("MOGG: WAITING") && cut.ends_with("..."), "{cut}");
+}
+
+/// Facing a kit: the workshop it would set up, as a ghost on the ground (a checkerboard, so
+/// what's under it still shows), red on the tiles where something's in the way.
+fn draw_kit_ghost(g: &Game, fb: &mut Framebuffer, v: &View) {
+    let c = g.controlled;
+    if g.monsters[c].slide.is_some() || g.monsters[c].playing {
+        return;
+    }
+    let Some(fp) = g.kit_ahead(c).and_then(|k| g.footprint(c, k)) else { return };
+    for t in fp.tiles().filter(|&(x, y)| v.sees(x, y)) {
+        let col = if fp.blocked.contains(&t) { TEXT_WARN } else { TEXT_GOOD };
+        let (x0, y0) = v.px(t.0, t.1);
+        for y in 0..TS {
+            for x in 0..TS {
+                let edge = x == 0 || y == 0 || x == TS - 1 || y == TS - 1;
+                if edge || (x + y) % 4 == 0 {
+                    fb.pset(x0 + x, y0 + y, col);
+                }
+            }
+        }
+    }
 }
 
 /// The title screen: start a new world or pick a saved one. `deleting`: the picked world is

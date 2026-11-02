@@ -237,6 +237,9 @@ impl Game {
                 Ok(vec![Want::Tile(p), Want::Tile(drop)])
             }
             &Goal::Activate(Thing::Shop(s)) => {
+                if self.worn_out(s) {
+                    return Err(Why::world(self.worn_note(s)));
+                }
                 let shop = &self.world.shops[s];
                 tile_free(shop.spot)?;
                 if shop.job.is_some() {
@@ -250,9 +253,7 @@ impl Game {
                     !item.locked && (item.id == 0 || self.holder(i, Hold::Item(item.id)).is_none())
                 };
                 let Some((recipe, inputs)) = self.best_recipe(s, shop.kind.recipes(), &ok) else {
-                    let first = self.data.good(shop.default_recipe(&self.data));
-                    let want = first.input_groups().next().map_or_else(String::new, |(_, g)| self.describe_group(g));
-                    return Err(Why::world(format!("PUT {want} ON THE PAD.")));
+                    return Err(Why::world(self.pads_note(s, &ok)));
                 };
                 if let Err(missing) = self.missing_tool(s, &recipe) {
                     return Err(Why::world(format!("MISSING A TOOL: {missing}.")));
