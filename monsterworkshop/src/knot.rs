@@ -1,9 +1,11 @@
 //! Movement principle 3 (see `motion.rs`): knots. When going around and giving way can't get
 //! monsters past each other (the one that has to give way is boxed in by others, a line of them
-//! meets another head-on in a lane, a dead end crowded from both ends), the monsters stuck in it
-//! search real moves together: an exact search over where each of them stands, one step of one
-//! of them at a time, never through anyone, with everyone else and every good as walls, for moves
-//! that clear the way of the one first in line. They make those moves at their usual pace, then
+//! meets another head-on in a lane, a dead end crowded from both ends, a crowd waiting their turn
+//! round the one whose turn it is), the monsters stuck in it, and loops only waiting round about
+//! them, search real moves together: an exact search over where each of them stands, one step of
+//! one of them at a time, never through anyone, with everyone else (working, leading a wagon, left
+//! standing, on the move) and every good as walls, for moves that clear the way of the one first
+//! in line. They make those moves at their usual pace, then
 //! wait off its way until it has gone by. If the search covers every tile they could reach and
 //! finds no way, there is none without passing through: they say so ("WE NEED MORE ROOM HERE.")
 //! and look again now and then. A search that runs out of looks before it's sure just tries
@@ -123,7 +125,10 @@ impl Game {
     }
 
     /// Monster `i` and those stuck with it: whoever it waits on and whoever waits on it, and so
-    /// on, as long as they can be moved. `i` comes first.
+    /// on, as long as they can be moved. `i` comes first. When the one holding `i` up is among
+    /// them, loops only waiting round about join too, the same ones that would give way, so the
+    /// search can move them aside: each next to someone already in, those on `i`'s way first,
+    /// then the nearest to `i`.
     fn knot_members(&self, i: usize) -> Vec<usize> {
         let mut members = vec![i];
         let mut queue = VecDeque::from([i]);
@@ -139,6 +144,18 @@ impl Game {
                     queue.push_back(j);
                 }
             }
+        }
+        if !self.monsters[i].waiting_on.is_some_and(|o| members.contains(&o)) {
+            return members;
+        }
+        let way = self.way_of(i);
+        let pos = |k: usize| (self.monsters[k].x, self.monsters[k].y);
+        let apart = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs() + (a.1 - b.1).abs();
+        while members.len() < MOST_MOVERS {
+            let next_to_one_in = |k: usize| members.iter().any(|&j| apart(pos(j), pos(k)) == 1);
+            let waiting = (0..self.monsters.len()).filter(|&k| !members.contains(&k) && self.movable(k) && self.standing_still(k) && next_to_one_in(k));
+            let Some(k) = waiting.min_by_key(|&k| (!way.contains(&pos(k)), apart(pos(k), pos(i)), k)) else { break };
+            members.push(k);
         }
         members
     }

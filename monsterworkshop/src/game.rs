@@ -269,7 +269,7 @@ pub struct Floater {
     pub color: u8,
 }
 
-const NAMES: [&str; 16] = ["GRUB", "NELL", "TOK", "ISKA", "BRAM", "ODA", "PIP", "WREN", "MOSK", "HILDA", "ZUG", "FERN", "KORR", "LUMA", "DREG", "SIV"];
+pub(crate) const NAMES: [&str; 16] = ["GRUB", "NELL", "TOK", "ISKA", "BRAM", "ODA", "PIP", "WREN", "MOSK", "HILDA", "ZUG", "FERN", "KORR", "LUMA", "DREG", "SIV"];
 /// Ticks before an empty stand gets a new applicant, and between roster refreshes.
 const APPLICANT_ARRIVES: u32 = 300;
 /// Renown a scored good pays per point of its value (values come from the tech tree's raw
@@ -278,7 +278,7 @@ pub const RENOWN_PER_VALUE: f64 = 10.0;
 const ROSTER_REFRESH: u32 = 4500;
 
 impl Monster {
-    fn new(id: u32, commune: usize, name: &str, kind: &str, data: &Data, (x, y): (i32, i32), skills: Skills) -> Self {
+    pub(crate) fn new(id: u32, commune: usize, name: &str, kind: &str, data: &Data, (x, y): (i32, i32), skills: Skills) -> Self {
         let species = if kind == "goblin" { Species::Goblin } else { Species::Cyclops };
         Self {
             id,
@@ -459,6 +459,11 @@ impl Game {
     pub fn new() -> Self {
         let data = Data::load();
         let world = World::new(&data);
+        Self::on(data, world)
+    }
+
+    /// A new game in `world`, with the first player's commune: Mogg and Bruna.
+    pub(crate) fn on(data: Data, world: World) -> Self {
         let stands = world.stands.len();
         let mut g = Self {
             data,
@@ -521,7 +526,7 @@ impl Game {
 
     /// The nearest tile to `from` that nothing stands on (itself, if free), searching outward
     /// over walkable ground.
-    fn free_tile_near(&self, from: (i32, i32)) -> (i32, i32) {
+    pub(crate) fn free_tile_near(&self, from: (i32, i32)) -> (i32, i32) {
         let free = |(x, y): (i32, i32)| self.monster_at(x, y).is_none() && self.world.item_at(x, y).is_none() && !self.applicant_at(x, y) && !self.world.cart_at(x, y);
         let mut seen = std::collections::HashSet::from([from]);
         let mut queue = std::collections::VecDeque::from([from]);

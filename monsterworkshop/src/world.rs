@@ -16,6 +16,10 @@ pub const BUILTIN_TOOL_QUALITY: f64 = 0.5;
 pub const TOWN_WORKSHOP_QUALITY: f64 = 0.8;
 /// Finished goods a workshop holds inside, beyond the one on its output mat.
 pub const OUTPUT_BUFFER: usize = 9;
+/// How far beyond what it's about (where a good is and where it goes, who's moving it) a search
+/// for a way looks: two screens each way. A world of a hundred screens is too big to search
+/// whole many times a tick, and a way that goes further round isn't found.
+pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 
 // `#` hedge  `.` grass  `,` street  `W` wall  `_` floor  `D` door  `Y` tree  `w` water
 // `F` where the footbridge starts, at the west bank  `s` signpost  `b` project board
@@ -375,6 +379,35 @@ pub struct Particle {
     pub kind: PKind,
 }
 
+/// The part of the map a search for a way covers (see `World::search_area`), its tiles numbered
+/// for the search's tables.
+#[derive(Clone, Copy)]
+pub struct Area {
+    x0: i32,
+    y0: i32,
+    w: i32,
+    h: i32,
+}
+
+impl Area {
+    pub fn cells(self) -> usize {
+        (self.w * self.h) as usize
+    }
+
+    pub fn inside(self, (x, y): (i32, i32)) -> bool {
+        x >= self.x0 && y >= self.y0 && x < self.x0 + self.w && y < self.y0 + self.h
+    }
+
+    /// A tile's number; it must be inside.
+    pub fn idx(self, (x, y): (i32, i32)) -> usize {
+        ((y - self.y0) * self.w + x - self.x0) as usize
+    }
+
+    pub fn at(self, i: usize) -> (i32, i32) {
+        (self.x0 + i as i32 % self.w, self.y0 + i as i32 / self.w)
+    }
+}
+
 pub struct World {
     pub w: i32,
     pub h: i32,
@@ -402,24 +435,60 @@ pub struct World {
 
 impl World {
     pub fn new(data: &Data) -> Self {
-        let regions: Vec<Vec<&str>> = REGIONS.iter().map(|r| r.map.lines().filter(|l| !l.is_empty()).collect()).collect();
-        let h = regions[0].len() as i32;
-        let w: i32 = regions.iter().map(|rows| rows[0].len() as i32).sum();
+        Self::build(data, &[REGIONS.iter().collect()])
+    }
+
+    /// A made-up world for load tests: `copies` of the whole world stacked north to south, with
+    /// the hedges between them opened wherever there's ground on both sides, so it walks as one
+    /// world, and every river bridged. Saves can't hold it, since a save keeps only what's on the
+    /// map and the map comes from the game's data.
+    pub fn made_up(data: &Data, copies: usize) -> Self {
+        let layout: Vec<Vec<&Region>> = (0..copies).map(|_| REGIONS.iter().collect()).collect();
+        let mut world = Self::build(data, &layout);
+        let rh = world.h / copies as i32;
+        for seam in (1..copies as i32).map(|k| k * rh) {
+            for x in 0..world.w {
+                if world.walkable(x, seam - 2) && world.walkable(x, seam + 1) {
+                    world.tiles[((seam - 1) * world.w + x) as usize] = Tile::Grass;
+                    world.tiles[(seam * world.w + x) as usize] = Tile::Grass;
+                }
+            }
+        }
+        world.build_bridge();
+        world
+    }
+
+    /// The world from region maps: each row of `layout` laid west to east, the rows north to
+    /// south.
+    fn build(data: &Data, layout: &[Vec<&Region>]) -> Self {
+        let maps: Vec<Vec<Vec<&str>>> = layout.iter().map(|row| row.iter().map(|r| r.map.lines().filter(|l| !l.is_empty()).collect()).collect()).collect();
+        let rh = maps[0][0].len() as i32;
+        let w: i32 = maps[0].iter().map(|rows| rows[0].len() as i32).sum();
+        let h = rh * maps.len() as i32;
+        // Each region with where its northwest corner goes.
+        let mut placed = Vec::new();
+        for (n, (regions, maps)) in layout.iter().zip(&maps).enumerate() {
+            let mut ox = 0;
+            for (region, rows) in regions.iter().zip(maps) {
+                placed.push((ox, n as i32 * rh, *region, rows));
+                ox += rows[0].len() as i32;
+            }
+            assert_eq!(ox, w, "every row of regions is {w} wide");
+        }
         let mut tiles = vec![Tile::Hedge; (w * h) as usize];
-        let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), vec![(0, 0); 2]);
+        let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), [None; 2]);
         let (mut stands, mut boards, mut signs, mut labels, mut boat) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), None, None);
+        let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
-        let mut ox = 0;
-        for (region, rows) in REGIONS.iter().zip(&regions) {
-            assert_eq!(rows.len() as i32, h, "every region is {h} rows tall");
+        for (ox, oy, region, rows) in placed {
+            assert_eq!(rows.len() as i32, rh, "every region is {rh} rows tall");
             let rw = rows[0].len() as i32;
             let (mut sign_texts, mut board_specs) = (region.signs.iter(), region.boards.iter());
-            labels.extend(region.labels.iter().map(|&((x, y), text)| ((x + ox, y), text)));
+            labels.extend(region.labels.iter().map(|&((x, y), text)| ((x + ox, y + oy), text)));
             for (y, row) in rows.iter().enumerate() {
                 assert_eq!(row.len() as i32, rw, "map row {y} is {} wide", row.len());
                 for (lx, ch) in row.chars().enumerate() {
-                    let (x, y) = (lx as i32 + ox, y as i32);
+                    let (x, y) = (lx as i32 + ox, y as i32 + oy);
                     let street_next = row.as_bytes().get(lx + 1) == Some(&b',') || (lx > 0 && row.as_bytes()[lx - 1] == b',');
                     let shop_kind = ShopKind::by_map_char(ch);
                     let tile = match ch {
@@ -459,19 +528,20 @@ impl World {
                         }
                         'F' => boat.push((x, y)),
                         'X' => bridge.push((x, y)),
-                        'U' => wagon_at = Some((x, y)),
-                        'P' => pumpkin_at = Some((x, y)),
+                        'U' => wagon_at.push((x, y)),
+                        'P' => pumpkin_at.push((x, y)),
                         'a' => stands.push((x, y)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
-                        '1' | '2' => starts[(ch as u8 - b'1') as usize] = (x, y),
+                        '1' | '2' => _ = starts[(ch as u8 - b'1') as usize].get_or_insert((x, y)),
                         _ => {}
                     }
                     tiles[(y * w + x) as usize] = tile;
                 }
             }
-            ox += rw;
         }
+        // The first copy's, in a made-up world.
+        let starts = starts.map(|s| s.expect("both monster starts on the map")).to_vec();
         for (ch, x, y) in parts {
             let shop = shops.iter_mut().min_by_key(|s| (s.spot.0 - x).abs() + (s.spot.1 - y).abs()).expect("a work spot");
             match ch {
@@ -497,6 +567,7 @@ impl World {
             (west..=far).map(|x| (x, y)).collect()
         });
         let wagons = wagon_at
+            .into_iter()
             .zip(pumpkin_at)
             .map(|(at, pumpkin)| Wagon {
                 at,
@@ -512,9 +583,28 @@ impl World {
                 timer: 0,
                 bounce: 0,
             })
-            .into_iter()
             .collect();
         Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, last_item_id: 0, seed: 0x9E37_79B9 }
+    }
+
+    /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`
+    /// further each way, within the map.
+    pub fn search_area(&self, about: &[(i32, i32)]) -> Area {
+        let (mx, my) = SEARCH_MARGIN;
+        let x0 = (about.iter().map(|p| p.0).min().unwrap_or(0) - mx).max(0);
+        let y0 = (about.iter().map(|p| p.1).min().unwrap_or(0) - my).max(0);
+        let x1 = (about.iter().map(|p| p.0).max().unwrap_or(0) + mx).min(self.w - 1);
+        let y1 = (about.iter().map(|p| p.1).max().unwrap_or(0) + my).min(self.h - 1);
+        Area { x0, y0, w: (x1 - x0 + 1).max(1), h: (y1 - y0 + 1).max(1) }
+    }
+
+    /// Which of an area's tiles have a good lying on them (those `skip` lets pass aside).
+    pub fn goods_in(&self, area: Area, skip: impl Fn(&Item) -> bool) -> Vec<bool> {
+        let mut taken = vec![false; area.cells()];
+        for it in self.items.iter().filter(|it| area.inside((it.x, it.y)) && !skip(it)) {
+            taken[area.idx((it.x, it.y))] = true;
+        }
+        taken
     }
 
     pub fn tile(&self, x: i32, y: i32) -> Tile {

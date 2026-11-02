@@ -28,10 +28,11 @@
 //!    other's way it can reach; when it hasn't (boxed in by others, or in a dead end), that's a
 //!    knot, for the next principle, which keeps to the same order.
 //! 3. **Knots get searched.** When those two can't do it (a third monster boxing in the one that
-//!    has to give way, lines meeting head-on, a crowded dead end), the monsters stuck in it search
-//!    real moves together and make them: see `knot.rs`. Guarantee: a way out is found whenever
-//!    one exists among them within the search's reach; when the search covered everything they
-//!    could reach and found none, they say "WE NEED MORE ROOM HERE."
+//!    has to give way, lines meeting head-on, a crowded dead end, a crowd waiting their turn), the
+//!    monsters stuck in it search real moves together, moving loops only waiting round about too
+//!    (the same ones that would give way), and make them: see `knot.rs`. Guarantee: a way out is
+//!    found whenever one exists among them within the search's reach; when the search covered
+//!    everything they could reach and found none, they say "WE NEED MORE ROOM HERE."
 
 use crate::game::{Game, Sfx, StepRes};
 use crate::world::{Dir, DIRS};
@@ -164,11 +165,18 @@ impl Game {
         self.plan_avoiding(from, to, &[])
     }
 
-    /// The same, never through the tiles in `avoid`.
+    /// The same, never through the tiles in `avoid`. It searches the map around `from` and `to`
+    /// (see `World::search_area`), with what's in the way (as `passable`) worked out once.
     fn plan_avoiding(&self, from: (i32, i32), to: (i32, i32), avoid: &[(i32, i32)]) -> Option<Vec<(i32, i32)>> {
-        let (w, h) = (self.world.w, self.world.h);
-        let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
-        let mut prev = vec![usize::MAX; (w * h) as usize];
+        let area = self.world.search_area(&[from, to]);
+        let idx = |p| area.idx(p);
+        let mut blocked = self.world.goods_in(area, |_| false);
+        let parked = self.world.wagons.iter().filter(|w| w.leader.is_none()).flat_map(|w| [w.at, w.pumpkin]);
+        let stands = self.world.stands.iter().zip(&self.applicants).filter(|(_, a)| a.is_some()).map(|(&s, _)| s);
+        for p in parked.chain(stands).chain(avoid.iter().copied()).filter(|&p| area.inside(p)) {
+            blocked[idx(p)] = true;
+        }
+        let mut prev = vec![usize::MAX; area.cells()];
         prev[idx(from)] = idx(from);
         let mut queue = VecDeque::from([from]);
         while let Some((x, y)) = queue.pop_front() {
@@ -178,21 +186,21 @@ impl Game {
             for d in DIRS {
                 let (dx, dy) = d.delta();
                 let n = (x + dx, y + dy);
-                if n.0 < 0 || n.1 < 0 || n.0 >= w || n.1 >= h || prev[idx(n)] != usize::MAX || !self.passable(n.0, n.1) || avoid.contains(&n) {
+                if !area.inside(n) || prev[idx(n)] != usize::MAX || blocked[idx(n)] || !self.world.walkable(n.0, n.1) {
                     continue;
                 }
                 prev[idx(n)] = idx((x, y));
                 queue.push_back(n);
             }
         }
-        if prev[idx(to)] == usize::MAX {
+        if !area.inside(to) || prev[idx(to)] == usize::MAX {
             return None;
         }
         let mut path = vec![to];
         let mut at = idx(to);
         while prev[at] != idx(from) {
             at = prev[at];
-            path.push(((at as i32) % w, (at as i32) / w));
+            path.push(area.at(at));
         }
         path.reverse();
         Some(path)
@@ -376,10 +384,10 @@ impl Game {
 
     /// The way for monster `g`, through no one, to the nearest tile not in `keep`.
     fn retreat(&self, g: usize, keep: &[(i32, i32)]) -> Option<Vec<(i32, i32)>> {
-        let (w, h) = (self.world.w, self.world.h);
-        let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
         let from = (self.monsters[g].x, self.monsters[g].y);
-        let mut prev = vec![usize::MAX; (w * h) as usize];
+        let area = self.world.search_area(&[from]);
+        let idx = |p| area.idx(p);
+        let mut prev = vec![usize::MAX; area.cells()];
         prev[idx(from)] = idx(from);
         let mut queue = VecDeque::from([from]);
         while let Some(q) = queue.pop_front() {
@@ -388,14 +396,14 @@ impl Game {
                 let mut at = idx(q);
                 while prev[at] != idx(from) {
                     at = prev[at];
-                    path.push(((at as i32) % w, (at as i32) / w));
+                    path.push(area.at(at));
                 }
                 path.reverse();
                 return Some(path);
             }
             for d in DIRS {
                 let n = (q.0 + d.delta().0, q.1 + d.delta().1);
-                if n.0 < 0 || n.1 < 0 || n.0 >= w || n.1 >= h || prev[idx(n)] != usize::MAX || !self.open(n.0, n.1) || self.monster_at(n.0, n.1).is_some() {
+                if !area.inside(n) || prev[idx(n)] != usize::MAX || !self.open(n.0, n.1) || self.monster_at(n.0, n.1).is_some() {
                     continue;
                 }
                 prev[idx(n)] = idx(q);
@@ -453,22 +461,22 @@ impl Game {
     /// pumpkin and bed trail behind it, only over tiles wagons fit and not through the tiles in
     /// `avoid`.
     fn plan_lead(&self, [leader, pumpkin, bed]: [(i32, i32); 3], to_bed: (i32, i32), to_pumpkin: (i32, i32), avoid: &[(i32, i32)]) -> Option<Vec<(i32, i32)>> {
-        let (w, h) = (self.world.w, self.world.h);
-        let inside = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x < w && y < h;
+        let area = self.world.search_area(&[leader, pumpkin, bed, to_bed, to_pumpkin]);
+        let inside = |t| area.inside(t);
+        let goods = self.world.goods_in(area, |_| false);
         let side = |a: (i32, i32), b: (i32, i32)| DIRS.iter().position(|d| (a.0 + d.delta().0, a.1 + d.delta().1) == b);
-        let key = |l: (i32, i32), p: (i32, i32), b: (i32, i32)| Some(((l.1 * w + l.0) as usize * 16 + side(l, p)? * 4 + side(p, b)?) as u32);
+        let key = |l: (i32, i32), p: (i32, i32), b: (i32, i32)| Some((area.idx(l) * 16 + side(l, p)? * 4 + side(p, b)?) as u32);
         let unkey = |k: u32| {
-            let cell = (k / 16) as i32;
-            let l = (cell % w, cell / w);
+            let l = area.at((k / 16) as usize);
             let dp = DIRS[(k % 16 / 4) as usize].delta();
             let p = (l.0 + dp.0, l.1 + dp.1);
             let db = DIRS[(k % 4) as usize].delta();
             (l, p, (p.0 + db.0, p.1 + db.1))
         };
         // The wagon's own tiles move with it; anything else in the way stays put.
-        let rolls = |t: (i32, i32)| inside(t) && self.world.wagon_way(t.0, t.1) && self.world.item_at(t.0, t.1).is_none() && !self.applicant_at(t.0, t.1) && (!self.world.cart_at(t.0, t.1) || t == pumpkin || t == bed) && !avoid.contains(&t);
+        let rolls = |t: (i32, i32)| inside(t) && self.world.wagon_way(t.0, t.1) && !goods[area.idx(t)] && !self.applicant_at(t.0, t.1) && (!self.world.cart_at(t.0, t.1) || t == pumpkin || t == bed) && !avoid.contains(&t);
         let start = key(leader, pumpkin, bed)?;
-        let mut prev = vec![u32::MAX; (w * h) as usize * 16];
+        let mut prev = vec![u32::MAX; area.cells() * 16];
         prev[start as usize] = start;
         let mut queue = VecDeque::from([start]);
         while let Some(k) = queue.pop_front() {

@@ -26,6 +26,18 @@ cargo run --release -- --connect HOST:7777
 
 The server saves the world every minute; type `STOP` in its window to save and stop it. Your game remembers who you are with `%APPDATA%\MonsterWorkshop\player.key`, so you get your own commune back whenever you reconnect. To play two players on one computer, give each window a name: `--connect HOST:7777 --player ANNA`. The server also builds and runs on Linux.
 
+The server prints a line every minute on how it's keeping up: players and monsters, ticks a second (15 is keeping up), how long the world and the players' screens take each tick, and what it sends.
+
+To load-test a server, run a busy made-up world as big as a full server's (98 screens, 50 players' communes, 535 looping monsters) and play it with bots, each in its own terminal:
+
+```bash
+cargo run --release -- --server --busy
+```
+
+```bash
+cargo run --release -- --bots 50 --connect 127.0.0.1
+```
+
 To feel a slow connection on a fast one, add `--lag MS`: every round trip takes that many milliseconds longer, whether you're on a server or playing alone (the window's title says so). Try `--lag 150` for a far-away server.
 
 ## Controls

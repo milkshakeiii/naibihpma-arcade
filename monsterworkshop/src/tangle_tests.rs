@@ -134,36 +134,17 @@ fn cotton_good(g: &Game, id: &str) -> ItemData {
     ItemData { good: id.into(), quality: 0.8, carried_tags: vec!["cotton".into()], raw, depth: 2, value: 2.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
 }
 
-/// The whole fabric chain as Henry recorded it in his world: harvest and bin two bolls, two
-/// bolls from the chute through the workbench, the slivers to the spinnery, the thread to the
-/// loom, the fabric to the cloth store.
+/// The whole fabric chain as Henry recorded it in his world (see `loadtest::fabric_chain`).
 pub(super) fn full_chain(g: &Game) -> Routine {
-    let mv = |good: &str, from: (i32, i32), to: (i32, i32)| Goal::Move { good: good.into(), from, to };
-    let work = |spot: (i32, i32)| Goal::Activate(Thing::Shop(g.world.shop_at_spot(spot.0, spot.1).expect("a work spot")));
-    let goals = vec![
-        Goal::Activate(Thing::Plant { at: (8, 8), facing: Dir::Right }),
-        mv("cotton_bolls", (9, 8), (12, 8)),
-        mv("cotton_bolls", (9, 8), (12, 8)),
-        mv("cotton_bolls", (12, 9), (13, 9)),
-        work((14, 9)),
-        mv("cotton_bolls", (12, 9), (13, 9)),
-        work((14, 9)),
-        mv("cotton_slivers", (15, 9), (30, 9)),
-        work((30, 8)),
-        mv("thread", (31, 9), (44, 21)),
-        work((43, 21)),
-        mv("fabric", (44, 22), (44, 28)),
-    ];
-    Routine { flag: (8, 10), goals }
+    crate::loadtest::fabric_chain(g, (0, 0))
 }
 
 /// `n` monsters, all looping the routine `make` gives, starting along the row below the flag.
 fn on_one_loop(n: usize, make: fn(&Game) -> Routine) -> Game {
     let mut g = Game::new();
-    let names = ["ISKA", "WREN", "LUMA", "BRAM"];
     while g.monsters.len() < n {
         let skills = g.monsters[0].skills.clone();
-        let (id, name) = (10 + g.monsters.len() as u32, names[g.monsters.len() - 2]);
+        let (id, name) = (10 + g.monsters.len() as u32, NAMES[g.monsters.len() - 2]);
         g.monsters.push(Monster::new(id, 0, name, "goblin", &g.data, (0, 0), skills));
     }
     let routine = make(&g);
@@ -246,6 +227,22 @@ fn harvest_loops_and_whole_chains_together() {
     let before = g.cloth_stored();
     every_loop_keeps_going(&mut g, 60_000, 3000);
     assert!(g.cloth_stored() >= before + 10, "{} fabric", g.cloth_stored() - before);
+}
+
+/// Ten on one loop starting in a crowd, as on a crowded server (found by M3c's load tests): the
+/// first to the cotton plant is boxed in by the others waiting their turn for it, so the knot
+/// search moves them aside.
+#[test]
+fn ten_copies_of_the_whole_chain_starting_in_a_crowd() {
+    let mut g = on_one_loop(10, full_chain);
+    // Each on the nearest free tile to the same spot by the flag.
+    for k in 0..10 {
+        (g.monsters[k].x, g.monsters[k].y) = (0, 0);
+    }
+    for k in 0..10 {
+        (g.monsters[k].x, g.monsters[k].y) = g.free_tile_near((6, 10));
+    }
+    every_loop_keeps_going(&mut g, 30_000, 3000);
 }
 
 /// A long run, to catch rare tangles. Slow: run with `cargo test --release -- --ignored`.

@@ -13,6 +13,7 @@ mod frontier;
 mod game;
 mod inspect;
 mod knot;
+mod loadtest;
 mod motion;
 mod net;
 mod palette;
@@ -45,7 +46,11 @@ fn main() {
         return;
     }
     if args.iter().any(|a| a == "--server") {
-        serve(after("--port"), after("--world"));
+        serve(after("--port"), after("--world"), args.iter().any(|a| a == "--busy"));
+        return;
+    }
+    if let Some(n) = after("--bots") {
+        bots(&n, after("--connect"));
         return;
     }
     #[cfg(windows)]
@@ -62,28 +67,48 @@ fn main() {
     eprintln!("Here the game runs only as a server: monster_workshop --server [--port N] [--world PATH]");
 }
 
-/// A server for players to connect to, until STOP is typed. The world is saved at `world`
-/// (by default `server.json` beside the saved worlds), and started there if it's new.
-fn serve(port: Option<String>, world: Option<String>) {
+/// A server for players to connect to, until STOP is typed, reporting how it keeps up every
+/// minute. The world is saved at `world` (by default `server.json` beside the saved worlds), and
+/// started there if it's new. A `busy` one serves a full server's made-up world instead (see
+/// `loadtest.rs`), reporting every ten seconds, with its saves thrown away.
+fn serve(port: Option<String>, world: Option<String>, busy: bool) {
     let port = match port.map(|p| p.parse::<u16>()) {
         None => net::DEFAULT_PORT,
         Some(Ok(p)) => p,
         Some(Err(_)) => return eprintln!("--port wants a number"),
     };
-    let path = world.map_or_else(|| save::worlds_dir().join("server.json"), PathBuf::from);
-    let game = if path.exists() {
-        match save::load(&path) {
-            Ok(g) => g,
-            Err(e) => return eprintln!("{}: {e}", path.display()),
-        }
+    let (game, path, every) = if busy {
+        (loadtest::busy_world(loadtest::FULL), std::env::temp_dir().join("monster_workshop_busy.json"), 10)
     } else {
-        Game::new()
+        let path = world.map_or_else(|| save::worlds_dir().join("server.json"), PathBuf::from);
+        let game = if path.exists() {
+            match save::load(&path) {
+                Ok(g) => g,
+                Err(e) => return eprintln!("{}: {e}", path.display()),
+            }
+        } else {
+            Game::new()
+        };
+        (game, path, 60)
     };
     let server = match std::net::TcpListener::bind(("0.0.0.0", port)).and_then(|l| Server::new(game, path.clone(), l)) {
-        Ok(s) => s,
+        Ok(s) => s.reporting(std::time::Duration::from_secs(every)),
         Err(e) => return eprintln!("can't take players on port {port}: {e}"),
     };
-    println!("Serving {} on port {port}. Type STOP to save and stop.", path.display());
+    if busy {
+        println!("Serving a busy made-up world on port {port}: {:?}. Type STOP to stop.", loadtest::FULL);
+    } else {
+        println!("Serving {} on port {port}. Type STOP to save and stop.", path.display());
+    }
+    let stop = stop_when_typed();
+    server.run(&stop);
+    if !busy {
+        println!("Saved {}.", path.display());
+    }
+}
+
+/// Set once STOP is typed.
+fn stop_when_typed() -> Arc<AtomicBool> {
     let stop = Arc::new(AtomicBool::new(false));
     let typed = stop.clone();
     std::thread::spawn(move || {
@@ -94,8 +119,45 @@ fn serve(port: Option<String>, world: Option<String>) {
             }
         }
     });
-    server.run(&stop);
-    println!("Saved {}.", path.display());
+    stop
+}
+
+/// `n` bot players on the server at `addr` (this computer's by default) until STOP is typed,
+/// reporting every ten seconds what they've been sent.
+fn bots(n: &str, addr: Option<String>) {
+    let Ok(n) = n.parse::<u64>() else { return eprintln!("--bots wants a number") };
+    let addr = addr.unwrap_or_else(|| "127.0.0.1".into());
+    let addr = if addr.contains(':') { addr } else { format!("{addr}:{}", net::DEFAULT_PORT) };
+    let (seen, stop) = (Arc::new(loadtest::Seen::default()), stop_when_typed());
+    for i in 0..n {
+        let (addr, seen, stop) = (addr.clone(), seen.clone(), stop.clone());
+        std::thread::spawn(move || {
+            if let Err(e) = loadtest::play_bot(&addr, i, &seen, &stop) {
+                eprintln!("bot {i}: {e}");
+            }
+        });
+    }
+    println!("{n} bots playing on {addr}. Type STOP to stop.");
+    let every = std::time::Duration::from_secs(10);
+    let mut last = [0; 4];
+    while !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(every);
+        let now = [&seen.frames, &seen.bytes, &seen.flips, &seen.flip_bytes].map(|a| a.load(Ordering::Relaxed));
+        let playing = seen.playing.load(Ordering::Relaxed);
+        let each = |k: usize| (now[k] - last[k]) as f64 / every.as_secs_f64() / playing.max(1) as f64;
+        println!(
+            "{playing} bots playing | each sent {:.1} frames/s, {:.1} KB/s, of which new screens {:.2}/s, {:.1} KB/s | {} garbled frames",
+            each(0),
+            each(1) / 1000.0,
+            each(2),
+            each(3) / 1000.0,
+            seen.garbled.load(Ordering::Relaxed)
+        );
+        last = now;
+        if playing == 0 {
+            return;
+        }
+    }
 }
 
 /// Headless scripted playthrough of the Fabric chain, saving 2x PNGs at key moments.

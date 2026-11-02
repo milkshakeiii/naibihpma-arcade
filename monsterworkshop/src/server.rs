@@ -4,7 +4,7 @@
 //!
 //! Each connection gets a thread that reads its keys and one that writes its frames, so the
 //! world never waits on a player. A player who falls behind has frames skipped: the next one
-//! sent covers everything they missed.
+//! sent covers everything they missed. Players' screens are drawn on several cores at once.
 
 use crate::framebuffer::{Framebuffer, FB_H, FB_W};
 use crate::game::{Game, Input, Sfx};
@@ -23,6 +23,8 @@ const QUEUE: usize = 4;
 const MAX_SOUNDS: usize = 16;
 /// A player whose connection takes longer than this to accept a frame is let go.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Most threads drawing screens at once.
+const MAX_DRAWING: usize = 8;
 
 enum Event {
     Hello { protocol: u32, key: String },
@@ -52,15 +54,61 @@ pub struct Server {
     events: (Sender<(u64, Event)>, Receiver<(u64, Event)>),
     next_id: u64,
     sprites: Sprites,
-    fb: Framebuffer,
+    /// One for each thread drawing screens.
+    fbs: Vec<Framebuffer>,
     since_save: u32,
+    /// How often `run` prints a report, if it does.
+    report_every: Option<Duration>,
+    stats: Stats,
+}
+
+/// How the server has kept up since its last report.
+struct Stats {
+    since: Instant,
+    ticks: u32,
+    world: Duration,
+    screens: Duration,
+    slowest: Duration,
+    sent: usize,
+}
+
+impl Stats {
+    fn new() -> Stats {
+        Stats { since: Instant::now(), ticks: 0, world: Duration::ZERO, screens: Duration::ZERO, slowest: Duration::ZERO, sent: 0 }
+    }
 }
 
 impl Server {
     /// A server for this world, saved at `path`, taking players on `listener`.
     pub fn new(game: Game, path: PathBuf, listener: TcpListener) -> io::Result<Server> {
         listener.set_nonblocking(true)?;
-        Ok(Server { game, path, listener, players: Vec::new(), events: mpsc::channel(), next_id: 0, sprites: Sprites::new(), fb: Framebuffer::new(), since_save: 0 })
+        let drawing = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_DRAWING);
+        let fbs = (0..drawing).map(|_| Framebuffer::new()).collect();
+        Ok(Server { game, path, listener, players: Vec::new(), events: mpsc::channel(), next_id: 0, sprites: Sprites::new(), fbs, since_save: 0, report_every: None, stats: Stats::new() })
+    }
+
+    /// Prints a report on how it's keeping up this often while it runs.
+    pub fn reporting(mut self, every: Duration) -> Server {
+        self.report_every = Some(every);
+        self
+    }
+
+    /// How it's kept up since the last report: players and monsters, ticks a second, how long a
+    /// tick's world and screens took on average, the slowest tick, and what was sent.
+    pub fn report(&mut self) -> String {
+        let s = std::mem::replace(&mut self.stats, Stats::new());
+        let secs = s.since.elapsed().as_secs_f64().max(1e-9);
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0 / s.ticks.max(1) as f64;
+        format!(
+            "{} players, {} monsters | {:.1} ticks/s | world {:.1} ms and screens {:.1} ms a tick, slowest tick {:.0} ms | sending {:.0} KB/s",
+            self.players.iter().filter(|p| p.commune.is_some()).count(),
+            self.game.monsters.len(),
+            s.ticks as f64 / secs,
+            ms(s.world),
+            ms(s.screens),
+            s.slowest.as_secs_f64() * 1000.0,
+            s.sent as f64 / secs / 1000.0
+        )
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -83,6 +131,9 @@ impl Server {
                 next = now + tick;
             }
             self.tick();
+            if self.report_every.is_some_and(|every| self.stats.since.elapsed() >= every) {
+                println!("{}", self.report());
+            }
         }
         for p in &self.players {
             let _ = p.out.try_send(ToPlayer::Bye("THE SERVER STOPPED.".into()).encode());
@@ -96,6 +147,7 @@ impl Server {
     /// One tick: new players, everyone's keys, the world, everyone's screens, and an autosave
     /// now and then.
     pub fn tick(&mut self) {
+        let start = Instant::now();
         self.accept();
         self.hear();
         let mut inputs = vec![Input::default(); self.game.communes.len()];
@@ -106,7 +158,9 @@ impl Server {
             }
         }
         self.game.update(&inputs);
+        let simulated = Instant::now();
         self.show();
+        let shown = Instant::now();
         self.since_save += 1;
         if self.since_save >= crate::save::AUTOSAVE_TICKS {
             self.since_save = 0;
@@ -114,6 +168,11 @@ impl Server {
                 eprintln!("saving {} failed: {e}", self.path.display());
             }
         }
+        let s = &mut self.stats;
+        s.ticks += 1;
+        s.world += simulated - start;
+        s.screens += shown - simulated;
+        s.slowest = s.slowest.max(start.elapsed());
     }
 
     fn accept(&mut self) {
@@ -156,28 +215,23 @@ impl Server {
         }
     }
 
-    /// Draws each player's screen and sends what changed, with the sounds they hear.
+    /// Draws each player's screen and sends what changed, with the sounds they hear: the players
+    /// shared out among the drawing threads.
     fn show(&mut self) {
+        let (game, sprites) = (&self.game, &self.sprites);
+        let each = self.players.len().div_ceil(self.fbs.len()).max(1);
+        let shown: Vec<(Vec<usize>, usize)> = if self.players.len() <= each {
+            vec![show_to(game, sprites, &mut self.fbs[0], &mut self.players)]
+        } else {
+            std::thread::scope(|s| {
+                let drawing: Vec<_> = self.players.chunks_mut(each).zip(self.fbs.iter_mut()).map(|(players, fb)| s.spawn(move || show_to(game, sprites, fb, players))).collect();
+                drawing.into_iter().map(|d| d.join().expect("drawing screens")).collect()
+            })
+        };
         let mut gone = Vec::new();
-        for (i, p) in self.players.iter_mut().enumerate() {
-            let Some(k) = p.commune else { continue };
-            crate::render::draw(&self.game, k, &self.sprites, &mut self.fb);
-            p.sounds.extend(self.game.sounds_for(k));
-            let excess = p.sounds.len().saturating_sub(MAX_SOUNDS);
-            p.sounds.drain(..excess);
-            let pixels = net::pixel_delta(&p.screen, &self.fb.px);
-            if pixels.is_empty() && p.sounds.is_empty() {
-                continue;
-            }
-            match p.out.try_send(ToPlayer::Frame { sounds: p.sounds.clone(), pixels }.encode()) {
-                Ok(()) => {
-                    p.screen.copy_from_slice(&self.fb.px);
-                    p.sounds.clear();
-                }
-                // Behind: this one isn't sent, and the next one covers it.
-                Err(TrySendError::Full(_)) => {}
-                Err(TrySendError::Disconnected(_)) => gone.push(i),
-            }
+        for (n, (lost, sent)) in shown.into_iter().enumerate() {
+            gone.extend(lost.into_iter().map(|i| n * each + i));
+            self.stats.sent += sent;
         }
         for i in gone.into_iter().rev() {
             self.let_go(i, "");
@@ -192,6 +246,36 @@ impl Server {
             let _ = p.out.try_send(ToPlayer::Bye(why.into()).encode());
         }
     }
+}
+
+/// Draws these players' screens and sends each what changed, with the sounds they hear. Returns
+/// those (by index among them) whose connection is gone, and the bytes sent.
+fn show_to(game: &Game, sprites: &Sprites, fb: &mut Framebuffer, players: &mut [Player]) -> (Vec<usize>, usize) {
+    let (mut gone, mut sent) = (Vec::new(), 0);
+    for (i, p) in players.iter_mut().enumerate() {
+        let Some(k) = p.commune else { continue };
+        crate::render::draw(game, k, sprites, fb);
+        p.sounds.extend(game.sounds_for(k));
+        let excess = p.sounds.len().saturating_sub(MAX_SOUNDS);
+        p.sounds.drain(..excess);
+        let pixels = net::pixel_delta(&p.screen, &fb.px);
+        if pixels.is_empty() && p.sounds.is_empty() {
+            continue;
+        }
+        let frame = ToPlayer::Frame { sounds: p.sounds.clone(), pixels }.encode();
+        let len = frame.len();
+        match p.out.try_send(frame) {
+            Ok(()) => {
+                p.screen.copy_from_slice(&fb.px);
+                p.sounds.clear();
+                sent += len;
+            }
+            // Behind: this one isn't sent, and the next one covers it.
+            Err(TrySendError::Full(_)) => {}
+            Err(TrySendError::Disconnected(_)) => gone.push(i),
+        }
+    }
+    (gone, sent)
 }
 
 /// Reads a player's messages until they go.
@@ -314,6 +398,8 @@ mod tests {
         assert!(sa.screen == fb.px, "A's screen is the server's picture");
         crate::render::draw(&s.game, kb, &s.sprites, &mut fb);
         assert!(sb.screen == fb.px, "B's screen is the server's picture");
+        let report = s.report();
+        assert!(report.starts_with("2 players, 4 monsters |") && report.contains("KB/s"), "{report}");
     }
 
     #[test]

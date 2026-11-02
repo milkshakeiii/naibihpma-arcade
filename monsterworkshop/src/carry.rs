@@ -8,12 +8,19 @@
 use crate::game::{Game, Sfx, StepRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
 use crate::sched::Hold;
 use crate::motion::{Going, GIVE_UP_AFTER, LOOK_AROUND_EVERY, SETTLE_AFTER};
-use crate::world::{Dir, Tile, DIRS};
+use crate::world::{Dir, Tile, DIRS, SCREEN_W};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 
 /// How far a stray is shoved to get it out of the way, at most, in tiles.
 const SHOVE_REACH: i32 = 4;
+/// How far a monster walks round a good, at most, to push or pull it from another side, in
+/// tiles. Further round, a plan finds another way or none.
+const AROUND: u32 = 2 * SCREEN_W as u32;
+/// How many of a good's positions (and the side the monster stands on) a plan looks at before
+/// it gives up: plenty for any way there is, so this only cuts short a search for one there
+/// isn't.
+const PLAN_STATES: usize = 20_000;
 
 /// One move of the good: the way it goes, and whether it is pulled rather than pushed.
 pub(crate) type CarryStep = (Dir, bool);
@@ -29,8 +36,9 @@ impl Game {
     /// The cheapest pushes and pulls that bring the good at `from` to `to`, for a monster
     /// standing at `me`, and what they cost. Costs are ticks: walking between moves, pushes, and
     /// very slow pulls. A* over (where the good is, which side of it the monster stands), over
-    /// the whole map, so a route that has to go a long way round is still found. Other monsters
-    /// are ignored: they move on. The goal counts as free: anything on it when this is asked is
+    /// the map around the good, where it goes and the monster (see `World::search_area`), so a
+    /// route that has to go a long way round is still found. Other monsters are ignored: they
+    /// move on. The goal counts as free: anything on it when this is asked is
     /// being worked, so about to be gone. Ties break in a fixed order, so the same world always
     /// gives the same plan.
     pub(crate) fn plan_carry(&self, from: (i32, i32), to: (i32, i32), me: (i32, i32), good: &str) -> Option<(Vec<CarryStep>, u32)> {
@@ -51,16 +59,11 @@ impl Game {
             return Some((Vec::new(), 0));
         }
         let into = self.takes_into(to, good);
-        let (w, h) = (self.world.w, self.world.h);
-        let cells = (w * h) as usize;
-        let inside = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x < w && y < h;
-        let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
-        let at = |i: usize| (i as i32 % w, i as i32 / w);
+        let area = self.world.search_area(&[from, to, me]);
+        let cells = area.cells();
+        let (inside, idx, at) = (|p| area.inside(p), |p| area.idx(p), |i| area.at(i));
         // What each tile allows, worked out once. The good itself has left `from` once it moves.
-        let mut taken = vec![false; cells];
-        for it in self.world.items.iter().filter(|it| (it.x, it.y) != from && !(through_strays && self.is_stray(it))) {
-            taken[idx((it.x, it.y))] = true;
-        }
+        let taken = self.world.goods_in(area, |it| (it.x, it.y) == from || (through_strays && self.is_stray(it)));
         let mut blocked = vec![false; cells];
         // A parked wagon stays put; one being led moves on, like a monster.
         let carts = self.world.wagons.iter().filter(|wg| wg.leader.is_none()).flat_map(|wg| [wg.at, wg.pumpkin]);
@@ -94,10 +97,14 @@ impl Game {
         let mut dist = vec![u32::MAX; cells];
         let mut touched: Vec<usize> = Vec::new();
         let mut queue = VecDeque::new();
-        let mut goal = None;
+        let (mut goal, mut looked) = (None, 0);
         while let Some(Reverse((_, _, cost, s))) = heap.pop() {
             if cost > best[s] {
                 continue;
+            }
+            looked += 1;
+            if looked > PLAN_STATES {
+                break;
             }
             let (b, side) = (at(s / 5), s % 5);
             if b == to {
@@ -123,6 +130,10 @@ impl Game {
             queue.push_back(p);
             while left > 0 {
                 let Some(q) = queue.pop_front() else { break };
+                // Beside the good, it walks round it only so far (from the start, as far as it takes).
+                if side < 4 && dist[idx(q)] >= AROUND {
+                    break;
+                }
                 for d in DIRS {
                     let n = (q.0 + d.delta().0, q.1 + d.delta().1);
                     if walks(n, b) && dist[idx(n)] == u32::MAX {
@@ -215,12 +226,11 @@ impl Game {
     /// A walk from `from` to `to` as if strays weren't there (other goods and `avoid` are in
     /// the way), not counting `from`.
     fn walk_through_strays(&self, from: (i32, i32), to: (i32, i32), avoid: (i32, i32)) -> Option<Vec<(i32, i32)>> {
-        let (w, h) = (self.world.w, self.world.h);
-        let idx = |(x, y): (i32, i32)| (y * w + x) as usize;
-        let open = |(x, y): (i32, i32)| {
-            x >= 0 && y >= 0 && x < w && y < h && (x, y) != avoid && self.world.walkable(x, y) && !self.world.cart_at(x, y) && self.world.item_at(x, y).is_none_or(|k| self.is_stray(&self.world.items[k]))
-        };
-        let mut prev = vec![usize::MAX; (w * h) as usize];
+        let area = self.world.search_area(&[from, to]);
+        let idx = |p| area.idx(p);
+        let goods = self.world.goods_in(area, |it| self.is_stray(it));
+        let open = |(x, y): (i32, i32)| area.inside((x, y)) && (x, y) != avoid && self.world.walkable(x, y) && !self.world.cart_at(x, y) && !goods[idx((x, y))];
+        let mut prev = vec![usize::MAX; area.cells()];
         prev[idx(from)] = idx(from);
         let mut queue = VecDeque::from([from]);
         while let Some(q) = queue.pop_front() {
@@ -229,7 +239,7 @@ impl Game {
                 let mut at = idx(to);
                 while prev[at] != idx(from) {
                     at = prev[at];
-                    path.push(((at as i32) % w, (at as i32) / w));
+                    path.push(area.at(at));
                 }
                 path.reverse();
                 return Some(path);
