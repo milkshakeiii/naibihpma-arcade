@@ -389,13 +389,14 @@ impl Game {
         m.turns.clear();
         m.cooldown.clear();
         (m.carry_plan, m.path) = (Vec::new(), Vec::new());
-        (m.waiting_on, m.giving_way) = (None, None);
+        (m.waiting_on, m.giving_way, m.knot) = (None, None, None);
     }
 
     /// One tick of a looping monster.
     pub(crate) fn run_loop(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
-        // (With no loop at all, something else is moving it: a test's walker.)
-        if !self.monsters[i].idle() || self.monsters[i].routine.is_none() {
+        // (With no loop at all, something else is moving it: a test's walker. In a knot, the
+        // knot's moves are.)
+        if !self.monsters[i].idle() || self.monsters[i].routine.is_none() || self.in_knot(i) {
             return;
         }
         let m = &mut self.monsters[i];

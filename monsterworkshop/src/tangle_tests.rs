@@ -3,10 +3,9 @@
 //! waits forever on another, so every one keeps finishing goals, and nobody ever passes through
 //! anybody to get there.
 //!
-//! Movement is greedy for now (see `motion.rs`), so the tangles that need monsters to work
-//! around each other are ignored as "needs coordination": they're the yardstick each principle
-//! added to movement is measured by. Run them with `cargo test --release -- --ignored` (which
-//! runs the long soaks too).
+//! These were the yardstick the movement principles in `motion.rs` were built against, one at a
+//! time; they all pass now. The ignored soaks run hundreds more random tangles and random maps:
+//! `cargo test --release -- --ignored` (SEEDS=from..to picks the seeds).
 
 use super::*;
 use crate::econ::{ItemData, RawMaterial};
@@ -97,7 +96,7 @@ impl Walkers {
     fn tick(&mut self, g: &mut Game) {
         let mut sfx = Vec::new();
         for (k, stops) in self.stops.iter().enumerate() {
-            if stops.is_empty() || !g.monsters[k].idle() {
+            if stops.is_empty() || !g.monsters[k].idle() || g.in_knot(k) {
                 continue;
             }
             g.monsters[k].waiting_on = None;
@@ -411,7 +410,6 @@ fn two_walkers_meet_head_on_in_a_long_one_tile_tunnel() {
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn four_walkers_cross_both_ways_through_a_one_tile_tunnel() {
     let (mut g, mut walk) = walkers(&TUNNEL, &[&[(1, 1), (16, 5)], &[(16, 1), (1, 5)], &[(2, 5), (15, 1)], &[(15, 5), (2, 1)]]);
     keeps_going(&mut g, &mut walk, 12_000, 1200);
@@ -456,7 +454,6 @@ fn a_good_pushed_to_and_fro_through_a_tunnel_and_a_walker_going_the_other_way() 
 }
 
 #[test]
-#[ignore = "needs coordination"]
 fn two_walkers_in_a_closed_one_tile_tunnel_say_they_need_more_room() {
     // Each wants the far end: with no way past without passing through, it can't be done, and
     // they should say so rather than wait for ever.
@@ -550,7 +547,10 @@ fn random_ground_runs(seed: u64) {
     walk.run(&mut g, 6000);
     let half: Vec<u32> = g.monsters.iter().map(|m| m.steps).collect();
     walk.run(&mut g, 6000);
-    let stuck: Vec<usize> = (0..g.monsters.len()).filter(|&k| walk.walking(k) && g.monsters[k].steps == half[k]).collect();
+    // One whose next stop goods have cut off altogether isn't held up by anyone: walkers can't
+    // shove goods aside (loops can).
+    let cut_off = |g: &Game, k: usize| g.monsters[k].wait_reason == crate::motion::NO_WAY;
+    let stuck: Vec<usize> = (0..g.monsters.len()).filter(|&k| walk.walking(k) && g.monsters[k].steps == half[k] && !cut_off(&g, k)).collect();
     if stuck.is_empty() {
         return;
     }
@@ -617,5 +617,31 @@ fn trace_a_random_tangle() {
     }
     for it in &g.world.items {
         println!("item {} ({},{}) #{} locked {}", it.good(), it.x, it.y, it.id, it.locked);
+    }
+}
+
+/// Not a check: prints how one random ground goes (SEED picks it, 1 if unset; UNTIL ticks, and
+/// EVERY how often to print). Run with
+/// `cargo test --release trace_a_random_ground -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn trace_a_random_ground() {
+    let var = |k: &str, d: u32| std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d);
+    let (mut g, mut walk, rows) = random_ground(var("SEED", 1) as u64);
+    for row in &rows {
+        println!("  {row}");
+    }
+    let ground = |(x, y): (i32, i32)| (x - GROUND.0, y - GROUND.1);
+    for t in 0..var("UNTIL", 3000) {
+        walk.run(&mut g, 1);
+        if t % var("EVERY", 300) == 0 {
+            let row: Vec<String> = (0..g.monsters.len()).filter(|&k| walk.walking(k)).map(|k| {
+                let m = &g.monsters[k];
+                let knot = m.knot.as_ref().map(|kn| format!(" knot {}/{}", kn.next, kn.moves.len())).unwrap_or_default();
+                let gw = m.giving_way.map(|gw| format!(" giving way to #{} at {:?}", gw.to, ground(gw.spot))).unwrap_or_default();
+                format!("{}#{} {:?} s{} w{} on {:?}{knot}{gw} {:?}", (b'A' + k as u8) as char, m.id, ground((m.x, m.y)), m.steps, m.wait, m.waiting_on, m.wait_reason)
+            }).collect();
+            println!("t{t}: {}", row.join(" | "));
+        }
     }
 }

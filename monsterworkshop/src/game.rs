@@ -196,6 +196,12 @@ pub struct Monster {
     /// Giving way to another monster: off its way, until it has gone by.
     #[serde(default)]
     pub giving_way: Option<crate::motion::GiveWay>,
+    /// A knot it's untangling, as the one whose way is being cleared (see `knot.rs`).
+    #[serde(default)]
+    pub knot: Option<crate::knot::Knot>,
+    /// Ticks it goes on saying there's no way through without passing through someone.
+    #[serde(default)]
+    pub no_room: u16,
     /// The tick it last finished a step of its loop (or started the loop): who has gone longest
     /// without finishing one goes first.
     #[serde(default)]
@@ -278,6 +284,8 @@ impl Monster {
             turns: Vec::new(),
             waiting_on: None,
             giving_way: None,
+            knot: None,
+            no_room: 0,
             since: 0,
             loops: 0,
             steps: 0,
@@ -598,6 +606,7 @@ impl Game {
                 self.walk_home(i, sfx);
             }
         }
+        self.untangle(sfx);
         self.advance_motion();
         self.tick_wagons(sfx);
         self.tick_work(sfx);

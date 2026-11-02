@@ -7,7 +7,7 @@
 
 use crate::game::{Game, Sfx, StepRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
 use crate::sched::Hold;
-use crate::motion::{Going, EXCUSE_ME, LOOK_AROUND_EVERY, SETTLE_AFTER};
+use crate::motion::{Going, LOOK_AROUND_EVERY, SETTLE_AFTER};
 use crate::world::{Dir, Tile, DIRS};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -353,7 +353,7 @@ impl Game {
             if let Some(o) = o.filter(|&o| still && self.monsters[i].wait >= SETTLE_AFTER && self.standing_still(o)) {
                 self.settle(i, o);
             }
-            return Going::Waiting(EXCUSE_ME.into());
+            return Going::Waiting(self.excuse_me(i));
         }
         // Something landed where this move is made from since planning: plan again.
         if self.world.item_at(stand.0, stand.1).is_some_and(|o| o != k) {

@@ -8,6 +8,7 @@ mod econ;
 mod framebuffer;
 mod game;
 mod inspect;
+mod knot;
 mod motion;
 mod palette;
 mod render;

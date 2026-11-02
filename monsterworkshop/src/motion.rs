@@ -19,11 +19,15 @@
 //!    other has gone by (or has stopped, or ten seconds have passed), then carries on with its own
 //!    goal. Of two waiting on each other, each in the other's only way (head-on in a lane, one
 //!    going into a dead end as the other comes out), the one later in line gives way: whoever has
-//!    gone longest without finishing a goal goes first. If that one has nowhere to go (a dead end
-//!    behind it), the other gives way instead. Guarantee: two that are each in the other's way get
-//!    past each other whenever one of them has somewhere off the other's way it can reach.
-//!    Bigger knots (a third monster boxing in the one that has to give way) are for the next
-//!    principle.
+//!    gone longest without finishing a goal goes first. Guarantee: two that are each in the
+//!    other's way get past each other whenever the one later in line has somewhere off the
+//!    other's way it can reach; when it hasn't (boxed in by others, or in a dead end), that's a
+//!    knot, for the next principle, which keeps to the same order.
+//! 3. **Knots get searched.** When those two can't do it (a third monster boxing in the one that
+//!    has to give way, lines meeting head-on, a crowded dead end), the monsters stuck in it search
+//!    real moves together and make them: see `knot.rs`. Guarantee: a way out is found whenever
+//!    one exists among them within the search's reach; when the search covered everything they
+//!    could reach and found none, they say "WE NEED MORE ROOM HERE."
 
 use crate::game::{Game, Sfx, StepRes};
 use crate::world::{Dir, DIRS};
@@ -80,8 +84,13 @@ fn adjacent(a: (i32, i32), b: (i32, i32)) -> bool {
 impl Game {
     /// Can a walking monster pass this tile? Never through items (it would push them), wagons
     /// or applicants. Other monsters don't count: they move on.
-    fn open(&self, x: i32, y: i32) -> bool {
+    pub(crate) fn open(&self, x: i32, y: i32) -> bool {
         self.world.walkable(x, y) && self.world.item_at(x, y).is_none() && !self.applicant_at(x, y) && !self.world.cart_at(x, y)
+    }
+
+    /// What a monster held up by another says: having found there's no way through at all, that.
+    pub(crate) fn excuse_me(&self, i: usize) -> String {
+        if self.monsters[i].no_room > 0 { crate::knot::NO_ROOM.into() } else { EXCUSE_ME.into() }
     }
 
     /// Is monster `k` standing still: not on its way anywhere this moment? One you've left
@@ -166,7 +175,7 @@ impl Game {
             if self.monsters[i].wait >= SETTLE_AFTER && self.standing_still(o) {
                 self.settle(i, o);
             }
-            return Going::Waiting(EXCUSE_ME.into());
+            return Going::Waiting(self.excuse_me(i));
         }
         match self.try_step(i, dir_to(here, next), sfx) {
             StepRes::Moved(_) => {
@@ -276,26 +285,32 @@ impl Game {
     /// only waiting, it gives way. Of two waiting on each other, the one later in line gives way,
     /// or the other if that one has nowhere to go.
     pub(crate) fn settle(&mut self, i: usize, o: usize) {
-        if self.monsters[i].giving_way.is_some() || self.monsters[o].giving_way.is_some() {
+        if self.monsters[i].giving_way.is_some() || self.monsters[o].giving_way.is_some() || self.in_knot(i) || self.in_knot(o) {
             return;
         }
         // One working stays at it, one leading a wagon can't step aside, and one you've left
         // standing is yours to move.
-        let can_give = |k: usize| {
+        let movable = |k: usize| {
             let m = &self.monsters[k];
-            m.playing && !m.busy && m.wait > 0 && self.led_wagon(k).is_none()
+            m.playing && !m.busy && self.led_wagon(k).is_none()
         };
-        if !can_give(o) {
+        if !movable(o) || self.monsters[o].wait == 0 {
             return;
         }
-        // Each in the other's way: not just waiting on something the other has reserved.
+        // Each in the other's way: not just waiting on something the other has reserved. Then the
+        // one later in line gives way to the one first in line.
         let mutual = self.monsters[o].waiting_on == Some(i) && self.way_of(o).contains(&(self.monsters[i].x, self.monsters[i].y));
-        let later = |a: usize, b: usize| (self.monsters[a].since, a) > (self.monsters[b].since, b);
-        let first = if mutual && can_give(i) && later(i, o) { i } else { o };
-        let second = if first == i { o } else { i };
-        let fallback = mutual && can_give(second);
-        if !self.start_giving_way(first, second) && fallback {
-            self.start_giving_way(second, first);
+        let first = |k: usize| (self.monsters[k].since, k);
+        let (lead, giver) = if mutual && movable(i) && first(o) < first(i) { (o, i) } else { (i, o) };
+        if self.start_giving_way(giver, lead) {
+            return;
+        }
+        // The one that should give way is boxed in: that's a knot. Search it for moves that clear
+        // the way of the one first in line (now, then now and then while still held up), rather
+        // than have that one give way to someone later, which could happen over and over.
+        let w = self.monsters[i].wait;
+        if w == SETTLE_AFTER || (w > SETTLE_AFTER && (w - SETTLE_AFTER) % crate::knot::KNOT_RETRY == 0) {
+            self.try_knot(lead);
         }
     }
 
