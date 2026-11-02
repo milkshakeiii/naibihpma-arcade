@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 12;
+pub const VERSION: u32 = 13;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -143,16 +143,19 @@ pub fn from_json(json: &str) -> Result<Game, String> {
 }
 
 pub fn worlds_dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    // %APPDATA% on Windows; elsewhere (a server) ~/.local/share.
+    let base = std::env::var_os("APPDATA").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share"))).unwrap_or_else(|| PathBuf::from("."));
     base.join("MonsterWorkshop").join("worlds")
 }
 
 /// "world-3" shows as "WORLD 3".
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn display_name(path: &Path) -> String {
     path.file_stem().map_or_else(String::new, |s| s.to_string_lossy().replace('-', " ").to_uppercase())
 }
 
 /// Saved worlds, most recently played first.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn list_worlds() -> Vec<PathBuf> {
     let Ok(dir) = std::fs::read_dir(worlds_dir()) else { return Vec::new() };
     let mut worlds: Vec<(std::time::SystemTime, PathBuf)> = dir
@@ -165,6 +168,7 @@ pub fn list_worlds() -> Vec<PathBuf> {
     worlds.into_iter().map(|(_, p)| p).collect()
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn new_world_path() -> PathBuf {
     let dir = worlds_dir();
     (1..).map(|n| dir.join(format!("world-{n}.json"))).find(|p| !p.exists()).expect("a free world name")
@@ -188,6 +192,7 @@ pub fn save(g: &Game, path: &Path) -> std::io::Result<()> {
 }
 
 /// Deletes a world: its save, both backups and any half-written save.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn delete(path: &Path) -> std::io::Result<()> {
     for extra in ["bak1", "bak2", "json.tmp"] {
         let p = path.with_extension(extra);

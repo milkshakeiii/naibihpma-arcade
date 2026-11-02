@@ -380,13 +380,14 @@ Still code rather than data, each to move into data when the first new one shows
 - **M3, many players** (decided 2026-11-01): the simulation holds several players and communes, then networking: a server that runs the world and clients that show it. It comes before the remaining mechanics (bin and wagon kits, hands and the character sheet, great works), so they're built for many players from the start.
 - **M4, the first province:** its chains and the great work, working NPCs, its drop-offs, and final pixel art under the AGENTS.md palette rules.
 - **M5, 1.0:** the first server, with outside playtesters.
+- **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
 ### Many players (M3, planned 2026-11-01)
 - **The server runs the world; players' games show it.** The server ticks 15 times a second, as now. Each player's game sends its key presses and gets back what's on that player's screen, which flip-screen views keep small. Ruled out: every player's game simulating the whole world in step, which breaks with 50 players, joining mid-game and 100 screens.
 - **Playing alone runs a small server inside the game,** so there's one code path. Today's game becomes a local world.
 - **The lightest layer:** plain connections from Rust's standard library and serde, with no networking framework or async runtime. The server is a build without graphics that also runs on Linux; the Windows-only parts go only into the player's game.
 - **Identity:** a player's game makes a random key the first time it runs, and the server links that key to the player's commune. No accounts or passwords for now.
-- **Lag:** each step waits for the server, about 100–150 ms on a nearby server. Start without prediction and keep an eye on it. If it feels sluggish, a player's game can move its own monster at once and correct it when the server disagrees.
+- **Lag:** each step waits for the server, about 100–150 ms on a nearby server. Keep an eye on it. (Moving your own monster before the server answers was a fallback here; sending pictures, decided 2026-11-02, rules it out.)
 - **Steps:**
   - **M3a, communes in the simulation,** still on one computer. Each monster belongs to a commune. `Game` splits into the shared world and each player's own state (controlled monster, keys, HUD, tutorial, renown). A delivered good's renown goes to each contributor's commune, by its shares. Tests drive two or more players.
   - **M3b, server and players' games:** networking with updates sent per screen, joining and leaving, local worlds through the built-in server, the Linux server build.
@@ -398,7 +399,7 @@ Still code rather than data, each to move into data when the first new one shows
   - **Nobody controls another commune's monsters.** Everything else works as today until griefing is designed.
 
 ### Communes in the simulation (M3a, built 2026-11-01)
-- **Every monster belongs to a commune,** and the game holds a list of communes, only ever added to. A commune keeps its renown, the monster its player controls, its tutorial and what it has made. It also keeps that player's screen state (help, the examine card and its page, the roster strip, the area banner), which moves to the player's own game in M3b.
+- **Every monster belongs to a commune,** and the game holds a list of communes, only ever added to. A commune keeps its renown, the monster its player controls, its tutorial and what it has made. It also keeps that player's screen state (help, the examine card and its page, the roster strip, the area banner), which stays on the server, since the server draws every screen (M3b).
 - **One tick takes every player's input.** A player who's away presses nothing, and their monsters carry on. Tab switches only among your own monsters.
 - **Renown follows shares.** A scored good's renown is split by its shares, and each share goes to its monster's commune: one player's indigo in another's cloth pays both.
 - **Hiring** spends the hirer's renown, and the helper joins the hirer's commune. Everyone shares one applicant pool.
@@ -407,8 +408,15 @@ Still code rather than data, each to move into data when the first new one shows
 - **Sounds per player:** each player hears their own actions, and whatever happens on the screen they're looking at. A plant setting out its harvest used to be heard from every screen; now it's heard only on its own.
 - **Saves are version 12** and hold the communes.
 - Nine two-player tests cover starting, control, renown, hiring, tutorials, sounds and saving. A one-player game is unchanged: all 41 screenshots are byte-identical to before.
-- **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
+### Server and players' games (M3b, built 2026-11-02)
+- **The server sends pictures** (decided 2026-11-02). It draws each player's screen and sends only the pixels that changed: the old screen XOR-ed with the new, deflated. A player's game just shows pictures and plays the sounds that come with them. Measured over 6,000 ticks of Mogg and Bruna looping: 5 KB/s on average and 34 KB when the screen flips, against 26 KB/s (16 KB on a flip) for sending the state of what's on screen as JSON. Drawing and compressing one player's frame takes about 0.55 ms, so 50 players need under half a CPU core. Every feature after this needs no network code, and every pixel is the server's. The price: a player's own monster can never move before the server answers.
+- **The protocol** (`net.rs`): length-prefixed messages over TCP. A player's game says hello with the protocol version and its key, then sends its keys the moment one goes down or what's held changes. The server welcomes them with their commune, then sends a frame each tick something on their screen changed, and a bye with a reason when it lets them go. Garbled messages are errors, never crashes.
+- **The server** (`server.rs`) ticks 15 times a second. Between ticks it gathers each player's keys the way the window used to between its own polls, so pressing feels the same. Each connection gets a thread reading its keys and one writing its frames, so the world never waits on a player; a player who falls behind has frames skipped, and the next one sent covers what they missed. It autosaves every minute and saves when it stops.
+- **Who's who:** a player's game makes a random key the first time it runs (`player.key` beside the saved worlds). A key the server knows gets its commune back; a new key claims a commune nobody has (a new world's Mogg and Bruna), or joins with a new one. The same key connecting again sends the older connection away ("PLAYING FROM SOMEWHERE ELSE NOW."). Saves are version 13 and hold the keys.
+- **Playing alone** starts the world's server inside the game, on a port only this computer can reach, and connects to it: one code path. Esc or closing the window saves and stops it.
+- **Playing on a server:** `monster_workshop --connect HOST[:PORT]`. **Running one:** `monster_workshop --server [--port N] [--world PATH]` (port 7777 and `server.json` beside the saved worlds by default); typing STOP saves and stops it. `--player NAME` gives a window a key of its own, so one person can play several players on one computer. The server builds for Linux; only the window and its sounds are Windows-only.
+- Tests: the protocol's messages round-trip, garbled ones fail safely, and over real connections two players each get exactly the picture the server draws for them, come back to their own commune, hear their own actions, and are let go with the world saved when the server stops. One-player screenshots are still byte-identical.
 ### Tanglemere's dye works (M2 stage 2)
 - **The indigo chain runs in three town workshops,** each laid out so every pad can be loaded by pushes from the door and every output pushed back out of it:
   - **The kiln** (two pads) burns ramie stalks with fuel into lye, or limestone with fuel into quicklime; what's on the pads decides.

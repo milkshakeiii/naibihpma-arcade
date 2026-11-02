@@ -27,12 +27,11 @@ fn a_tap_moves_one_tile_and_a_long_hold_keeps_walking() {
         let mut g = Game::new();
         g.script("t"); // Bruna has open grass to the north
         let start = g.monsters[1].y;
-        let mut req = Vec::new();
         for t in 0..ticks {
             let mut inp = Input::default();
             inp.held[0] = true;
             inp.pressed[0] = t == 0;
-            g.update(&[inp], &mut req);
+            g.update(&[inp]);
         }
         g.run_ticks(10);
         start - g.monsters[1].y
@@ -377,15 +376,14 @@ fn a_loop_pulls_out_of_a_corner_only_when_it_must_and_pays_for_it() {
 #[test]
 fn tab_turns_the_card_page_while_examining_and_switches_monsters_otherwise() {
     let mut g = Game::new();
-    let mut req = Vec::new();
     let examine = Input { inspect: true, ..Input::default() };
-    g.update(&[examine], &mut req);
-    g.update(&[Input { tab_pressed: true, ..examine }], &mut req);
+    g.update(&[examine]);
+    g.update(&[Input { tab_pressed: true, ..examine }]);
     assert_eq!((g.communes[0].card_page, g.communes[0].controlled), (1, 0), "Tab with E held turns the page");
-    g.update(&[Input::default()], &mut req);
-    g.update(&[examine], &mut req);
+    g.update(&[Input::default()]);
+    g.update(&[examine]);
     assert_eq!(g.communes[0].card_page, 0, "a new look starts on page 1");
-    g.update(&[Input { tab_pressed: true, ..Input::default() }], &mut req);
+    g.update(&[Input { tab_pressed: true, ..Input::default() }]);
     assert_eq!(g.communes[0].controlled, 1, "without E, Tab switches monsters");
 }
 
@@ -703,7 +701,7 @@ fn the_next_good_waits_ready_beside_a_pad_still_being_worked() {
     // Mogg weaves the first thread at the loom...
     g.world.items.push(Item::new(44, 21, good_like(&g.data, "thread", 0.8)));
     stand(&mut g, (43, 21), Dir::Right);
-    g.press(0, Input { use_pressed: true, ..Input::default() }, &mut Vec::new());
+    g.press(0, Input { use_pressed: true, ..Input::default() });
     let pad = |g: &Game| g.world.item_at(44, 21).map(|k| (g.world.items[k].good().to_string(), g.world.items[k].locked));
     assert_eq!(pad(&g), Some(("thread".into(), true)), "the loom is busy with it");
     // ...while Bruna's loop brings the next one.
@@ -1225,9 +1223,9 @@ fn a_loop_on_another_screen_isnt_heard() {
         let fabric = |from, to| Goal::Move { good: "fabric".into(), from, to };
         start_loop(&mut g, 1, Routine { flag: (65, 11), goals: vec![fabric((66, 11), (69, 11)), fabric((69, 11), (66, 11))] }, (65, 11));
         (g.monsters[0].x, g.monsters[0].y) = watch_from;
-        let (mut req, mut heard) = (Vec::new(), 0);
+        let mut heard = 0;
         for _ in 0..300 {
-            g.update(&[], &mut req);
+            g.update(&[]);
             heard += g.sounds_for(0).into_iter().filter(|s| *s == Sfx::Push).count();
         }
         heard

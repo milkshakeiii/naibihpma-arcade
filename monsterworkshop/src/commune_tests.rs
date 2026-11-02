@@ -78,7 +78,7 @@ fn each_player_moves_only_the_monster_they_control() {
     room_to_step(&mut g, theirs, Dir::Down);
     g.run_ticks(10);
     let (y0, y1) = (g.monsters[mogg].y, g.monsters[theirs].y);
-    g.update(&[up, down], &mut Vec::new());
+    g.update(&[up, down]);
     assert_eq!((g.monsters[mogg].y, g.monsters[theirs].y), (y0 - 1, y1 + 1));
 }
 
@@ -167,7 +167,7 @@ fn a_newcomer_skips_steps_already_done_in_the_world_but_not_their_own() {
 fn each_player_hears_their_own_actions_and_their_own_screen() {
     let mut g = Game::new();
     g.join();
-    g.press(1, Input { rec_pressed: true, ..Input::default() }, &mut Vec::new());
+    g.press(1, Input { rec_pressed: true, ..Input::default() });
     assert!(g.sounds_for(1).contains(&Sfx::RecOn));
     assert!(!g.sounds_for(0).contains(&Sfx::RecOn), "another player's button press is theirs alone");
     // A sound on Mogg's screen, heard there and not from another screen.

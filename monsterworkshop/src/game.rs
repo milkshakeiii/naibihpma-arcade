@@ -44,7 +44,8 @@ pub enum Sfx {
 }
 
 impl Sfx {
-    #[cfg(test)]
+    /// Every sound, in the order they're numbered when sent to a player.
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub const ALL: [Sfx; 15] = [
         Sfx::Step,
         Sfx::Push,
@@ -64,12 +65,8 @@ impl Sfx {
     ];
 }
 
-pub enum Request {
-    Quit,
-}
-
 /// One tick of latched input. Direction arrays are indexed like `DIRS`.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq, Debug)]
 pub struct Input {
     pub held: [bool; 4],
     pub pressed: [bool; 4],
@@ -88,6 +85,34 @@ pub struct Input {
     pub inspect: bool,
     /// Shift held down: stepping away from an item drags it along.
     pub pull: bool,
+}
+
+impl Input {
+    /// Both together: anything held or gone down in either. Keys polled between ticks are
+    /// gathered like this.
+    pub fn or(&self, o: &Input) -> Input {
+        let mut i = *self;
+        for k in 0..4 {
+            i.held[k] |= o.held[k];
+            i.pressed[k] |= o.pressed[k];
+        }
+        for (a, b) in [
+            (&mut i.use_pressed, o.use_pressed),
+            (&mut i.rec_pressed, o.rec_pressed),
+            (&mut i.play_pressed, o.play_pressed),
+            (&mut i.tab_pressed, o.tab_pressed),
+            (&mut i.tab_held, o.tab_held),
+            (&mut i.cancel_pressed, o.cancel_pressed),
+            (&mut i.help_pressed, o.help_pressed),
+            (&mut i.quit_pressed, o.quit_pressed),
+            (&mut i.delete_pressed, o.delete_pressed),
+            (&mut i.inspect, o.inspect),
+            (&mut i.pull, o.pull),
+        ] {
+            *a |= b;
+        }
+        i
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -367,6 +392,8 @@ pub(crate) enum Ev {
 /// Communes are only ever added, so a commune's index never changes.
 #[derive(Default, Serialize, Deserialize)]
 pub struct Commune {
+    /// The key its player's game identifies itself with; empty until a player claims it.
+    pub key: String,
     pub renown: f64,
     /// The monster this player controls, always one of the commune's own.
     pub controlled: usize,
@@ -381,7 +408,7 @@ pub struct Commune {
     /// The direction held since its press, and for how many ticks.
     #[serde(skip)]
     hold: Option<(Dir, u8)>,
-    // What this player's screen shows. These move to the player's own game with networking.
+    // What this player's screen shows. The server draws it.
     #[serde(skip)]
     pub help: bool,
     /// Holding E: show the inspect card for whatever the controlled monster faces.
@@ -453,10 +480,19 @@ impl Game {
         g
     }
 
+    /// The commune of the player with this key: theirs if they've played here before, else one
+    /// nobody has claimed yet (a new world's first), else a new one.
+    pub fn player(&mut self, key: &str) -> usize {
+        if let Some(k) = self.communes.iter().position(|c| c.key == key) {
+            return k;
+        }
+        let k = self.communes.iter().position(|c| c.key.is_empty()).unwrap_or_else(|| self.join());
+        self.communes[k].key = key.to_string();
+        k
+    }
+
     /// A new player joins: their commune starts at the first town's gate with two monsters, a
     /// crafter and a gatherer, on the nearest free tiles. Returns the commune's index.
-    // Only tests have a second player until the server (M3b).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn join(&mut self) -> usize {
         let roll = |rng: &mut Rng| NAMES[(rng.next_u64() % NAMES.len() as u64) as usize];
         let crafter = roll(&mut self.rng);
@@ -681,13 +717,9 @@ impl Game {
 
     /// One tick. `inputs[k]` is what commune `k`'s player pressed; a commune with none (its
     /// player away) presses nothing, and its monsters carry on.
-    pub fn update(&mut self, inputs: &[Input], req: &mut Vec<Request>) {
+    pub fn update(&mut self, inputs: &[Input]) {
         self.frame = self.frame.wrapping_add(1);
         self.sounds.clear();
-        if inputs.iter().any(|i| i.quit_pressed) {
-            req.push(Request::Quit);
-            return;
-        }
         for k in 0..self.communes.len() {
             let mut sfx = Vec::new();
             self.player_input(k, &inputs.get(k).copied().unwrap_or_default(), &mut sfx);
@@ -1411,7 +1443,6 @@ impl Game {
 
     /// The same, as commune `k`'s player; the other players press nothing.
     pub fn script_as(&mut self, k: usize, keys: &str) {
-        let mut req = Vec::new();
         for ch in keys.chars() {
             let mut inp = Input::default();
             match ch {
@@ -1435,27 +1466,26 @@ impl Game {
                 'h' => inp.help_pressed = true,
                 _ => continue,
             }
-            self.press(k, inp, &mut req);
+            self.press(k, inp);
             for _ in 0..2000 {
                 if self.monsters[self.communes[k].controlled].idle() {
                     break;
                 }
-                self.update(&[], &mut req);
+                self.update(&[]);
             }
         }
     }
 
     /// One tick in which only commune `k`'s player presses anything.
-    pub fn press(&mut self, k: usize, inp: Input, req: &mut Vec<Request>) {
+    pub fn press(&mut self, k: usize, inp: Input) {
         let mut inputs = vec![Input::default(); k + 1];
         inputs[k] = inp;
-        self.update(&inputs, req);
+        self.update(&inputs);
     }
 
     pub fn run_ticks(&mut self, n: u32) {
-        let mut req = Vec::new();
         for _ in 0..n {
-            self.update(&[], &mut req);
+            self.update(&[]);
         }
     }
 }

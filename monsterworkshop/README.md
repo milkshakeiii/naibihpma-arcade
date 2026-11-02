@@ -14,6 +14,18 @@ cargo run --release
 cargo run --release -- --windowed
 ```
 
+Every world runs on a server. Playing alone starts one inside the game that only this computer can reach. To play together, one person runs a server and the others connect to it:
+
+```bash
+cargo run --release -- --server --port 7777 --world shared.json
+```
+
+```bash
+cargo run --release -- --connect HOST:7777
+```
+
+The server saves the world every minute; type `STOP` in its window to save and stop it. Your game remembers who you are with `%APPDATA%\MonsterWorkshop\player.key`, so you get your own commune back whenever you reconnect. To play two players on one computer, give each window a name: `--connect HOST:7777 --player ANNA`. The server also builds and runs on Linux.
+
 ## Controls
 
 | Key | Action |
