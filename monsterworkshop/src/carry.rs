@@ -7,7 +7,7 @@
 
 use crate::game::{Game, Sfx, StepRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
 use crate::sched::Hold;
-use crate::motion::{Going, LOOK_AROUND_EVERY, SETTLE_AFTER};
+use crate::motion::{Going, GIVE_UP_AFTER, LOOK_AROUND_EVERY, SETTLE_AFTER};
 use crate::world::{Dir, Tile, DIRS};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -353,7 +353,16 @@ impl Game {
             if let Some(o) = o.filter(|&o| still && self.monsters[i].wait >= SETTLE_AFTER && self.standing_still(o)) {
                 self.settle(i, o);
             }
-            return Going::Waiting(self.excuse_me(i));
+            // Behind someone who won't move by itself (or the wagon they lead), with no way
+            // around: give the move up for now, letting go of the good.
+            let who = self.who_is_at((x, y)).filter(|&w| w != i);
+            let wait = self.monsters[i].wait;
+            if let Some(w) = who.filter(|&w| self.left_standing(w) && wait >= GIVE_UP_AFTER && wait % LOOK_AROUND_EVERY == 0) {
+                if self.plan_carry_with(at, to, here, &good, false, &self.still_tiles(i)).is_none() {
+                    return Going::Stuck(format!("{} IS IN THE WAY.", self.monsters[w].name));
+                }
+            }
+            return Going::Waiting(self.excuse_me(i, who));
         }
         // Something landed where this move is made from since planning: plan again.
         if self.world.item_at(stand.0, stand.1).is_some_and(|o| o != k) {

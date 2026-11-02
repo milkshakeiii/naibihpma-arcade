@@ -1146,6 +1146,31 @@ fn waits_say_who_and_where_so_they_make_sense_from_anywhere() {
 }
 
 #[test]
+fn a_loop_boxed_in_by_monsters_left_standing_gives_up_for_now_and_says_who() {
+    // Henry's jam: Bruna, steered by hand, stands in the loom house's south door, and someone
+    // else in its north door. Mogg inside can't get the fabric out: rather than hold on to it
+    // for ever, it lets go and says who's in the way.
+    let mut g = Game::new();
+    let skills = g.monsters[0].skills.clone();
+    g.monsters.push(Monster::new(10, "ISKA", "goblin", &g.data, (44, 19), skills));
+    (g.monsters[1].x, g.monsters[1].y) = (44, 25);
+    g.world.items.push(Item::new(44, 22, good_like(&g.data, "fabric", 0.8)));
+    start_loop(&mut g, 0, Routine { flag: (43, 22), goals: vec![Goal::Move { good: "fabric".into(), from: (44, 22), to: (44, 28) }] }, (43, 22));
+    let mut said = Vec::new();
+    for _ in 0..300 {
+        g.run_ticks(1);
+        let m = &g.monsters[0];
+        if !said.contains(&m.wait_reason) {
+            said.push(m.wait_reason.clone());
+        }
+        if m.holds.is_empty() && m.wait_reason.ends_with("IS IN THE WAY.") {
+            return;
+        }
+    }
+    panic!("never let go: {said:?}");
+}
+
+#[test]
 fn monsters_sharing_one_plant_all_get_to_harvest_it() {
     let mut g = Game::new();
     let p = g.world.plant_at(8, 8).unwrap();

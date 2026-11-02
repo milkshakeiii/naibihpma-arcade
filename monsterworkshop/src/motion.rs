@@ -12,7 +12,11 @@
 //!    planned around like a wall, when there's a way around; one on the move is waited for, as it
 //!    moves on. While waiting behind one standing still, a monster looks again for a way around
 //!    every second. Guarantee: nobody waits for ever behind someone who isn't going anywhere when
-//!    there's another way.
+//!    there's another way. When there isn't, and the one in the way won't move by itself (one
+//!    you've left standing, or a wagon it leads), the monster gives its goal up for a while after
+//!    three seconds, letting go of what it had reserved, and says who's in the way ("BRUNA IS IN
+//!    THE WAY."); it does something else meanwhile, and tries again later. Waits behind someone
+//!    always say who ("EXCUSE ME, BRUNA!"), so you know whom to move.
 //! 2. **A loop that's only waiting gives way.** When a monster's only way is through a loop
 //!    that's waiting (not working, not leading a wagon), that one gives way: it goes, through no
 //!    one, to the nearest tile off the other's way, says "AFTER YOU.", and waits there until the
@@ -40,6 +44,9 @@ pub(crate) const NO_WAY: &str = "I CAN'T FIND A WAY THERE.";
 pub(crate) const EXCUSE_ME: &str = "EXCUSE ME!";
 /// Ticks between looks for a way around someone standing still, while waiting behind them.
 pub(crate) const LOOK_AROUND_EVERY: u16 = 15;
+/// Ticks waiting, with no way around, behind someone who won't move by itself, before giving the
+/// goal up for a while.
+pub(crate) const GIVE_UP_AFTER: u16 = 45;
 /// What a monster giving way says.
 const AFTER_YOU: &str = "AFTER YOU.";
 /// Ticks held up by a waiting loop, with no way around, before one of them gives way.
@@ -88,9 +95,27 @@ impl Game {
         self.world.walkable(x, y) && self.world.item_at(x, y).is_none() && !self.applicant_at(x, y) && !self.world.cart_at(x, y)
     }
 
-    /// What a monster held up by another says: having found there's no way through at all, that.
-    pub(crate) fn excuse_me(&self, i: usize) -> String {
-        if self.monsters[i].no_room > 0 { crate::knot::NO_ROOM.into() } else { EXCUSE_ME.into() }
+    /// What a monster held up by another, `o`, says: having found there's no way through at
+    /// all, that; otherwise excuse me, by name.
+    pub(crate) fn excuse_me(&self, i: usize, o: Option<usize>) -> String {
+        match o {
+            _ if self.monsters[i].no_room > 0 => crate::knot::NO_ROOM.into(),
+            Some(o) => format!("EXCUSE ME, {}!", self.monsters[o].name),
+            None => EXCUSE_ME.into(),
+        }
+    }
+
+    /// Is monster `k` left standing: not looping or walking itself home, and not working? It
+    /// won't move until you move it.
+    pub(crate) fn left_standing(&self, k: usize) -> bool {
+        let m = &self.monsters[k];
+        !m.playing && !m.homing && m.idle()
+    }
+
+    /// Who's on tile `t`: a monster, or whoever leads a wagon standing there.
+    pub(crate) fn who_is_at(&self, t: (i32, i32)) -> Option<usize> {
+        let leader = || self.world.wagons.iter().find(|w| w.at == t || w.pumpkin == t).and_then(|w| w.leader).and_then(|id| self.monsters.iter().position(|m| m.id == id));
+        self.monster_at(t.0, t.1).or_else(leader)
     }
 
     /// Is monster `k` standing still: not on its way anywhere this moment? One you've left
@@ -175,7 +200,12 @@ impl Game {
             if self.monsters[i].wait >= SETTLE_AFTER && self.standing_still(o) {
                 self.settle(i, o);
             }
-            return Going::Waiting(self.excuse_me(i));
+            // Behind someone who won't move by itself, with no way around (looking for one is
+            // what `go_toward` just did, every second): give the goal up for now.
+            if self.left_standing(o) && self.monsters[i].wait >= GIVE_UP_AFTER {
+                return Going::Stuck(format!("{} IS IN THE WAY.", self.monsters[o].name));
+            }
+            return Going::Waiting(self.excuse_me(i, Some(o)));
         }
         match self.try_step(i, dir_to(here, next), sfx) {
             StepRes::Moved(_) => {
