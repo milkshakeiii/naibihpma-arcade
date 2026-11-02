@@ -87,7 +87,7 @@ fn a_kit_unpacks_into_its_workshop_out_in_the_wilds_turned_the_way_you_face_it()
     let s = bench_in_the_meadow(&mut g);
     assert_eq!(s, before, "a new workshop");
     let shop = &g.world.shops[s];
-    assert_eq!((shop.kind, shop.spot), (ShopKind::Workbench, MEADOW));
+    assert_eq!((shop.kind, shop.spot), (ShopKind::named("workbench"), MEADOW));
     assert_eq!((shop.pads.clone(), shop.outs.clone(), shop.pegs.clone()), (vec![(64, 11), (65, 11)], vec![(66, 12)], vec![(67, 11), (68, 11)]), "facing south: pads west, mat south, pegs east");
     assert!((shop.quality - 0.7).abs() < 1e-9, "the kit's quality");
     assert!(g.world.items.iter().all(|it| it.good() != "workbench_kit"), "the kit is used up");

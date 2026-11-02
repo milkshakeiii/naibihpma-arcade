@@ -10,15 +10,15 @@ The feel prototype is the quality bar. It has no menus, yet new players learn th
 4. **The inspect card.** Hold a key to see a small card beside whatever you're facing. Release to dismiss. It never covers the screen.
 5. **Full screens** are only for things outside play: title, settings, help.
 
-During play the target is zero full-screen menus. Every action gets visible and audible feedback. The first time you meet a system, a monster comments on it and the HUD gives one objective, the same way the prototype's tutorial works.
+During play the target is zero full-screen menus, with one exception kept by tradition: the character sheet (see Equipment). Every action gets visible and audible feedback. The first time you meet a system, a monster comments on it and the HUD gives one objective, the same way the prototype's tutorial works.
 
 ## Scope
 
-**1.0** is a free itch.io build that runs locally, with no online server. It keeps renown with shares, and skill learning. Content is 2–3 production chains across 2 towns and the wilderness between them.
+**1.0 is the first server** (decided 2026-11-01, replacing a local single-player itch.io build). It is the first province of The living world below: about 10–25 screens, with much more detail per screen than today, played on an official server and on player-run ones. It keeps renown with shares, and skill learning.
 
 **Cut from 1.0:** upkeep, cost multiplier, monster aging.
 
-**Later, a persistent world.** The end product may also offer a persistent multiplayer world. To keep that possible, the simulation stays headless and separate from rendering, as it is in the prototype. World rules work like survival-game server settings:
+**The design target is a persistent world for 50 or more players** (decided 2026-11-01; see The living world). The simulation stays headless and separate from rendering, as it is in the prototype. World rules work like survival-game server settings:
 - **Time scale:** fast for single-player, slow for a persistent world.
 - **Monsters working while you're away:** off, or catch up a capped amount of time.
 
@@ -74,6 +74,30 @@ Fixes made at the same time:
 Henry composes the soundtrack. The arcade's Star Pond already streams WAV music, so that code can be reused.
 
 **v1.5:** equipment as physical crafted wearables; charity and great-works drop-offs; and an in-world quality sorter (see below).
+
+## The living world (direction set 2026-11-01)
+The game is designed for a **community server of 50 or more players**: one or two official servers, plus player-run ones. Server settings can tune a world down to one player, but that's an odd setting, not the design. The fun is in providing goods and being provided with them. This is the original MonsterMakers idea in a walkable world. Goods are shared, and shares split a good's renown among everyone who helped make it, so one player's indigo in another player's cloth pays both.
+
+- **A commune is one player.** Leaderboards rank communes.
+- **Provinces.** The world is 4–5 provinces holding the existing tech tree, with its missing parts filled in. No province makes every good. Each has its own industries and biomes. The geography stays loosely based on the book, with names translated as before.
+- **Size.** About one player per screen on average, so the whole world is 50–100 screens. Today's world is 14: Pinewater 2×2, the wilderness 3×2, Tanglemere 2×2. It's one continuous world, with barren country such as mountain passes between some provinces.
+- **Players open the world.** Some of the first major goals unlock provinces. Each needs a certain throughput of goods, so the players grow the world themselves, at a rate we tune. The throughput is a rate measured over a recent stretch, not a total, so the world grows with the number of people actually playing. A crowded first province at launch is intended; it's fun. A closed province is simply closed off. While it's closed, visitors from it may wait near its gate, offering what you'd need from there.
+- **Working NPCs.** Townsfolk are monsters you can see working, running routines like yours. They don't just stand and talk. They work real recipes in their own workshops and deliver to their own projects, so they never supply players or take their space. If they turn out to be a big burden they can be cut: a few clever text boxes go a long way.
+- **Goods move freely between provinces,** and that's encouraged: many industries deeper in the tree should rely on inputs from other provinces.
+- **Industries mostly stay in their province, but not strictly.** In a few unique places an industry can cross over, such as a small smelting operation far from the usual source of that metal. A smattering of these, not too loose.
+- **NPC supply is far more effort than it's worth,** such as a whole quest for 2 copper ingots. The dial is quantity. It keeps a missing good from being impossible; it never replaces other players.
+- **Who the NPCs are.** Some are monsters you aid, or who aid you or take your suggestions. Some are humans: uncivilized folk who still barter. Monsters never trade among themselves; barter is a human custom.
+- **The book's claims are real.** When an NPC says the best of something comes from a place, it does. Those hints are how players learn where to go.
+- **Scoring places are scattered** throughout the world, each with its own specialties and weights. Visual details tell why a good is redeemed there and what the biome is. The capital is the imperial palace. These monsters still have one, and it's for everyone to enjoy.
+- **No spamming one good.** Demand shifts, and repeat deliveries of a good to one drop-off pay less. Any simple lever will do.
+- **Food** is a big open area for later.
+- **Quality first.** The world grows slowly, a province at a time, each one built to the full standard, rather than rushing to the full size with thin content everywhere.
+
+Open:
+- **Griefing.** Everything can be pushed and every good is shared. A stranger can push your kit or goods away or stand in a one-tile doorway; with no swaps or squeeze-pasts, nobody can get past. Another commune's loops can take from your mats. This needs more thought.
+- **Newcomers on an old server:** seasons that restart the map, or renown upkeep so a newcomer can happily carve out a niche.
+
+**Testing many players:** there won't be 50 testers at first. Bot players stand in for load and economy tests, alongside as many real testers as we can get.
 
 ## Features
 
@@ -150,15 +174,21 @@ There are two kinds of workshop, with a clear trade-off between convenience and 
   - **Saves keep up with the map:** a town workshop's layout (kind, spot, pads, pegs, mat) comes from the map when a world is loaded, and only what it was doing from the save, so a change like this one doesn't need a new world.
   - **Unpacking:** facing a kit shows the footprint as a ghost (a checkerboard of the tiles, red where blocked); Space unpacks it, turned the way you face it (rather than the way it was last pushed: you choose by which side you face it from, and the ghost shows it first). Not in town (Pinewater and Tanglemere), not on a road, not on anything: it says which.
   - **Open-air layouts,** no walls or doors: a workbench is two pads to one side of its spot, the mat in front and two pegs to the other side; a kiln a pad each side and the mat in front. Nothing is ever just behind the spot, where the one unpacking stands.
-  - **What the kit decides:** quality (a weight-8 tool in a walk-in workshop, as in town; a bench counts for nothing, as in town), speed (the square root of the kit's material worth over the plainest kit's, hemlock and cotton rope: an oak bench about 20% faster, an oak-framed kiln a little, since its stone is the same), name from its main material ("OAK WORKBENCH", "LIMESTONE KILN"), and its makers' shares. Frontier workshops lend no tools. Color by material isn't done yet: frontier workshops look like town ones.
+  - **What the kit decides:** quality (a weight-8 tool in a walk-in workshop, as in town; a bench counts for nothing, as in town), speed (the square root of the kit's material worth over the plainest kit's, hemlock and cotton rope: an oak bench about 20% faster, an oak-framed kiln a little, since its stone is the same), name from its main material ("OAK WORKBENCH", "LIMESTONE KILN"), and its makers' shares. Frontier workshops lend no tools. Color by material: a hemlock workbench is drawn in the paler plank ramp, an oak one in the town benches' wood; kilns are always limestone.
   - **Wear:** a kit lasts about an hour of working time (made generous, since kits are hard to make), then the workshop says it's worn out and what to push onto its spot; a new kit of the same kind pushed onto its work spot renews it in place, with the new kit's quality, speed, name and makers. Worn out and unused for about ten minutes, it falls apart: its ground is grass again and what waited inside is set out there.
   - Frontier workshops are saved with their ground; loops use them like any other (by the workshop, not its tiles).
+  - **Kits look like what they are:** a workbench kit is bundled boards with two rope bands, a kiln kit cut stone stacked on a pallet and lashed down, each with a small icon for wagon loads and the builders' bench's mat.
+  - **The tutorial** goes on after the log bridge: make a kiln kit at the builders' bench, then take it out of town and unpack it, then a last line on wear and renewal.
+- **Workshop kinds are data** (2026-11-01): `data/workshops.json` gives each kind its id, name, the character that marks its work spot on a map, its look (which sprite draws it, so a new kind can borrow one until it has its own), whether it's a walk-in building, its recipes, the tools a town one lends, and its kit: the kit good, what the plainest kit's materials are worth, the carried-over tags that name it, and its open-air layout. Onboarding an industry is entries there and in `good_types.json`, sprites and a place on the map. Two tests guard it: the data fits together (map characters, looks, goods that exist, recipes needing a walk-in workshop only at one, layouts that leave the spot and the tile behind it free), and **everything in play can be made from what grows on the map**, at a town workshop on the map with the tools it lends or at a frontier one whose kit can be made; when something can't, the test names what nothing makes. Saves name workshop kinds by id (version 11).
+- **Wagons and storage bins come from kits too** (Henry, 2026-11-01; design approved 2026-11-01, not built yet). A bin kit or a wagon kit is a good like a workshop kit, made at the builders' bench: crafted, hauled, faced to show its ghost, unpacked with Space, with its quality, worth and makers carried over. In the data a kit says what it unpacks into (a workshop kind, a bin or a wagon), so all three share the ghost, unpacking and makers.
+  - **A bin** is the bin and a chute in front of it, turned the way you face it. It takes **one kind of good for its whole life**, set by the first good pushed in, and is named for it ("THE COTTON BOLLS BIN"): loops are tied to particular tiles, and a stray log can't turn a boll bin into a log bin. It holds **a limited room** in storage volume, more for a kit of more valuable materials (as a wagon's power comes from its value); a full bin is the scheduler's ordinary "destination is full", so no new rule. Town bins stay bottomless. Nothing is made in a bin, so it earns its makers no shares. **It doesn't wear while used:** with nothing in or out for about 30 minutes it falls apart and sets its goods out, since wear is there to clear away what's abandoned and nobody works a bin. Not in town and not on roads, like workshops; a town spot that really needs a bin gets a fixed one on the map.
+  - **A wagon kit comes with its pumpkin:** a pumpkin, gathered at a pumpkin patch, is one of its inputs, and unpacking wakes it and hitches it (no separate mechanic for leading a lone pumpkin to a wagon). The pumpkin is the game's own good, not the book's, and needs approval like any other. A wagon's **room comes from its kind** (a cart now; bigger wagons with several dispensers later) and its **power from its value**, as decided. It **unpacks anywhere with room for the train, town and roads included**: it's a vehicle, not a building. **Wagons don't wear, at first:** pushing a kit into a wagon loads it, and kits are meant to travel by wagon, so renewal can't work the way a workshop's does, and a wagon is never abandoned clutter the way a workshop can be. Revisit if wagons need a sink. The wagon's production tree (wheels and the rest, with Wagon Wright) is a content batch, for approval.
 
 ### Joining the commune
 There is no character-creation screen. A **gathering hall** in town holds monsters hoping to join. Each one is already rolled with a monster type and 3 transferable skills. Walk up to one and their bubble shows type, skills, stats and the renown they join at. Space welcomes them. You choose who joins, not which boxes to tick, and the hall's visitors change over time. Nobody is hired or paid: renown is the commune's standing, and a well-known commune draws newcomers. (Internally the code still calls them applicants.)
 
 ### Renown and goals
-Renown is a HUD counter. You spend it in the world: hiring at the hall, and contributing to **town project boards**. A project board shows what goods it wants and a progress bar. In 1.0 boards count goods of any quality, so a low-quality good always has somewhere useful to go. Finished projects unlock things like the road to the second town or new workshops. A final "great work", for example a temple bell, ends 1.0.
+Renown is a HUD counter. You spend it in the world: hiring at the hall, and contributing to **town project boards**. A project board shows what goods it wants and a progress bar. In 1.0 boards count goods of any quality, so a low-quality good always has somewhere useful to go. Finished projects unlock things like the road to the second town or new workshops. The Temple Bell is 1.0's great work (see The great works below), but it doesn't end the game.
 
 ### Delivery and shares
 Delivering a good is a small celebration. "+12 RENOWN" rises from the drop-off, then smaller credits fly to each monster that contributed ("MOGG 6, BRUNA 4"). This is how the shares system becomes visible. All renown still goes to the one commune.
@@ -202,6 +232,9 @@ Hold **E** ("examine") to show a card anchored next to the tile you're facing. U
 
 The card is drawn in the same beveled style as the help overlay. It never pauses the world.
 
+### Tutorials and examining (direction set 2026-11-01)
+The tutorial that exists works well, but tutorials should become more on-demand, so exploring freely is just as possible. Clear, plentiful, just-in-time examine cards are almost preferable to tutorials: **everything in the world keeps an examine card** with the crucial words for its situation. With server-wide goals and several ways to earn renown, progress should rely less on the tutorial. A fuller talk about tutorial philosophy is still to come.
+
 ### Wagons and roads
 Wagons are fully physical, and roads leave the map edge at signposts naming the next town.
 
@@ -213,15 +246,22 @@ Decided 2026-10-31:
 - **Pulling power** is the wagon's power (from its value) times (1 + wagon driving) times the leader's CHA. Load beyond it slows the wagon down; it never refuses goods.
 - **A wagon is a dispenser.** Goods pushed into it go into its bed; parked, it sets them out one at a time like a chute. **A dispenser holds one type of good.** Bigger wagons, later, have several dispensers.
 - **A wagon's power comes from its value,** so a better-made wagon (quality, oak over hemlock, more steps) pulls more.
-- **The town lends a wagon at first,** like its tools. Later, wagons of different qualities and sizes are built.
+- **The town lends a wagon at first,** like its tools. Later, wagons of different qualities and sizes are built from kits (see Workshops: town and frontier).
 - **A bridge comes from a project** (built), away from the ferry: a second road leaves Pinewater from its southeast corner, by the cloth store, and crosses the river further south. Monsters deliver about 12 logs to its board on the far bank, where the woods are; once it's built, two tiles wide so wagons can pass, wagons drive straight across. The footbridge keeps carrying monsters on foot.
 - **Weight only has to feel right.** A log may weigh as much as 180 cotton bolls; even bolls are pushed around Sokoban-style.
 - **Hauling earns shares when a good is used, not each time it moves** (built). A good remembers who has pushed or pulled it since it was made. When a workshop uses it, or a drop-off or board takes it, those haulers get 1 share between them, split by the tiles each pushed, and the share flows on into whatever the good becomes. If it reached its town by wagon, the wagon's leader gets 2 more, as in the original rules. Pushing a good in circles or shuffling it between pads pays nothing extra; a good pays at most 3 hauling shares before it becomes something else. Skill is different (decided 2026-10-31): hauling and wagon driving grow per tile as the work is done, like crafting skill grows with time at the bench. Practice is practice, and pointless circles already cost forgetting.
 - **Used-up inputs don't count toward weight** (built). An input filling a fuel, lye, lime or dye slot is marked spent in the good's history: it still counts toward value, not weight. A dyed bolt now weighs what a plain bolt does (its storage volume was also corrected to match).
 - **Wagon Wright is back** as an applied skill (it was in the original skill list), and the wagon's production tree (wheels and the rest) is designed later. Its new goods need approval like any others.
 
-### Equipment (v1.5)
-Gloves, glasses and the like are crafted goods from the tech tree, not bought with renown. Push one into a monster to equip it. It then shows on the sprite (a goblin in glasses), and its bonus appears on the inspect card.
+### Equipment: hands and the character sheet (decided 2026-11-01, not built yet)
+From the original design (MonsterMakers.pdf and the django code): each monster type has a **body fitting capacity** (what it can wear, hold and carry) and a **mind fitting capacity** (what it can know or be attuned to), and slots of three kinds: **personal items**, **worn** and **internal**. Each piece of equipment takes a slot and costs some of each capacity. The django version had 14 kinds (gloves +1 STR, glasses +1 INT, a magnifying glass +10% quality, a rubber stamp +10 value...) bought with renown; here equipment is crafted. `monster_types.json` already has each type's capacities (cyclops 100 body and 100 mind, elf 50 and 150, goblin 150 and 50).
+- **Gathering tools come first**, as the first piece of the inventory. **The inventory is equipment only:** goods still move by pushing; nobody carries a stack of goods.
+- **Two hands each:** the personal-item slots. **What can be held is any implement needed to gather a raw material:** the tools a gathered good's data asks for (a pick and a shovel for coal, a sickle for rice, a scythe for barley, a billhook for sugar cane), worked out from the data. Big workshop tools (a cotton gin, a spinning wheel, a loom) stay on pegs. Where the tree names something odd for gathering (a cauldron for found green vitriol, a trellis for climbing hempvine), the data gets fixed when that good comes into play. Holding a tool costs body capacity by its weight, so a goblin can hold a heavy pick and a shovel together and an elf perhaps only one.
+- **Space facing a holdable tool on the ground takes it** into a free hand ("MOGG TAKES THE PICK."); with both hands full, "MY HANDS ARE FULL." It's put down from the character sheet. Taking and putting down aren't recorded in loops: you set up a monster's equipment, and its loop uses what it holds. (This replaces the earlier idea of pushing equipment into a monster, which a loop pushing goods past a bystander could do by accident.)
+- **Gathering needs its tools in hand** ("MISSING A TOOL: A SHOVEL."). Held tools count in the quality roll, wear, and pay their makers' shares, as tools on pegs do. **They don't count at workshops**, where tools still come from the pegs or the town: a possible later addition.
+- **You can see them:** a held tool shows in the monster's hand on its sprite, and the E card lists what it holds.
+- **The character sheet (C)** is the first full-screen menu, the beloved tradition. Page 1: a big sprite, name and type, the six abilities with what each does, the three transferable skills, applied skills as bars, the two hands (each tool's quality and wear), the worn and internal slots (empty until they have equipment), and body and mind capacity used. Page 2 (Tab, as on the E card): the monster's loop as a list of its goals. Arrows choose a hand, Space puts its tool down on the tile ahead, C or Esc closes. The world keeps running behind it. E stays the quick look.
+- **Later (v1.5):** worn and internal equipment, crafted from the tech tree (gloves, glasses and the like), shown on the sprite (a goblin in glasses) with its bonus on the cards.
 
 ### Quality goals and sorting (v1.5)
 Two kinds of drop-off, after the "charity and great works" in the original rules:
@@ -231,6 +271,15 @@ Two kinds of drop-off, after the "charity and great works" in the original rules
 Recorded loops push whatever they find, so they can't tell good items from bad. An in-world **quality sorter** fixes that: a machine that only lets items above a set quality through, so a loop can route dim goods to charity and bright ones to the great works.
 
 Two uses for low-quality goods already exist in 1.0 without new rules: delivering them for less renown, and training. Learning doesn't depend on input quality, so junk materials are good practice for new hires.
+
+### The great works (from the original tech tree)
+The original tree defines three great works in full, all cast at a workshop with Casting as the main skill and Prospecting and Chemistry secondary. All three are in `data/good_types.json`; what they lack is providers for most of their inputs.
+- **Temple Bell:** 11 inputs: lime, mortar, beeswax, oil, clay, charcoal, 2 fuel, coke and 2 metal ingots (whose metal carries over, so a bronze bell). Tools: a chisel (weight 4) and a shovel (3). Difficulty 16, 20 minutes, 20 shares, destabilized by Blacksmithing and Firing. The book's way is lost-wax casting: a clay core, a layer of wax and oil carved to shape, a clay mold over it, the wax melted out and bronze poured in.
+- **Great Metal Statue:** the bell's lime, mortar, beeswax, oil and clay twice over, plus statue schematics, charcoal, 2 fuel, coke and 2 metal ingots: 17 inputs. A chisel (6) and a shovel (4). Difficulty 17, 55 minutes, 40 shares.
+- **Large Mirror:** a mirror mold, a silver ingot, a bronze ingot and coke; no tools. Difficulty 16, 30 minutes, 20 shares.
+- **Prestige goods** below them: Clay Palace Tiles and Bricks (8 inputs each: yellow clay, pyrolusite, palm leaves, ochre, rosin, rushes, 2 fuel, in a palace mold) and Royal Blue Dyed Fabric (deep sky blue fabric, soybeans, indigo, pitch).
+- **Hanging the bell** (decided 2026-11-01): it's cast at a foundry in a third town, the temple's, a workshop with eleven pads. The bell is very heavy, so getting it to the temple is a wagon job. Pushed into the temple's bell frame, it rings (its own sound, the biggest yet), it's scored as a great work (its value, so its quality shows) and it's announced with a celebration and a line about how well it was made ("A MASTERWORK BELL"). **No credits scene:** the world carries on. The game's final shape is meant to be more alive than a finish line (Henry's ideas, still to be written down), and scoring and announcing great works is part of it, not just for the bell.
+- **What the bell still needs**, as of 2026-11-01: charcoal, mortar, beeswax, oil, metal ingots (copper and tin ore, smelting) and a shovel have no recipe at all; clay and coal are defined but grow nowhere on the map; coke needs coal, which needs a pick and a shovel. An 11-input casting is also bigger than any workshop so far (six pads).
 
 ## Crafting math (M1)
 
@@ -310,12 +359,43 @@ Built in four playable stages:
 - **Pulling** (see Features) gets a monster out of a stuck push.
 - **Saves are version 3,** with the boards and the ferry. While the game is in development, saves don't migrate: a save from another version doesn't load, and the title screen says so.
 
+## Onboarding an industry
+How a new production chain goes in (written 2026-11-01, before the bell chain). Most of it lands on structure that already exists: goods, workshops, plants, loops, wagons and kits.
+1. **Propose the goods**, from the book where it has them. Each good gets Henry's explicit approval on its own; answering questions about a proposal isn't approval. Player-facing text never names the book or its real places.
+2. **Goods** go in `data/good_types.json`: id, tags, inputs and what they carry over, tools and their weights, skills, ability, difficulty, time, quantity, value, density, volume, whether it's graded. Append; never sort the file.
+3. **Where it's made** goes in `data/workshops.json`: a recipe on an existing kind, or a new kind with its name, map character, look, recipes, lent tools and, if it can be built out in the wilds, its kit and layout.
+4. **Where its raw materials grow:** a plant character on a region map and, for now, in `plant_good` in `world.rs`; a plant regrows in its good's production time. Placement says something: rarer varieties farther from the road, materials by the workshops that use them.
+5. **Sprites:** the item and its 8×8 icon, a plant's three growth stages, and a workshop's look (borrow an existing one until the final art).
+6. **Where the end goods go:** a drop-off, a project board or the next chain. A good nothing takes gives no reason to make it.
+7. **Teaching it:** a just-in-time bubble the first time a monster meets it, and a HUD objective if it's on the main path.
+8. **Tests:** "everything in play can be made from what grows on the map" must still pass (it names what nothing makes); a scripted test runs the chain end to end; a screenshot scene shows it.
+9. **DESIGN.md** records what was approved and decided.
+
+Still code rather than data, each to move into data when the first new one shows up rather than before: plants (map character and sprite), drop-off bins (what they take), project boards and what finishing them does, regions and which areas count as town.
+
 ## Milestones
 
 - **M1, economy:** port the rules from sokobanmonstermakers, using its 92 tests as the spec, with the changes in Crafting math above. The tech tree now lives in `data/good_types.json`; give every good a stable `id`, and complete the data for the first chain. Add saving and the world list. Add quality on sprites, skill popups, the inspect card with the workshop forecast, delivery credits, the renown counter and the hiring hall. Workshops in M1 are the town's permanent ones.
 - **M2, second town:** roads and signposts, wagons, town project boards, building frontier workshops and workbenches, edge markers and the Tab roster strip. Stage plan above.
-- **M3, content and art:** chains 2–3 and the great work. Replace placeholder sprites with final pixel art under the AGENTS.md palette rules.
-- **M4, ship:** itch.io build and outside playtesters.
+- **M3, many players** (decided 2026-11-01): the simulation holds several players and communes, then networking: a server that runs the world and clients that show it. It comes before the remaining mechanics (bin and wagon kits, hands and the character sheet, great works), so they're built for many players from the start.
+- **M4, the first province:** its chains and the great work, working NPCs, its drop-offs, and final pixel art under the AGENTS.md palette rules.
+- **M5, 1.0:** the first server, with outside playtesters.
+
+### Many players (M3, planned 2026-11-01)
+- **The server runs the world; players' games show it.** The server ticks 15 times a second, as now. Each player's game sends its key presses and gets back what's on that player's screen, which flip-screen views keep small. Ruled out: every player's game simulating the whole world in step, which breaks with 50 players, joining mid-game and 100 screens.
+- **Playing alone runs a small server inside the game,** so there's one code path. Today's game becomes a local world.
+- **The lightest layer:** plain connections from Rust's standard library and serde, with no networking framework or async runtime. The server is a build without graphics that also runs on Linux; the Windows-only parts go only into the player's game.
+- **Identity:** a player's game makes a random key the first time it runs, and the server links that key to the player's commune. No accounts or passwords for now.
+- **Lag:** each step waits for the server, about 100–150 ms on a nearby server. Start without prediction and keep an eye on it. If it feels sluggish, a player's game can move its own monster at once and correct it when the server disagrees.
+- **Steps:**
+  - **M3a, communes in the simulation,** still on one computer. Each monster belongs to a commune. `Game` splits into the shared world and each player's own state (controlled monster, keys, HUD, tutorial, renown). A delivered good's renown goes to each contributor's commune, by its shares. Tests drive two or more players.
+  - **M3b, server and players' games:** networking with updates sent per screen, joining and leaving, local worlds through the built-in server, the Linux server build.
+  - **M3c, bot players** for soak and load tests, including a large made-up world to check that a server can simulate 100 screens of monsters.
+  - **M3d:** bin and wagon kits, hands and the character sheet, and great works, built for many players.
+- **Decided for M3a:**
+  - **One real applicant pool.** Everyone sees the same applicants at the gathering hall, first come first served; it feels more real when people see the same things. Stand count and arrival rate get tuned for a full server.
+  - **Newcomers start at the first town's gate with two monsters.** The tutorial skips steps whose result already exists on the server, such as a bridge someone else built.
+  - **Nobody controls another commune's monsters.** Everything else works as today until griefing is designed.
 - **v1.5:** equipment, charity and great-works drop-offs, and the quality sorter.
 
 ### Tanglemere's dye works (M2 stage 2)
@@ -341,7 +421,7 @@ Built in four playable stages:
 - **Forgetting stays harsh, and a beginner's crafting can lower value.** Both are intended; forgetting may be revisited.
 - **Weight you can feel** is an accepted future design (below).
 - **A recipe's normal yield shares its inputs' value by the square root** (built). Every unit used to carry the full value of all the inputs, so a recipe that makes 2 doubled value; dividing evenly would make multi-unit recipes worthless. Now a recipe's normal yield carries the inputs' value times the square root of that yield between them: 2 units carry 1.41 times, 3 carry 1.73, 4 carry 2. The share per unit is set by the recipe, not the roll: extra units from a good roll are each worth as much as a normal one, so a high-rolling monster makes more value in total and never less per unit. Per-unit value matters more than the total, because deep goods multiply it. A harvest's units are each their own raw material and are not split.
-- **Limestone and Quicklime** (approved and added 2026-10-31). Limestone is gathered at an outcrop in the Thatch Hills: very heavy (density 250, an oak log is 100), cheap, about 2 per gather, the prospecting skill with STR, and a pick that gathering ignores for now. Quicklime is limestone plus fuel burned at a kiln, about 2 per burn, the firing skill with CON, ungraded so it passes quality through. It counts as lime, so it serves indigo, seeth water, the temple bell and the great statue. The book's inland towns burn limestone; Oyster Lime is the coast's lime and stays for a coastal region.
+- **Limestone and Quicklime** (approved and added 2026-10-31). Limestone is gathered at an outcrop in the Thatch Hills: very heavy (density 250, an oak log is 100), cheap, about 2 per gather, the prospecting skill with STR, and no tool: it named a pick, which gathering ignored, until 2026-11-01, when gathering started needing its tools in hand and a pick would have put lime, indigo and kiln kits behind metal. Quicklime is limestone plus fuel burned at a kiln, about 2 per burn, the firing skill with CON, ungraded so it passes quality through. It counts as lime, so it serves indigo, seeth water, the temple bell and the great statue. The book's inland towns burn limestone; Oyster Lime is the coast's lime and stays for a coastal region.
 - **Wooden Tub, fuel and indigo yield** (approved and added 2026-10-31):
   - A **Wooden Tub** is 2 logs at a workbench, using carpentry, with a saw and a chisel that town benches lend at medium quality until those tools can be made. It keeps its wood ("oak wooden tub") and is the tub that Dyed Fabric (its tag had been split into letters), Bast Fiber and climbing hempvine stalks need.
   - **Fuel:** elder and rhododendron sticks, hemlock and oak logs, coal and coke count as fuel. 43 recipes needed fuel and nothing provided it.
@@ -360,6 +440,6 @@ Built in four playable stages:
 - **Tune in play:** economy numbers (starting renown, hiring costs, monster count, project costs), applicant rules (how many, refresh rate, pricing), and the time-scale presets.
 - **Hauling and wagon skills** are learned by doing. Each tile a monster pushes cargo, or pulls a loaded wagon, counts as a few seconds of hauling or wagon-driving task time, for both learning and forgetting.
 - **Tech-tree data still to fix:**
-  - 62 required tag groups have no provider even after the stage 2 proposal. The biggest gaps: metal ingots and smithing tools (forceps, anvils), sickles and scythes, charcoal, the potter's wheel, mulberry leaves, berberine wood, and the bell's rosin, beeswax, oil and mortar.
+  - 62 required tag groups have no provider even after the stage 2 proposal. The biggest gaps: metal ingots and smithing tools (forceps, anvils), sickles and scythes, charcoal, the potter's wheel, mulberry leaves, berberine wood, and the bell's beeswax, oil and mortar (rosin is the palace tiles', not the bell's).
   - Tags split into letters: Dyed Fabric (fixed by the tub proposal), climbing hempvine stalks, green vitriol (found).
   - Already fixed in M1 stage 1: stable ids for every good, the second "Saw" renamed "Pick", nested tool weights on Bricks and Ash Glaze, and Indigo listing Chemistry twice.

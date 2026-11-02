@@ -8,6 +8,9 @@ use crate::sprites::{Sprite, Sprites};
 use crate::tutorial::{self, wrap, HELP, STAGES};
 use crate::world::*;
 
+/// The sprites a workshop kind's `look` can name (`data/workshops.json`).
+pub const LOOKS: [&str; 6] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat"];
+
 pub const VIEW_H: i32 = SCREEN_H * TS; // 256; the HUD fills the remaining 44 rows
 const HOP: [i32; 7] = [0, 2, 4, 5, 5, 4, 2];
 
@@ -63,13 +66,18 @@ pub fn draw(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     draw_boards_and_signs(g, sp, fb, &v);
     for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1) && s.frontier.as_ref().is_none_or(|f| !f.fallen)) {
         let (x, y) = v.px(s.spot.0, s.spot.1);
-        match s.kind {
-            ShopKind::Spinnery => fb.blit(&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], x, y - 5, false),
-            ShopKind::LoomHouse => fb.blit(&sp.loom, x, y - 5, false),
-            ShopKind::Workbench | ShopKind::BuildersBench => fb.blit(&sp.bench, x, y + TS - sp.bench.h - 4, false),
-            ShopKind::Kiln => fb.blit(&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], x, y - 5, false),
-            ShopKind::IndigoHouse => fb.blit(&sp.indigo_vat, x, y - 4, false),
-            ShopKind::DyeHouse => fb.blit(&sp.dye_vat, x, y - 4, false),
+        match s.kind.look() {
+            "wheel" => fb.blit(&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], x, y - 5, false),
+            "loom" => fb.blit(&sp.loom, x, y - 5, false),
+            "kiln" => fb.blit(&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], x, y - 5, false),
+            "indigo_vat" => fb.blit(&sp.indigo_vat, x, y - 4, false),
+            "dye_vat" => fb.blit(&sp.dye_vat, x, y - 4, false),
+            _ => {
+                // A bench. A frontier one in its wood's tones: hemlock lighter than oak.
+                let hemlock = s.frontier.as_ref().is_some_and(|f| f.material == "HEMLOCK");
+                let bench = if hemlock { &sp.bench_hemlock } else { &sp.bench };
+                fb.blit(bench, x, y + TS - bench.h - 4, false)
+            }
         }
     }
     for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
@@ -692,7 +700,7 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let it = &g.world.items[i];
                 // A tool on a peg hangs there as its icon, where the empty peg's ghost was.
                 let hung = g.world.tile(it.x, it.y) == Tile::Peg && it.slide.is_none();
-                let s = sp.icon(it.good()).filter(|_| hung).unwrap_or_else(|| sp.item(it.good()));
+                let s = sp.icon(it.good()).filter(|_| hung).unwrap_or_else(|| sp.item_of(&it.data));
                 let (ox, oy) = Slide::offset(it.slide);
                 let (tx, ty) = v.px(it.x, it.y);
                 let jitter = if it.locked { (g.frame / 2 % 2) as i32 } else { 0 };

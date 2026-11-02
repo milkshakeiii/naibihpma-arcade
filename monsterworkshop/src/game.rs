@@ -1235,6 +1235,8 @@ impl Game {
                 17 => self.world.wagons.iter().any(|w| w.last_leader.is_some()),
                 18 => events.contains(&Ev::Unloaded),
                 19 => self.world.bridge_built(),
+                20 => self.made.contains("kiln_kit") || self.made.contains("workbench_kit"),
+                21 => self.world.shops.iter().any(|s| s.frontier.as_ref().is_some_and(|f| !f.fallen)),
                 _ => false,
             };
             if !met || t.stage >= tutorial::DONE {

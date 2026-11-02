@@ -1,0 +1,83 @@
+{
+  "workshop_types": [
+    {
+      "id": "workbench",
+      "label": "WORKBENCH",
+      "about": "A small open bench for recipes that don't need a workshop. Pinewater's west bench cards cotton; the gate bench twists rope.",
+      "map_char": "B",
+      "look": "bench",
+      "building": false,
+      "recipes": ["cotton_slivers", "rope", "wooden_tub"],
+      "lends": ["cotton_gin", "cotton_bow", "saw", "metal_chisel"],
+      "kit": {
+        "good": "workbench_kit",
+        "plain_worth": 14,
+        "named_by": ["oak", "hemlock"],
+        "pads": [[-2, 0], [-1, 0]],
+        "outs": [[0, 1]],
+        "pegs": [[1, 0], [2, 0]]
+      }
+    },
+    {
+      "id": "builders_bench",
+      "label": "BUILDERS' BENCH",
+      "about": "Pinewater's big public bench by the southeast road, where kits are made: six pads, and only the tools for building.",
+      "map_char": "Z",
+      "look": "bench",
+      "building": false,
+      "recipes": ["workbench_kit", "kiln_kit"],
+      "lends": ["saw", "metal_chisel", "stone_hammer"]
+    },
+    {
+      "id": "spinnery",
+      "label": "SPINNERY",
+      "map_char": "S",
+      "look": "wheel",
+      "building": true,
+      "recipes": ["thread"],
+      "lends": ["spool", "spinning_wheel"]
+    },
+    {
+      "id": "loom_house",
+      "label": "LOOM HOUSE",
+      "map_char": "L",
+      "look": "loom",
+      "building": true,
+      "recipes": ["fabric"],
+      "lends": ["waist_loom"]
+    },
+    {
+      "id": "kiln",
+      "label": "KILN",
+      "about": "Burns ash into lye, or limestone into quicklime.",
+      "map_char": "K",
+      "look": "kiln",
+      "building": true,
+      "recipes": ["lye", "quicklime"],
+      "kit": {
+        "good": "kiln_kit",
+        "plain_worth": 22,
+        "named_by": ["limestone"],
+        "pads": [[-1, 0], [1, 0]],
+        "outs": [[0, 1]]
+      }
+    },
+    {
+      "id": "indigo_house",
+      "label": "INDIGO HOUSE",
+      "map_char": "I",
+      "look": "indigo_vat",
+      "building": true,
+      "recipes": ["indigo"]
+    },
+    {
+      "id": "dye_house",
+      "label": "DYE HOUSE",
+      "map_char": "V",
+      "look": "dye_vat",
+      "building": true,
+      "recipes": ["dyed_fabric"],
+      "lends": ["wooden_tub"]
+    }
+  ]
+}

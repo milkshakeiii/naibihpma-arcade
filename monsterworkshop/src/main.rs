@@ -19,6 +19,7 @@ mod sprites;
 mod tutorial;
 mod wagon;
 mod work;
+mod workshops;
 mod world;
 
 use audio::Audio;
@@ -509,10 +510,11 @@ fn export_screenshots(dir: &Path) {
     let goods = [
         "cotton_bolls", "cotton_slivers", "thread", "fabric", "dyed_fabric", "rope", "spool", "cotton_gin", "cotton_bow", "spinning_wheel", "waist_loom", "wooden_tub",
         "hemlock_log", "oak_log", "elder_sticks", "rhododendron_sticks", "arrow_bamboo", "ramie_stalks", "indigofera_leaves", "lye", "limestone", "quicklime", "indigo",
+        "workbench_kit", "kiln_kit",
     ];
     fb.rect_fill(0, 0, 400, 300, palette::PLANK + 1);
     for (k, id) in goods.iter().enumerate() {
-        let (x, y) = ((k % 3) as i32 * 133 + 6, (k / 3) as i32 * 37 + 6);
+        let (x, y) = ((k % 3) as i32 * 133 + 6, (k / 3) as i32 * 32 + 6);
         let s = sprites.item(id);
         fb.blit(s, x + (16 - s.w) / 2, y + 16 - s.h, false);
         match sprites.icon(id) {

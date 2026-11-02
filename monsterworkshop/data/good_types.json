@@ -5813,14 +5813,8 @@
         1
       ],
       "storage_volume": 0.5,
-      "tools_required_tags": [
-        [
-          "pick"
-        ]
-      ],
-      "tools_weights": [
-        3
-      ],
+      "tools_required_tags": [],
+      "tools_weights": [],
       "transferable_skills": [
         "outdoorsmonstership",
         "athletics",

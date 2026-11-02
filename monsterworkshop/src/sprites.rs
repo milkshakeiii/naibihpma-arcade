@@ -48,6 +48,17 @@ impl Sprite {
         self
     }
 
+    /// The same sprite with the `n` shades of one ramp swapped for another's: a hemlock bench in
+    /// the lighter plank tones, say, rather than the darker wood ones. (Until per-region palettes,
+    /// each wood borrows an existing wood-toned ramp.)
+    fn recolor(&self, from: u8, to: u8, n: u8) -> Self {
+        let mut s = self.clone();
+        for c in s.px.iter_mut().filter(|c| (from..from + n).contains(*c)) {
+            *c = to + (*c - from);
+        }
+        s
+    }
+
     /// Breathing frame: drop one row and pad the top, so the feet stay planted.
     fn squash(&self, row: i32) -> Self {
         let mut s = Sprite::blank(self.w, self.h);
@@ -503,6 +514,49 @@ fn make_waist_loom() -> Sprite {
     s.outline()
 }
 
+/// A workbench kit: boards bundled up with two turns of rope.
+fn make_bench_kit() -> Sprite {
+    let mut s = Sprite::blank(14, 9);
+    for (k, row) in [2, 4, 6].into_iter().enumerate() {
+        let (x0, x1) = if k == 1 { (2, 12) } else { (1, 11) };
+        for x in x0..=x1 {
+            s.set(x, row, WOOD + 3);
+            s.set(x, row + 1, WOOD + 1);
+        }
+        // The end grain.
+        s.set(x0, row, WOOD + 2);
+        s.set(x0, row + 1, WOOD);
+    }
+    for y in 1..=8 {
+        s.set(4, y, COTTON + 1);
+        s.set(9, y, COTTON + 1);
+    }
+    s.outline()
+}
+
+/// A kiln kit: cut stone stacked on a wooden pallet, lashed down with rope.
+fn make_kiln_kit() -> Sprite {
+    let mut s = Sprite::blank(14, 12);
+    for x in 1..=12 {
+        s.set(x, 10, WOOD + 2);
+    }
+    for x in [1, 2, 6, 7, 11, 12] {
+        s.set(x, 11, WOOD);
+    }
+    for (bx, by) in [(1, 7), (5, 7), (9, 7), (3, 4), (7, 4)] {
+        for y in by..by + 3 {
+            for x in bx..bx + 4 {
+                let c = if x == bx + 3 || y == by + 2 { STONE[0] } else if y == by { STONE[2] } else { STONE[1] };
+                s.set(x, y, c);
+            }
+        }
+    }
+    for y in 3..=10 {
+        s.set(7, y, COTTON + 1);
+    }
+    s.outline()
+}
+
 fn make_crate() -> Sprite {
     let mut s = Sprite::blank(12, 10);
     for y in 1..=9 {
@@ -643,6 +697,35 @@ fn make_tool_icon(id: &str) -> Sprite {
             }
             for (x, y) in [(3, 3), (4, 3), (3, 4), (4, 4)] {
                 s.set(x, y, COTTON + 2);
+            }
+        }
+        // Bundled boards and stacked stone, each lashed with a rope band, as the kits lie in the
+        // world.
+        "workbench_kit" => {
+            for row in [1, 3, 5] {
+                for x in 1..=6 {
+                    s.set(x, row, WOOD + 3);
+                    s.set(x, row + 1, WOOD + 1);
+                }
+            }
+            for y in 1..=6 {
+                s.set(4, y, COTTON + 1);
+            }
+        }
+        "kiln_kit" => {
+            for x in 0..=7 {
+                s.set(x, 7, WOOD + 2);
+            }
+            for (bx, by) in [(0, 4), (4, 4), (2, 1)] {
+                for y in by..by + 3 {
+                    for x in bx..bx + 4 {
+                        let c = if x == bx + 3 || y == by + 2 { STONE[0] } else if y == by { STONE[2] } else { STONE[1] };
+                        s.set(x, y, c);
+                    }
+                }
+            }
+            for y in 1..=7 {
+                s.set(4, y, COTTON + 1);
             }
         }
         // Wooden flanges around wound red thread, as the spool lies in the world.
@@ -1160,6 +1243,10 @@ pub struct Sprites {
     pub bench: Sprite,
     pub loom: Sprite,
     pub crate_: Sprite,
+    pub bench_kit: Sprite,
+    pub bench_kit_hemlock: Sprite,
+    pub kiln_kit: Sprite,
+    pub bench_hemlock: Sprite,
     tool_icons: Vec<(&'static str, Sprite)>,
     pub spool: Sprite,
     pub plant: [Sprite; 3],
@@ -1211,7 +1298,11 @@ impl Sprites {
             bench: make_bench(),
             loom: make_loom(),
             crate_: make_crate(),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            bench_kit: make_bench_kit(),
+            bench_kit_hemlock: make_bench_kit().recolor(WOOD, PLANK, 4),
+            kiln_kit: make_kiln_kit(),
+            bench_hemlock: make_bench().recolor(WOOD, PLANK, 4),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
             wheel: [make_wheel(0), make_wheel(1)],
@@ -1275,7 +1366,17 @@ impl Sprites {
             "cotton_bow" => &self.bow,
             "spinning_wheel" => &self.wheel_tool,
             "waist_loom" => &self.waist_loom,
+            "workbench_kit" => &self.bench_kit,
+            "kiln_kit" => &self.kiln_kit,
             other => self.icon(other).unwrap_or(&self.crate_),
+        }
+    }
+
+    /// How this particular good lies in the world: as `item`, but in its own wood's tones.
+    pub fn item_of(&self, data: &crate::econ::ItemData) -> &Sprite {
+        match data.good.as_str() {
+            "workbench_kit" if data.carried_tags.iter().any(|t| t == "hemlock") => &self.bench_kit_hemlock,
+            good => self.item(good),
         }
     }
 
@@ -1307,7 +1408,7 @@ mod tests {
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
         let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom];
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);

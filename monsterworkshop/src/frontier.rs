@@ -61,22 +61,7 @@ impl Footprint {
 
 /// The kind of workshop a kit sets up.
 pub fn kit_kind(good: &str) -> Option<ShopKind> {
-    match good {
-        "workbench_kit" => Some(ShopKind::Workbench),
-        "kiln_kit" => Some(ShopKind::Kiln),
-        _ => None,
-    }
-}
-
-/// A frontier workshop's layout around its work spot, for one facing down: (pads, output mats,
-/// pegs). Nothing is ever just behind the spot, where the monster unpacking it stands.
-fn layout(kind: ShopKind) -> (Vec<(i32, i32)>, Vec<(i32, i32)>, Vec<(i32, i32)>) {
-    match kind {
-        // Two pads to one side, the mat in front, two pegs to the other side.
-        ShopKind::Workbench => (vec![(-2, 0), (-1, 0)], vec![(0, 1)], vec![(1, 0), (2, 0)]),
-        // A pad on each side, the mat in front.
-        _ => (vec![(-1, 0), (1, 0)], vec![(0, 1)], Vec::new()),
-    }
+    ShopKind::of_kit(good)
 }
 
 /// An offset from the layout's facing (down) turned to face `d`.
@@ -95,19 +80,19 @@ fn worth(data: &ItemData) -> f64 {
 }
 
 /// How much faster a workshop from this kit works: by what its materials are worth against the
-/// plainest kit of its kind (hemlock, cotton rope), gently: the square root, so about 20% faster
-/// for an oak workbench, a little for an oak-framed kiln, whose stone is the same either way.
+/// plainest kit of its kind (its `plain_worth`: hemlock and cotton rope), gently: the square root,
+/// so about 20% faster for an oak workbench, a little for an oak-framed kiln, whose stone is the
+/// same either way.
 pub(crate) fn speed(data: &ItemData) -> f64 {
-    let plainest = match data.good.as_str() {
-        "kiln_kit" => 22.0,
-        _ => 14.0,
-    };
+    let plainest = kit_kind(&data.good).and_then(|k| k.kit()).map_or(1.0, |kit| kit.plain_worth);
     (worth(data) / plainest).sqrt().clamp(1.0, 1.6)
 }
 
-/// Its main material, for the workshop's name: the wood or stone it carried over.
+/// Its main material, for the workshop's name: the first tag it carried over that names its kind
+/// (the wood of a workbench, the stone of a kiln).
 fn material(data: &ItemData) -> String {
-    data.carried_tags.iter().find(|t| ["oak", "hemlock", "limestone"].contains(&t.as_str())).map_or_else(String::new, |t| t.to_uppercase())
+    let named_by = kit_kind(&data.good).and_then(|k| k.kit()).map_or(&[][..], |kit| &kit.named_by[..]);
+    data.carried_tags.iter().find(|t| named_by.contains(&t.as_str())).map_or_else(String::new, |t| t.to_uppercase())
 }
 
 impl Game {
@@ -147,8 +132,8 @@ impl Game {
             let t = turn(o, facing);
             (spot.0 + t.0, spot.1 + t.1)
         };
-        let (pads, outs, pegs) = layout(kind);
-        let mut fp = Footprint { kind, spot, pads: pads.into_iter().map(at).collect(), outs: outs.into_iter().map(at).collect(), pegs: pegs.into_iter().map(at).collect(), blocked: Vec::new(), why: None };
+        let kit = kind.kit()?;
+        let mut fp = Footprint { kind, spot, pads: kit.pads.iter().copied().map(at).collect(), outs: kit.outs.iter().copied().map(at).collect(), pegs: kit.pegs.iter().copied().map(at).collect(), blocked: Vec::new(), why: None };
         let tiles: Vec<(i32, i32)> = fp.tiles().collect();
         for t in tiles {
             let w = &self.world;

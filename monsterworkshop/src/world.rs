@@ -4,6 +4,7 @@
 
 use crate::data::{matches, Data};
 use crate::econ::ItemData;
+pub use crate::workshops::ShopKind;
 use serde::{Deserialize, Serialize};
 
 pub const TS: i32 = 16;
@@ -24,8 +25,12 @@ pub const OUTPUT_BUFFER: usize = 9;
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop
-// Work spots: `B` workbench  `S` spinning wheel  `L` loom  `K` kiln  `I` indigo vats
-// `V` dye vat. Each `p` pad, `g` tool peg and `o` output mat belongs to the nearest work spot.
+// Work spots are marked by their kind's `map_char` in `data/workshops.json` (`B` workbench,
+// `S` spinnery, `L` loom house...). Each `p` pad, `g` tool peg and `o` output mat belongs to the
+// nearest work spot.
+
+/// Every character the map legend above gives a meaning, so no workshop kind takes one.
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgo";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -324,63 +329,6 @@ impl Bin {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum ShopKind {
-    Workbench,
-    /// Pinewater's big public bench, where workshop kits are made: six pads, and the tools for
-    /// building.
-    BuildersBench,
-    Spinnery,
-    LoomHouse,
-    /// Burns ash into lye, or limestone into quicklime.
-    Kiln,
-    IndigoHouse,
-    DyeHouse,
-}
-
-impl ShopKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            ShopKind::Workbench => "WORKBENCH",
-            ShopKind::BuildersBench => "BUILDERS' BENCH",
-            ShopKind::Spinnery => "SPINNERY",
-            ShopKind::LoomHouse => "LOOM HOUSE",
-            ShopKind::Kiln => "KILN",
-            ShopKind::IndigoHouse => "INDIGO HOUSE",
-            ShopKind::DyeHouse => "DYE HOUSE",
-        }
-    }
-
-    pub fn recipes(self) -> &'static [&'static str] {
-        match self {
-            ShopKind::Workbench => &["cotton_slivers", "rope", "wooden_tub"],
-            ShopKind::BuildersBench => &["workbench_kit", "kiln_kit"],
-            ShopKind::Spinnery => &["thread"],
-            ShopKind::LoomHouse => &["fabric"],
-            ShopKind::Kiln => &["lye", "quicklime"],
-            ShopKind::IndigoHouse => &["indigo"],
-            ShopKind::DyeHouse => &["dyed_fabric"],
-        }
-    }
-
-    /// Basic permanent tools a town workshop provides when nothing hangs on its pegs.
-    pub fn builtin_tools(self) -> &'static [&'static str] {
-        match self {
-            ShopKind::Workbench => &["cotton_gin", "cotton_bow", "saw", "metal_chisel"],
-            ShopKind::BuildersBench => &["saw", "metal_chisel", "stone_hammer"],
-            ShopKind::Spinnery => &["spool", "spinning_wheel"],
-            ShopKind::LoomHouse => &["waist_loom"],
-            ShopKind::DyeHouse => &["wooden_tub"],
-            ShopKind::Kiln | ShopKind::IndigoHouse => &[],
-        }
-    }
-
-    /// Walk-in workshops count as a weight-8 tool; an outdoor bench does not.
-    pub fn is_building(self) -> bool {
-        !matches!(self, ShopKind::Workbench | ShopKind::BuildersBench)
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Shop {
     pub kind: ShopKind,
@@ -473,7 +421,9 @@ impl World {
                 for (lx, ch) in row.chars().enumerate() {
                     let (x, y) = (lx as i32 + ox, y as i32);
                     let street_next = row.as_bytes().get(lx + 1) == Some(&b',') || (lx > 0 && row.as_bytes()[lx - 1] == b',');
+                    let shop_kind = ShopKind::by_map_char(ch);
                     let tile = match ch {
+                        _ if shop_kind.is_some() => Tile::Spot,
                         '#' => Tile::Hedge,
                         ',' | 'm' => Tile::Path,
                         'W' => Tile::Wall,
@@ -482,7 +432,6 @@ impl World {
                         'p' => Tile::Pad,
                         'g' => Tile::Peg,
                         'o' => Tile::OutMat,
-                        'B' | 'Z' | 'S' | 'L' | 'K' | 'I' | 'V' => Tile::Spot,
                         'C' | 'T' | 'b' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
@@ -493,6 +442,9 @@ impl World {
                     if let Some(good) = plant_good(ch) {
                         let regrow = data.good(good).production_time;
                         plants.push(Plant { x, y, good: good.into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
+                    }
+                    if let Some(kind) = shop_kind {
+                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None });
                     }
                     match ch {
                         'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false }),
@@ -512,18 +464,6 @@ impl World {
                         'a' => stands.push((x, y)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
-                        'B' | 'Z' | 'S' | 'L' | 'K' | 'I' | 'V' => {
-                            let kind = match ch {
-                                'B' => ShopKind::Workbench,
-                                'Z' => ShopKind::BuildersBench,
-                                'S' => ShopKind::Spinnery,
-                                'K' => ShopKind::Kiln,
-                                'I' => ShopKind::IndigoHouse,
-                                'V' => ShopKind::DyeHouse,
-                                _ => ShopKind::LoomHouse,
-                            };
-                            shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None })
-                        }
                         '1' | '2' => starts[(ch as u8 - b'1') as usize] = (x, y),
                         _ => {}
                     }
