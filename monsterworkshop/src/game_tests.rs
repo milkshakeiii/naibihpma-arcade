@@ -1164,10 +1164,26 @@ fn a_loop_boxed_in_by_monsters_left_standing_gives_up_for_now_and_says_who() {
             said.push(m.wait_reason.clone());
         }
         if m.holds.is_empty() && m.wait_reason.ends_with("IS IN THE WAY.") {
+            // And goes on saying so while nothing gets done, rather than something from the
+            // far end of its loop.
+            g.run_ticks(60);
+            assert!(g.monsters[0].wait_reason.ends_with("IS IN THE WAY."), "{}", g.monsters[0].wait_reason);
             return;
         }
     }
     panic!("never let go: {said:?}");
+}
+
+#[test]
+fn a_loop_with_nothing_to_do_keeps_off_where_goods_come_and_go() {
+    // Waiting for fabric to be brought to the tile it takes it from, Mogg doesn't stand on that
+    // tile: there it would be in the way of the very fabric it's waiting for.
+    let mut g = Game::new();
+    let fabric = Goal::Move { good: "fabric".into(), from: (20, 13), to: (24, 13) };
+    start_loop(&mut g, 0, Routine { flag: (20, 13), goals: vec![fabric] }, (20, 13));
+    g.run_ticks(10);
+    assert_ne!((g.monsters[0].x, g.monsters[0].y), (20, 13), "{}", g.monsters[0].wait_reason);
+    assert!(g.monsters[0].wait_reason.starts_with("WAITING FOR FABRIC"));
 }
 
 #[test]

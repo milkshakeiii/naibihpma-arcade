@@ -118,6 +118,14 @@ impl Game {
         self.monster_at(t.0, t.1).or_else(leader)
     }
 
+    /// Can a walking monster plan its way over this tile? As `open`, but a wagon being led doesn't
+    /// count, any more than a monster does (it moves on), while one parked does. (The same as
+    /// planning a push.)
+    fn passable(&self, x: i32, y: i32) -> bool {
+        let parked = self.world.wagons.iter().any(|w| w.leader.is_none() && (w.at == (x, y) || w.pumpkin == (x, y)));
+        self.world.walkable(x, y) && self.world.item_at(x, y).is_none() && !self.applicant_at(x, y) && !parked
+    }
+
     /// Is monster `k` standing still: not on its way anywhere this moment? One you've left
     /// standing, one working at a spot, or a loop that's waiting.
     pub(crate) fn standing_still(&self, k: usize) -> bool {
@@ -170,7 +178,7 @@ impl Game {
             for d in DIRS {
                 let (dx, dy) = d.delta();
                 let n = (x + dx, y + dy);
-                if n.0 < 0 || n.1 < 0 || n.0 >= w || n.1 >= h || prev[idx(n)] != usize::MAX || !self.open(n.0, n.1) || avoid.contains(&n) {
+                if n.0 < 0 || n.1 < 0 || n.0 >= w || n.1 >= h || prev[idx(n)] != usize::MAX || !self.passable(n.0, n.1) || avoid.contains(&n) {
                     continue;
                 }
                 prev[idx(n)] = idx((x, y));
@@ -195,7 +203,8 @@ impl Game {
     fn step_on(&mut self, i: usize, sfx: &mut Vec<Sfx>) -> Going {
         let here = (self.monsters[i].x, self.monsters[i].y);
         let next = self.monsters[i].path[0];
-        if let Some(o) = self.monster_at(next.0, next.1) {
+        // A monster there, or a wagon being led (waited on as its leader).
+        if let Some(o) = self.who_is_at(next).filter(|&o| o != i) {
             self.monsters[i].waiting_on = Some(o);
             if self.monsters[i].wait >= SETTLE_AFTER && self.standing_still(o) {
                 self.settle(i, o);

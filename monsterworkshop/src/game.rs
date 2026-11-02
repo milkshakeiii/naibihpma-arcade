@@ -202,6 +202,9 @@ pub struct Monster {
     /// Ticks it goes on saying there's no way through without passing through someone.
     #[serde(default)]
     pub no_room: u16,
+    /// Why it last gave a goal up (someone in the way, say), told until it next finishes one.
+    #[serde(default)]
+    pub gave_up: String,
     /// The tick it last finished a step of its loop (or started the loop): who has gone longest
     /// without finishing one goes first.
     #[serde(default)]
@@ -286,6 +289,7 @@ impl Monster {
             giving_way: None,
             knot: None,
             no_room: 0,
+            gave_up: String::new(),
             since: 0,
             loops: 0,
             steps: 0,

@@ -393,7 +393,34 @@ impl Game {
                 m.turns.push((t, now));
             }
         }
+        // A goal given up since the last one was done (someone in the way, say) is the wait
+        // worth telling: it's what's holding the loop up, wherever the chain's start is.
+        let gave_up = &self.monsters[i].gave_up;
+        if !gave_up.is_empty() {
+            return Some(Why::world(gave_up.clone()));
+        }
         Some(root_why.or(why).unwrap_or_else(|| Why::world("NOTHING TO DO.")))
+    }
+
+    /// A loop with nothing to do keeps off the tiles where goods come and go: where its own loop
+    /// takes or puts them, where a plant sets out its harvest, a workshop its products, a bin its
+    /// stock. Standing there it could be what holds up the very thing it's waiting for. It steps
+    /// onto a free tile beside it that isn't one of those, if there is one.
+    fn keep_off_where_goods_go(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
+        let here = (self.monsters[i].x, self.monsters[i].y);
+        let goals = self.goals(i).to_vec();
+        let mut busy: Vec<(i32, i32)> = goals.iter().flat_map(|g| self.puts(g).into_iter().map(|(_, t)| t).chain(self.takes(g).into_iter().map(|(_, t)| t))).collect();
+        busy.extend(self.world.plants.iter().filter_map(|p| p.drop.map(|(t, _)| t)));
+        busy.extend(self.world.shops.iter().flat_map(|s| s.outs.iter().copied()));
+        busy.extend(self.world.bins.iter().filter_map(|b| b.mouth));
+        if !busy.contains(&here) {
+            return;
+        }
+        let beside = |d: crate::world::Dir| (here.0 + d.delta().0, here.1 + d.delta().1);
+        let free = |t: (i32, i32)| self.open(t.0, t.1) && self.monster_at(t.0, t.1).is_none() && !busy.contains(&t);
+        if let Some(d) = crate::world::DIRS.iter().copied().find(|&d| free(beside(d))) {
+            self.try_step(i, d, sfx);
+        }
     }
 
     /// Ends monster `i`'s goal: done, or given up for a while.
@@ -404,6 +431,7 @@ impl Game {
         m.holds.clear();
         (m.carry, m.carry_plan, m.shove) = (None, Vec::new(), None);
         if done {
+            m.gave_up.clear();
             m.pc = key + 1;
             if m.pc >= n {
                 m.pc = 0;
@@ -453,6 +481,7 @@ impl Game {
         if m.task.is_none() {
             if let Some(why) = self.choose(i) {
                 self.monsters[i].waiting_on = why.on;
+                self.keep_off_where_goods_go(i, sfx);
                 return self.waiting(i, why.msg);
             }
         }
@@ -465,6 +494,7 @@ impl Game {
             Outcome::Waiting(msg) => self.waiting(i, msg),
             Outcome::GiveUp(msg) => {
                 self.end_step(i, false);
+                self.monsters[i].gave_up = msg.clone();
                 // It couldn't be done: to the back of the line, as if it had finished one, so a
                 // goal that keeps failing can't keep putting it ahead of the others.
                 self.monsters[i].since = self.frame;
