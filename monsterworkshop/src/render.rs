@@ -1066,10 +1066,38 @@ fn draw_hud(g: &Game, sp: &Sprites, fb: &mut Framebuffer) {
     fb.rect_fill(4, VIEW_H + 26, 392, 1, HUD_SHADOW);
     fb.rect_fill(4, VIEW_H + 27, 392, 1, HUD_MID);
     let (status, warn) = g.status(g.controlled);
-    fb.text(&status, 6, VIEW_H + 32, if warn { TEXT_WARN } else { TEXT_DIM }, Some(HUD_SHADOW), 1);
     let renown = format!("RENOWN {}", g.renown.floor());
-    fb.text(&renown, 394 - Framebuffer::text_width(&renown, 1), VIEW_H + 32, SPARK + 2, Some(HUD_SHADOW), 1);
+    let renown_x = 394 - Framebuffer::text_width(&renown, 1);
+    // The status gets the rest of the line, clear of the renown: without the monster's kind if
+    // that isn't enough, then cut short (its bubble says it all).
+    let kind = format!(" THE {}", g.monsters[g.controlled].kind.to_uppercase());
+    let status = fit_line(&status, &kind, ((renown_x - 12 - 6) / 6).max(0) as usize);
+    fb.text(&status, 6, VIEW_H + 32, if warn { TEXT_WARN } else { TEXT_DIM }, Some(HUD_SHADOW), 1);
+    fb.text(&renown, renown_x, VIEW_H + 32, SPARK + 2, Some(HUD_SHADOW), 1);
     let _ = sp;
+}
+
+/// `text` in at most `room` characters: without `drop` (once) if it's too long, then cut short
+/// with "..." if it still is.
+fn fit_line(text: &str, drop: &str, room: usize) -> String {
+    let mut text = text.to_string();
+    if text.chars().count() > room {
+        text = text.replacen(drop, "", 1);
+    }
+    if text.chars().count() > room {
+        text = text.chars().take(room.saturating_sub(3)).collect::<String>() + "...";
+    }
+    text
+}
+
+#[cfg(test)]
+#[test]
+fn a_long_status_fits_beside_the_renown() {
+    let status = "MOGG THE GOBLIN: WAITING FOR COTTON BOLLS AT THE COTTON BOLLS BIN'S CHUTE.";
+    assert_eq!(fit_line("MOGG THE GOBLIN: IDLE", " THE GOBLIN", 50), "MOGG THE GOBLIN: IDLE", "short ones stay whole");
+    assert_eq!(fit_line(status, " THE GOBLIN", 64), "MOGG: WAITING FOR COTTON BOLLS AT THE COTTON BOLLS BIN'S CHUTE.");
+    let cut = fit_line(status, " THE GOBLIN", 50);
+    assert!(cut.len() == 50 && cut.starts_with("MOGG: WAITING") && cut.ends_with("..."), "{cut}");
 }
 
 /// The title screen: start a new world or pick a saved one. `deleting`: the picked world is
