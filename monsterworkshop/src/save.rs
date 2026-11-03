@@ -93,14 +93,20 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     let d: SaveData = serde_json::from_str(json).map_err(|e| format!("UNREADABLE SAVE: {e}"))?;
     let mut g = Game::new();
     let w = &g.world;
-    if d.plants.len() != w.plants.len() || d.bins.len() != w.bins.len() || d.shops.len() < w.shops.len() || d.boards.len() != w.boards.len() {
+    if d.plants.len() != w.plants.len() || d.bins.len() < w.bins.len() || d.shops.len() < w.shops.len() || d.boards.len() != w.boards.len() {
         return Err("THE SAVE WAS MADE ON A DIFFERENT MAP.".into());
     }
     g.frame = d.frame;
     g.rng = d.rng;
     g.world.items = d.items;
     g.world.plants = d.plants;
+    // Bins from kits, listed after the map's, stand on their tiles again.
+    let town_bins = g.world.bins.len();
     g.world.bins = d.bins;
+    for b in town_bins..g.world.bins.len() {
+        let (x, y, w) = (g.world.bins[b].x, g.world.bins[b].y, g.world.w);
+        g.world.tiles[(y * w + x) as usize] = crate::world::Tile::Bin;
+    }
     // A town workshop's layout (its kind, spot, pads, pegs and mat) comes from the map, so a
     // change to the map doesn't need a new world; only what it was doing comes from the save.
     // Frontier workshops, listed after the map's, come from the save whole and lay their tiles

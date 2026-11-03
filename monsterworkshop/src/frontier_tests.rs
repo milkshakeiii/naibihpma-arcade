@@ -133,7 +133,7 @@ fn a_frontier_bench_lends_no_tools_but_twists_rope() {
     stand(&mut g, MEADOW, Dir::Down);
     g.script("u");
     let said = g.monsters[0].bubble.as_ref().map(|b| b.text.clone()).unwrap_or_default();
-    assert!(said.contains("MISSING A TOOL"), "no saw or chisel out here: {said}");
+    assert!(said.contains("ON A PEG"), "no saw or chisel out here: {said}");
     g.world.items.retain(|it| it.good() != "oak_log");
     for &p in &pads {
         g.world.items.push(Item::new(p.0, p.1, made(&g, "thread", &["cotton_bolls"], &["cotton"])));
@@ -301,4 +301,17 @@ fn a_wagon_kit_unpacks_a_train_even_on_the_road_ready_to_lead() {
     g.script("u");
     let mogg = g.monsters[g.communes[0].controlled].id;
     assert_eq!(g.world.wagons.last().unwrap().leader, Some(mogg), "Space again takes its lead");
+}
+
+#[test]
+fn bins_and_wagons_from_kits_are_saved_too() {
+    let mut g = Game::new();
+    let b = bin_in_the_meadow(&mut g);
+    g.put_in_bin(b, raw(&g, "oak_log"));
+    let wagons = g.world.wagons.len();
+    g.world.wagons.push(Wagon { material: "HEMLOCK".into(), ..g.world.wagons[0].clone() });
+    let back = crate::save::from_json(&crate::save::to_json(&g)).expect("it loads, though it has more bins than the map");
+    assert_eq!(back.world.bins.len(), g.world.bins.len());
+    assert_eq!((back.world.tile(MEADOW.0, MEADOW.1), back.world.bins[b].accepts.clone()), (Tile::Bin, vec!["oak_log".to_string()]));
+    assert_eq!((back.world.wagons.len(), back.world.wagons[wagons].material.as_str()), (wagons + 1, "HEMLOCK"));
 }

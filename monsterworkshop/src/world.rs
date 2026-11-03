@@ -34,7 +34,7 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgov";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovc";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -236,6 +236,19 @@ impl Plant {
             0
         }
     }
+}
+
+/// The craftsman a map's `c` stands for: Old Sawgrass, after Lu Ban, the legendary master
+/// carpenter, who's said to have invented the saw when a toothed blade of grass cut his hand.
+pub const CRAFTSMAN: &str = "OLD SAWGRASS";
+
+/// A townsperson who isn't anyone's monster (M3d): a craftsman who stands in his place, blocks
+/// the way like anyone, and says what you could make from what's around him.
+#[derive(Clone, Debug)]
+pub struct Townsfolk {
+    pub x: i32,
+    pub y: i32,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -451,6 +464,9 @@ pub struct World {
     pub starts: Vec<(i32, i32)>,
     /// Where applicants wait in the gathering hall.
     pub stands: Vec<(i32, i32)>,
+    /// Townsfolk who aren't anyone's monster, standing in their places: Old Sawgrass first.
+    /// They come from the map, never from a save.
+    pub townsfolk: Vec<Townsfolk>,
     /// The last id given to an item.
     pub last_item_id: u32,
     seed: u32,
@@ -501,6 +517,7 @@ impl World {
         let mut tiles = vec![Tile::Hedge; (w * h) as usize];
         let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), [None; 2]);
         let (mut stands, mut boards, mut signs, mut labels, mut boat) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut townsfolk = Vec::new();
         let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
         for (ox, oy, region, rows) in placed {
@@ -554,6 +571,7 @@ impl World {
                         'U' => wagon_at.push((x, y)),
                         'P' => pumpkin_at.push((x, y)),
                         'a' => stands.push((x, y)),
+                        'c' => townsfolk.push(Townsfolk { x, y, name: CRAFTSMAN.into() }),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
                         '1' | '2' => _ = starts[(ch as u8 - b'1') as usize].get_or_insert((x, y)),
@@ -608,7 +626,7 @@ impl World {
                 material: String::new(),
             })
             .collect();
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, last_item_id: 0, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`

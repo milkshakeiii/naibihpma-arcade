@@ -431,6 +431,16 @@ pub struct Commune {
     /// Which page of the inspect card shows; Tab turns it while E is held.
     #[serde(skip)]
     pub card_page: usize,
+    /// Recipes its monsters have heard of without making them yet (from a craftsman): the
+    /// recipe book lists them with what they've made.
+    #[serde(default)]
+    pub heard: BTreeSet<String>,
+    /// Which of a craftsman's ideas this player hears next.
+    #[serde(skip)]
+    pub idea_turn: usize,
+    /// How far down the recipe book (the sheet's third page) is scrolled.
+    #[serde(skip)]
+    pub sheet_scroll: usize,
     /// The character sheet (C): open, which page, and which hand is chosen.
     #[serde(skip)]
     pub sheet: bool,
@@ -610,8 +620,17 @@ impl Game {
     }
 
     /// Is an applicant standing on this tile? They block the way like anyone else.
+    /// Is someone who isn't a monster of any commune standing here: an applicant waiting at the
+    /// hall, or a townsperson like Old Sawgrass? Either blocks the way like anyone.
     pub fn applicant_at(&self, x: i32, y: i32) -> bool {
-        self.world.stands.iter().zip(&self.applicants).any(|(&s, a)| s == (x, y) && a.is_some())
+        self.world.stands.iter().zip(&self.applicants).any(|(&s, a)| s == (x, y) && a.is_some()) || self.world.townsfolk.iter().any(|t| (t.x, t.y) == (x, y))
+    }
+
+    /// The townsperson monster `c` faces, if any.
+    pub fn faced_townsfolk(&self, c: usize) -> Option<usize> {
+        let m = &self.monsters[c];
+        let (dx, dy) = m.facing.delta();
+        self.world.townsfolk.iter().position(|t| (t.x, t.y) == (m.x + dx, m.y + dy))
     }
 
     /// The applicant stand monster `c` faces, if someone waits there.
@@ -833,10 +852,15 @@ impl Game {
             me.roster = false;
             (me.hold, me.queued, me.queued_use) = (None, None, false);
             if inp.tab_pressed {
-                me.sheet_page = (me.sheet_page + 1) % 2;
+                me.sheet_page = (me.sheet_page + 1) % 3;
+                me.sheet_scroll = 0;
             }
-            if inp.pressed[0] || inp.pressed[1] {
-                me.sheet_hand = 1 - me.sheet_hand;
+            // Up and down choose a hand on the first page, and scroll the book on the third.
+            match me.sheet_page {
+                0 if inp.pressed[0] || inp.pressed[1] => me.sheet_hand = 1 - me.sheet_hand,
+                2 if inp.pressed[0] => me.sheet_scroll = me.sheet_scroll.saturating_sub(1),
+                2 if inp.pressed[1] => me.sheet_scroll += 1,
+                _ => {}
             }
             let (c, hand) = (me.controlled, me.sheet_hand);
             if inp.use_pressed && !self.monsters[c].playing && self.monsters[c].idle() {
@@ -1194,6 +1218,20 @@ impl Game {
         self.face_something_usable(i);
         if let Some(res) = self.use_wagon_ahead(i, sfx) {
             return res;
+        }
+        // Asking a craftsman: another idea, and it goes in the commune's book.
+        if let Some(t) = self.faced_townsfolk(i).filter(|_| !self.monsters[i].playing) {
+            let k = self.monsters[i].commune;
+            self.communes[k].idea_turn += 1;
+            let ideas = self.ideas(t, k);
+            if let Some(idea) = ideas.get(self.communes[k].idea_turn % ideas.len().max(1)) {
+                let r = idea.recipe.to_string();
+                if !self.communes[k].made.contains(&r) {
+                    self.communes[k].heard.insert(r);
+                }
+            }
+            sfx.push(Sfx::Pop);
+            return UseRes::Done;
         }
         let (x, y) = (self.monsters[i].x, self.monsters[i].y);
         if let Some(s) = self.world.shop_at_spot(x, y) {

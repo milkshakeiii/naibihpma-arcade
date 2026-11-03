@@ -114,6 +114,7 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     }
     draw_progress(g, fb, &v);
     draw_applicant_pitch(g, sp, fb, &v);
+    draw_craftsman_talk(g, sp, fb, &v);
     draw_floaters(g, fb, &v);
     draw_banner(me, fb);
     if me.inspecting && !me.help {
@@ -137,16 +138,24 @@ fn draw_sheet(g: &Game, sp: &Sprites, fb: &mut Framebuffer, k: usize) {
     let me = &g.communes[k];
     let m = &g.monsters[me.controlled];
     fb.rect_bevel(0, 0, 400, 300, HUD_FILL, HUD_HI, HUD_SHADOW);
-    let title = if me.sheet_page == 0 { format!("{} THE {}", m.name, m.kind.to_uppercase()) } else { format!("{}'S LOOP", m.name) };
+    let title = match me.sheet_page {
+        0 => format!("{} THE {}", m.name, m.kind.to_uppercase()),
+        1 => format!("{}'S LOOP", m.name),
+        _ => "THE COMMUNE'S RECIPE BOOK".into(),
+    };
     fb.text_centered(&title, 200, 8, SPARK + 2, Some(HUD_SHADOW), 1);
     fb.rect_fill(8, 20, 384, 1, HUD_SHADOW);
-    if me.sheet_page == 0 {
-        sheet_monster(g, sp, fb, me.controlled, me.sheet_hand);
-    } else {
-        sheet_loop(g, fb, me.controlled);
+    match me.sheet_page {
+        0 => sheet_monster(g, sp, fb, me.controlled, me.sheet_hand),
+        1 => sheet_loop(g, fb, me.controlled),
+        _ => sheet_book(g, fb, k),
     }
     fb.rect_fill(8, 282, 384, 1, HUD_SHADOW);
-    let keys = if me.sheet_page == 0 { "UP/DOWN: HAND   SPACE: PUT IT DOWN   TAB: LOOP   C: CLOSE" } else { "TAB: BACK   C: CLOSE" };
+    let keys = match me.sheet_page {
+        0 => "UP/DOWN: HAND   SPACE: PUT IT DOWN   TAB: LOOP   C: CLOSE",
+        1 => "TAB: RECIPE BOOK   C: CLOSE",
+        _ => "UP/DOWN: SCROLL   TAB: BACK   C: CLOSE",
+    };
     fb.text_centered(keys, 200, 287, TEXT_DIM, Some(HUD_SHADOW), 1);
 }
 
@@ -213,6 +222,44 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
         t(fb, 200, y, &k.replace('_', " ").to_uppercase(), TEXT);
         fb.rect_fill(330, y, 52, 6, OUTLINE);
         fb.rect_fill(331, y + 1, ((v.clamp(0.0, 1.0) * 50.0) as i32).max(1), 4, SPARK + 1);
+    }
+}
+
+/// Page 3: the commune's recipe book. By workshop, everything its monsters have made, and in
+/// dimmer letters what a craftsman has told of, each with what it takes.
+fn sheet_book(g: &Game, fb: &mut Framebuffer, k: usize) {
+    let c = &g.communes[k];
+    let mut rows: Vec<(String, u8)> = Vec::new();
+    for kind in crate::world::ShopKind::all() {
+        let known: Vec<&str> = kind.recipes().iter().copied().filter(|r| c.made.contains(*r) || c.heard.contains(*r)).collect();
+        if known.is_empty() {
+            continue;
+        }
+        rows.push((kind.label().to_string(), SPARK + 1));
+        for r in known {
+            let gt = g.data.good(r);
+            let (tail, col) = if c.made.contains(r) { ("", TEXT) } else { (" (HEARD OF)", TEXT_DIM) };
+            for (n, row) in wrap(&format!("{}: {}{tail}", gt.name.to_uppercase(), g.inputs_text(gt)), 58).into_iter().enumerate() {
+                rows.push((if n == 0 { format!("  {row}") } else { format!("    {row}") }, col));
+            }
+        }
+    }
+    if rows.is_empty() {
+        for (n, row) in wrap("NOTHING YET. WHAT YOUR MONSTERS MAKE, AND WHAT A CRAFTSMAN TELLS YOU OF, IS WRITTEN HERE.", 58).iter().enumerate() {
+            fb.text(row, 16, 30 + n as i32 * 10, TEXT_DIM, Some(HUD_SHADOW), 1);
+        }
+        return;
+    }
+    const FIT: usize = 24;
+    let first = c.sheet_scroll.min(rows.len().saturating_sub(FIT));
+    for (n, (row, col)) in rows.iter().skip(first).take(FIT).enumerate() {
+        fb.text(row, 16, 30 + n as i32 * 10, *col, Some(HUD_SHADOW), 1);
+    }
+    if first > 0 {
+        fb.text("MORE ABOVE", 316, 24, TEXT_DIM, Some(HUD_SHADOW), 1);
+    }
+    if first + FIT < rows.len() {
+        fb.text("MORE BELOW", 316, 272, TEXT_DIM, Some(HUD_SHADOW), 1);
     }
 }
 
@@ -387,7 +434,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
             }
         }
         if g.world.item_at(tx, ty).is_none() {
-            if let Some(icon) = mat_hint(g, tx, ty, tile).and_then(|id| sp.icon(&id)) {
+            if let Some(icon) = mat_hint(g, v, tx, ty, tile).and_then(|id| sp.icon(&id)) {
                 blit_ghost(fb, icon, x0 + 4, y0 + 4);
             }
         }
@@ -420,11 +467,14 @@ fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
     bounded(-1, 0) && bounded(1, 0) && bounded(0, -1) && bounded(0, 1)
 }
 
-/// What belongs on a pad (that pad's input, in recipe order) or an output mat (the output).
-/// A good the world grows or makes nearby is shown before a far-off one.
-fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<String> {
-    let shop = g.world.shops.iter().find(|s| s.pads.contains(&(tx, ty)) || s.outs.contains(&(tx, ty)))?;
-    let recipe = shop.default_recipe(&g.data);
+/// What belongs on a pad (that pad's input, in recipe order) or an output mat (the output),
+/// for the recipe the workshop shows (see `shown_recipe`). A good the world grows or makes
+/// nearby is shown before a far-off one.
+fn mat_hint(g: &Game, v: &View, tx: i32, ty: i32, tile: Tile) -> Option<String> {
+    let s = g.world.shops.iter().position(|s| s.pads.contains(&(tx, ty)) || s.outs.contains(&(tx, ty)))?;
+    let shop = &g.world.shops[s];
+    let recipe = shown_recipe(g, v, s);
+    let recipe = recipe.as_str();
     if tile == Tile::OutMat {
         return Some(recipe.to_string());
     }
@@ -435,11 +485,51 @@ fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<String> {
     fits.iter().find(|p| local(&p.id)).or(fits.first()).map(|p| p.id.clone())
 }
 
+/// The recipe a workshop's mats hint at: what its pads make right now, if they make anything,
+/// so best fit never surprises; else, while the viewer's monster stands at its spot with its
+/// pads empty, each recipe it knows in turn, two seconds each; else the one that fills its pads.
+fn shown_recipe(g: &Game, v: &View, s: usize) -> String {
+    let shop = &g.world.shops[s];
+    if let Some((recipe, _)) = g.best_recipe(s, shop.kind.recipes(), &|_| true) {
+        return recipe;
+    }
+    let m = &g.monsters[v.c];
+    let empty = shop.pads.iter().all(|&(x, y)| g.world.item_at(x, y).is_none());
+    if empty && (m.x, m.y) == shop.spot {
+        let fit: Vec<&str> = shop.kind.recipes().iter().copied().filter(|r| g.data.good(r).input_groups().count() <= shop.pads.len()).collect();
+        if !fit.is_empty() {
+            return fit[(g.frame / 30) as usize % fit.len()].to_string();
+        }
+    }
+    shop.default_recipe(&g.data).to_string()
+}
+
 /// The built-in tool a peg stands in for.
 fn peg_hint(g: &Game, tx: i32, ty: i32) -> Option<&'static str> {
     let shop = g.world.shops.iter().find(|s| s.pegs.contains(&(tx, ty)))?;
     let k = shop.pegs.iter().position(|&p| p == (tx, ty))?;
     shop.kind.builtin_tools().get(k).copied()
+}
+
+/// Facing a craftsman: what he'd make from what's around (just for this player), and that
+/// Space asks him for another idea.
+fn draw_craftsman_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    let Some(t) = g.faced_townsfolk(v.c) else { return };
+    let tf = &g.world.townsfolk[t];
+    if !v.sees(tf.x, tf.y) {
+        return;
+    }
+    let mut lines = vec![format!("{} THE CRAFTSMAN", tf.name)];
+    for said in g.craftsman_says(t, v.k) {
+        lines.extend(wrap(&said, 30));
+    }
+    lines.push("SPACE: ANOTHER IDEA".into());
+    let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
+    let h = lines.len() as i32 * 9 + 4;
+    let (px, py) = v.px(tf.x, tf.y);
+    let cx = px + 8;
+    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn: false };
+    draw_bubble(fb, sp, &b);
 }
 
 /// Facing an applicant: who they are, their talents and what they cost.
@@ -813,6 +903,7 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         Item(usize),
         Monster(usize),
         Applicant(usize),
+        Townsfolk(usize),
         Wagon(usize),
         Pumpkin(usize),
     }
@@ -827,6 +918,9 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         if g.applicants[k].is_some() && v.sees(x, y) {
             bodies.push((y * TS + 1, Body::Applicant(k)));
         }
+    }
+    for (k, t) in g.world.townsfolk.iter().enumerate().filter(|(_, t)| v.sees(t.x, t.y)) {
+        bodies.push((t.y * TS + 1, Body::Townsfolk(k)));
     }
     for (k, w) in g.world.wagons.iter().enumerate() {
         if v.sees(w.at.0, w.at.1) {
@@ -884,6 +978,19 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let (tx, ty) = v.px(g.world.stands[k].0, g.world.stands[k].1);
                 fb.rect_checker(tx + 3, ty + TS - 2, 10, 2, SHADOW);
                 fb.blit(s, tx + (TS - s.w) / 2, ty + TS - s.h, k % 2 == 1);
+            }
+            Body::Townsfolk(k) => {
+                // An old carpenter: weathered tan where a goblin is green, a saw on his back.
+                let t = &g.world.townsfolk[k];
+                let s = &sp.goblin[(g.frame / 12) as usize % 2];
+                let (tx, ty) = v.px(t.x, t.y);
+                let (x, y) = (tx + (TS - s.w) / 2, ty + TS - s.h);
+                fb.rect_checker(tx + 3, ty + TS - 2, 10, 2, SHADOW);
+                blit_tinted(fb, s, x, y, true, ramp_named("plank").map(|to| Tint { from: (GOBLIN, 3), to }));
+                fb.rect_fill(x + s.w - 2, y + 2, 1, 3, WOOD + 2);
+                for k in 0..6 {
+                    fb.pset(x + s.w - 1, y + 5 + k, if k % 2 == 0 { TEXT_DIM } else { TEXT });
+                }
             }
             Body::Wagon(k) => {
                 let w = &g.world.wagons[k];

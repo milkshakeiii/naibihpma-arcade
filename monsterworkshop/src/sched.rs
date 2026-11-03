@@ -257,7 +257,7 @@ impl Game {
                     return Err(Why::world(self.pads_note(s, &ok)));
                 };
                 if let Err(missing) = self.missing_tool(s, &recipe) {
-                    return Err(Why::world(format!("MISSING A TOOL: {missing}.")));
+                    return Err(Why::world(format!("FOR {}: {missing} ON A PEG.", self.good_name(&recipe))));
                 }
                 let mut wants = vec![Want::Tile(shop.spot)];
                 wants.extend(inputs.into_iter().map(Want::Item));

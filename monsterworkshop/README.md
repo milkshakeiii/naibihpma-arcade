@@ -45,7 +45,7 @@ To feel a slow connection on a fast one, add `--lag MS`: every round trip takes 
 | Key | Action |
 | :-- | :-- |
 | Arrows / WASD | Walk. Walk into an item to push it one tile |
-| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, welcome the monster you face at the gathering hall, lead the wagon's pumpkin (and let go), open and shut a wagon's tailgate from behind, unpack a kit you face, or take a gathering tool you face into a free hand |
+| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, welcome the monster you face at the gathering hall, lead the wagon's pumpkin (and let go), open and shut a wagon's tailgate from behind, unpack a kit you face, take a gathering tool you face into a free hand, or ask a craftsman you face (Old Sawgrass, by the builders' bench) what you could make from what's around |
 | E (hold) | Examine: a card about whatever you face, or the workshop forecast at a work spot. Press Tab while holding E for the details page |
 | Shift + arrow | Pull: back away from the item in front, dragging it along. Very slow; it's for getting unstuck |
 | R | Start recording a routine (a flag marks the start). Press again on the flag to save |

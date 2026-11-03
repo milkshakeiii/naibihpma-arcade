@@ -166,7 +166,7 @@ fn the_spinnery_forecast_shows_quality_odds_learning_and_what_holds_it_back() {
     }
     assert!(g.status(1).0.contains("SPINNERY EXPECTS QUALITY"), "{}", g.status(1).0);
     g.world.items.clear();
-    assert!(has_line(&crate::inspect::card(&g, 0), "PUT COTTON SLIVERS ON A PAD."));
+    assert!(has_line(&crate::inspect::card(&g, 0), "FOR THREAD: PUT FIBER ON A PAD."));
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn two_thread_on_the_gate_bench_twist_into_rope_by_hand() {
     assert_eq!(g.world.shops[bench].default_recipe(&g.data), "rope");
     g.communes[0].controlled = 1;
     stand(&mut g, (42, 8), Dir::Down);
-    assert!(has_line(&crate::inspect::card(&g, 0), "PUT THREAD ON A PAD."), "an empty gate bench asks for thread");
+    assert!(has_line(&crate::inspect::card(&g, 0), "FOR ROPE: PUT THREAD ON A PAD."), "an empty gate bench asks for thread");
     g.world.items.push(Item::new(40, 8, good_like(&g.data, "thread", 0.8)));
     g.world.items.push(Item::new(41, 8, good_like(&g.data, "thread", 0.8)));
     assert_eq!(crate::inspect::card(&g, 0).title, "WORKBENCH: ROPE");
@@ -1197,10 +1197,10 @@ fn a_workshop_says_what_its_pads_lack_and_what_to_swap() {
     for (k, id) in ["quicklime", "indigofera_leaves", "lye", "lye", "elder_sticks"].iter().enumerate() {
         g.world.items.push(Item::new(pads[k].0, pads[k].1, good_like(&g.data, id, 0.8)));
     }
-    assert_eq!(g.pads_note(vats, &|_| true), "SWAP THE LYE FOR ANOTHER QUICKLIME.");
+    assert_eq!(g.pads_note(vats, &|_| true), "FOR INDIGO: SWAP THE LYE FOR ANOTHER LIME.");
     // With the second lye gone, there's a pad for it.
     g.world.items.retain(|it| (it.x, it.y) != pads[3]);
-    assert_eq!(g.pads_note(vats, &|_| true), "PUT ANOTHER QUICKLIME ON A PAD.");
+    assert_eq!(g.pads_note(vats, &|_| true), "FOR INDIGO: PUT ANOTHER LIME ON A PAD.");
 }
 
 #[test]
@@ -1365,4 +1365,78 @@ fn the_character_sheet_takes_the_keys_and_puts_a_tool_down() {
     assert!(!g.communes[0].sheet, "C closes it");
     g.script("R");
     assert_eq!(g.monsters[c].x, 26, "closed, the arrows walk again (pushing the hammer)");
+}
+
+#[test]
+fn inputs_are_named_as_types_of_things() {
+    let g = Game::new();
+    let group = |tags: &[&str]| tags.iter().map(|t| t.to_string()).collect::<Vec<String>>();
+    assert_eq!(g.describe_type(&group(&["log"])), "LOG", "any log");
+    assert_eq!(g.describe_type(&group(&["stalks", "bast"])), "BAST STALKS", "any bast plant's stalks, not rice's");
+    assert_eq!(g.describe_type(&group(&["fiber"])), "FIBER");
+    assert_eq!(g.describe_type(&group(&["ashy"])), "ASHY STALKS", "a note in brackets doesn't count");
+    assert_eq!(g.inputs_text(g.data.good("wagon_kit")), "2 WAGON WHEELS, AN OAK LOG, 2 PLANKS, A PUMPKIN");
+    assert_eq!(g.inputs_text(g.data.good("workbench_kit")), "2 LOGS, ROPE");
+}
+
+#[test]
+fn a_bench_says_what_its_pads_are_for_and_what_else_it_makes() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    let gate = g.world.shops.iter().position(|s| s.kind == ShopKind::named("workbench") && s.pads.len() == 2).expect("the gate bench");
+    let spot = g.world.shops[gate].spot;
+    (g.monsters[c].x, g.monsters[c].y) = spot;
+    g.script("u");
+    assert!(said(&g, c).contains("FOR ROPE: PUT THREAD ON A PAD.") && said(&g, c).contains("IT MAKES 5 MORE"), "{}", said(&g, c));
+    // Goods that go into nothing a bench makes: said so, then what to swap for the nearest.
+    let pad = g.world.shops[gate].pads[0];
+    g.world.items.push(Item::new(pad.0, pad.1, ItemData { good: "fabric".into(), carried_tags: Vec::new(), ..tool(&g, "fabric") }));
+    let pad = g.world.shops[gate].pads[1];
+    g.world.items.push(Item::new(pad.0, pad.1, ItemData { good: "pumpkin".into(), carried_tags: Vec::new(), ..tool(&g, "pumpkin") }));
+    g.script("u");
+    assert!(said(&g, c).contains("NOTHING HERE TAKES FABRIC WITH A PUMPKIN. FOR ROPE: SWAP THE FABRIC FOR THREAD."), "{}", said(&g, c));
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "WHAT IT MAKES") && has_line(&card, "PLANKS: A LOG"), "its card lists what it makes");
+}
+
+#[test]
+fn a_goods_card_says_where_it_comes_from_and_goes() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (25, 13, Dir::Right);
+    g.world.items.push(Item::new(26, 13, ItemData { good: "planks".into(), ..tool(&g, "planks") }));
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "MADE AT A WORKBENCH FROM A LOG."), "planks");
+    assert!(has_line(&card, "GOES INTO") && has_line(&card, "AND 4 MORE"), "seven things in play take planks, three named");
+    g.world.items.clear();
+    g.world.items.push(Item::new(26, 13, ItemData { good: "oak_log".into(), ..tool(&g, "oak_log") }));
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "BURNS AS FUEL."), "said once, not forty times");
+}
+
+#[test]
+fn old_sawgrass_says_what_could_be_made_from_whats_around() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    let t = g.world.townsfolk.iter().position(|t| t.name == "OLD SAWGRASS").expect("by the builders' bench");
+    let (tx, ty) = (g.world.townsfolk[t].x, g.world.townsfolk[t].y);
+    assert!(g.applicant_at(tx, ty), "he stands in the way like anyone");
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (tx, ty + 1, Dir::Up);
+    assert!(g.craftsman_says(t, 0).last().unwrap().contains("BRING SOME GOODS BY"), "nothing to work with yet");
+    // Two logs and a rope lying near him: a workbench kit, at the builders' bench.
+    for (x, good) in [(30, "hemlock_log"), (31, "hemlock_log"), (32, "rope")] {
+        g.world.items.push(Item::new(x, 20, ItemData { good: good.into(), carried_tags: Vec::new(), ..tool(&g, good) }));
+    }
+    let says = g.craftsman_says(t, 0).join(" ");
+    assert!(says.contains("I BET YOU COULD MAKE A WORKBENCH KIT") && says.contains("THE BUILDERS' BENCH COULD DO IT"), "{says}");
+    g.script("u");
+    assert!(g.communes[0].heard.contains("workbench_kit"), "it goes in the commune's book");
+    // One rope short of a bin kit's two, with planks enough: the nearest miss.
+    g.world.items.clear();
+    for x in 30..34 {
+        g.world.items.push(Item::new(x, 20, ItemData { good: "planks".into(), ..tool(&g, "planks") }));
+    }
+    g.world.items.push(Item::new(34, 20, ItemData { good: "rope".into(), carried_tags: Vec::new(), ..tool(&g, "rope") }));
+    let says = g.craftsman_says(t, 0).join(" ");
+    assert!(says.contains("WITH ONE MORE ROPE YOU COULD MAKE A BIN KIT"), "{says}");
 }

@@ -17,6 +17,7 @@ mod loadtest;
 mod motion;
 mod net;
 mod palette;
+mod recipes;
 mod render;
 mod save;
 mod sched;
@@ -452,5 +453,23 @@ fn export_screenshots(dir: &Path) {
     (g.monsters[c].pc, g.monsters[c].playing) = (4, true);
     g.communes[0].sheet_page = 1;
     shot(&g, "41_character_sheet_loop.png");
+    // The recipe book: what the commune has made, and a wagon kit heard of.
+    g.communes[0].heard.insert("wagon_kit".into());
+    g.communes[0].sheet_page = 2;
+    shot(&g, "42_recipe_book.png");
+    (g.communes[0].sheet, g.communes[0].sheet_page) = (false, 0);
+    // Old Sawgrass, asked what could be made from two logs and a rope lying by his bench.
+    (g.monsters[c].playing, g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (false, 40, 29, game::Dir::Up);
+    for (x, id) in [(30, "hemlock_log"), (31, "hemlock_log"), (32, "rope")] {
+        let mut d = g.world.items.first().map(|it| it.data.clone()).unwrap_or_else(|| fg.world.items[0].data.clone());
+        (d.good, d.carried_tags) = (id.into(), Vec::new());
+        g.world.items.push(world::Item::new(x, 20, d));
+    }
+    shot(&g, "43_old_sawgrass.png");
+    // The builders' bench's card: what it makes, the first five of twelve.
+    (g.monsters[c].x, g.monsters[c].y) = (36, 28);
+    g.communes[0].inspecting = true;
+    g.communes[0].card_page = 2;
+    shot(&g, "44_what_it_makes.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

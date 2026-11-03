@@ -173,7 +173,8 @@ impl Game {
         let mut blocked = self.world.goods_in(area, |_| false);
         let parked = self.world.wagons.iter().filter(|w| w.leader.is_none()).flat_map(|w| [w.at, w.pumpkin]);
         let stands = self.world.stands.iter().zip(&self.applicants).filter(|(_, a)| a.is_some()).map(|(&s, _)| s);
-        for p in parked.chain(stands).chain(avoid.iter().copied()).filter(|&p| area.inside(p)) {
+        let townsfolk = self.world.townsfolk.iter().map(|t| (t.x, t.y));
+        for p in parked.chain(stands).chain(townsfolk).chain(avoid.iter().copied()).filter(|&p| area.inside(p)) {
             blocked[idx(p)] = true;
         }
         let mut prev = vec![usize::MAX; area.cells()];

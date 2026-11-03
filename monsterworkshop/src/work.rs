@@ -127,10 +127,14 @@ impl Game {
         // A loop leaves what another monster has reserved on the pads alone.
         let ok = |it: usize| self.may_take(i, it);
         let Some((recipe, inputs)) = self.best_recipe(s, kind.recipes(), &ok) else {
-            return UseRes::Missing(self.pads_note(s, &ok));
+            let note = self.pads_note(s, &ok);
+            // Nothing on the pads yet: say there's more it makes, and where to see it.
+            let empty = self.world.shops[s].pads.iter().all(|&(x, y)| self.world.item_at(x, y).is_none());
+            let more = kind.recipes().len().saturating_sub(1);
+            return UseRes::Missing(if empty && more > 0 { format!("{note} IT MAKES {more} MORE: HOLD E, THEN TAB.") } else { note });
         };
         if let Err(missing) = self.match_tools(s, &recipe) {
-            return UseRes::Wait(format!("MISSING A TOOL: {missing}."));
+            return UseRes::Wait(format!("FOR {}: {missing} ON A PEG.", self.good_name(&recipe)));
         }
         for &it in &inputs {
             self.world.items[it].locked = true;
@@ -144,10 +148,12 @@ impl Game {
         UseRes::Done
     }
 
-    /// What workshop `s`'s pads lack, said so it's clear what to do: the first input not there
-    /// yet of the recipe they come closest to ("PUT ANOTHER QUICKLIME ON A PAD." when indigo has
-    /// one of its two), or, with every pad taken, what to swap for it ("SWAP THE LYE FOR ANOTHER
-    /// QUICKLIME."). Only pad items `ok` accepts count.
+    /// What workshop `s`'s pads lack, said so it's clear what to do and what for: the recipe
+    /// they come closest to and the first input it still needs ("FOR INDIGO: PUT ANOTHER LIME ON
+    /// A PAD." when indigo has one of its two), or, with every pad taken, what to swap for it
+    /// ("FOR INDIGO: SWAP THE LYE FOR ANOTHER LIME."). Goods that fit nothing it makes are said
+    /// to first ("NOTHING HERE TAKES COTTON BOLLS WITH A ROPE."). Inputs are named as types of
+    /// things. Only pad items `ok` accepts count.
     pub(crate) fn pads_note(&self, s: usize, ok: &dyn Fn(usize) -> bool) -> String {
         let shop = &self.world.shops[s];
         let on_pads: Vec<usize> = shop.pads.iter().filter_map(|&(x, y)| self.world.item_at(x, y)).filter(|&it| ok(it)).collect();
@@ -163,15 +169,23 @@ impl Game {
                     None => missing.push(group.clone()),
                 }
             }
-            ((std::cmp::Reverse(used.len()), r != shown, missing.len(), n), missing, used)
+            ((std::cmp::Reverse(used.len()), r != shown, missing.len(), n), r, missing, used)
         });
-        let Some((_, missing, used)) = closest.min_by_key(|(key, _, _)| *key) else { return String::new() };
+        let Some((_, recipe, missing, used)) = closest.min_by_key(|(key, ..)| *key) else { return String::new() };
         let Some(group) = missing.first() else { return String::new() };
         let another = used.iter().any(|&it| self.world.item_matches(&self.data, it, group));
-        let want = format!("{}{}", if another { "ANOTHER " } else { "" }, self.describe_group(group));
+        let name = self.describe_type(group);
+        let want = if another { format!("ANOTHER {name}") } else { crate::recipes::one(&name) };
+        let aim = format!("FOR {}:", self.good_name(recipe));
+        let lead = if used.is_empty() && !on_pads.is_empty() {
+            let there: Vec<String> = on_pads.iter().map(|&it| crate::recipes::one(&self.good_name(self.world.items[it].good()))).collect();
+            format!("NOTHING HERE TAKES {}. ", there.join(" WITH "))
+        } else {
+            String::new()
+        };
         match on_pads.iter().find(|it| !used.contains(it)) {
-            Some(&spare) if taken >= shop.pads.len() => format!("SWAP THE {} FOR {want}.", self.good_name(self.world.items[spare].good())),
-            _ => format!("PUT {want} ON A PAD."),
+            Some(&spare) if taken >= shop.pads.len() => format!("{lead}{aim} SWAP THE {} FOR {want}.", self.good_name(self.world.items[spare].good())),
+            _ => format!("{lead}{aim} PUT {want} ON A PAD."),
         }
     }
 
@@ -239,7 +253,7 @@ impl Game {
             } else if let Some(id) = shop.kind.builtin_tools().iter().filter(|_| shop.frontier.is_none()).find(|id| matches(&self.data.good(id).type_tags, group)) {
                 out.push(ToolSource::Builtin(id));
             } else {
-                return Err(self.describe_group(group));
+                return Err(crate::recipes::one(&self.describe_type(group)));
             }
         }
         Ok(out)

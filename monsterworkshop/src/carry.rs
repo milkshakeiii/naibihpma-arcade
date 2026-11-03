@@ -68,7 +68,8 @@ impl Game {
         // A parked wagon stays put; one being led moves on, like a monster.
         let carts = self.world.wagons.iter().filter(|wg| wg.leader.is_none()).flat_map(|wg| [wg.at, wg.pumpkin]);
         let stands = self.world.stands.iter().zip(&self.applicants).filter(|(_, a)| a.is_some()).map(|(&s, _)| s);
-        for p in carts.chain(stands).chain(avoid.iter().copied()).filter(|&p| inside(p)) {
+        let townsfolk = self.world.townsfolk.iter().map(|t| (t.x, t.y));
+        for p in carts.chain(stands).chain(townsfolk).chain(avoid.iter().copied()).filter(|&p| inside(p)) {
             blocked[idx(p)] = true;
         }
         let mut walk = vec![false; cells];

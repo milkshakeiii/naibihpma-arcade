@@ -160,6 +160,11 @@ pub fn card(g: &Game, k: usize) -> Card {
     if let Some(a) = g.faced_applicant(c) {
         return applicant_card(g, a, k);
     }
+    if let Some(t) = g.faced_townsfolk(c) {
+        let tf = &g.world.townsfolk[t];
+        let lines = vec![line("HE KNOWS HOW EVERYTHING IS MADE.", TEXT), line("SPACE: ASK WHAT YOU COULD MAKE FROM WHAT'S AROUND HERE.", TEXT_DIM)];
+        return Card::one(format!("{} THE CRAFTSMAN", tf.name), lines, (tf.x, tf.y));
+    }
     if let Some(i) = g.world.item_at(fx, fy) {
         return item_card(g, &g.world.items[i].data, (fx, fy), c);
     }
@@ -291,6 +296,19 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         if let Some(why) = g.kit_ahead(c).filter(|&k| (g.world.items[k].x, g.world.items[k].y) == at).and_then(|k| g.footprint(c, k)).and_then(|fp| fp.why) {
             first.push(line(why, TEXT_WARN).icon(Icon::Warn));
         }
+    }
+    // Where it comes from and where it goes: hints for what to make next.
+    if let Some(&kind) = g.made_at(&item.good).first() {
+        details.push(line(format!("MADE AT {} FROM {}.", crate::recipes::one(kind.label()), g.inputs_text(gt)), TEXT_DIM));
+    }
+    let into = g.goes_into(gt);
+    if !into.is_empty() {
+        let names: Vec<String> = into.iter().take(3).map(|r| g.good_name(r)).collect();
+        let more = into.len().saturating_sub(3);
+        details.push(line(format!("GOES INTO {}{}.", names.join(", "), if more > 0 { format!(" AND {more} MORE") } else { String::new() }), TEXT_DIM));
+    }
+    if gt.type_tags.iter().any(|t| t == "fuel") {
+        details.push(line("BURNS AS FUEL.", TEXT_DIM));
     }
     details.push(line(format!("WEIGHS {:.1}", econ::weight(gt, item)), TEXT).icon(Icon::Weight));
     details.push(if item.depth == 0 {
@@ -562,7 +580,7 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     let (mut lo, mut hi, mut held) = (1, 1, None);
     match (&pv.inputs, &pv.tools, forecast(g, s, i)) {
         (Err(need), _, _) => first.push(line(need.clone(), TEXT_WARN).icon(Icon::Warn)),
-        (_, Err(tool), _) => first.push(line(format!("MISSING A TOOL: {tool}."), TEXT_WARN).icon(Icon::Warn)),
+        (_, Err(tool), _) => first.push(line(format!("FOR {}: {tool} ON A PEG.", g.good_name(&pv.recipe)), TEXT_WARN).icon(Icon::Warn)),
         (Ok(inputs), Ok(tools), Some(f)) => {
             let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: pv.workshop.as_ref() };
             let (qlo, qhi, avg) = econ::quantity_range(&craft);
@@ -611,7 +629,24 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
             details.push(line(format!("BUILT BY {}: THEY SHARE IN ITS WORK.", makers.join(", ")), TEXT_DIM));
         }
     }
-    Card::two(format!("{}: {}", g.shop_name(s), recipe.name.to_uppercase()), first, details, shop.spot)
+    let mut card = Card::two(format!("{}: {}", g.shop_name(s), recipe.name.to_uppercase()), first, details, shop.spot);
+    // Everything it makes, five to a page, what the commune has made in green.
+    let recipes = shop.kind.recipes();
+    if recipes.len() > 1 {
+        let made = &g.communes[m.commune].made;
+        let pages = recipes.len().div_ceil(5);
+        for (p, chunk) in recipes.chunks(5).enumerate() {
+            let head = if pages > 1 { format!("WHAT IT MAKES ({} OF {pages})", p + 1) } else { "WHAT IT MAKES".into() };
+            let mut page = vec![line(head, TEXT_DIM)];
+            for &r in chunk {
+                let gt = g.data.good(r);
+                let col = if made.contains(r) { TEXT_GOOD } else { TEXT };
+                page.push(line(format!("{}: {}", gt.name.to_uppercase(), g.inputs_text(gt)), col).icon(Icon::Good(r.to_string())));
+            }
+            card.pages.push(page);
+        }
+    }
+    card
 }
 
 /// "[time] 5.5S  [rope] 1 ROPE": how long a job takes this monster and what comes out.
