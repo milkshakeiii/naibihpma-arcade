@@ -31,7 +31,7 @@ pub const STAGES: [&str; 23] = [
 
 pub const DONE: usize = STAGES.len() - 1;
 
-pub const HELP: [&str; 11] = [
+pub const HELP: [&str; 12] = [
     "ARROWS / WASD   WALK, PUSH",
     "SHIFT + ARROW   PULL (SLOW)",
     "SPACE           USE: HARVEST, CRAFT",
@@ -40,6 +40,7 @@ pub const HELP: [&str; 11] = [
     "BACKSPACE       CANCEL RECORDING",
     "P               LOOP / STOP (ON A FLAG: COPY)",
     "TAB             SWITCH MONSTER (HOLD: ROSTER)",
+    "C               CHARACTER SHEET (HANDS, LOOP)",
     "F1              THIS HELP",
     "F2              CRT SCANLINES",
     "ESC             QUIT",

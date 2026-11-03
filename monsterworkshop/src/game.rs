@@ -85,6 +85,11 @@ pub struct Input {
     pub inspect: bool,
     /// Shift held down: stepping away from an item drags it along.
     pub pull: bool,
+    /// C: open or close the character sheet.
+    pub sheet_pressed: bool,
+    /// Esc with the character sheet open: close it. (A player's game turns Esc into this,
+    /// rather than leaving the world, while it knows the sheet is open.)
+    pub close_pressed: bool,
 }
 
 impl Input {
@@ -108,6 +113,8 @@ impl Input {
             (&mut i.delete_pressed, o.delete_pressed),
             (&mut i.inspect, o.inspect),
             (&mut i.pull, o.pull),
+            (&mut i.sheet_pressed, o.sheet_pressed),
+            (&mut i.close_pressed, o.close_pressed),
         ] {
             *a |= b;
         }
@@ -229,6 +236,9 @@ pub struct Monster {
     /// Ticks it goes on saying there's no way through without passing through someone.
     #[serde(default)]
     pub no_room: u16,
+    /// Its two hands: the gathering tools it holds (see Equipment in DESIGN.md).
+    #[serde(default)]
+    pub hands: [Option<crate::econ::ItemData>; 2],
     /// Why it last gave a goal up (someone in the way, say), told until it next finishes one.
     #[serde(default)]
     pub gave_up: String,
@@ -317,6 +327,7 @@ impl Monster {
             giving_way: None,
             knot: None,
             no_room: 0,
+            hands: [None, None],
             gave_up: String::new(),
             since: 0,
             loops: 0,
@@ -420,6 +431,13 @@ pub struct Commune {
     /// Which page of the inspect card shows; Tab turns it while E is held.
     #[serde(skip)]
     pub card_page: usize,
+    /// The character sheet (C): open, which page, and which hand is chosen.
+    #[serde(skip)]
+    pub sheet: bool,
+    #[serde(skip)]
+    pub sheet_page: usize,
+    #[serde(skip)]
+    pub sheet_hand: usize,
     /// The named area the view is in, and a banner announcing it on arrival.
     #[serde(skip)]
     pub(crate) area: &'static str,
@@ -801,6 +819,31 @@ impl Game {
         if inp.help_pressed {
             me.help = !me.help;
         }
+        if inp.sheet_pressed {
+            me.sheet = !me.sheet;
+            (me.sheet_page, me.sheet_hand) = (0, 0);
+        }
+        if inp.close_pressed {
+            me.sheet = false;
+        }
+        if me.sheet {
+            // The sheet takes the keys: Tab turns its page, up and down choose a hand, Space
+            // puts that hand's tool down on the tile ahead. The world goes on behind it.
+            me.inspecting = false;
+            me.roster = false;
+            (me.hold, me.queued, me.queued_use) = (None, None, false);
+            if inp.tab_pressed {
+                me.sheet_page = (me.sheet_page + 1) % 2;
+            }
+            if inp.pressed[0] || inp.pressed[1] {
+                me.sheet_hand = 1 - me.sheet_hand;
+            }
+            let (c, hand) = (me.controlled, me.sheet_hand);
+            if inp.use_pressed && !self.monsters[c].playing && self.monsters[c].idle() {
+                self.put_down(c, hand, sfx);
+            }
+            return;
+        }
         if inp.inspect && !me.inspecting {
             me.card_page = 0;
         }
@@ -1162,7 +1205,83 @@ impl Game {
         if let Some(k) = self.kit_ahead(i) {
             return self.unpack_kit(i, k, sfx);
         }
+        // Taking a tool in hand is the player's doing, never a loop's.
+        if let Some(it) = self.tool_ahead(i).filter(|_| !self.monsters[i].playing) {
+            return self.take_tool(i, it, sfx);
+        }
         UseRes::Nothing
+    }
+
+    /// A tool on the ground just ahead of monster `i` that it could hold in a hand.
+    fn tool_ahead(&self, i: usize) -> Option<usize> {
+        let m = &self.monsters[i];
+        let (dx, dy) = m.facing.delta();
+        self.world.item_at(m.x + dx, m.y + dy).filter(|&it| self.data.try_good(self.world.items[it].good()).is_some_and(|g| self.data.holdable(g)))
+    }
+
+    /// What monster `i` holds weighs against its body's capacity.
+    fn held_weight(&self, i: usize) -> f64 {
+        self.monsters[i].hands.iter().flatten().map(|d| crate::econ::weight(self.data.good(&d.good), d)).sum()
+    }
+
+    /// Monster `i` takes tool `it` from the ground into a free hand, if it has one and can
+    /// carry it with what it holds already.
+    fn take_tool(&mut self, i: usize, it: usize, sfx: &mut Vec<Sfx>) -> UseRes {
+        let Some(hand) = self.monsters[i].hands.iter().position(|h| h.is_none()) else {
+            sfx.push(Sfx::Deny);
+            return UseRes::Wait("MY HANDS ARE FULL.".into());
+        };
+        let data = &self.world.items[it].data;
+        let cap = self.data.monster_types[self.monsters[i].kind.as_str()].body_cap as f64;
+        if self.held_weight(i) + crate::econ::weight(self.data.good(&data.good), data) > cap {
+            sfx.push(Sfx::Deny);
+            return UseRes::Wait("THAT'S MORE THAN I CAN HOLD.".into());
+        }
+        let data = self.world.items.remove(it).data;
+        let text = format!("{} TAKES THE {}.", self.monsters[i].name, self.good_name(&data.good));
+        self.monsters[i].hands[hand] = Some(data);
+        self.say(i, &text, false);
+        sfx.push(Sfx::Pop);
+        UseRes::Done
+    }
+
+    /// Monster `i` puts the tool in `hand` down on the tile ahead, from the character sheet.
+    pub(crate) fn put_down(&mut self, i: usize, hand: usize, sfx: &mut Vec<Sfx>) {
+        let m = &self.monsters[i];
+        let (dx, dy) = m.facing.delta();
+        let (x, y) = (m.x + dx, m.y + dy);
+        let Some(good) = m.hands[hand].as_ref().map(|d| d.good.clone()) else {
+            self.say(i, "THAT HAND IS EMPTY.", true);
+            sfx.push(Sfx::Deny);
+            return;
+        };
+        let free = self.world.item_floor(x, y) && self.world.item_at(x, y).is_none() && self.monster_at(x, y).is_none() && !self.world.cart_at(x, y);
+        if !free {
+            self.say(i, "NO ROOM TO PUT IT DOWN THERE.", true);
+            sfx.push(Sfx::Deny);
+            return;
+        }
+        let text = format!("{} PUTS DOWN THE {}.", self.monsters[i].name, self.good_name(&good));
+        if let Some(data) = self.monsters[i].hands[hand].take() {
+            self.world.items.push(crate::world::Item::new(x, y, data));
+        }
+        self.say(i, &text, false);
+        sfx.push(Sfx::Plop);
+    }
+
+    /// The hands holding the tools that gathering `good` needs, one for each tool it asks
+    /// for, or what's missing ("MISSING A TOOL: SHOVEL.").
+    pub(crate) fn held_tools(&self, i: usize, good: &crate::data::GoodType) -> Result<Vec<usize>, String> {
+        let hands = &self.monsters[i].hands;
+        let mut used = Vec::new();
+        for group in good.tools_required_tags.iter().filter(|g| !g.is_empty()) {
+            let fits = |h: usize| hands[h].as_ref().is_some_and(|d| d.durability_left() > 0 && self.data.try_good(&d.good).is_some_and(|t| crate::data::matches(&t.type_tags, group)));
+            match (0..2).find(|&h| !used.contains(&h) && fits(h)) {
+                Some(h) => used.push(h),
+                None => return Err(format!("MISSING A TOOL: {}.", self.describe_group(group))),
+            }
+        }
+        Ok(used)
     }
 
     /// What Space would activate for monster `i` where it stands and faces, if anything (taking
@@ -1466,6 +1585,7 @@ impl Game {
                 't' => inp.tab_pressed = true,
                 'x' => inp.cancel_pressed = true,
                 'h' => inp.help_pressed = true,
+                'c' => inp.sheet_pressed = true,
                 _ => continue,
             }
             self.press(k, inp);

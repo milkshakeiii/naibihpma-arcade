@@ -229,6 +229,7 @@ impl Game {
                 if !plant.ripe() {
                     return Err(Why::world("STILL GROWING."));
                 }
+                self.held_tools(i, self.data.good(&plant.good)).map_err(Why::world)?;
                 tile_free(drop)?;
                 if let Some(o) = self.world.item_at(drop.0, drop.1) {
                     let on = self.holder(i, Hold::Item(self.world.items[o].id)).filter(|_| self.world.items[o].id != 0);

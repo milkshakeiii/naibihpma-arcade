@@ -45,16 +45,17 @@ To feel a slow connection on a fast one, add `--lag MS`: every round trip takes 
 | Key | Action |
 | :-- | :-- |
 | Arrows / WASD | Walk. Walk into an item to push it one tile |
-| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, welcome the monster you face at the gathering hall, lead the wagon's pumpkin (and let go), or open and shut a wagon's tailgate from behind |
+| Space | Use: harvest a ripe plant you stand on (the bolls come out in front of you, one at a time), craft at a work spot, welcome the monster you face at the gathering hall, lead the wagon's pumpkin (and let go), open and shut a wagon's tailgate from behind, unpack a kit you face, or take a gathering tool you face into a free hand |
 | E (hold) | Examine: a card about whatever you face, or the workshop forecast at a work spot. Press Tab while holding E for the details page |
 | Shift + arrow | Pull: back away from the item in front, dragging it along. Very slow; it's for getting unstuck |
 | R | Start recording a routine (a flag marks the start). Press again on the flag to save |
 | Backspace | Cancel the recording |
 | P | Loop the saved routine (start from the flag) or stop it |
 | Tab | Switch monster. Hold it to see every monster and what it is doing |
+| C | Character sheet: the monster, its hands and its loop (Tab turns the page; up and down choose a hand, Space puts its tool down ahead; C or Esc closes) |
 | F1 | Controls |
 | F2 | CRT scanlines on/off |
-| Esc | Save and quit (on the title screen: quit) |
+| Esc | Save and quit (on the title screen: quit; with the character sheet open: close it) |
 
 The game opens on a title screen listing your worlds; pick one or start a new one. Worlds save to `%APPDATA%\MonsterWorkshop\worlds\` every minute and when you quit.
 

@@ -286,7 +286,7 @@ fn gathering_starts_an_item_history() {
     let d = Data::load();
     let st = stats(&d, "cyclops");
     let sk = Skills::default();
-    let got = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &sk }, &d, &mut Rng::new(7));
+    let got = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &sk }, Vec::new(), &d, &mut Rng::new(7));
     assert!(!got.is_empty());
     assert_eq!(got[0].depth, 0);
     assert_eq!(got[0].raw[0].good, "oak_log");
@@ -341,7 +341,7 @@ fn a_recipes_normal_yield_shares_its_inputs_and_extra_units_cost_nothing_per_uni
     let boll_value: f64 = boll.raw.iter().map(|r| r.base_value).sum();
     assert!(made.iter().all(|u| close(u.raw.iter().map(|r| r.base_value).sum(), boll_value)), "a high roll doesn't thin out each unit");
 
-    let oak = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &Skills::default() }, &d, &mut Rng::new(7));
+    let oak = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &Skills::default() }, Vec::new(), &d, &mut Rng::new(7));
     assert!(oak.iter().all(|u| close(u.raw[0].base_value, d.good("oak_log").raw_material_base_value.unwrap())), "each harvested unit is a whole raw material");
 }
 

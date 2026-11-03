@@ -342,6 +342,56 @@ fn town_tool_card(g: &Game, at: (i32, i32)) -> Option<Card> {
     Some(Card::one(format!("TOWN {}", g.good_name(id)), lines, at))
 }
 
+/// What an ability is for: what it does besides crafting (STR pushes, CHA leads wagons), then
+/// the applied skills whose recipes in play lean on it most, as many as fit.
+pub(crate) fn ability_uses(g: &Game, a: usize) -> String {
+    let in_play: std::collections::BTreeSet<&str> = crate::world::ShopKind::all().flat_map(|k| k.recipes().iter().copied()).chain(g.world.plants.iter().map(|p| p.good.as_str())).collect();
+    let mut count: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for gt in in_play.iter().filter_map(|id| g.data.try_good(id)).filter(|gt| gt.relevant_ability_score == a) {
+        *count.entry(gt.primary_applied_skill.as_str()).or_default() += 1;
+    }
+    let mut top: Vec<(&str, usize)> = count.into_iter().collect();
+    top.sort_by_key(|&(skill, n)| (std::cmp::Reverse(n), skill));
+    let mut uses: Vec<String> = match a {
+        crate::data::STR => vec!["PUSHING".into()],
+        crate::data::CHA => vec!["LEADING WAGONS".into()],
+        _ => Vec::new(),
+    };
+    for (skill, _) in top {
+        let more = skill_name(skill);
+        if uses.iter().map(|u| u.len() + 2).sum::<usize>() + more.len() > 25 {
+            break;
+        }
+        uses.push(more);
+    }
+    if uses.is_empty() {
+        "NOTHING HERE YET".into()
+    } else {
+        uses.join(", ")
+    }
+}
+
+/// One goal of a loop, said plainly: "WORK THE SPINNERY", "PUSH THE THREAD FROM THE
+/// SPINNERY'S MAT TO THE LOOM HOUSE'S PAD".
+pub(crate) fn goal_text(g: &Game, goal: &crate::game::Goal) -> String {
+    use crate::game::{Goal, Thing};
+    let place = |t: (i32, i32)| {
+        let p = g.place_name(t);
+        p.strip_prefix("AT ").or_else(|| p.strip_prefix("BY ")).map_or(p.clone(), |s| s.to_string())
+    };
+    match goal {
+        Goal::Move { good, from, to } => format!("PUSH THE {} FROM {} TO {}", g.good_name(good), place(*from), place(*to)),
+        Goal::Activate(Thing::Plant { at, .. }) => match g.world.plant_at(at.0, at.1) {
+            Some(p) => format!("HARVEST THE {}", plant_name(&g.data, &g.world.plants[p].good)),
+            None => "HARVEST WHAT GREW THERE".into(),
+        },
+        Goal::Activate(Thing::Shop(s)) => format!("WORK THE {}", g.shop_name(*s)),
+        Goal::Activate(Thing::Tailgate { open: true, .. }) => "OPEN THE WAGON'S TAILGATE".into(),
+        Goal::Activate(Thing::Tailgate { open: false, .. }) => "SHUT THE WAGON'S TAILGATE".into(),
+        Goal::Lead { bed, .. } => format!("LEAD THE WAGON TO {}", place(*bed)),
+    }
+}
+
 fn monster_card(g: &Game, i: usize) -> Card {
     let m = &g.monsters[i];
     let s = &m.stats;
@@ -355,6 +405,10 @@ fn monster_card(g: &Game, i: usize) -> Card {
     }
     for (k, v) in skills.into_iter().take(4) {
         first.push(line(format!("{:<13}{}", skill_name(&k), points(v)), TEXT).bar(v));
+    }
+    let held: Vec<String> = m.hands.iter().flatten().map(|d| g.good_name(&d.good)).collect();
+    if !held.is_empty() {
+        first.push(line(format!("HOLDS {}", held.join(" AND ")), TEXT));
     }
     let mut details = vec![
         line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT),

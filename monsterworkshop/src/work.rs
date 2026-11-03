@@ -62,6 +62,10 @@ impl Game {
         if !plant.ripe() {
             return UseRes::Wait("STILL GROWING.".into());
         }
+        // Gathering takes its tools in hand.
+        if let Err(missing) = self.held_tools(i, self.data.good(&plant.good)) {
+            return UseRes::Wait(missing);
+        }
         let m = &self.monsters[i];
         let facing = m.facing;
         let (dx, dy) = facing.delta();
@@ -292,7 +296,22 @@ impl Game {
         let m = job.monster;
         let recipe = self.data.good(&job.recipe).clone();
         let (stats, skills, id) = (self.monsters[m].stats.clone(), self.monsters[m].skills.clone(), self.monsters[m].id);
-        let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills }, &self.data, &mut self.rng);
+        // The tools in hand count as tools on pegs do: in the quality roll, and their makers'
+        // shares.
+        let hands = self.held_tools(m, &recipe).unwrap_or_default();
+        let tools: Vec<ItemData> = hands.iter().filter_map(|&h| self.monsters[m].hands[h].clone()).collect();
+        let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills }, tools.iter().collect(), &self.data, &mut self.rng);
+        // And they wear by their weight, and may break.
+        for (k, &h) in hands.iter().enumerate() {
+            let Some(tool) = self.monsters[m].hands[h].as_mut() else { continue };
+            tool.wear += recipe.tool_weight(k);
+            if tool.durability_left() == 0 {
+                let good = tool.good.clone();
+                let name = self.good_name(&good);
+                self.monsters[m].hands[h] = None;
+                self.say(m, &format!("MY {name} BROKE."), true);
+            }
+        }
         let secs = econ::production_seconds(&recipe, &stats);
         let learned = econ::learn(&mut self.monsters[m].skills, &stats, &recipe, &self.data, secs);
         self.monsters[m].learned = Some((recipe.id.clone(), learned, LEARNED_POPUP_TICKS));

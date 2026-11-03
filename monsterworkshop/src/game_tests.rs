@@ -1283,3 +1283,86 @@ fn monsters_sharing_one_plant_all_get_to_harvest_it() {
         assert!(m.skills.applied("harvesting") > before[k], "{} never got a turn: {}", m.name, m.wait_reason);
     }
 }
+
+/// A tool as its makers left it, of oak.
+fn tool(g: &Game, id: &str) -> ItemData {
+    let raw = vec![crate::econ::RawMaterial { good: "oak_log".into(), base_value: 6.0, density: 100.0, spent: false }];
+    ItemData { good: id.into(), quality: 0.6, carried_tags: vec!["oak".into()], raw, depth: 1, value: 6.0, shares: vec![crate::econ::Share { monster: 9, count: 1.0 }], wear: 0, haul: Vec::new(), carted: None }.tap(g)
+}
+
+trait Tap {
+    fn tap(self, g: &Game) -> Self;
+}
+
+impl Tap for ItemData {
+    /// Checks it's a good the data knows.
+    fn tap(self, g: &Game) -> Self {
+        assert!(g.data.try_good(&self.good).is_some(), "{} isn't a good", self.good);
+        self
+    }
+}
+
+fn said(g: &Game, i: usize) -> String {
+    g.monsters[i].bubble.as_ref().map(|b| b.text.clone()).unwrap_or_default()
+}
+
+#[test]
+fn a_monster_takes_gathering_tools_in_hand_and_needs_them_to_gather() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    // Oyster lime wants a hammer and a chisel to knock it loose.
+    let regrow = 10;
+    g.world.plants.push(Plant { x: 20, y: 13, good: "oyster_lime".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (20, 13, Dir::Down);
+    g.script("u");
+    assert!(said(&g, c).contains("MISSING A TOOL"), "{}", said(&g, c));
+    // Space facing a tool on the ground takes it into a free hand.
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (25, 13, Dir::Right);
+    for id in ["stone_hammer", "metal_chisel"] {
+        g.world.items.push(Item::new(26, 13, tool(&g, id)));
+        g.script("u");
+        assert!(g.world.item_at(26, 13).is_none(), "{id} taken: {}", said(&g, c));
+    }
+    assert!(said(&g, c).contains("TAKES THE METAL CHISEL"), "{}", said(&g, c));
+    g.world.items.push(Item::new(26, 13, tool(&g, "stone_hammer")));
+    g.script("u");
+    assert!(said(&g, c).contains("MY HANDS ARE FULL") && g.world.item_at(26, 13).is_some());
+    g.world.items.retain(|it| (it.x, it.y) != (26, 13));
+    // A log is no tool: Space leaves it be.
+    g.world.items.push(Item::new(26, 13, ItemData { good: "oak_log".into(), ..tool(&g, "oak_log") }));
+    g.script("u");
+    assert!(g.world.item_at(26, 13).is_some(), "a log stays on the ground");
+    // With both in hand, it gathers, and the tools wear.
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (20, 13, Dir::Down);
+    g.script("u");
+    for _ in 0..5000 {
+        if g.communes[0].made.contains("oyster_lime") {
+            break;
+        }
+        g.run_ticks(1);
+    }
+    assert!(g.communes[0].made.contains("oyster_lime"), "gathered: {}", said(&g, c));
+    assert!(g.monsters[c].hands.iter().flatten().all(|t| t.wear == 2), "each wears by its weight");
+}
+
+#[test]
+fn the_character_sheet_takes_the_keys_and_puts_a_tool_down() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (25, 13, Dir::Right);
+    g.monsters[c].hands[1] = Some(tool(&g, "stone_hammer"));
+    g.script("c");
+    assert!(g.communes[0].sheet, "C opens it");
+    g.script("D");
+    assert_eq!((g.monsters[c].x, g.monsters[c].y), (25, 13), "the sheet takes the arrow keys");
+    assert_eq!(g.communes[0].sheet_hand, 1, "down chooses the other hand");
+    g.script("u");
+    assert!(g.monsters[c].hands[1].is_none(), "put down: {}", said(&g, c));
+    assert!(g.world.item_at(26, 13).is_some_and(|it| g.world.items[it].good() == "stone_hammer"), "on the tile ahead");
+    g.script("t");
+    assert_eq!(g.communes[0].sheet_page, 1, "Tab turns to its loop");
+    g.script("c");
+    assert!(!g.communes[0].sheet, "C closes it");
+    g.script("R");
+    assert_eq!(g.monsters[c].x, 26, "closed, the arrows walk again (pushing the hammer)");
+}

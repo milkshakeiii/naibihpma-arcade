@@ -527,8 +527,8 @@ pub fn learn(skills: &mut Skills, stats: &Stats, recipe: &GoodType, data: &Data,
 }
 
 /// A gathered raw material, the start of every item history.
-pub fn gather(recipe: &GoodType, gatherer: Crafter, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
-    let c = Craft { recipe, crafter: gatherer, inputs: Vec::new(), tools: Vec::new(), workshop: None };
+pub fn gather(recipe: &GoodType, gatherer: Crafter, tools: Vec<&ItemData>, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
+    let c = Craft { recipe, crafter: gatherer, inputs: Vec::new(), tools, workshop: None };
     produce(&c, data, rng)
 }
 

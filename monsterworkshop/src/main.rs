@@ -440,5 +440,17 @@ fn export_screenshots(dir: &Path) {
     fg.run_ticks(40);
     fg.communes[0].inspecting = true;
     shot(&fg, "39_frontier_kiln.png");
+    // The character sheet, a stone hammer in one hand, then its loop.
+    let c = g.communes[0].controlled;
+    let mut hammer = g.world.items.first().map(|it| it.data.clone()).unwrap_or_else(|| fg.world.items[0].data.clone());
+    (hammer.good, hammer.carried_tags, hammer.quality) = ("stone_hammer".into(), vec!["oak".into()], 0.7);
+    g.monsters[c].hands[0] = Some(hammer);
+    g.communes[0].sheet = true;
+    shot(&g, "40_character_sheet.png");
+    // Its loop: the whole fabric chain, partway round.
+    g.monsters[c].routine = Some(loadtest::fabric_chain(&g, (0, 0)));
+    (g.monsters[c].pc, g.monsters[c].playing) = (4, true);
+    g.communes[0].sheet_page = 1;
+    shot(&g, "41_character_sheet_loop.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

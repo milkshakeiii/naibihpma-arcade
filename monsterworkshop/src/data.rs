@@ -206,6 +206,12 @@ impl Data {
         tags.iter().find(|t| self.variety(t).is_some_and(|v| v.is(category))).map(|t| t.as_str())
     }
 
+    /// Can this good be held in a hand: an implement some gathered good needs (a pick, a
+    /// shovel, a sickle), worked out from the data. Big workshop tools stay on pegs.
+    pub fn holdable(&self, good: &GoodType) -> bool {
+        self.goods.iter().filter(|g| g.is_raw()).flat_map(|g| &g.tools_required_tags).any(|group| !group.is_empty() && matches(&good.type_tags, group))
+    }
+
     /// The color a good's own variety shows in: the hemlock of a hemlock log.
     pub fn own_color(&self, good: &GoodType) -> Option<&str> {
         good.variety.as_ref().and_then(|v| self.variety(&v.name)).and_then(|v| v.color.as_deref())

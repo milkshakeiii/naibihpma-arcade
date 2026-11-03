@@ -123,8 +123,117 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
         draw_roster(g, sp, fb, &v);
     }
     draw_hud(g, sp, fb, &v);
+    if me.sheet {
+        draw_sheet(g, sp, fb, k);
+    }
     if me.help {
         draw_help(fb);
+    }
+}
+
+/// The character sheet (C), the one full-screen page, kept by tradition: the monster itself,
+/// then (Tab) its loop. The world goes on behind it.
+fn draw_sheet(g: &Game, sp: &Sprites, fb: &mut Framebuffer, k: usize) {
+    let me = &g.communes[k];
+    let m = &g.monsters[me.controlled];
+    fb.rect_bevel(0, 0, 400, 300, HUD_FILL, HUD_HI, HUD_SHADOW);
+    let title = if me.sheet_page == 0 { format!("{} THE {}", m.name, m.kind.to_uppercase()) } else { format!("{}'S LOOP", m.name) };
+    fb.text_centered(&title, 200, 8, SPARK + 2, Some(HUD_SHADOW), 1);
+    fb.rect_fill(8, 20, 384, 1, HUD_SHADOW);
+    if me.sheet_page == 0 {
+        sheet_monster(g, sp, fb, me.controlled, me.sheet_hand);
+    } else {
+        sheet_loop(g, fb, me.controlled);
+    }
+    fb.rect_fill(8, 282, 384, 1, HUD_SHADOW);
+    let keys = if me.sheet_page == 0 { "UP/DOWN: HAND   SPACE: PUT IT DOWN   TAB: LOOP   C: CLOSE" } else { "TAB: BACK   C: CLOSE" };
+    fb.text_centered(keys, 200, 287, TEXT_DIM, Some(HUD_SHADOW), 1);
+}
+
+/// Page 1: a big portrait, talents, hands, what it wears and carries inside, its capacities,
+/// its abilities and what each is for, and its skills as bars.
+fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen: usize) {
+    let m = &g.monsters[i];
+    let t = |fb: &mut Framebuffer, x: i32, y: i32, text: &str, col: u8| fb.text(text, x, y, col, Some(HUD_SHADOW), 1);
+    let s = &if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops }[0];
+    // Every pixel three across and three down: whole pixels only.
+    for sy in 0..s.h {
+        for sx in 0..s.w {
+            let c = s.px[(sy * s.w + sx) as usize];
+            if c != 0 {
+                fb.rect_fill(16 + sx * 3, 28 + sy * 3, 3, 3, c);
+            }
+        }
+    }
+    t(fb, 76, 28, "TALENTS", SPARK + 1);
+    for (n, talent) in m.skills.transferable.iter().enumerate() {
+        t(fb, 76, 40 + n as i32 * 10, &talent.replace('_', " ").to_uppercase(), TEXT);
+    }
+    t(fb, 16, 88, "HANDS", SPARK + 1);
+    for (h, held) in m.hands.iter().enumerate() {
+        let y = 100 + h as i32 * 22;
+        if h == chosen {
+            // A small arrow at the chosen hand.
+            for (dx, dy) in [(0, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (0, 4)] {
+                fb.pset(17 + dx, y + 1 + dy, TEXT_GOOD);
+            }
+        }
+        match held {
+            Some(d) => {
+                t(fb, 26, y, &g.good_name(&d.good), TEXT);
+                t(fb, 26, y + 10, &format!("QUALITY {:.2}, WEAR LEFT {}", d.quality, d.durability_left()), TEXT_DIM);
+            }
+            None => t(fb, 26, y, "EMPTY", TEXT_DIM),
+        }
+    }
+    t(fb, 16, 150, "WORN: NOTHING YET", TEXT_DIM);
+    t(fb, 16, 160, "INSIDE: NOTHING YET", TEXT_DIM);
+    let ty = &g.data.monster_types[m.kind.as_str()];
+    let held: f64 = m.hands.iter().flatten().map(|d| crate::econ::weight(g.data.good(&d.good), d)).sum();
+    t(fb, 16, 176, &format!("BODY {:.0} OF {}", held, ty.body_cap), TEXT);
+    t(fb, 16, 186, &format!("MIND 0 OF {}", ty.mind_cap), TEXT);
+    if m.earned > 0.0 {
+        t(fb, 16, 202, &format!("EARNED {} RENOWN", m.earned.floor()), TEXT);
+    }
+    t(fb, 200, 28, "ABILITIES", SPARK + 1);
+    let st = &m.stats;
+    for (a, (name, v)) in [("STR", st.str), ("DEX", st.dex), ("CON", st.con), ("INT", st.int), ("WIS", st.wis), ("CHA", st.cha)].into_iter().enumerate() {
+        let y = 40 + a as i32 * 10;
+        t(fb, 200, y, &format!("{name} {v:>2}"), TEXT);
+        t(fb, 242, y, &inspect::ability_uses(g, a), TEXT_DIM);
+    }
+    t(fb, 200, 108, "SKILLS", SPARK + 1);
+    let mut skills: Vec<(String, f64)> = m.skills.applied.keys().map(|k| (k.clone(), m.skills.applied(k))).filter(|(_, v)| *v > 0.0).collect();
+    skills.sort_by(|a, b| b.1.total_cmp(&a.1));
+    if skills.is_empty() {
+        t(fb, 200, 120, "NONE YET", TEXT_DIM);
+    }
+    for (n, (k, v)) in skills.into_iter().take(15).enumerate() {
+        let y = 120 + n as i32 * 10;
+        t(fb, 200, y, &k.replace('_', " ").to_uppercase(), TEXT);
+        fb.rect_fill(330, y, 52, 6, OUTLINE);
+        fb.rect_fill(331, y + 1, ((v.clamp(0.0, 1.0) * 50.0) as i32).max(1), 4, SPARK + 1);
+    }
+}
+
+/// Page 2: its loop, goal by goal, the one it's on picked out while it's looping.
+fn sheet_loop(g: &Game, fb: &mut Framebuffer, i: usize) {
+    let m = &g.monsters[i];
+    let Some(r) = m.routine.as_ref() else {
+        fb.text("NO LOOP RECORDED YET. R RECORDS ONE.", 16, 30, TEXT_DIM, Some(HUD_SHADOW), 1);
+        return;
+    };
+    let mut y = 30;
+    for (n, goal) in r.goals.iter().enumerate() {
+        let col = if m.playing && n == m.pc { TEXT_GOOD } else { TEXT };
+        for (k, row) in wrap(&inspect::goal_text(g, goal), 56).iter().enumerate() {
+            if y > 270 {
+                return;
+            }
+            let lead = if k == 0 { format!("{:>2}. ", n + 1) } else { "    ".into() };
+            fb.text(&format!("{lead}{row}"), 16, y, col, Some(HUD_SHADOW), 1);
+            y += 10;
+        }
     }
 }
 
@@ -821,6 +930,14 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let (tx, ty) = v.px(m.x, m.y);
                 fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
                 fb.blit(s, x, y, flip);
+                // What it holds, a tool in each hand that's full: a handle and its head.
+                for (h, held) in m.hands.iter().enumerate() {
+                    if held.is_some() {
+                        let hx = if (h == 0) != flip { x + s.w - 3 } else { x + 2 };
+                        fb.rect_fill(hx, y + s.h - 9, 1, 6, WOOD + 2);
+                        fb.rect_fill(hx - 1, y + s.h - 10, 3, 1, TEXT_DIM);
+                    }
+                }
             }
         }
     }

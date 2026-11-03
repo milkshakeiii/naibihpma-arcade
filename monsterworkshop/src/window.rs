@@ -103,6 +103,7 @@ struct Keys {
     f1: Edge,
     f2: Edge,
     esc: Edge,
+    sheet: Edge,
     del: Edge,
 }
 
@@ -126,6 +127,7 @@ impl Keys {
         i.tab_pressed = self.tab.rose(key_down(VK_TAB));
         i.cancel_pressed = self.cancel.rose(key_down(VK_BACK));
         i.help_pressed = self.f1.rose(key_down(VK_F1));
+        i.sheet_pressed = self.sheet.rose(key_down('C' as i32));
         i.quit_pressed = self.esc.rose(key_down(VK_ESCAPE));
         i.delete_pressed = self.del.rose(key_down(VK_DELETE));
         (i, self.f2.rose(key_down(VK_F2)))
@@ -206,6 +208,9 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
         let mut keys = Keys::default();
         let mut latched = Input::default();
         let mut crt = true;
+        // Whether the character sheet is open, as far as this game knows: then Esc closes it
+        // rather than leaving the world.
+        let mut sheet_open = false;
         let mut screen = match connect {
             Some(addr) => {
                 let addr = if addr.contains(':') { addr } else { format!("{addr}:{}", net::DEFAULT_PORT) };
@@ -237,6 +242,11 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
 
             // Playing: keys go out as they change, and pictures are shown as they arrive.
             if let Screen::Play { conn, .. } = &mut screen {
+                let mut polled = polled;
+                sheet_open ^= polled.sheet_pressed;
+                if polled.quit_pressed && sheet_open {
+                    (polled.quit_pressed, polled.close_pressed, sheet_open) = (false, true, false);
+                }
                 if polled.quit_pressed {
                     break 'running;
                 }
