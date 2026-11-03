@@ -34,7 +34,7 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgo";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgov";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -83,6 +83,7 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'q' => "ramie_stalks",
         'n' => "indigofera_leaves",
         'l' => "limestone",
+        'v' => "pumpkin",
         _ => return None,
     })
 }
@@ -241,7 +242,7 @@ impl Plant {
 pub struct Bin {
     pub x: i32,
     pub y: i32,
-    /// The goods it takes.
+    /// What it takes: each a good, or a type of good (a tag) it takes any good of.
     pub accepts: Vec<String>,
     pub stock: Vec<ItemData>,
     pub mouth: Option<(i32, i32)>,
@@ -249,6 +250,23 @@ pub struct Bin {
     pub bounce: u8,
     /// A drop-off: goods pushed in are scored for renown.
     pub scores: bool,
+    /// Built from a kit out in the wilds; a town bin is bottomless and lasts.
+    #[serde(default)]
+    pub frontier: Option<FrontierBin>,
+}
+
+/// What a bin got from its kit: it holds a limited room, takes one kind of good for life (the
+/// first pushed in), and falls apart when nothing has gone in or out for a long while.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FrontierBin {
+    pub kit: String,
+    /// Its wood, for its color and its name while it's empty: "HEMLOCK".
+    pub material: String,
+    /// How much it holds, in storage volume.
+    pub room: f64,
+    /// Ticks since anything went in or came out, and how many goods it held then.
+    pub idle: u32,
+    pub held: usize,
 }
 
 /// What finishing a project does to the world.
@@ -313,6 +331,9 @@ pub struct Wagon {
     pub last_leader: Option<u32>,
     pub timer: u8,
     pub bounce: u8,
+    /// Its wood, for its color: "HEMLOCK" for a hemlock wagon from a kit; empty for the town's.
+    #[serde(default)]
+    pub material: String,
 }
 
 impl Wagon {
@@ -328,8 +349,10 @@ impl Wagon {
 }
 
 impl Bin {
-    pub fn takes(&self, good: &str) -> bool {
-        self.accepts.iter().any(|a| a == good)
+    /// Does it take this good: the good itself, or any good of a type it takes?
+    pub fn takes(&self, good: &crate::data::GoodType) -> bool {
+        // A new bin from a kit takes whatever's pushed in first, and then only that.
+        (self.accepts.is_empty() && self.frontier.is_some()) || self.accepts.iter().any(|a| *a == good.id || good.type_tags.contains(a))
     }
 }
 
@@ -516,8 +539,8 @@ impl World {
                         shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None });
                     }
                     match ch {
-                        'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false }),
-                        'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into(), "dyed_fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true }),
+                        'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None }),
+                        'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None }),
                         'b' => {
                             let &(title, wants, need, project) = board_specs.next().expect("a project for every board");
                             boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0 });
@@ -582,6 +605,7 @@ impl World {
                 last_leader: None,
                 timer: 0,
                 bounce: 0,
+                material: String::new(),
             })
             .collect();
         Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, last_item_id: 0, seed: 0x9E37_79B9 }

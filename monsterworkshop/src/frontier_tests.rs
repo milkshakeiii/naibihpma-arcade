@@ -202,3 +202,103 @@ fn a_loop_works_a_frontier_workshop_like_any_other() {
     g.run_ticks(600);
     assert!(g.communes[0].made.contains("rope"), "{}", g.monsters[0].wait_reason);
 }
+
+#[test]
+fn a_bench_saws_a_log_into_two_planks_of_its_wood() {
+    let mut g = Game::new();
+    let s = bench_in_the_meadow(&mut g);
+    let (pads, pegs) = (g.world.shops[s].pads.clone(), g.world.shops[s].pegs.clone());
+    g.world.items.push(Item::new(pads[0].0, pads[0].1, raw(&g, "oak_log")));
+    g.world.items.push(Item::new(pegs[0].0, pegs[0].1, made(&g, "saw", &["oak_log"], &[])));
+    stand(&mut g, MEADOW, Dir::Down);
+    g.script("u");
+    g.run_ticks(600);
+    let planks: Vec<&ItemData> = g.world.items.iter().map(|it| &it.data).chain(&g.world.shops[s].pending).filter(|d| d.good == "planks").collect();
+    assert_eq!(planks.len(), 2, "{:?}", g.monsters[0].bubble.as_ref().map(|b| &b.text));
+    assert!(planks.iter().all(|p| p.carried_tags == ["oak"]), "oak planks: {:?}", planks[0].carried_tags);
+}
+
+#[test]
+fn the_cloth_reaches_workshop_kits_set_up_their_workshops() {
+    for (kit, kind, pads, pegs, name) in [
+        ("spinnery_kit", "spinnery", 1, 2, "HEMLOCK SPINNERY"),
+        ("loom_house_kit", "loom_house", 1, 1, "HEMLOCK LOOM HOUSE"),
+        ("dye_house_kit", "dye_house", 2, 1, "HEMLOCK DYE HOUSE"),
+        ("indigo_house_kit", "indigo_house", 5, 0, "HEMLOCK INDIGO HOUSE"),
+    ] {
+        let mut g = Game::new();
+        let data = made(&g, kit, &["hemlock_log", "hemlock_log", "cotton_bolls"], &["hemlock"]);
+        g.world.items.push(Item::new(MEADOW.0, MEADOW.1, data));
+        stand(&mut g, (MEADOW.0, MEADOW.1 - 1), Dir::Down);
+        g.script("u");
+        let s = g.world.shops.len() - 1;
+        let shop = &g.world.shops[s];
+        assert_eq!(shop.kind, ShopKind::named(kind), "{kit}: {:?}", g.monsters[0].bubble.as_ref().map(|b| &b.text));
+        assert_eq!((shop.pads.len(), shop.pegs.len(), shop.outs.len()), (pads, pegs, 1), "{kit}");
+        assert_eq!(g.shop_name(s), name);
+    }
+}
+
+/// A hemlock bin kit, unpacked at the meadow by Mogg standing north of it: its chute south.
+fn bin_in_the_meadow(g: &mut Game) -> usize {
+    let data = made(g, "bin_kit", &["hemlock_log", "hemlock_log", "hemlock_log", "hemlock_log", "cotton_bolls", "cotton_bolls", "cotton_bolls", "cotton_bolls"], &["hemlock"]);
+    g.world.items.push(Item::new(MEADOW.0, MEADOW.1, data));
+    stand(g, (MEADOW.0, MEADOW.1 - 1), Dir::Down);
+    g.script("u");
+    let b = g.world.bin_at(MEADOW.0, MEADOW.1).unwrap_or_else(|| panic!("a bin: {:?}", g.monsters[0].bubble.as_ref().map(|b| &b.text)));
+    assert_eq!((g.world.tile(MEADOW.0, MEADOW.1), g.world.bins[b].mouth), (Tile::Bin, Some((MEADOW.0, MEADOW.1 + 1))), "its chute on the far side");
+    b
+}
+
+#[test]
+fn a_bin_from_a_kit_takes_one_kind_of_good_up_to_its_room() {
+    let mut g = Game::new();
+    let b = bin_in_the_meadow(&mut g);
+    assert_eq!(g.bin_name(b), "THE HEMLOCK BIN", "named by its wood while it's empty");
+    let room = g.world.bins[b].frontier.as_ref().unwrap().room;
+    assert!((room - 12.0).abs() < 1e-9, "the plainest bin holds 12: {room}");
+    assert!(g.bin_takes(b, "oak_log").is_ok(), "an empty one takes anything");
+    g.put_in_bin(b, raw(&g, "oak_log"));
+    assert_eq!(g.bin_name(b), "THE OAK LOG BIN", "and then it's named for it");
+    assert!(g.bin_takes(b, "cotton_bolls").unwrap_err().contains("ONLY OAK LOG"));
+    for _ in 1..12 {
+        assert!(g.bin_takes(b, "oak_log").is_ok());
+        g.put_in_bin(b, raw(&g, "oak_log"));
+    }
+    assert!(g.bin_takes(b, "oak_log").unwrap_err().contains("IS FULL"), "twelve logs fill it");
+    assert_eq!(g.world.bins[b].accepts, ["oak_log"], "a bin takes one kind for life");
+}
+
+#[test]
+fn a_bin_left_alone_falls_apart_and_sets_its_goods_out() {
+    let mut g = Game::new();
+    let b = bin_in_the_meadow(&mut g);
+    for _ in 0..3 {
+        g.put_in_bin(b, raw(&g, "oak_log"));
+    }
+    // Its chute blocked, so nothing comes out either.
+    g.world.items.push(Item::new(MEADOW.0, MEADOW.1 + 1, raw(&g, "limestone")));
+    g.run_ticks(2);
+    g.world.bins[b].frontier.as_mut().unwrap().idle = crate::frontier::BIN_IDLE_TICKS - 1;
+    g.run_ticks(2);
+    assert!(g.world.bin_at(MEADOW.0, MEADOW.1).is_none() && g.world.tile(MEADOW.0, MEADOW.1) == Tile::Grass, "gone");
+    assert_eq!(g.world.items.iter().filter(|it| it.good() == "oak_log").count(), 3, "its logs set out around it");
+}
+
+#[test]
+fn a_wagon_kit_unpacks_a_train_even_on_the_road_ready_to_lead() {
+    let mut g = Game::new();
+    let before = g.world.wagons.len();
+    let data = made(&g, "wagon_kit", &["oak_log", "oak_log", "oak_log", "hemlock_log", "hemlock_log", "elder_sticks", "pumpkin"], &["hemlock", "pumpkin"]);
+    // On Pinewater's main street, a cart is welcome where a workshop isn't.
+    g.world.items.push(Item::new(20, 9, data));
+    stand(&mut g, (20, 8), Dir::Down);
+    g.script("u");
+    assert_eq!(g.world.wagons.len(), before + 1, "{:?}", g.monsters[0].bubble.as_ref().map(|b| &b.text));
+    let w = g.world.wagons.last().unwrap();
+    assert_eq!((w.pumpkin, w.at, w.room, w.material.as_str()), ((20, 9), (20, 10), 6.0, "HEMLOCK"), "pumpkin where the kit was, its cart beyond");
+    assert!(w.power >= crate::world::TOWN_WAGON_POWER, "a well-made one pulls at least like the town's: {}", w.power);
+    g.script("u");
+    let mogg = g.monsters[g.communes[0].controlled].id;
+    assert_eq!(g.world.wagons.last().unwrap().leader, Some(mogg), "Space again takes its lead");
+}

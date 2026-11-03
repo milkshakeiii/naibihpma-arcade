@@ -385,7 +385,7 @@ fn export_screenshots(dir: &Path) {
     fb.rect_fill(0, 0, 400, 300, palette::PLANK + 1);
     for (k, id) in goods.iter().enumerate() {
         let (x, y) = ((k % 3) as i32 * 133 + 6, (k / 3) as i32 * 32 + 6);
-        let s = sprites.item(id);
+        let s = sprites.item(id, None).0;
         fb.blit(s, x + (16 - s.w) / 2, y + 16 - s.h, false);
         match sprites.icon(id) {
             Some(icon) => fb.blit(icon, x + 22, y + 4, false),

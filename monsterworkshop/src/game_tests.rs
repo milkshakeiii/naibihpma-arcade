@@ -75,7 +75,10 @@ fn the_whole_chain_makes_cotton_fabric_with_a_full_history() {
     g.run_ticks(10);
     g.script(&bruna_chain());
     assert_eq!(g.cloth_stored(), 1, "one bolt of fabric in the cloth store");
-    let fabric = &g.world.bins.iter().find(|b| b.takes("fabric")).unwrap().stock[0];
+    let store = g.world.bins.iter().find(|b| b.takes(g.data.good("fabric"))).unwrap();
+    assert!(store.takes(g.data.good("royal_blue_dyed_fabric")), "the cloth store takes any kind of fabric");
+    assert_eq!(crate::inspect::plant_name(&g.data, "hemp_stalks"), "HEMP", "a plant with no name of its own goes by its variety");
+    let fabric = &store.stock[0];
     assert_eq!(fabric.good, "fabric");
     assert!(fabric.carried_tags.contains(&"cotton".to_string()), "{:?}", fabric.carried_tags);
     assert_eq!(fabric.depth, 3, "bolls, slivers, thread, fabric");

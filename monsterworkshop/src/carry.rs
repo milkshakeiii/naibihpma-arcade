@@ -28,7 +28,7 @@ pub(crate) type CarryStep = (Dir, bool);
 impl Game {
     /// Is this tile where the good is meant to end up a bin, board or wagon that takes it?
     pub(crate) fn takes_into(&self, (x, y): (i32, i32), good: &str) -> bool {
-        self.world.bin_at(x, y).is_some_and(|b| self.world.bins[b].takes(good))
+        self.world.bin_at(x, y).is_some_and(|b| self.bin_takes(b, good).is_ok())
             || self.world.board_at(x, y).is_some_and(|b| !self.world.boards[b].done() && self.board_takes(b, good))
             || self.world.wagon_at(x, y).is_some_and(|w| self.world.wagons[w].good().is_none_or(|g| g == good))
     }

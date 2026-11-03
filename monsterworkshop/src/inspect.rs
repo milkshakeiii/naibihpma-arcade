@@ -270,7 +270,7 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         first.extend(quality(q, q, q));
     }
     // Renown only means something for goods a drop-off or a project takes.
-    let wanted = g.world.bins.iter().any(|b| b.scores && b.takes(&item.good)) || (0..g.world.boards.len()).any(|b| !g.world.boards[b].done() && g.board_takes(b, &item.good));
+    let wanted = g.data.try_good(&item.good).is_some_and(|gt| g.world.bins.iter().any(|b| b.scores && b.takes(gt))) || (0..g.world.boards.len()).any(|b| !g.world.boards[b].done() && g.board_takes(b, &item.good));
     let mut details = Vec::new();
     if wanted {
         first.push(line(format!("WORTH {} RENOWN", (item.value * RENOWN_PER_VALUE).round()), TEXT).icon(Icon::Renown));
@@ -399,11 +399,13 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
     let (learns, more) = learning(g, recipe, c, "HARVESTS");
     first.push(learns);
     details.extend(more);
-    Card::two(plant_name(&plant.good), first, details, (plant.x, plant.y))
+    Card::two(plant_name(&g.data, &plant.good), first, details, (plant.x, plant.y))
 }
 
-pub(crate) fn plant_name(good: &str) -> &'static str {
-    match good {
+/// What a plant is called: its own name where it has one, otherwise its variety and how it
+/// grows ("PINE TREE"), otherwise its good's name.
+pub(crate) fn plant_name(data: &crate::data::Data, good: &str) -> String {
+    let own = match good {
         "hemlock_log" => "HEMLOCK TREE",
         "oak_log" => "OAK TREE",
         "elder_sticks" => "ELDER BUSH",
@@ -412,19 +414,33 @@ pub(crate) fn plant_name(good: &str) -> &'static str {
         "ramie_stalks" => "RAMIE",
         "indigofera_leaves" => "INDIGOFERA",
         "limestone" => "LIMESTONE OUTCROP",
-        _ => "COTTON PLANT",
+        "cotton_bolls" => "COTTON PLANT",
+        _ => "",
+    };
+    let Some(gt) = data.try_good(good).filter(|_| own.is_empty()) else { return own.to_string() };
+    let has = |t: &str| gt.type_tags.iter().any(|x| x == t);
+    let variety = gt.type_tags.iter().find(|t| data.variety(t).is_some()).map_or_else(|| gt.name.to_uppercase(), |t| t.to_uppercase());
+    match () {
+        _ if has("log") => format!("{variety} TREE"),
+        _ if has("sticks") => format!("{variety} BUSH"),
+        _ if has("stone") => format!("{variety} OUTCROP"),
+        _ if has("draft") => format!("{variety} PATCH"),
+        _ => variety,
     }
 }
 
 fn bin_card(g: &Game, b: usize) -> Card {
     let bin = &g.world.bins[b];
-    let name = g.good_name(&bin.accepts[0]);
+    let name = g.bin_name(b);
     let mut lines: Vec<Line> = bin
         .accepts
         .iter()
-        .map(|a| line(format!("{} {}", bin.stock.iter().filter(|d| &d.good == a).count(), g.good_name(a)), TEXT).icon(Icon::Good(a.clone())))
+        .map(|a| {
+            let of = |d: &&crate::econ::ItemData| d.good == *a || g.data.try_good(&d.good).is_some_and(|gt| gt.type_tags.contains(a));
+            line(format!("{} {}", bin.stock.iter().filter(of).count(), g.good_name(a)), TEXT).icon(Icon::Good(a.clone()))
+        })
         .collect();
-    if !bin.stock.is_empty() && bin.accepts.iter().all(|a| g.data.good(a).has_quality) {
+    if !bin.stock.is_empty() && bin.stock.iter().all(|d| g.data.try_good(&d.good).is_some_and(|gt| gt.has_quality)) {
         let qs: Vec<f64> = bin.stock.iter().map(|i| i.quality).collect();
         let avg = qs.iter().sum::<f64>() / qs.len() as f64;
         let (lo, hi) = qs.iter().fold((f64::MAX, f64::MIN), |(a, b), &q| (a.min(q), b.max(q)));
@@ -436,7 +452,14 @@ fn bin_card(g: &Game, b: usize) -> Card {
     if bin.mouth.is_some() {
         lines.push(line("ITS CHUTE PUSHES THEM OUT ONE AT A TIME.", TEXT_DIM));
     }
-    Card::one(format!("{name} BIN"), lines, (bin.x, bin.y))
+    if let Some(f) = &bin.frontier {
+        let used: f64 = bin.stock.iter().map(|d| g.data.good(&d.good).storage_volume).sum();
+        lines.push(line(format!("HOLDS {used:.1} OF {:.1}.", f.room), TEXT));
+        if bin.accepts.is_empty() {
+            lines.push(line("IT TAKES THE FIRST KIND OF GOOD PUSHED IN, AND ONLY THAT.", TEXT_DIM));
+        }
+    }
+    Card::one(name.trim_start_matches("THE ").to_string(), lines, (bin.x, bin.y))
 }
 
 /// The forecast for the monster `i` working at shop `s` with what is there now.

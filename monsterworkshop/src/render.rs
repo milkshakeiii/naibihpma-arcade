@@ -67,28 +67,26 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     draw_building_labels(g, fb, &v);
     for p in g.world.plants.iter().filter(|p| v.sees(p.x, p.y)) {
         let (x, y) = v.px(p.x, p.y);
-        let s = sp.plant(&p.good, p.stage());
+        let s = sp.plant(&p.good, g.data.try_good(&p.good), p.stage());
         fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
     }
     draw_boards_and_signs(g, sp, fb, &v);
     for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1) && s.frontier.as_ref().is_none_or(|f| !f.fallen)) {
         let (x, y) = v.px(s.spot.0, s.spot.1);
-        match s.kind.look() {
-            "wheel" => fb.blit(&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], x, y - 5, false),
-            "loom" => fb.blit(&sp.loom, x, y - 5, false),
-            "kiln" => fb.blit(&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], x, y - 5, false),
-            "indigo_vat" => fb.blit(&sp.indigo_vat, x, y - 4, false),
-            "dye_vat" => fb.blit(&sp.dye_vat, x, y - 4, false),
-            _ => {
-                // A bench. A frontier one in its wood's tones: hemlock lighter than oak.
-                let hemlock = s.frontier.as_ref().is_some_and(|f| f.material == "HEMLOCK");
-                let bench = if hemlock { &sp.bench_hemlock } else { &sp.bench };
-                fb.blit(bench, x, y + TS - bench.h - 4, false)
-            }
-        }
+        let (art, dy) = match s.kind.look() {
+            "wheel" => (&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], -5),
+            "loom" => (&sp.loom, -5),
+            "kiln" => (&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], -5),
+            "indigo_vat" => (&sp.indigo_vat, -4),
+            "dye_vat" => (&sp.dye_vat, -4),
+            _ => (&sp.bench, TS - sp.bench.h - 4),
+        };
+        // A frontier workshop in its material's tones: a hemlock one lighter than an oak one.
+        let wood = s.frontier.as_ref().and_then(|f| g.data.variety(&f.material.to_lowercase())).and_then(|v| v.color.as_deref()).and_then(ramp_named);
+        blit_quality(fb, art, x, y + dy, 0, wood_tint(wood));
     }
     for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
-        draw_bin(sp, fb, &v, b);
+        draw_bin(g, sp, fb, &v, b);
     }
     draw_kit_ghost(g, fb, &v);
     // How many more goods wait inside a workshop or a harvested plant.
@@ -378,20 +376,47 @@ fn badge(fb: &mut Framebuffer, x: i32, y: i32, n: usize) {
 
 /// A sprite brightened or dimmed by quality in half steps: odd levels shift every other
 /// pixel (ordered dither), even levels shift them all. The dark hull never changes.
-/// A dyed good takes its dye's color: its cotton-white pixels move to the dye's ramp.
-fn dye_ramp(item: &crate::econ::ItemData) -> Option<u8> {
-    item.carried_tags.iter().any(|t| t == "indigo").then_some(WATER)
+/// A good's colors from its varieties: a dyed good's cotton-white pixels take its dye's color,
+/// and its wood takes the color of the wood it's made of (a kit's, of its material, as its
+/// workshop will).
+fn tint(data: &crate::data::Data, item: &crate::econ::ItemData) -> Option<Tint> {
+    let color = |tag: &str| data.variety(tag).and_then(|v| v.color.as_deref()).and_then(ramp_named);
+    let dye = item.carried_tags.iter().find_map(|t| data.variety(t).filter(|v| v.is("dye")).and_then(|v| color(&v.tag)));
+    if let Some(to) = dye {
+        return Some(Tint { from: ramp_named("cotton")?, to });
+    }
+    let of = crate::frontier::named_by(&item.good).unwrap_or("wood");
+    wood_tint(color(data.variety_in(&item.carried_tags, of)?))
 }
 
-fn blit_quality(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32, level: i32, dye: Option<u8>) {
+/// Wood drawn in another wood's ramp, unless it's the wood the art is drawn in already.
+fn wood_tint(to: Option<(u8, u8)>) -> Option<Tint> {
+    let from = ramp_named("wood")?;
+    to.filter(|&to| to != from).map(|to| Tint { from, to })
+}
+
+/// A sprite, maybe flipped, recolored by `tint`.
+fn blit_tinted(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32, flip: bool, tint: Option<Tint>) {
+    let Some(t) = tint else { return fb.blit(s, x, y, flip) };
+    for sy in 0..s.h {
+        for sx in 0..s.w {
+            let c = s.px[(sy * s.w + if flip { s.w - 1 - sx } else { sx }) as usize];
+            if c != 0 {
+                fb.pset(x + sx, y + sy, t.apply(c));
+            }
+        }
+    }
+}
+
+fn blit_quality(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32, level: i32, tint: Option<Tint>) {
     for sy in 0..s.h {
         for sx in 0..s.w {
             let mut c = s.px[(sy * s.w + sx) as usize];
             if c == 0 {
                 continue;
             }
-            if let Some(ramp) = dye.filter(|_| (COTTON..COTTON + 3).contains(&c)) {
-                c = ramp + (c - COTTON);
+            if let Some(t) = tint {
+                c = t.apply(c);
             }
             let half = level % 2 != 0 && (x + sx + y + sy) % 2 == 0;
             let k = level / 2 + if half { level.signum() } else { 0 };
@@ -629,14 +654,16 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
     }
 }
 
-fn draw_bin(sp: &Sprites, fb: &mut Framebuffer, v: &View, b: &Bin) {
+fn draw_bin(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, b: &Bin) {
     let (x0, y0) = v.px(b.x, b.y);
     let y0 = y0 - (b.bounce > 1) as i32;
-    fb.rect_bevel(x0 + 1, y0 + 2, 14, 14, WOOD + 1, WOOD + 3, WOOD);
+    // One from a kit in its wood's tones.
+    let wood = b.frontier.as_ref().and_then(|f| g.data.variety(&f.material.to_lowercase())).and_then(|v| v.color.as_deref()).and_then(ramp_named).map_or(WOOD, |r| r.0);
+    fb.rect_bevel(x0 + 1, y0 + 2, 14, 14, wood + 1, wood + 3, wood);
     for y in [y0 + 6, y0 + 10] {
-        fb.rect_fill(x0 + 2, y, 12, 1, WOOD);
+        fb.rect_fill(x0 + 2, y, 12, 1, wood);
     }
-    if let Some(icon) = sp.icon(&b.accepts[0]) {
+    if let Some(icon) = b.accepts.first().and_then(|a| sp.icon(a)) {
         fb.blit(icon, x0 + 4, y0 + 5, false);
     }
     if let Some((mx, my)) = b.mouth {
@@ -707,7 +734,11 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let it = &g.world.items[i];
                 // A tool on a peg hangs there as its icon, where the empty peg's ghost was.
                 let hung = g.world.tile(it.x, it.y) == Tile::Peg && it.slide.is_none();
-                let s = sp.icon(it.good()).filter(|_| hung).unwrap_or_else(|| sp.item_of(&it.data));
+                let gt = g.data.try_good(it.good());
+                let (s, typed) = match sp.icon(it.good()).filter(|_| hung) {
+                    Some(icon) => (icon, None),
+                    None => sp.item(it.good(), gt),
+                };
                 let (ox, oy) = Slide::offset(it.slide);
                 let (tx, ty) = v.px(it.x, it.y);
                 let jitter = if it.locked { (g.frame / 2 % 2) as i32 } else { 0 };
@@ -717,9 +748,11 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                     fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
                 }
                 // Ungraded goods have no quality to show: no tint, no twinkle.
-                let graded = g.data.try_good(it.good()).is_some_and(|gt| gt.has_quality);
+                let graded = gt.is_some_and(|gt| gt.has_quality);
                 let q = it.data.quality;
-                blit_quality(fb, s, x, y, if graded { quality_level(q) } else { 0 }, dye_ramp(&it.data));
+                // Drawn with its type's art, it shows its own variety's color.
+                let own = typed.zip(gt.and_then(|gt| g.data.own_color(gt)).and_then(ramp_named)).map(|(from, to)| Tint { from, to });
+                blit_quality(fb, s, x, y, if graded { quality_level(q) } else { 0 }, tint(&g.data, &it.data).or(own));
                 if graded && q >= EXCEPTIONAL {
                     // A slow twinkle: exceptional goods every two seconds, masterworks twice as often.
                     let period = if q >= MASTERWORK { 15 } else { 30 };
@@ -750,8 +783,10 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let (ox, oy) = Slide::offset(w.slide);
                 let (x, y) = (tx + ox + (TS - s.w) / 2, ty + oy + TS - s.h - (w.bounce > 1) as i32);
                 fb.rect_checker(tx + ox + 2, ty + oy + TS - 2, 12, 2, SHADOW);
-                // The tailgate is drawn on the left; face it away from the pumpkin.
-                fb.blit(s, x, y, w.pumpkin.0 < w.at.0);
+                // The tailgate is drawn on the left; face it away from the pumpkin. One from a
+                // kit in its wood's tones.
+                let wood = g.data.variety(&w.material.to_lowercase()).and_then(|v| v.color.as_deref()).and_then(ramp_named);
+                blit_tinted(fb, s, x, y, w.pumpkin.0 < w.at.0, wood_tint(wood));
                 if let Some(icon) = w.good().and_then(|good| sp.icon(good)) {
                     fb.blit(icon, x + 1, y - 2, false);
                 }

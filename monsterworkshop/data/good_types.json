@@ -86,7 +86,13 @@
         "silk",
         "silkworm cacoons"
       ],
-      "value_added_shares": 8
+      "value_added_shares": 8,
+      "variety": {
+        "name": "silk",
+        "of": [
+          "textiles"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -160,13 +166,7 @@
       "id": "fabric",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "cotton",
-          "hemp",
-          "kudzu",
-          "ramie",
-          "silk",
-          "velvetleaf"
+          "textiles"
         ]
       ],
       "input_goods_tags_required": [
@@ -246,7 +246,14 @@
         "bast",
         "ashy"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "ramie",
+        "of": [
+          "textiles",
+          "ash"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -284,7 +291,13 @@
         "cotton",
         "bolls"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "cotton",
+        "of": [
+          "textiles"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -293,13 +306,7 @@
       "id": "bast_fiber",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "cotton",
-          "hemp",
-          "kudzu",
-          "ramie",
-          "silk",
-          "velvetleaf"
+          "textiles"
         ]
       ],
       "input_goods_tags_required": [
@@ -452,7 +459,13 @@
         "grain",
         "oily"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "cotton",
+        "of": [
+          "oil"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -463,13 +476,7 @@
       "id": "thread",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "cotton",
-          "hemp",
-          "kudzu",
-          "ramie",
-          "silk",
-          "velvetleaf"
+          "textiles"
         ]
       ],
       "input_goods_tags_required": [
@@ -524,22 +531,10 @@
       "id": "rope",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "cotton",
-          "hemp",
-          "kudzu",
-          "ramie",
-          "silk",
-          "velvetleaf"
+          "textiles"
         ],
         [
-          "climbing hempvine",
-          "cotton",
-          "hemp",
-          "kudzu",
-          "ramie",
-          "silk",
-          "velvetleaf"
+          "textiles"
         ]
       ],
       "input_goods_tags_required": [
@@ -616,7 +611,14 @@
         "bast",
         "ashy"
       ],
-      "value_added_shares": 5
+      "value_added_shares": 5,
+      "variety": {
+        "name": "kudzu",
+        "of": [
+          "textiles",
+          "ash"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -657,7 +659,14 @@
         "bast",
         "ashy"
       ],
-      "value_added_shares": 4
+      "value_added_shares": 4,
+      "variety": {
+        "name": "hemp",
+        "of": [
+          "textiles",
+          "ash"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -697,7 +706,13 @@
         "stalks",
         "bast"
       ],
-      "value_added_shares": 4
+      "value_added_shares": 4,
+      "variety": {
+        "name": "velvetleaf",
+        "of": [
+          "textiles"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -749,7 +764,14 @@
         "bast",
         "ashy"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "climbing hempvine",
+        "of": [
+          "textiles",
+          "ash"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -758,8 +780,9 @@
       "id": "whole_grain",
       "input_goods_tags_carryover": [
         [
-          "oily",
-          "unhulled"
+          "grain",
+          "+oily",
+          "+unhulled"
         ]
       ],
       "input_goods_tags_required": [
@@ -886,7 +909,13 @@
         "seeds",
         "oily"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "safflower",
+        "of": [
+          "oil"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -1148,10 +1177,7 @@
       "id": "lye",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "hemp",
-          "kudzu",
-          "ramie"
+          "ash"
         ],
         []
       ],
@@ -1290,7 +1316,13 @@
         "dye",
         "crimson"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "crimson",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -1342,7 +1374,13 @@
         "dye",
         "pink"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "pink",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -1480,7 +1518,13 @@
         "dye",
         "wood red"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "wood red",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -1534,7 +1578,13 @@
         "dye",
         "purple"
       ],
-      "value_added_shares": 5
+      "value_added_shares": 5,
+      "variety": {
+        "name": "purple",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -1588,7 +1638,13 @@
         "dye",
         "canary yellow"
       ],
-      "value_added_shares": 8
+      "value_added_shares": 8,
+      "variety": {
+        "name": "canary yellow",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -1643,7 +1699,13 @@
         "dye",
         "golden yellow"
       ],
-      "value_added_shares": 9
+      "value_added_shares": 9,
+      "variety": {
+        "name": "golden yellow",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -1654,8 +1716,7 @@
       "id": "indigo",
       "input_goods_tags_carryover": [
         [
-          "pigweed indigo",
-          "indigofera"
+          "indigo plant"
         ],
         [],
         [],
@@ -1707,7 +1768,14 @@
         "indigo",
         "dye"
       ],
-      "value_added_shares": 8
+      "value_added_shares": 8,
+      "variety": {
+        "name": "indigo",
+        "of": [
+          "dye"
+        ],
+        "color": "water"
+      }
     },
     {
       "destabilizer_skills": [],
@@ -1799,7 +1867,13 @@
         "indigofera",
         "leaves"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "indigofera",
+        "of": [
+          "indigo plant"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -1840,7 +1914,13 @@
         "pigweed indigo",
         "leaves"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "pigweed indigo",
+        "of": [
+          "indigo plant"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -1894,7 +1974,13 @@
         "dye",
         "tea brown"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "tea brown",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -1992,7 +2078,13 @@
         "dye",
         "dark green"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "dark green",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -2047,7 +2139,13 @@
         "dye",
         "bright green"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "bright green",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -2101,7 +2199,13 @@
         "dye",
         "light green"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "light green",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -2155,7 +2259,13 @@
         "dye",
         "deep sky blue"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "deep sky blue",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -2209,7 +2319,13 @@
         "dye",
         "eggshell blue"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "eggshell blue",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -2268,7 +2384,13 @@
         "dye",
         "black"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "black",
+        "of": [
+          "dye"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -2279,29 +2401,10 @@
       "id": "dyed_fabric",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "cotton",
-          "hemp",
-          "kudzu",
-          "ramie",
-          "silk",
-          "velvetleaf"
+          "textiles"
         ],
         [
-          "black",
-          "bright green",
-          "canary yellow",
-          "crimson",
-          "dark green",
-          "deep sky blue",
-          "eggshell blue",
-          "golden yellow",
-          "indigo",
-          "light green",
-          "pink",
-          "purple",
-          "tea brown",
-          "wood red"
+          "dye"
         ]
       ],
       "input_goods_tags_required": [
@@ -2356,13 +2459,7 @@
       "id": "royal_blue_dyed_fabric",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "cotton",
-          "hemp",
-          "kudzu",
-          "ramie",
-          "silk",
-          "velvetleaf"
+          "textiles"
         ],
         [],
         [],
@@ -2457,7 +2554,13 @@
         "grainy",
         "ashy"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "rice",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2502,7 +2605,13 @@
         "grainy",
         "ashy"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "rice",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2547,7 +2656,13 @@
         "grainy",
         "unhulled"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "wheat",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2556,14 +2671,8 @@
       "id": "hulled_grain",
       "input_goods_tags_carryover": [
         [
-          "barley",
-          "dark barley",
-          "little millet",
-          "oily",
-          "rice",
-          "sesame",
-          "sorghum",
-          "wheat"
+          "grain",
+          "+oily"
         ]
       ],
       "input_goods_tags_required": [
@@ -2616,13 +2725,7 @@
       "id": "flour",
       "input_goods_tags_carryover": [
         [
-          "barley",
-          "dark barley",
-          "little millet",
-          "rice",
-          "sesame",
-          "sorghum",
-          "wheat"
+          "grain"
         ]
       ],
       "input_goods_tags_required": [
@@ -2674,13 +2777,7 @@
       "id": "flour_powered",
       "input_goods_tags_carryover": [
         [
-          "barley",
-          "dark barley",
-          "little millet",
-          "rice",
-          "sesame",
-          "sorghum",
-          "wheat"
+          "grain"
         ]
       ],
       "input_goods_tags_required": [
@@ -2759,7 +2856,13 @@
         "stalks",
         "grainy"
       ],
-      "value_added_shares": 5
+      "value_added_shares": 5,
+      "variety": {
+        "name": "barley",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2803,7 +2906,13 @@
         "stalks",
         "grainy"
       ],
-      "value_added_shares": 4
+      "value_added_shares": 4,
+      "variety": {
+        "name": "sorghum",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2849,7 +2958,13 @@
         "unhulled",
         "oily"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "sesame",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2893,7 +3008,13 @@
         "stalks",
         "grainy"
       ],
-      "value_added_shares": 3
+      "value_added_shares": 3,
+      "variety": {
+        "name": "little millet",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2937,7 +3058,13 @@
         "stalks",
         "grainy"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "dark barley",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -2982,7 +3109,13 @@
         "grainy",
         "ashy"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "rice",
+        "of": [
+          "grain"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -3125,7 +3258,13 @@
         "sugar cane",
         "white sugar"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "white sugar",
+        "of": [
+          "sugar cane"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -3168,7 +3307,13 @@
         "sugar cane",
         "brown sugar"
       ],
-      "value_added_shares": 7
+      "value_added_shares": 7,
+      "variety": {
+        "name": "brown sugar",
+        "of": [
+          "sugar cane"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -3179,8 +3324,7 @@
       "id": "sugar",
       "input_goods_tags_carryover": [
         [
-          "white sugar",
-          "brown sugar"
+          "sugar cane"
         ]
       ],
       "input_goods_tags_required": [
@@ -3299,13 +3443,7 @@
       "id": "malt",
       "input_goods_tags_carryover": [
         [
-          "barley",
-          "dark barley",
-          "little millet",
-          "rice",
-          "sesame",
-          "sorghum",
-          "wheat"
+          "grain"
         ],
         [],
         []
@@ -3391,7 +3529,13 @@
         "clay",
         "red clay"
       ],
-      "value_added_shares": 9
+      "value_added_shares": 9,
+      "variety": {
+        "name": "red clay",
+        "of": [
+          "clay"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -3431,7 +3575,13 @@
         "clay",
         "yellow clay"
       ],
-      "value_added_shares": 9
+      "value_added_shares": 9,
+      "variety": {
+        "name": "yellow clay",
+        "of": [
+          "clay"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -3471,7 +3621,13 @@
         "clay",
         "blue clay"
       ],
-      "value_added_shares": 9
+      "value_added_shares": 9,
+      "variety": {
+        "name": "blue clay",
+        "of": [
+          "clay"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -3511,7 +3667,13 @@
         "clay",
         "white clay"
       ],
-      "value_added_shares": 9
+      "value_added_shares": 9,
+      "variety": {
+        "name": "white clay",
+        "of": [
+          "clay"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -3551,7 +3713,13 @@
         "clay",
         "black clay"
       ],
-      "value_added_shares": 9
+      "value_added_shares": 9,
+      "variety": {
+        "name": "black clay",
+        "of": [
+          "clay"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -3562,12 +3730,7 @@
       "id": "clay_tiles",
       "input_goods_tags_carryover": [
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "clay"
         ]
       ],
       "input_goods_tags_required": [
@@ -3627,12 +3790,7 @@
       "id": "bricks",
       "input_goods_tags_carryover": [
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "clay"
         ]
       ],
       "input_goods_tags_required": [
@@ -3858,10 +4016,7 @@
       "id": "ash_glaze",
       "input_goods_tags_carryover": [
         [
-          "climbing hempvine",
-          "hemp",
-          "kudzu",
-          "ramie"
+          "ash"
         ],
         [],
         []
@@ -3975,12 +4130,7 @@
       "id": "porcelain_clay_paste",
       "input_goods_tags_carryover": [
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "clay"
         ],
         []
       ],
@@ -4031,7 +4181,13 @@
         "clay",
         "porcelain"
       ],
-      "value_added_shares": 5
+      "value_added_shares": 5,
+      "variety": {
+        "name": "porcelain",
+        "of": [
+          "clay"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -4043,12 +4199,7 @@
       "input_goods_tags_carryover": [
         [],
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "clay"
         ]
       ],
       "input_goods_tags_required": [
@@ -4103,12 +4254,7 @@
       "id": "ceramic_cup",
       "input_goods_tags_carryover": [
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "clay"
         ],
         [],
         []
@@ -4178,8 +4324,12 @@
         [],
         [],
         [],
-        [],
-        []
+        [
+          "metal"
+        ],
+        [
+          "metal"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -4265,7 +4415,9 @@
       "has_quality": true,
       "id": "metal_pot",
       "input_goods_tags_carryover": [
-        [],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -4322,12 +4474,7 @@
       "id": "ceramic_pot_mold",
       "input_goods_tags_carryover": [
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "clay"
         ],
         []
       ],
@@ -4400,8 +4547,12 @@
         [],
         [],
         [],
-        [],
-        []
+        [
+          "metal"
+        ],
+        [
+          "metal"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -4506,8 +4657,12 @@
       "id": "large_mirror",
       "input_goods_tags_carryover": [
         [],
-        [],
-        [],
+        [
+          "metal"
+        ],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -4564,12 +4719,7 @@
       "id": "ceramic_sycee_mold",
       "input_goods_tags_carryover": [
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "clay"
         ],
         []
       ],
@@ -4626,8 +4776,12 @@
       "has_quality": true,
       "id": "sycee",
       "input_goods_tags_carryover": [
-        [],
-        [],
+        [
+          "metal"
+        ],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -4687,7 +4841,9 @@
       "has_quality": true,
       "id": "stone_anvil",
       "input_goods_tags_carryover": [
-        []
+        [
+          "stone"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -4742,8 +4898,12 @@
       "has_quality": true,
       "id": "metal_anvil",
       "input_goods_tags_carryover": [
-        [],
-        [],
+        [
+          "metal"
+        ],
+        [
+          "metal"
+        ],
         [],
         []
       ],
@@ -4814,18 +4974,14 @@
       "has_quality": true,
       "id": "sand_mold",
       "input_goods_tags_carryover": [
-        [],
         [
-          "black clay",
-          "blue clay",
-          "porcelain",
-          "red clay",
-          "white clay",
-          "yellow clay"
+          "sand"
         ],
         [
-          "die",
-          "mirror"
+          "clay"
+        ],
+        [
+          "pattern"
         ]
       ],
       "input_goods_tags_required": [
@@ -4874,8 +5030,12 @@
       "has_quality": true,
       "id": "mirror_pattern",
       "input_goods_tags_carryover": [
-        [],
-        [],
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -4928,7 +5088,13 @@
         "pattern",
         "mirror"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "mirror",
+        "of": [
+          "pattern"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -4938,7 +5104,9 @@
       "has_quality": true,
       "id": "knife",
       "input_goods_tags_carryover": [
-        [],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -5002,10 +5170,14 @@
       "has_quality": true,
       "id": "metal_axe",
       "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
         [],
         [],
-        [],
-        []
+        [
+          "wood"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -5074,10 +5246,14 @@
       "has_quality": true,
       "id": "metal_hammer",
       "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
         [],
         [],
-        [],
-        []
+        [
+          "wood"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -5146,7 +5322,9 @@
       "has_quality": true,
       "id": "flail",
       "input_goods_tags_carryover": [
-        [],
+        [
+          "wood"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -5195,7 +5373,9 @@
       "has_quality": true,
       "id": "file",
       "input_goods_tags_carryover": [
-        [],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -5263,7 +5443,9 @@
       "has_quality": true,
       "id": "needle",
       "input_goods_tags_carryover": [
-        []
+        [
+          "metal"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -5314,7 +5496,9 @@
       "has_quality": true,
       "id": "wire",
       "input_goods_tags_carryover": [
-        [],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -5374,9 +5558,13 @@
       "has_quality": true,
       "id": "saw",
       "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
         [],
-        [],
-        [],
+        [
+          "wood"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -5450,7 +5638,9 @@
       "has_quality": true,
       "id": "nail",
       "input_goods_tags_carryover": [
-        [],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -5515,7 +5705,9 @@
       "has_quality": true,
       "id": "die_pattern",
       "input_goods_tags_carryover": [
-        []
+        [
+          "wood"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -5556,7 +5748,13 @@
         "pattern",
         "die"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "die",
+        "of": [
+          "pattern"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -5567,7 +5765,9 @@
       "id": "die",
       "input_goods_tags_carryover": [
         [],
-        [],
+        [
+          "metal"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -5620,10 +5820,14 @@
       "has_quality": true,
       "id": "metal_chisel",
       "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
         [],
         [],
-        [],
-        []
+        [
+          "wood"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -5692,9 +5896,13 @@
       "has_quality": true,
       "id": "stone_hammer",
       "input_goods_tags_carryover": [
+        [
+          "stone"
+        ],
         [],
-        [],
-        []
+        [
+          "wood"
+        ]
       ],
       "input_goods_tags_required": [
         [
@@ -5824,7 +6032,13 @@
         "limestone",
         "stone"
       ],
-      "value_added_shares": 6
+      "value_added_shares": 6,
+      "variety": {
+        "name": "limestone",
+        "of": [
+          "stone"
+        ]
+      }
     },
     {
       "destabilizer_skills": [],
@@ -5979,9 +6193,13 @@
       "has_quality": true,
       "id": "pick",
       "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
         [],
-        [],
-        [],
+        [
+          "wood"
+        ],
         []
       ],
       "input_goods_tags_required": [
@@ -6085,7 +6303,13 @@
         "elder",
         "fuel"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "elder",
+        "of": [
+          "wood"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -6128,7 +6352,13 @@
         "rhododendron",
         "fuel"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "rhododendron",
+        "of": [
+          "wood"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -6172,7 +6402,14 @@
         "hemlock",
         "fuel"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "hemlock",
+        "of": [
+          "wood"
+        ],
+        "color": "plank"
+      }
     },
     {
       "destabilizer_skills": [
@@ -6216,7 +6453,14 @@
         "oak",
         "fuel"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "oak",
+        "of": [
+          "wood"
+        ],
+        "color": "wood"
+      }
     },
     {
       "destabilizer_skills": [
@@ -6257,7 +6501,13 @@
         "bamboo",
         "arrow bamboo"
       ],
-      "value_added_shares": 2
+      "value_added_shares": 2,
+      "variety": {
+        "name": "arrow bamboo",
+        "of": [
+          "bamboo"
+        ]
+      }
     },
     {
       "destabilizer_skills": [
@@ -6268,8 +6518,7 @@
       "id": "cotton_gin",
       "input_goods_tags_carryover": [
         [
-          "oak",
-          "hemlock"
+          "wood"
         ],
         [],
         []
@@ -6323,7 +6572,7 @@
       "id": "cotton_bow",
       "input_goods_tags_carryover": [
         [
-          "arrow bamboo"
+          "bamboo"
         ],
         []
       ],
@@ -6332,8 +6581,8 @@
           "bamboo"
         ],
         [
-          "ramie",
-          "stalks"
+          "stalks",
+          "bast"
         ]
       ],
       "is_fixed_quantity": true,
@@ -6372,8 +6621,7 @@
       "id": "spinning_wheel",
       "input_goods_tags_carryover": [
         [
-          "oak",
-          "hemlock"
+          "wood"
         ],
         [],
         [],
@@ -6391,8 +6639,8 @@
           "bamboo"
         ],
         [
-          "ramie",
-          "stalks"
+          "stalks",
+          "bast"
         ]
       ],
       "is_fixed_quantity": true,
@@ -6433,12 +6681,12 @@
       "id": "spool",
       "input_goods_tags_carryover": [
         [
-          "arrow bamboo"
+          "wood"
         ]
       ],
       "input_goods_tags_required": [
         [
-          "bamboo"
+          "sticks"
         ]
       ],
       "is_fixed_quantity": true,
@@ -6477,12 +6725,10 @@
       "id": "waist_loom",
       "input_goods_tags_carryover": [
         [
-          "oak",
-          "hemlock"
+          "wood"
         ],
         [
-          "oak",
-          "hemlock"
+          "wood"
         ],
         [],
         [],
@@ -6508,8 +6754,8 @@
           "bamboo"
         ],
         [
-          "ramie",
-          "stalks"
+          "stalks",
+          "bast"
         ]
       ],
       "is_fixed_quantity": true,
@@ -6550,12 +6796,10 @@
       "id": "wooden_tub",
       "input_goods_tags_carryover": [
         [
-          "oak",
-          "hemlock"
+          "wood"
         ],
         [
-          "oak",
-          "hemlock"
+          "wood"
         ]
       ],
       "input_goods_tags_required": [
@@ -6613,12 +6857,10 @@
       "id": "workbench_kit",
       "input_goods_tags_carryover": [
         [
-          "oak",
-          "hemlock"
+          "wood"
         ],
         [
-          "oak",
-          "hemlock"
+          "wood"
         ],
         []
       ],
@@ -6680,19 +6922,18 @@
       "id": "kiln_kit",
       "input_goods_tags_carryover": [
         [
-          "limestone"
+          "stone"
         ],
         [
-          "limestone"
+          "stone"
         ],
         [
-          "limestone"
+          "stone"
         ],
         [],
         [],
         [
-          "oak",
-          "hemlock"
+          "wood"
         ]
       ],
       "input_goods_tags_required": [
@@ -6753,6 +6994,647 @@
         "kiln kit"
       ],
       "value_added_shares": 8
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "id": "planks",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "log"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Planks",
+      "primary_applied_skill": "carpentry",
+      "production_time": 300,
+      "quantity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "saw"
+        ]
+      ],
+      "tools_weights": [
+        3
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "athletics"
+      ],
+      "type_tags": [
+        "plank",
+        "wood"
+      ],
+      "value_added_shares": 2
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 16,
+      "has_quality": true,
+      "id": "spinnery_kit",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "rope"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Spinnery Kit",
+      "primary_applied_skill": "carpentry",
+      "production_time": 1500,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "spinning"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 3.0,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "kit",
+        "spinnery kit"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 20,
+      "has_quality": true,
+      "id": "dye_house_kit",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "stone"
+        ],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "lime"
+        ],
+        [
+          "rope"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Dye House Kit",
+      "primary_applied_skill": "stone_carving",
+      "production_time": 2100,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "carpentry",
+        "dyeing"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 4.0,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "kit",
+        "dye house kit"
+      ],
+      "value_added_shares": 8
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 22,
+      "has_quality": true,
+      "id": "indigo_house_kit",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "stone"
+        ],
+        [],
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "tub"
+        ],
+        [
+          "tub"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "stone"
+        ],
+        [
+          "lime"
+        ],
+        [
+          "plank"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Indigo House Kit",
+      "primary_applied_skill": "stone_carving",
+      "production_time": 2400,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "carpentry",
+        "chemistry"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 5.0,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "kit",
+        "indigo house kit"
+      ],
+      "value_added_shares": 8
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 26,
+      "has_quality": true,
+      "id": "loom_house_kit",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [],
+        [],
+        [
+          "dye"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "bamboo"
+        ],
+        [
+          "rope"
+        ],
+        [
+          "fabric"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Loom House Kit",
+      "primary_applied_skill": "carpentry",
+      "production_time": 3000,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "weaving",
+        "textiles"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 4.0,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "kit",
+        "loom house kit"
+      ],
+      "value_added_shares": 8
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": false,
+      "id": "pumpkin",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Pumpkin",
+      "primary_applied_skill": "harvesting",
+      "production_time": 1200,
+      "quantity": 1,
+      "raw_material_base_value": 8,
+      "raw_material_density": 80,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 2.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "social",
+        "outdoorsmonstership",
+        "athletics"
+      ],
+      "type_tags": [
+        "pumpkin",
+        "draft"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "name": "pumpkin",
+        "of": [
+          "draft"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 16,
+      "has_quality": true,
+      "id": "wagon_wheel",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [],
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "log",
+          "hardwood"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "sticks"
+        ],
+        [
+          "sticks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Wagon Wheel",
+      "primary_applied_skill": "wagon_wright",
+      "production_time": 1200,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "carpentry"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 1.5,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "wheel",
+        "wagon wheel"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 22,
+      "has_quality": true,
+      "id": "wagon_kit",
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        [],
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [
+          "draft"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "wheel"
+        ],
+        [
+          "wheel"
+        ],
+        [
+          "log",
+          "hardwood"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "draft"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Wagon Kit",
+      "primary_applied_skill": "wagon_wright",
+      "production_time": 2400,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "carpentry"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 6.0,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ],
+        [
+          "hammer"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "kit",
+        "wagon kit"
+      ],
+      "value_added_shares": 8
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 14,
+      "has_quality": true,
+      "id": "bin_kit",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "plank"
+        ],
+        [
+          "rope"
+        ],
+        [
+          "rope"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Bin Kit",
+      "primary_applied_skill": "carpentry",
+      "production_time": 1200,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 4.0,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "kit",
+        "bin kit"
+      ],
+      "value_added_shares": 6
     }
   ]
 }

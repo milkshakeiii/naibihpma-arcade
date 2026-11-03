@@ -272,13 +272,13 @@ fn production_is_deterministic_per_seed_and_fixed_quantities_hold() {
     let spool = d.good("spool");
     let st = stats(&d, "goblin");
     let sk = skilled(spool, 0.6, &[]);
-    let bamboo = item(&d, "arrow_bamboo", 1.0, &[]);
-    let c = craft(spool, &st, &sk, vec![&bamboo], vec![], None);
+    let sticks = item(&d, "elder_sticks", 1.0, &[]);
+    let c = craft(spool, &st, &sk, vec![&sticks], vec![], None);
     let a = produce(&c, &d, &mut Rng::new(42));
     let b = produce(&c, &d, &mut Rng::new(42));
     assert_eq!(a.len(), spool.quantity as usize);
     assert!(a.iter().zip(&b).all(|(x, y)| x.quality == y.quality));
-    assert_eq!(a[0].carried_tags, vec!["arrow bamboo".to_string()]);
+    assert_eq!(a[0].carried_tags, vec!["elder".to_string()]);
 }
 
 #[test]

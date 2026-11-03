@@ -1068,19 +1068,16 @@ impl Game {
                 self.event(i, Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else if let Some(b) = self.world.bin_at(bx, by) {
-                if !self.world.bins[b].takes(&good) {
-                    let names: Vec<String> = self.world.bins[b].accepts.iter().map(|a| self.good_name(a)).collect();
-                    return StepRes::Blocked(format!("ONLY {} GOES IN THERE.", names.join(" OR ")));
+                if let Err(msg) = self.bin_takes(b, &good) {
+                    return StepRes::Blocked(msg);
                 }
                 let mut item = self.world.items.remove(it);
                 item.data.hauled_by(id);
                 if self.world.bins[b].scores {
                     crate::econ::pay_haul(&mut item.data);
                 }
-                let bin = &mut self.world.bins[b];
-                let scored = bin.scores.then(|| (item.data.value, item.data.shares.clone()));
-                bin.stock.push(item.data);
-                bin.bounce = 4;
+                let scored = self.world.bins[b].scores.then(|| (item.data.value, item.data.shares.clone()));
+                self.put_in_bin(b, item.data);
                 self.world.burst(bx, by, PKind::Spark, 5);
                 if let Some((value, shares)) = scored {
                     self.score(value, &shares, bx, by);
@@ -1407,9 +1404,9 @@ impl Game {
         }
     }
 
-    /// Fabric in the cloth store: the HUD's running tally for now.
+    /// Fabric of any kind in the cloth store: the HUD's running tally for now.
     pub fn cloth_stored(&self) -> usize {
-        self.world.bins.iter().flat_map(|b| &b.stock).filter(|d| d.good == "fabric" || d.good == "dyed_fabric").count()
+        self.world.bins.iter().flat_map(|b| &b.stock).filter(|d| self.data.try_good(&d.good).is_some_and(|gt| gt.type_tags.iter().any(|t| t == "fabric"))).count()
     }
 
     /// The controlled monster's state for the HUD, and whether it is a warning.

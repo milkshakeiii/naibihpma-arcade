@@ -7,12 +7,12 @@
       "map_char": "B",
       "look": "bench",
       "building": false,
-      "recipes": ["cotton_slivers", "rope", "wooden_tub"],
+      "recipes": ["cotton_slivers", "rope", "wooden_tub", "planks", "spool", "cotton_bow"],
       "lends": ["cotton_gin", "cotton_bow", "saw", "metal_chisel"],
       "kit": {
         "good": "workbench_kit",
         "plain_worth": 14,
-        "named_by": ["oak", "hemlock"],
+        "named_by": "wood",
         "pads": [[-2, 0], [-1, 0]],
         "outs": [[0, 1]],
         "pegs": [[1, 0], [2, 0]]
@@ -21,11 +21,11 @@
     {
       "id": "builders_bench",
       "label": "BUILDERS' BENCH",
-      "about": "Pinewater's big public bench by the southeast road, where kits are made: six pads, and only the tools for building.",
+      "about": "Pinewater's big public bench by the southeast road, where kits, wagon wheels and the bigger weaving tools are made: six pads, and only the tools for building.",
       "map_char": "Z",
       "look": "bench",
       "building": false,
-      "recipes": ["workbench_kit", "kiln_kit"],
+      "recipes": ["workbench_kit", "kiln_kit", "cotton_gin", "spinning_wheel", "waist_loom", "spinnery_kit", "dye_house_kit", "indigo_house_kit", "loom_house_kit", "wagon_wheel", "wagon_kit", "bin_kit"],
       "lends": ["saw", "metal_chisel", "stone_hammer"]
     },
     {
@@ -35,7 +35,15 @@
       "look": "wheel",
       "building": true,
       "recipes": ["thread"],
-      "lends": ["spool", "spinning_wheel"]
+      "lends": ["spool", "spinning_wheel"],
+      "kit": {
+        "good": "spinnery_kit",
+        "plain_worth": 18,
+        "named_by": "wood",
+        "pads": [[-1, 0]],
+        "outs": [[0, 1]],
+        "pegs": [[1, 0], [2, 0]]
+      }
     },
     {
       "id": "loom_house",
@@ -44,7 +52,15 @@
       "look": "loom",
       "building": true,
       "recipes": ["fabric"],
-      "lends": ["waist_loom"]
+      "lends": ["waist_loom"],
+      "kit": {
+        "good": "loom_house_kit",
+        "plain_worth": 23,
+        "named_by": "wood",
+        "pads": [[-1, 0]],
+        "outs": [[0, 1]],
+        "pegs": [[1, 0]]
+      }
     },
     {
       "id": "kiln",
@@ -57,7 +73,7 @@
       "kit": {
         "good": "kiln_kit",
         "plain_worth": 22,
-        "named_by": ["limestone"],
+        "named_by": "stone",
         "pads": [[-1, 0], [1, 0]],
         "outs": [[0, 1]]
       }
@@ -68,7 +84,14 @@
       "map_char": "I",
       "look": "indigo_vat",
       "building": true,
-      "recipes": ["indigo"]
+      "recipes": ["indigo"],
+      "kit": {
+        "good": "indigo_house_kit",
+        "plain_worth": 23,
+        "named_by": "wood",
+        "pads": [[-3, 0], [-2, 0], [-1, 0], [1, 0], [2, 0]],
+        "outs": [[0, 1]]
+      }
     },
     {
       "id": "dye_house",
@@ -77,7 +100,17 @@
       "look": "dye_vat",
       "building": true,
       "recipes": ["dyed_fabric"],
-      "lends": ["wooden_tub"]
+      "lends": ["wooden_tub"],
+      "kit": {
+        "good": "dye_house_kit",
+        "plain_worth": 22,
+        "named_by": "wood",
+        "pads": [[-2, 0], [-1, 0]],
+        "outs": [[0, 1]],
+        "pegs": [[1, 0]]
+      }
     }
-  ]
+  ],
+  "bin_kit": { "good": "bin_kit", "plain_worth": 28, "named_by": "wood", "room": 12 },
+  "wagon_kit": { "good": "wagon_kit", "plain_worth": 52, "named_by": "wood", "room": 6 }
 }

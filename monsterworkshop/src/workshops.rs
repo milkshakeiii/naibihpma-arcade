@@ -16,10 +16,15 @@
 //! - `lends`: basic tools a town one provides when nothing better hangs on its pegs (frontier
 //!   ones lend none).
 //! - `kit`, if it can be built out in the wilds: the kit good, what the plainest such kit's
-//!   materials are worth (a kit worth more makes a faster workshop), the carried-over tags that
-//!   name it ("OAK WORKBENCH"), and its open-air layout as offsets from the work spot for one
+//!   materials are worth (a kit worth more makes a faster workshop), the category of variety
+//!   that names and colors it (a workbench by its wood: "OAK WORKBENCH"), and its open-air
+//!   layout as offsets from the work spot for one
 //!   facing down (turned the way it's unpacked): `pads`, `outs` (output mats) and `pegs`.
 //! - `about`: a note for people; the game doesn't read it.
+//!
+//! Beside the kinds, `bin_kit` and `wagon_kit` are the kits that unpack into a bin or a wagon
+//! rather than a workshop: the kit good, the plainest such kit's worth, the category of variety
+//! that names and colors what it unpacks into, and the `room` it holds (a better kit, more).
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::OnceLock;
@@ -31,6 +36,29 @@ const WORKSHOPS: &str = include_str!("../data/workshops.json");
 #[serde(bound(deserialize = "'de: 'static"))]
 struct WorkshopsFile {
     workshop_types: Vec<WorkshopType>,
+    #[serde(default)]
+    bin_kit: Option<ThingKit>,
+    #[serde(default)]
+    wagon_kit: Option<ThingKit>,
+}
+
+/// A kit that unpacks into a bin or a wagon.
+#[derive(Deserialize)]
+pub struct ThingKit {
+    pub good: &'static str,
+    pub plain_worth: f64,
+    pub named_by: &'static str,
+    pub room: f64,
+}
+
+/// The kit that unpacks into a bin, if there is one.
+pub fn bin_kit() -> Option<&'static ThingKit> {
+    file().bin_kit.as_ref()
+}
+
+/// The kit that unpacks into a wagon, if there is one.
+pub fn wagon_kit() -> Option<&'static ThingKit> {
+    file().wagon_kit.as_ref()
 }
 
 #[derive(Deserialize)]
@@ -51,23 +79,27 @@ struct WorkshopType {
 pub struct Kit {
     pub good: &'static str,
     pub plain_worth: f64,
-    pub named_by: Vec<&'static str>,
+    pub named_by: &'static str,
     pub pads: Vec<(i32, i32)>,
     pub outs: Vec<(i32, i32)>,
     #[serde(default)]
     pub pegs: Vec<(i32, i32)>,
 }
 
-fn types() -> &'static [WorkshopType] {
-    static TYPES: OnceLock<Vec<WorkshopType>> = OnceLock::new();
-    TYPES.get_or_init(|| {
-        let types = serde_json::from_str::<WorkshopsFile>(WORKSHOPS).expect("data/workshops.json").workshop_types;
-        for t in &types {
+fn file() -> &'static WorkshopsFile {
+    static FILE: OnceLock<WorkshopsFile> = OnceLock::new();
+    FILE.get_or_init(|| {
+        let file = serde_json::from_str::<WorkshopsFile>(WORKSHOPS).expect("data/workshops.json");
+        for t in &file.workshop_types {
             assert!(!crate::world::MAP_LEGEND.contains(t.map_char), "{}'s map character {:?} already means something else on the map", t.id, t.map_char);
             assert!(crate::render::LOOKS.contains(&t.look), "{} looks like {:?}, which nothing draws", t.id, t.look);
         }
-        types
+        file
     })
+}
+
+fn types() -> &'static [WorkshopType] {
+    &file().workshop_types
 }
 
 /// A kind of workshop: an entry in `data/workshops.json`.
@@ -183,6 +215,11 @@ mod tests {
                 assert!(!tiles.contains(&(0, 0)) && !tiles.contains(&(0, -1)), "{}'s layout covers its work spot or the tile behind it", k.id());
                 assert!(!kit.pads.is_empty() && !kit.outs.is_empty(), "{}'s layout needs a pad and a mat", k.id());
             }
+        }
+        for kit in [bin_kit(), wagon_kit()].into_iter().flatten() {
+            assert!(data.try_good(kit.good).is_some(), "the kit {} isn't a good", kit.good);
+            assert!(ShopKind::all().any(|b| b.recipes().contains(&kit.good)), "nothing makes the {}", kit.good);
+            assert!(kit.plain_worth > 0.0 && kit.room > 0.0);
         }
     }
 

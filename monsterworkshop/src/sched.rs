@@ -122,13 +122,13 @@ impl Game {
         }
         if let Some(b) = w.bins.iter().position(|b| b.mouth == Some(t)).or_else(|| w.bin_at(t.0, t.1)) {
             let chute = if w.bins[b].mouth == Some(t) { "'S CHUTE" } else { "" };
-            return format!("AT THE {} BIN{chute}", self.good_name(&w.bins[b].accepts[0]));
+            return format!("AT {}{chute}", self.bin_name(b));
         }
         if let Some(p) = w.plant_at(t.0, t.1) {
-            return format!("AT THE {}", crate::inspect::plant_name(&w.plants[p].good));
+            return format!("AT THE {}", crate::inspect::plant_name(&self.data, &w.plants[p].good));
         }
         if let Some(p) = crate::world::DIRS.iter().find_map(|d| w.plant_at(t.0 + d.delta().0, t.1 + d.delta().1)) {
-            return format!("BY THE {}", crate::inspect::plant_name(&w.plants[p].good));
+            return format!("BY THE {}", crate::inspect::plant_name(&self.data, &w.plants[p].good));
         }
         "WHERE I WAS SHOWN".into()
     }

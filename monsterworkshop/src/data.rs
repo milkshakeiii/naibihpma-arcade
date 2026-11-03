@@ -60,6 +60,20 @@ pub struct GoodType {
     pub raw_material_rarity: Option<u32>,
     #[serde(default = "one_f")]
     pub storage_volume: f64,
+    /// The variety this good is, if it is one (the original tree's `add_variety`): oak logs are
+    /// the oak variety of wood, so whatever carries wood from them carries "oak".
+    #[serde(default)]
+    pub variety: Option<VarietyOf>,
+}
+
+/// A good's own variety: its name (one of its type tags), the categories it's a variety of,
+/// and the palette ramp it shows in, if any ("plank" for hemlock's paler wood).
+#[derive(Deserialize, Clone, Debug)]
+pub struct VarietyOf {
+    pub name: String,
+    pub of: Vec<String>,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 fn yes() -> bool {
@@ -146,20 +160,55 @@ struct MonstersFile {
     monster_types: BTreeMap<String, MonsterType>,
 }
 
+/// A variety, gathered from every good that declares it: its tag, the categories it's a
+/// variety of ("ramie" of textiles and ash, "oak" of wood), and the palette ramp it shows in.
+pub struct Variety {
+    pub tag: String,
+    pub of: Vec<String>,
+    pub color: Option<String>,
+}
+
+impl Variety {
+    pub fn is(&self, category: &str) -> bool {
+        self.of.iter().any(|c| c == category)
+    }
+}
+
 pub struct Data {
     pub goods: Vec<GoodType>,
     by_id: HashMap<String, usize>,
     pub monster_types: BTreeMap<String, MonsterType>,
     pub skills: SkillDefs,
+    pub varieties: Vec<Variety>,
 }
 
 impl Data {
     pub fn load() -> Self {
-        let goods = serde_json::from_str::<GoodsFile>(GOOD_TYPES).expect("data/good_types.json").good_types;
+        let mut goods = serde_json::from_str::<GoodsFile>(GOOD_TYPES).expect("data/good_types.json").good_types;
+        let varieties = gather_varieties(&goods);
+        for g in &mut goods {
+            for carry in &mut g.input_goods_tags_carryover {
+                *carry = expand(carry, &varieties);
+            }
+        }
         let by_id = goods.iter().enumerate().map(|(i, g)| (g.id.clone(), i)).collect();
         let monster_types = serde_json::from_str::<MonstersFile>(MONSTER_TYPES).expect("data/monster_types.json").monster_types;
         let skills = serde_json::from_str::<SkillDefs>(SKILLS).expect("data/skills.json");
-        Self { goods, by_id, monster_types, skills }
+        Self { goods, by_id, monster_types, skills, varieties }
+    }
+
+    pub fn variety(&self, tag: &str) -> Option<&Variety> {
+        self.varieties.iter().find(|v| v.tag == tag)
+    }
+
+    /// The first of `tags` that's a variety of `category`: the wood of an oak kit.
+    pub fn variety_in<'a>(&self, tags: &'a [String], category: &str) -> Option<&'a str> {
+        tags.iter().find(|t| self.variety(t).is_some_and(|v| v.is(category))).map(|t| t.as_str())
+    }
+
+    /// The color a good's own variety shows in: the hemlock of a hemlock log.
+    pub fn own_color(&self, good: &GoodType) -> Option<&str> {
+        good.variety.as_ref().and_then(|v| self.variety(&v.name)).and_then(|v| v.color.as_deref())
     }
 
     pub fn good(&self, id: &str) -> &GoodType {
@@ -170,6 +219,38 @@ impl Data {
     pub fn try_good(&self, id: &str) -> Option<&GoodType> {
         self.by_id.get(id).map(|&i| &self.goods[i])
     }
+}
+
+/// Every variety the goods declare, as the original tree's `add_variety` registered them: the
+/// same variety declared by several goods (rice on three kinds of rice stalks; cotton of textiles
+/// on bolls, of oil on seeds) is one variety of all their categories.
+fn gather_varieties(goods: &[GoodType]) -> Vec<Variety> {
+    let mut out: Vec<Variety> = Vec::new();
+    for d in goods.iter().filter_map(|g| g.variety.as_ref()) {
+        let k = out.iter().position(|v| v.tag == d.name).unwrap_or_else(|| {
+            out.push(Variety { tag: d.name.clone(), of: Vec::new(), color: None });
+            out.len() - 1
+        });
+        let v = &mut out[k];
+        let new: Vec<String> = d.of.iter().filter(|c| !v.of.contains(c)).cloned().collect();
+        v.of.extend(new);
+        v.color = v.color.take().or_else(|| d.color.clone());
+    }
+    out
+}
+
+/// A recipe's carryover for one input, as the data writes it (categories, as the original
+/// tree's `Carryover("textiles")`, plus single tags as its `.plus("oily")`, written "+oily"),
+/// spelled out as the tags that flow: every variety of each category.
+fn expand(carry: &[String], varieties: &[Variety]) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in carry {
+        match e.strip_prefix('+') {
+            Some(tag) => out.push(tag.to_string()),
+            None => out.extend(varieties.iter().filter(|v| v.is(e)).map(|v| v.tag.clone())),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -216,6 +297,38 @@ mod tests {
             assert!(makeable(&d, id, 0), "{id} can't be made from gatherable goods");
         }
         assert!(d.goods.iter().any(|p| matches(&p.type_tags, &["tub".to_string()])), "something is a tub");
+    }
+
+    /// Varieties are declared on the goods that are them, and recipes carry whole categories:
+    /// a new wood is one good declaring itself a variety of wood, and every recipe that carries
+    /// wood carries it.
+    #[test]
+    fn recipes_carry_categories_of_declared_varieties() {
+        let d = Data::load();
+        for g in &d.goods {
+            if let Some(v) = &g.variety {
+                assert!(g.type_tags.contains(&v.name), "{} is the {:?} variety but isn't tagged it", g.id, v.name);
+                assert!(!v.of.is_empty(), "{}'s variety is of nothing", g.id);
+            }
+        }
+        for v in &d.varieties {
+            if let Some(c) = &v.color {
+                assert!(crate::palette::ramp_named(c).is_some(), "{}'s color {c:?} isn't a palette ramp", v.tag);
+            }
+            let colors: Vec<&str> = d.goods.iter().filter_map(|g| g.variety.as_ref()).filter(|w| w.name == v.tag).filter_map(|w| w.color.as_deref()).collect();
+            assert!(colors.windows(2).all(|w| w[0] == w[1]), "{} is declared in different colors: {colors:?}", v.tag);
+        }
+        // As written: each name a category some good's variety is of, or one the tree already
+        // uses as a type with no varieties yet (metal, sand), or a single "+tag".
+        let raw: serde_json::Value = serde_json::from_str(GOOD_TYPES).unwrap();
+        let used = |t: &str| d.goods.iter().any(|g| g.type_tags.iter().any(|x| x == t) || g.input_goods_tags_required.iter().flatten().any(|x| x == t));
+        for g in raw["good_types"].as_array().unwrap() {
+            for name in g["input_goods_tags_carryover"].as_array().unwrap().iter().flat_map(|c| c.as_array().unwrap()) {
+                let name = name.as_str().unwrap();
+                let category = d.varieties.iter().any(|v| v.is(name)) || used(name);
+                assert!(name.starts_with('+') || category, "{} carries {name:?}, which is no category", g["id"]);
+            }
+        }
     }
 }
 

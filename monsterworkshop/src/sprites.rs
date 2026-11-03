@@ -48,17 +48,6 @@ impl Sprite {
         self
     }
 
-    /// The same sprite with the `n` shades of one ramp swapped for another's: a hemlock bench in
-    /// the lighter plank tones, say, rather than the darker wood ones. (Until per-region palettes,
-    /// each wood borrows an existing wood-toned ramp.)
-    fn recolor(&self, from: u8, to: u8, n: u8) -> Self {
-        let mut s = self.clone();
-        for c in s.px.iter_mut().filter(|c| (from..from + n).contains(*c)) {
-            *c = to + (*c - from);
-        }
-        s
-    }
-
     /// Breathing frame: drop one row and pad the top, so the feet stay planted.
     fn squash(&self, row: i32) -> Self {
         let mut s = Sprite::blank(self.w, self.h);
@@ -836,30 +825,67 @@ fn stalks(s: &mut Sprite, xs: &[i32], h: i32, nodes: bool) {
     }
 }
 
-/// Wild plants by the good they yield, at growth stage 0 (regrowing), 1 (half grown) or 2
-/// (ready to gather).
-fn make_wild(good: &str, stage: u8) -> Sprite {
+/// How a wild plant grows, by the type of what it yields, so a new variety gets its type's look.
+#[derive(Clone, Copy, PartialEq)]
+enum Look {
+    Conifer,
+    Broadleaf,
+    Bamboo,
+    Rocks,
+    Stalks,
+    Leafy,
+    Bush,
+    Cotton,
+    /// A vine that ripens into a draft creature: a pumpkin patch.
+    Gourd,
+}
+
+impl Look {
+    fn of(tags: &[String]) -> Look {
+        let has = |t: &str| tags.iter().any(|x| x == t);
+        match () {
+            _ if has("log") && has("softwood") => Look::Conifer,
+            _ if has("log") => Look::Broadleaf,
+            _ if has("bamboo") => Look::Bamboo,
+            _ if has("stone") => Look::Rocks,
+            _ if has("stalks") => Look::Stalks,
+            _ if has("leaves") => Look::Leafy,
+            _ if has("bolls") => Look::Cotton,
+            _ if has("draft") => Look::Gourd,
+            _ => Look::Bush,
+        }
+    }
+}
+
+/// Every look, for plants with no art of their own.
+const LOOKS: [Look; 8] = [Look::Conifer, Look::Broadleaf, Look::Bamboo, Look::Rocks, Look::Stalks, Look::Leafy, Look::Bush, Look::Gourd];
+
+/// A wild plant of `look`, at growth stage 0 (regrowing), 1 (half grown) or 2 (ready to
+/// gather), with its blossoms if it has any.
+fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
     let mut s = Sprite::blank(16, 16);
     let light = [LEAF, LEAF + 1, LEAF + 2];
     let dark = [HEDGE, HEDGE + 1, LEAF + 1];
-    match (good, stage) {
-        ("hemlock_log" | "oak_log", 0) => stump(&mut s),
-        ("hemlock_log", 1) => conifer(&mut s, 10, [HEDGE + 1, LEAF, LEAF + 1]),
-        ("hemlock_log", _) => conifer(&mut s, 16, [HEDGE + 1, LEAF, LEAF + 1]),
-        ("oak_log", 1) => broadleaf(&mut s, 4, light),
-        ("oak_log", _) => broadleaf(&mut s, 6, light),
-        ("arrow_bamboo", _) => stalks(&mut s, &[4, 8, 12], [5, 10, 15][stage as usize], true),
-        ("limestone", 0) => {
+    match (look, stage) {
+        // Ripe, it's the pumpkin itself, asleep on its vine.
+        (Look::Gourd, 2) => return make_sleeping_pumpkin(true),
+        (Look::Conifer | Look::Broadleaf, 0) => stump(&mut s),
+        (Look::Conifer, 1) => conifer(&mut s, 10, [HEDGE + 1, LEAF, LEAF + 1]),
+        (Look::Conifer, _) => conifer(&mut s, 16, [HEDGE + 1, LEAF, LEAF + 1]),
+        (Look::Broadleaf, 1) => broadleaf(&mut s, 4, light),
+        (Look::Broadleaf, _) => broadleaf(&mut s, 6, light),
+        (Look::Bamboo, _) => stalks(&mut s, &[4, 8, 12], [5, 10, 15][stage as usize], true),
+        (Look::Rocks, 0) => {
             for (cx, cy) in [(5, 14), (10, 14)] {
                 circle_fill(&mut s, cx, cy, 1, STONE);
             }
         }
-        ("limestone", 1) => {
+        (Look::Rocks, 1) => {
             for (cx, cy, r) in [(5, 12, 3), (11, 13, 2)] {
                 circle_fill(&mut s, cx, cy, r, STONE);
             }
         }
-        ("limestone", _) => {
+        (Look::Rocks, _) => {
             for (cx, cy, r) in [(5, 10, 4), (11, 11, 4), (8, 6, 3)] {
                 circle_fill(&mut s, cx, cy, r, STONE);
             }
@@ -867,7 +893,7 @@ fn make_wild(good: &str, stage: u8) -> Sprite {
                 s.set(x, 15, STONE[0]);
             }
         }
-        ("ramie_stalks", _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
+        (Look::Stalks, _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
         (_, 0) => {
             for y in 12..=15 {
                 s.set(8, y, LEAF);
@@ -876,19 +902,12 @@ fn make_wild(good: &str, stage: u8) -> Sprite {
                 s.set(x, y, LEAF + 2);
             }
         }
-        ("indigofera_leaves", 1) => shrub(&mut s, 4, 3, light),
-        ("indigofera_leaves", _) => shrub(&mut s, 6, 5, light),
+        (Look::Leafy | Look::Gourd, 1) => shrub(&mut s, 4, 3, light),
+        (Look::Leafy, _) => shrub(&mut s, 6, 5, light),
         (_, 1) => shrub(&mut s, 4, 3, dark),
         _ => shrub(&mut s, 6, 5, dark),
     }
     if stage == 2 {
-        // Blossoms show what is ready: pink rhododendron and indigofera, white elder.
-        let bloom = match good {
-            "rhododendron_sticks" => Some((FLOWER, FLOWER + 1)),
-            "indigofera_leaves" => Some((FLOWER, WATER + 2)),
-            "elder_sticks" => Some((COTTON + 1, COTTON + 2)),
-            _ => None,
-        };
         if let Some((a, b)) = bloom {
             for (x, y) in [(5, 7), (10, 6), (8, 9), (4, 11), (12, 10), (7, 5)] {
                 s.set(x, y, b);
@@ -925,6 +944,44 @@ fn make_log(bark: u8) -> Sprite {
     for x in 3..=10 {
         s.set(x, 8, WOOD);
     }
+    s.outline()
+}
+
+/// Sawn planks, three boards stacked, their ends showing the saw's cut.
+fn make_planks() -> Sprite {
+    let mut s = Sprite::blank(16, 9);
+    for (k, y0) in [(0, 6), (1, 4), (2, 2)] {
+        let x0 = 1 + k;
+        for x in x0..=x0 + 11 {
+            s.set(x, y0, WOOD + 3);
+            s.set(x, y0 + 1, if x == x0 + 11 { WOOD + 1 } else { WOOD + 2 });
+        }
+        s.set(x0 + 11, y0, WOOD + 2);
+    }
+    for x in 2..=12 {
+        s.set(x, 8, WOOD);
+    }
+    s.outline()
+}
+
+/// A wagon wheel standing on its rim: hub, eight spokes and the rim.
+fn make_wagon_wheel() -> Sprite {
+    let mut s = Sprite::blank(15, 14);
+    let (cx, cy, r) = (7, 7, 6);
+    for y in 0..14 {
+        for x in 0..15 {
+            let d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+            if d <= r * r && d > (r - 1) * (r - 1) {
+                s.set(x, y, if y > cy { WOOD } else { WOOD + 2 });
+            }
+        }
+    }
+    for (dx, dy, n) in [(1, 0, 4), (-1, 0, 4), (0, 1, 4), (0, -1, 4), (1, 1, 3), (-1, 1, 3), (1, -1, 3), (-1, -1, 3)] {
+        for t in 2..=n {
+            s.set(cx + dx * t, cy + dy * t, WOOD + 1);
+        }
+    }
+    circle_fill(&mut s, cx, cy, 1, [WOOD + 1, WOOD + 2, WOOD + 3]);
     s.outline()
 }
 
@@ -1205,6 +1262,37 @@ fn make_pumpkin(frame: u8) -> Sprite {
     s.outline()
 }
 
+/// A pumpkin asleep, not yet pulling anything: sitting on the ground, eyes shut, no feet. On
+/// its vine in a patch, `vine` adds the vine and its leaves trailing either side.
+fn make_sleeping_pumpkin(vine: bool) -> Sprite {
+    let mut s = Sprite::blank(16, 15);
+    let (cx, cy, rx, ry) = (8, 9, 6, 5);
+    for y in cy - ry..=cy + ry {
+        for x in cx - rx..=cx + rx {
+            let (dx, dy) = (x - cx, y - cy);
+            if dx * dx * ry * ry + dy * dy * rx * rx > rx * rx * ry * ry {
+                continue;
+            }
+            let rib = dx == -3 || dx == 0 || dx == 3;
+            let c = if rib { WOOD + 2 } else if dx + dy <= -4 { SPARK + 1 } else if dx + dy >= 4 { WOOD + 3 } else { SPARK };
+            s.set(x, y, c);
+        }
+    }
+    for (x, y) in [(8, 3), (8, 2), (9, 2)] {
+        s.set(x, y, LEAF + 1);
+    }
+    // Shut eyes: a short dark line each.
+    for (x, y) in [(5, 9), (6, 9), (10, 9), (11, 9)] {
+        s.set(x, y, OUTLINE);
+    }
+    if vine {
+        for (x, y, c) in [(10, 2, LEAF), (11, 1, LEAF), (12, 1, LEAF + 1), (0, 14, LEAF), (1, 13, LEAF + 1), (1, 14, LEAF), (14, 13, LEAF + 1), (15, 14, LEAF), (14, 14, LEAF)] {
+            s.set(x, y, c);
+        }
+    }
+    s.outline()
+}
+
 /// The wagon from the side: a plank bed on two spoked wheels, its tailgate at the left
 /// (flipped to face the other way). Open, the tailgate hangs down.
 fn make_wagon(open: bool) -> Sprite {
@@ -1230,8 +1318,18 @@ fn make_wagon(open: bool) -> Sprite {
     s.outline()
 }
 
-/// Goods gathered in the wild, each with its plant.
-const WILD: [&str; 8] = ["hemlock_log", "oak_log", "elder_sticks", "rhododendron_sticks", "arrow_bamboo", "ramie_stalks", "indigofera_leaves", "limestone"];
+/// Wild plants with art of their own: how each grows, and the blossoms that show it's ready
+/// (pink rhododendron and indigofera, white elder). Others grow by their type's look.
+const WILD: [(&str, Look, Option<(u8, u8)>); 8] = [
+    ("hemlock_log", Look::Conifer, None),
+    ("oak_log", Look::Broadleaf, None),
+    ("elder_sticks", Look::Bush, Some((COTTON + 1, COTTON + 2))),
+    ("rhododendron_sticks", Look::Bush, Some((FLOWER, FLOWER + 1))),
+    ("arrow_bamboo", Look::Bamboo, None),
+    ("ramie_stalks", Look::Stalks, None),
+    ("indigofera_leaves", Look::Leafy, Some((FLOWER, WATER + 2))),
+    ("limestone", Look::Rocks, None),
+];
 
 pub struct Sprites {
     pub goblin: [Sprite; 4],
@@ -1244,9 +1342,10 @@ pub struct Sprites {
     pub loom: Sprite,
     pub crate_: Sprite,
     pub bench_kit: Sprite,
-    pub bench_kit_hemlock: Sprite,
     pub kiln_kit: Sprite,
-    pub bench_hemlock: Sprite,
+    pub planks: Sprite,
+    pub wagon_wheel: Sprite,
+    pub pumpkin_asleep: Sprite,
     tool_icons: Vec<(&'static str, Sprite)>,
     pub spool: Sprite,
     pub plant: [Sprite; 3],
@@ -1258,6 +1357,7 @@ pub struct Sprites {
     pub icon_cotton: Sprite,
     pub icon_thread: Sprite,
     wild: Vec<(&'static str, [Sprite; 3])>,
+    looks: Vec<(Look, [Sprite; 3])>,
     pub trees: [Sprite; 2],
     pub hemlock_log: Sprite,
     pub oak_log: Sprite,
@@ -1299,9 +1399,10 @@ impl Sprites {
             loom: make_loom(),
             crate_: make_crate(),
             bench_kit: make_bench_kit(),
-            bench_kit_hemlock: make_bench_kit().recolor(WOOD, PLANK, 4),
             kiln_kit: make_kiln_kit(),
-            bench_hemlock: make_bench().recolor(WOOD, PLANK, 4),
+            planks: make_planks(),
+            wagon_wheel: make_wagon_wheel(),
+            pumpkin_asleep: make_sleeping_pumpkin(false),
             tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
@@ -1312,7 +1413,8 @@ impl Sprites {
             marker: make_marker(),
             icon_cotton: make_icon(true),
             icon_thread: make_icon(false),
-            wild: WILD.iter().map(|&g| (g, [make_wild(g, 0), make_wild(g, 1), make_wild(g, 2)])).collect(),
+            wild: WILD.iter().map(|&(g, look, bloom)| (g, [0, 1, 2].map(|stage| make_wild(look, bloom, stage)))).collect(),
+            looks: LOOKS.iter().map(|&look| (look, [0, 1, 2].map(|stage| make_wild(look, None, stage)))).collect(),
             trees: [make_tree(false), make_tree(true)],
             hemlock_log: make_log(WOOD + 1),
             oak_log: make_log(WOOD),
@@ -1342,9 +1444,40 @@ impl Sprites {
 }
 
 impl Sprites {
-    /// The sprite for a good lying in the world; unknown goods show as a crate.
-    pub fn item(&self, good: &str) -> &Sprite {
-        match good {
+    /// How a good lies in the world: its own art if it has some (similar goods can look a little
+    /// different, not just be colored differently), otherwise its type's art, with the ramp its
+    /// variety's color goes on (a pine log is drawn as a log in pine's color), otherwise its
+    /// icon, otherwise a crate.
+    pub fn item(&self, good: &str, gt: Option<&crate::data::GoodType>) -> (&Sprite, Option<(u8, u8)>) {
+        if let Some(own) = self.own_item(good) {
+            return (own, None);
+        }
+        let tags = gt.map_or(&[][..], |gt| &gt.type_tags[..]);
+        let raw = gt.is_some_and(|gt| gt.is_raw());
+        let has = |t: &str| tags.iter().any(|x| x == t);
+        let (wood, cotton) = (ramp_named("wood"), ramp_named("cotton"));
+        let typed = match () {
+            _ if raw && has("log") => Some((&self.oak_log, wood)),
+            _ if raw && has("sticks") => Some((&self.sticks, wood)),
+            _ if raw && has("bamboo") => Some((&self.bamboo, None)),
+            _ if raw && has("stalks") => Some((&self.stalk_bundle, None)),
+            _ if raw && has("leaves") => Some((&self.leaves, None)),
+            _ if raw && has("stone") => Some((&self.limestone, None)),
+            _ if has("fiber") => Some((&self.slivers, cotton)),
+            _ if has("thread") => Some((&self.thread, None)),
+            _ if has("fabric") => Some((&self.fabric, cotton)),
+            _ if has("rope") => Some((&self.rope, None)),
+            _ if has("lime") => Some((&self.quicklime, None)),
+            _ if has("tub") => Some((&self.tub, None)),
+            _ if has("kit") => Some((&self.bench_kit, wood)),
+            _ => None,
+        };
+        typed.unwrap_or_else(|| (self.icon(good).unwrap_or(&self.crate_), None))
+    }
+
+    /// The art a good has of its own, if any.
+    fn own_item(&self, good: &str) -> Option<&Sprite> {
+        Some(match good {
             "cotton_bolls" => &self.cotton,
             "cotton_slivers" => &self.slivers,
             "thread" => &self.thread,
@@ -1368,22 +1501,22 @@ impl Sprites {
             "waist_loom" => &self.waist_loom,
             "workbench_kit" => &self.bench_kit,
             "kiln_kit" => &self.kiln_kit,
-            other => self.icon(other).unwrap_or(&self.crate_),
-        }
+            "planks" => &self.planks,
+            "wagon_wheel" => &self.wagon_wheel,
+            "pumpkin" => &self.pumpkin_asleep,
+            _ => return None,
+        })
     }
 
-    /// How this particular good lies in the world: as `item`, but in its own wood's tones.
-    pub fn item_of(&self, data: &crate::econ::ItemData) -> &Sprite {
-        match data.good.as_str() {
-            "workbench_kit" if data.carried_tags.iter().any(|t| t == "hemlock") => &self.bench_kit_hemlock,
-            good => self.item(good),
-        }
-    }
-
-    /// A plant's sprite for its good and growth stage; cotton has its own.
-    pub fn plant(&self, good: &str, stage: u8) -> &Sprite {
+    /// A plant's sprite for its good and growth stage: its own art, or its type's look; cotton
+    /// has its own.
+    pub fn plant(&self, good: &str, gt: Option<&crate::data::GoodType>, stage: u8) -> &Sprite {
         let stage = stage.min(2) as usize;
-        self.wild.iter().find(|(g, _)| *g == good).map_or(&self.plant[stage], |(_, frames)| &frames[stage])
+        if let Some((_, frames)) = self.wild.iter().find(|(g, _)| *g == good) {
+            return &frames[stage];
+        }
+        let look = Look::of(gt.map_or(&[][..], |gt| &gt.type_tags[..]));
+        self.looks.iter().find(|(l, _)| *l == look).map_or(&self.plant[stage], |(_, frames)| &frames[stage])
     }
 
     pub fn icon(&self, good: &str) -> Option<&Sprite> {
@@ -1408,11 +1541,23 @@ mod tests {
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
         let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit];
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit, &sp.planks, &sp.wagon_wheel, &sp.pumpkin_asleep];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);
             assert!(s.w <= 16 && s.h <= 16);
         }
+    }
+
+    /// A good with no art of its own, such as a new provincial wood, is drawn as its type.
+    #[test]
+    fn a_new_variety_is_drawn_and_grows_as_its_type() {
+        let sp = Sprites::new();
+        let json = r#"{"id": "pine_log", "name": "Pine Log", "type_tags": ["log", "wood", "softwood", "pine", "fuel"], "primary_applied_skill": "gathering", "raw_material_base_value": 1.0}"#;
+        let pine: crate::data::GoodType = serde_json::from_str(json).unwrap();
+        let (s, recolor) = sp.item("pine_log", Some(&pine));
+        assert!(std::ptr::eq(s, &sp.oak_log) && recolor == ramp_named("wood"), "a log, its wood in its own color");
+        assert!(sp.plant("pine_log", Some(&pine), 2).px == sp.plant("hemlock_log", None, 2).px, "growing on a conifer, as hemlock does");
+        assert!(std::ptr::eq(sp.item("hemlock_log", None).0, &sp.hemlock_log), "a good with art of its own keeps it");
     }
 }

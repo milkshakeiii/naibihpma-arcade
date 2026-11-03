@@ -221,7 +221,7 @@ impl Game {
             wagon.timer = 0;
             let (bx, by) = wagon.behind();
             let (good, from) = (wagon.stock[0].0.good.clone(), wagon.stock[0].1.clone());
-            let bin = self.world.bin_at(bx, by).filter(|&b| self.world.bins[b].takes(&good));
+            let bin = self.world.bin_at(bx, by).filter(|&b| self.bin_takes(b, &good).is_ok());
             let free = self.world.item_floor(bx, by) && self.world.item_at(bx, by).is_none() && self.monster_at(bx, by).is_none() && !self.world.cart_at(bx, by);
             if bin.is_none() && !free {
                 continue;
@@ -243,8 +243,7 @@ impl Game {
                     let (value, shares) = (data.value, data.shares.clone());
                     self.score(value, &shares, bx, by);
                 }
-                self.world.bins[b].stock.push(data);
-                self.world.bins[b].bounce = 4;
+                self.put_in_bin(b, data);
                 self.world.burst(bx, by, PKind::Spark, 4);
                 self.sound((bx, by), Sfx::Deposit);
             } else {

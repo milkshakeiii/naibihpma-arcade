@@ -66,6 +66,40 @@ pub fn shift(c: u8, k: i32) -> u8 {
     c
 }
 
+/// A ramp by the name the data gives a variety's color ("plank", "water"): its first index and
+/// how many shades it has.
+pub fn ramp_named(name: &str) -> Option<(u8, u8)> {
+    let start = match name {
+        "grass" => GRASS,
+        "hedge" => HEDGE,
+        "wood" => WOOD,
+        "plank" => PLANK,
+        "mat" => MAT,
+        "cotton" => COTTON,
+        "thread" => THREAD,
+        "leaf" => LEAF,
+        "flower" => FLOWER,
+        "water" => WATER,
+        _ => return None,
+    };
+    RAMPS.iter().find(|(s, _)| *s == start).copied()
+}
+
+/// Recolors one ramp's pixels into another: a dyed good's cotton-white into its dye's color,
+/// a kit's wood into its own wood's. A shorter ramp keeps its lightest shade for the rest.
+#[derive(Clone, Copy)]
+pub struct Tint {
+    pub from: (u8, u8),
+    pub to: (u8, u8),
+}
+
+impl Tint {
+    pub fn apply(self, c: u8) -> u8 {
+        let ((from, n), (to, m)) = (self.from, self.to);
+        if c >= from && c < from + n { to + (c - from).min(m - 1) } else { c }
+    }
+}
+
 type Rgb = (u8, u8, u8);
 
 #[inline]
