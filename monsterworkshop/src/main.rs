@@ -159,6 +159,10 @@ fn main() {
         export_screenshots(&after("--export-screenshots").map_or_else(|| PathBuf::from("screenshots"), PathBuf::from));
         return;
     }
+    if args.iter().any(|a| a == "--export-places") {
+        export_places(&after("--export-places").map_or_else(|| PathBuf::from("places"), PathBuf::from));
+        return;
+    }
     if args.iter().any(|a| a == "--temple-test-world") {
         temple_test_world();
         return;
@@ -279,6 +283,49 @@ fn bots(n: &str, addr: Option<String>) {
 }
 
 /// Headless scripted playthrough of the Fabric chain, saving 2x PNGs at key moments.
+/// The layout workflow's pictures (DESIGN.md, Layout by image model): every screen of the world
+/// as a place, without the HUD, four times its size, half a minute into a new world so the town
+/// is at work. Each comes plain and with its tile grid drawn on, named by its area and its
+/// top-left tile.
+fn export_places(dir: &Path) {
+    const SCALE: usize = 4;
+    let _ = std::fs::create_dir_all(dir);
+    let (sprites, pal) = (Sprites::new(), palette::build());
+    let mut fb = Framebuffer::new();
+    let mut g = Game::new();
+    g.run_ticks(450);
+    let (sw, sh) = (world::SCREEN_W, world::SCREEN_H);
+    let mut buf = Vec::new();
+    let mut n = 0;
+    for ty in (0..g.world.h).step_by(sh as usize) {
+        for tx in (0..g.world.w).step_by(sw as usize) {
+            // A screen of nothing but hedge is nowhere.
+            if (ty..ty + sh).all(|y| (tx..tx + sw).all(|x| g.world.tile(x, y) == world::Tile::Hedge)) {
+                continue;
+            }
+            render::draw_place(&g, &sprites, &mut fb, (tx, ty));
+            let (w, _) = fb.present(&mut buf, SCALE, &pal, &pal, 0, false);
+            let h = render::VIEW_H as usize * SCALE;
+            let name = format!("{}_{tx}_{ty}", world::area_name(tx + sw / 2, ty + sh / 2).to_lowercase().replace(' ', "_"));
+            framebuffer::save_argb_png(&dir.join(format!("{name}.png")), &buf[..w * h], w, h);
+            // The grid: every tile's top and left edge a third darker.
+            let tile = world::TS as usize * SCALE;
+            for y in 0..h {
+                for x in 0..w {
+                    if x % tile == 0 || y % tile == 0 {
+                        let p = buf[y * w + x];
+                        let dim = |c: u32| ((c & 0xFF) * 2 / 3) & 0xFF;
+                        buf[y * w + x] = 0xFF00_0000 | dim(p >> 16) << 16 | dim(p >> 8) << 8 | dim(p);
+                    }
+                }
+            }
+            framebuffer::save_argb_png(&dir.join(format!("{name}_grid.png")), &buf[..w * h], w, h);
+            n += 1;
+        }
+    }
+    println!("exported {n} places to {}", dir.display());
+}
+
 fn export_screenshots(dir: &Path) {
     let _ = std::fs::create_dir_all(dir);
     let sprites = Sprites::new();
@@ -629,12 +676,12 @@ fn export_screenshots(dir: &Path) {
     shot(&g, "50_bell_plaque.png");
     g.communes[0].inspecting = false;
     // Old Spoke's yard: his woodpiles, his bench and order board, and the bench by his gate.
-    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (30, 24, game::Dir::Up);
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (17, 27, game::Dir::Up);
     shot(&g, "51_old_spokes_yard.png");
     // Facing him, he says what a wheel takes; his card says who he is.
     let spoke = g.monsters.iter().position(|m| m.worker.is_some()).expect("Old Spoke");
-    (g.monsters[spoke].x, g.monsters[spoke].y, g.monsters[spoke].playing, g.monsters[spoke].slide) = (33, 22, false, None);
-    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (33, 23, game::Dir::Up);
+    (g.monsters[spoke].x, g.monsters[spoke].y, g.monsters[spoke].playing, g.monsters[spoke].slide) = (21, 26, false, None);
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (21, 27, game::Dir::Up);
     shot(&g, "52_old_spoke_talks.png");
     g.communes[0].inspecting = true;
     shot(&g, "53_old_spoke_card.png");

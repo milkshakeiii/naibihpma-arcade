@@ -57,38 +57,7 @@ impl View {
 pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     let v = View::of(g, k);
     let me = &g.communes[k];
-    fb.rect_fill(0, 0, 400, VIEW_H, OUTLINE);
-    for ty in v.ty..v.ty + SCREEN_H {
-        for tx in v.tx..v.tx + SCREEN_W {
-            draw_tile(g, sp, fb, &v, tx, ty);
-        }
-    }
-    draw_trees(g, sp, fb, &v);
-    draw_building_labels(g, fb, &v);
-    for p in g.world.plants.iter().filter(|p| v.sees(p.x, p.y)) {
-        let (x, y) = v.px(p.x, p.y);
-        let s = sp.plant(&p.good, g.data.try_good(&p.good), p.stage());
-        fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
-    }
-    draw_boards_and_signs(g, sp, fb, &v);
-    for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1) && s.frontier.as_ref().is_none_or(|f| !f.fallen)) {
-        let (x, y) = v.px(s.spot.0, s.spot.1);
-        let (art, dy) = match s.kind.look() {
-            "wheel" => (&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], -5),
-            "loom" => (&sp.loom, -5),
-            "kiln" => (&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], -5),
-            "indigo_vat" => (&sp.indigo_vat, -4),
-            "dye_vat" => (&sp.dye_vat, -4),
-            "wagon_bench" => (&sp.wagon_bench, TS - sp.wagon_bench.h - 4),
-            _ => (&sp.bench, TS - sp.bench.h - 4),
-        };
-        // A frontier workshop in its material's tones: a hemlock one lighter than an oak one.
-        let wood = s.frontier.as_ref().and_then(|f| g.data.variety(&f.material.to_lowercase())).and_then(|v| v.color.as_deref()).and_then(ramp_named);
-        blit_quality(fb, art, x, y + dy, 0, wood_tint(wood));
-    }
-    for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
-        draw_bin(g, sp, fb, &v, b);
-    }
+    draw_ground(g, sp, fb, &v);
     draw_kit_ghost(g, fb, &v);
     // How many more goods wait inside a workshop or a harvested plant.
     for s in &g.world.shops {
@@ -135,6 +104,52 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     }
     if me.leaving {
         draw_leaving(fb);
+    }
+}
+
+/// The screen whose top-left tile is `(tx, ty)` as a place, for the layout workflow's pictures
+/// (DESIGN.md, Layout by image model): its ground, what stands on it and whoever is about, with
+/// nobody's flags, bubbles or HUD.
+pub fn draw_place(g: &Game, sp: &Sprites, fb: &mut Framebuffer, (tx, ty): (i32, i32)) {
+    let v = View { tx, ty, k: 0, c: g.communes[0].controlled };
+    draw_ground(g, sp, fb, &v);
+    draw_bodies(g, sp, fb, &v);
+}
+
+/// The ground of `v`'s screen and what stands on it: tiles, trees, buildings' names, plants,
+/// boards and signs, workshops and bins.
+fn draw_ground(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    fb.rect_fill(0, 0, 400, VIEW_H, OUTLINE);
+    for ty in v.ty..v.ty + SCREEN_H {
+        for tx in v.tx..v.tx + SCREEN_W {
+            draw_tile(g, sp, fb, v, tx, ty);
+        }
+    }
+    draw_trees(g, sp, fb, v);
+    draw_building_labels(g, fb, v);
+    for p in g.world.plants.iter().filter(|p| v.sees(p.x, p.y)) {
+        let (x, y) = v.px(p.x, p.y);
+        let s = sp.plant(&p.good, g.data.try_good(&p.good), p.stage());
+        fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
+    }
+    draw_boards_and_signs(g, sp, fb, v);
+    for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1) && s.frontier.as_ref().is_none_or(|f| !f.fallen)) {
+        let (x, y) = v.px(s.spot.0, s.spot.1);
+        let (art, dy) = match s.kind.look() {
+            "wheel" => (&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], -5),
+            "loom" => (&sp.loom, -5),
+            "kiln" => (&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], -5),
+            "indigo_vat" => (&sp.indigo_vat, -4),
+            "dye_vat" => (&sp.dye_vat, -4),
+            "wagon_bench" => (&sp.wagon_bench, TS - sp.wagon_bench.h - 4),
+            _ => (&sp.bench, TS - sp.bench.h - 4),
+        };
+        // A frontier workshop in its material's tones: a hemlock one lighter than an oak one.
+        let wood = s.frontier.as_ref().and_then(|f| g.data.variety(&f.material.to_lowercase())).and_then(|v| v.color.as_deref()).and_then(ramp_named);
+        blit_quality(fb, art, x, y + dy, 0, wood_tint(wood));
+    }
+    for b in g.world.bins.iter().filter(|b| v.sees(b.x, b.y)) {
+        draw_bin(g, sp, fb, v, b);
     }
 }
 
@@ -877,6 +892,16 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
         match prop {
             Prop::Wheels => fb.blit(&sp.wagon_wheel, x, y + TS - sp.wagon_wheel.h, false),
             Prop::Cart => fb.blit(&sp.cart_frame, x, y + TS - sp.cart_frame.h, false),
+            Prop::Barrel | Prop::ChoppingBlock | Prop::Sawhorse | Prop::Lumber => {
+                let s = match prop {
+                    Prop::Barrel => &sp.barrel,
+                    Prop::ChoppingBlock => &sp.chopping_block,
+                    Prop::Sawhorse => &sp.sawhorse,
+                    _ => &sp.lumber,
+                };
+                fb.rect_checker(x + 3, y + TS - 2, 10, 2, SHADOW);
+                fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
+            }
             Prop::Fence => {
                 // A post, with rails to the fence on either side.
                 let fence = |dx: i32, dy: i32| g.world.props.iter().any(|&(at, p)| p == Prop::Fence && at == (px + dx, py + dy));
@@ -892,8 +917,9 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
                 if fence(0, -1) {
                     fb.rect_fill(x + 7, y, 2, 3, WOOD + 1);
                 }
+                // A rail down to the next post south, which the next row's post overlaps.
                 if fence(0, 1) {
-                    fb.rect_fill(x + 7, y + 15, 2, 1, WOOD + 1);
+                    fb.rect_fill(x + 7, y + 15, 2, 4, WOOD + 1);
                 }
             }
         }

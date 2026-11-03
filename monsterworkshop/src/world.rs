@@ -25,6 +25,8 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // `F` where the footbridge starts, at the west bank  `s` signpost  `b` project board
 // `X` water where the bridge will go  `U` the town wagon  `P` its pumpkin
 // `Z` the builders' bench's work spot (`B` an ordinary bench's)
+// Scenery props: `Q` spare wheels  `x` fence  `y` half-built cart  `i` barrel  `t` chopping
+// block  `z` sawhorse  `d` lumber stacked to season
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
@@ -34,7 +36,7 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNQxy";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNQxyitzd";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -108,6 +110,10 @@ pub enum Prop {
     Wheels,
     Cart,
     Fence,
+    Barrel,
+    ChoppingBlock,
+    Sawhorse,
+    Lumber,
 }
 
 /// Each region's entities are listed after the previous region's, so adding a region never
@@ -116,7 +122,7 @@ const REGIONS: [Region; 4] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         at: (0, 0),
-        labels: &[((4, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((30, 17), "OLD SPOKE'S YARD")],
+        labels: &[((5, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((16, 18), "OLD SPOKE'S YARD")],
         signs: &[("TANGLEMERE", Dir::Right)],
         boards: &[("OLD SPOKE'S ORDER", "wagon_wheel", 4, Project::Order)],
         supplies: &[("oak_log", "oak_log"), ("planks", "hemlock_log"), ("elder_sticks", "elder_sticks")],
@@ -156,17 +162,17 @@ const REGIONS: [Region; 4] = [
 const OLD_SPOKE: WorkerSpec = WorkerSpec {
     name: "OLD SPOKE",
     title: "WAGONWRIGHT",
-    about: &["HE MAKES WAGON WHEELS AT HIS OWN BENCH, FROM HIS OWN WOOD. WATCH HOW HE DOES IT.", "THE BENCH BY HIS GATE IS FOR ANYONE. HIS ORDER BOARD TAKES ANYONE'S WHEELS, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
-    says: &["OAK MAKES THE STRONGEST SPOKES. NOTHING ELSE WILL DO FOR A WHEEL.", "TWO WHEELS, PLANKS, AN OAK LOG AND A PUMPKIN TO PULL IT: THAT'S A WAGON. MY GATE BENCH MAKES THOSE TOO.", "MY ORDERS TAKE ANYONE'S WHEELS. THERE'S ALWAYS A CART WANTING ONE."],
+    about: &["HE MAKES WAGON WHEELS AT HIS OWN BENCH, FROM HIS OWN WOOD. WATCH HOW HE DOES IT.", "THE BENCH BY THE GATHERING HALL IS FOR ANYONE. HIS ORDER BOARD TAKES ANYONE'S WHEELS, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
+    says: &["OAK MAKES THE STRONGEST SPOKES. NOTHING ELSE WILL DO FOR A WHEEL.", "TWO WHEELS, PLANKS, AN OAK LOG AND A PUMPKIN TO PULL IT: THAT'S A WAGON. THE BENCH BY THE HALL MAKES THOSE TOO.", "MY ORDERS TAKE ANYONE'S WHEELS. THERE'S ALWAYS A CART WANTING ONE."],
     skills: &[("wagon_wright", 0.8), ("carpentry", 0.6), ("hauling", 0.4)],
     tasks: &[
-        Task::Move("oak_log", (28, 19), (31, 20)),
-        Task::Move("planks", (28, 21), (30, 21)),
-        Task::Move("planks", (28, 21), (30, 20)),
-        Task::Move("elder_sticks", (29, 23), (30, 22)),
-        Task::Move("elder_sticks", (29, 23), (32, 20)),
-        Task::Work((31, 21)),
-        Task::Move("wagon_wheel", (32, 21), (34, 21)),
+        Task::Move("oak_log", (21, 21), (19, 24)),
+        Task::Move("planks", (17, 22), (18, 24)),
+        Task::Move("planks", (17, 22), (20, 24)),
+        Task::Move("elder_sticks", (19, 22), (18, 25)),
+        Task::Move("elder_sticks", (19, 22), (18, 26)),
+        Task::Work((19, 25)),
+        Task::Move("wagon_wheel", (20, 25), (22, 25)),
     ],
 };
 
@@ -707,7 +713,7 @@ impl World {
                         'C' | 'T' | 'b' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
-                        's' | 'Q' | 'x' | 'y' => Tile::Sign,
+                        's' | 'Q' | 'x' | 'y' | 'i' | 't' | 'z' | 'd' => Tile::Sign,
                         '1' | '2' if street_next => Tile::Path,
                         _ => Tile::Grass,
                     };
@@ -756,6 +762,10 @@ impl World {
                         'Q' => props.push(((x, y), Prop::Wheels)),
                         'x' => props.push(((x, y), Prop::Fence)),
                         'y' => props.push(((x, y), Prop::Cart)),
+                        'i' => props.push(((x, y), Prop::Barrel)),
+                        't' => props.push(((x, y), Prop::ChoppingBlock)),
+                        'z' => props.push(((x, y), Prop::Sawhorse)),
+                        'd' => props.push(((x, y), Prop::Lumber)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
                         '1' | '2' => _ = starts[(ch as u8 - b'1') as usize].get_or_insert((x, y)),

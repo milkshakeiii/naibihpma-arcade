@@ -270,6 +270,10 @@ fn prop_card(g: &Game, prop: Prop, at: (i32, i32)) -> Card {
         Prop::Wheels => Card::one("SPARE WAGON WHEELS", vec![line("FINISHED, WAITING FOR A CART.", TEXT), made("wagon_wheel")], at),
         Prop::Cart => Card::one("A CART, HALF BUILT", vec![line("IT'S WAITING FOR ITS WHEELS.", TEXT), made("wagon_kit")], at),
         Prop::Fence => Card::one("A FENCE", vec![line("AROUND A YARD. WALK IN BY ITS GATE.", TEXT_DIM)], at),
+        Prop::Barrel => Card::one("A BARREL", vec![line("RAINWATER, FOR SOAKING WOOD THAT'S TO BE BENT.", TEXT_DIM)], at),
+        Prop::ChoppingBlock => Card::one("A CHOPPING BLOCK", vec![line("AN AXE LEFT IN IT. GOOD SPOKES ARE SPLIT ALONG THE GRAIN, NOT SAWN.", TEXT_DIM)], at),
+        Prop::Sawhorse => Card::one("A SAWHORSE", vec![line("IT HOLDS A PLANK STEADY WHILE IT'S SAWN.", TEXT_DIM)], at),
+        Prop::Lumber => Card::one("STACKED PLANKS", vec![line("SEASONING IN THE AIR. GREEN WOOD WARPS, SO A WHEEL WANTS IT DRY.", TEXT_DIM)], at),
     }
 }
 

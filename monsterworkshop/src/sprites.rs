@@ -1348,6 +1348,94 @@ fn make_cart_frame() -> Sprite {
     s.outline()
 }
 
+/// A barrel: bulging staves, two iron hoops, a lid.
+fn make_barrel() -> Sprite {
+    let mut s = Sprite::blank(12, 14);
+    for y in 2..=13 {
+        let inset = if (4..=10).contains(&y) { 0 } else { 1 };
+        for x in 1 + inset..=10 - inset {
+            // Lit from the left; a darker seam between staves.
+            let c = if (x + 1) % 3 == 0 { WOOD } else if x <= 4 { WOOD + 2 } else { WOOD + 1 };
+            s.set(x, y, c);
+        }
+    }
+    for x in 2..=9 {
+        s.set(x, 1, WOOD + 3);
+        s.set(x, 2, if x == 2 || x == 9 { WOOD + 2 } else { WOOD + 3 });
+    }
+    for y in [4, 11] {
+        for x in 1..=10 {
+            s.set(x, y, if x <= 3 { HUD_HI } else { HUD_MID });
+        }
+    }
+    s.outline()
+}
+
+/// A chopping block: a stump of oak, its cut top ringed, an axe left in it.
+fn make_chopping_block() -> Sprite {
+    let mut s = Sprite::blank(14, 13);
+    for y in 7..=12 {
+        for x in 2..=11 {
+            s.set(x, y, if x % 3 == 0 { WOOD } else if x <= 5 { WOOD + 2 } else { WOOD + 1 });
+        }
+    }
+    for y in 5..=7 {
+        for x in 2..=11 {
+            let ring = (x - 6i32).abs() + (y - 6i32).abs() * 2;
+            s.set(x, y, if ring == 2 || ring == 4 { PLANK + 1 } else { PLANK + 2 });
+        }
+    }
+    for x in 3..=10 {
+        s.set(x, 4, PLANK + 2);
+    }
+    // The axe: its head sunk in the top, its handle up to the right.
+    for (x, y) in [(5, 4), (6, 4), (5, 5), (6, 5), (7, 5), (6, 3)] {
+        s.set(x, y, if y == 3 { HUD_HI } else { HUD_MID });
+    }
+    for (x, y) in [(7, 3), (8, 2), (9, 1), (10, 0)] {
+        s.set(x, y, WOOD + 2);
+    }
+    s.outline()
+}
+
+/// A sawhorse: a beam on two splayed pairs of legs.
+fn make_sawhorse() -> Sprite {
+    let mut s = Sprite::blank(16, 10);
+    for x in 1..=14 {
+        s.set(x, 2, WOOD + 3);
+        s.set(x, 3, WOOD + 2);
+    }
+    for (x0, x1) in [(3, 1), (4, 6), (12, 14), (11, 9)] {
+        for y in 4..=9 {
+            let x = x0 + (x1 - x0) * (y - 4) / 5;
+            s.set(x, y, if x0 < 8 { WOOD + 1 } else { WOOD });
+        }
+    }
+    s.outline()
+}
+
+/// Planks stacked to season: four layers with thin sticks between, their cut ends showing.
+fn make_lumber() -> Sprite {
+    let mut s = Sprite::blank(16, 12);
+    for (k, y0) in [(0, 9), (1, 7), (2, 5), (3, 3)] {
+        let x0 = 1 + k % 2;
+        for x in x0..=x0 + 12 {
+            s.set(x, y0, WOOD + 3);
+            s.set(x, y0 + 1, if x == x0 + 12 { PLANK + 2 } else { WOOD + 2 });
+        }
+        // The sticks between layers, showing at each end.
+        if k > 0 {
+            s.set(x0 + 1, y0 + 1, WOOD);
+            s.set(x0 + 10, y0 + 1, WOOD);
+        }
+    }
+    for x in [2, 12] {
+        s.set(x, 11, WOOD);
+        s.set(x + 1, 11, WOOD);
+    }
+    s.outline()
+}
+
 /// A bundle of sticks tied in the middle.
 fn make_sticks() -> Sprite {
     let mut s = Sprite::blank(15, 9);
@@ -1710,6 +1798,10 @@ pub struct Sprites {
     pub wagon_wheel: Sprite,
     pub wagon_bench: Sprite,
     pub cart_frame: Sprite,
+    pub barrel: Sprite,
+    pub chopping_block: Sprite,
+    pub sawhorse: Sprite,
+    pub lumber: Sprite,
     pub pumpkin_asleep: Sprite,
     pub bell: Sprite,
     pub bell_hung: Sprite,
@@ -1778,6 +1870,10 @@ impl Sprites {
             wagon_wheel: make_wagon_wheel(),
             wagon_bench: make_wagon_bench(),
             cart_frame: make_cart_frame(),
+            barrel: make_barrel(),
+            chopping_block: make_chopping_block(),
+            sawhorse: make_sawhorse(),
+            lumber: make_lumber(),
             pumpkin_asleep: make_sleeping_pumpkin(false),
             bell: make_bell(),
             bell_hung: make_bell_hung(),
@@ -1981,7 +2077,7 @@ mod tests {
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
         let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit, &sp.planks, &sp.wagon_wheel, &sp.pumpkin_asleep, &sp.bell, &sp.bell_frame, &sp.trader[0], &sp.trader[1], &sp.copper_ingot, &sp.tin_ingot, &sp.wagon_bench, &sp.cart_frame];
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit, &sp.planks, &sp.wagon_wheel, &sp.pumpkin_asleep, &sp.bell, &sp.bell_frame, &sp.trader[0], &sp.trader[1], &sp.copper_ingot, &sp.tin_ingot, &sp.wagon_bench, &sp.cart_frame, &sp.barrel, &sp.chopping_block, &sp.sawhorse, &sp.lumber];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);

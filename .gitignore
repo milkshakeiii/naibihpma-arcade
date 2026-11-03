@@ -14,3 +14,6 @@
 *.aac
 *.opus
 *.wma
+
+# Monster Workshop layout pictures and image-model variants (tools/layout_by_model.py)
+monsterworkshop/places/

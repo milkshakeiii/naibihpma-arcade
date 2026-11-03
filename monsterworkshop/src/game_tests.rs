@@ -110,7 +110,7 @@ fn two_monsters_loop_the_chain_on_their_own() {
     let before = g.cloth_stored();
     g.run_ticks(6000);
     assert!(g.cloth_stored() >= before + 3, "only {} more fabric in 400 s", g.cloth_stored() - before);
-    assert!(g.monsters.iter().all(|m| m.playing), "a loop stopped");
+    assert!(g.monsters.iter().filter(|m| m.commune == 0).all(|m| m.playing), "a loop stopped");
 }
 
 /// Does any line on any page of the card say this (in its text or its trailing text)?
@@ -1699,4 +1699,43 @@ fn a_supply_beside_a_shed_sets_its_goods_out_of_the_shed() {
     g.run_ticks(crate::world::SUPPLY_TICKS);
     let k = g.world.item_at(at.0, at.1).expect("a fresh good set out");
     assert_eq!(g.world.items[k].slide.map(|s| s.dir), Some(Dir::Right), "sliding out of the shed, not appearing from nowhere");
+}
+
+/// The layout workflow's checks (DESIGN.md, Layout by image model), for every place a layout
+/// rebuilds: no pad, peg or output mat lies as near another work spot as its own, so none goes
+/// to the wrong bench.
+#[test]
+fn every_pad_peg_and_mat_is_nearer_its_own_bench_than_any_other() {
+    let g = Game::new();
+    let d = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs() + (a.1 - b.1).abs();
+    for (k, s) in g.world.shops.iter().enumerate() {
+        for &at in s.pads.iter().chain(&s.pegs).chain(&s.outs) {
+            let theirs = d(at, s.spot);
+            for (j, o) in g.world.shops.iter().enumerate().filter(|&(j, _)| j != k) {
+                assert!(d(at, o.spot) > theirs, "{at:?} of the {} at {:?} is as near the {} at {:?} (shop {j})", s.kind.label(), s.spot, o.kind.label(), o.spot);
+            }
+        }
+    }
+}
+
+/// And every working townsperson's loop is short and stays in their yard: their first good
+/// delivered within forty seconds of a new world, never more than six tiles from their bench.
+#[test]
+fn a_working_townsperson_delivers_soon_and_stays_by_their_bench() {
+    let mut g = Game::new();
+    let workers: Vec<usize> = (0..g.monsters.len()).filter(|&i| g.monsters[i].worker.is_some()).collect();
+    assert!(!workers.is_empty());
+    let benches: Vec<(i32, i32)> = workers.iter().map(|&i| g.world.shops.iter().find(|s| s.owner == Some(g.monsters[i].id)).expect("their bench").spot).collect();
+    let mut first = None;
+    for t in 1..=600 {
+        g.run_ticks(1);
+        for (&i, &(bx, by)) in workers.iter().zip(&benches) {
+            let m = &g.monsters[i];
+            assert!((m.x - bx).abs().max((m.y - by).abs()) <= 6, "{} is at {:?}, far from their bench at {:?}", m.name, (m.x, m.y), (bx, by));
+        }
+        if first.is_none() && g.world.boards.iter().any(|b| b.project == Project::Order && b.have > 0) {
+            first = Some(t);
+        }
+    }
+    assert!(first.is_some(), "a first wheel within forty seconds");
 }
