@@ -557,6 +557,152 @@ fn make_crate() -> Sprite {
 }
 
 /// 8x8 icons for tools, drawn as ghosts on empty pegs.
+
+/// The Temple Bell as it stands on the ground: bronze, wide at the lip, a loop on its crown.
+fn make_bell() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    // Half widths from the crown down to the flared lip.
+    let half = [2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 7, 8];
+    for (k, &hw) in half.iter().enumerate() {
+        let y = 3 + k as i32;
+        for x in 8 - hw..8 + hw {
+            let dx = x - (8 - hw);
+            let c = if y >= 14 {
+                if dx == 0 { SPARK } else { WOOD + 2 }
+            } else if dx == 1 {
+                SPARK + 1
+            } else if dx < hw {
+                SPARK
+            } else if dx < 2 * hw - 1 {
+                WOOD + 3
+            } else {
+                WOOD + 2
+            };
+            s.set(x, y, c);
+        }
+    }
+    for (x, y) in [(6, 2), (6, 1), (7, 0), (8, 0), (9, 1), (9, 2)] {
+        s.set(x, y, WOOD + 2);
+    }
+    s.outline()
+}
+
+/// The bell as it hangs in the temple's frame: smaller, its clapper showing under the lip.
+fn make_bell_hung() -> Sprite {
+    let mut s = Sprite::blank(10, 11);
+    for (k, hw) in [1, 2, 2, 3, 3, 3, 4, 4, 5].into_iter().enumerate() {
+        let y = 1 + k as i32;
+        for x in 5 - hw..5 + hw {
+            let dx = x - (5 - hw);
+            s.set(x, y, if dx == 1 && hw > 1 { SPARK + 1 } else if dx < hw { SPARK } else { WOOD + 3 });
+        }
+    }
+    s.set(4, 0, WOOD + 2);
+    s.set(5, 0, WOOD + 2);
+    s.set(4, 10, WOOD + 1);
+    s.set(5, 10, WOOD + 1);
+    s
+}
+
+/// The temple's bell frame: two posts and a beam.
+fn make_bell_frame() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    for y in 2..16 {
+        for x in [1, 2, 13, 14] {
+            s.set(x, y, if x == 1 || x == 13 { WOOD + 2 } else { WOOD + 1 });
+        }
+    }
+    for x in 0..16 {
+        s.set(x, 1, WOOD + 3);
+        s.set(x, 2, WOOD + 1);
+    }
+    s.outline()
+}
+
+/// A stone plaque on the temple wall, lines cut into it.
+fn make_plaque() -> Sprite {
+    let mut s = Sprite::blank(12, 9);
+    for y in 0..9 {
+        for x in 0..12 {
+            let edge = x == 0 || y == 0 || x == 11 || y == 8;
+            let cut = !edge && y % 2 == 0 && (2..10).contains(&x) && (x + y) % 5 != 0;
+            s.set(x, y, if edge { HUD_MID } else if cut { HUD_FILL } else { HUD_HI });
+        }
+    }
+    s
+}
+
+/// The trader: a human from the hills in a straw hat and a red coat. On the second frame he
+/// lifts a hand.
+fn make_trader(frame: usize) -> Sprite {
+    let mut s = Sprite::blank(12, 16);
+    for x in 4..8 {
+        s.set(x, 0, SPARK + 1);
+    }
+    for x in 3..9 {
+        s.set(x, 1, SPARK);
+    }
+    for x in 1..11 {
+        s.set(x, 2, if x == 1 || x == 10 { SPARK } else { SPARK + 1 });
+    }
+    for y in 3..7 {
+        for x in 3..9 {
+            s.set(x, y, if x == 8 { PATH + 1 } else { PATH + 2 });
+        }
+    }
+    s.set(4, 4, OUTLINE);
+    s.set(7, 4, OUTLINE);
+    for x in 4..8 {
+        s.set(x, 6, WOOD + 1);
+    }
+    for y in 7..13 {
+        for x in 3..9 {
+            s.set(x, y, if y == 10 { WOOD + 2 } else if x == 3 { THREAD + 1 } else { THREAD });
+        }
+    }
+    for y in 8..12 {
+        s.set(2, y, THREAD);
+    }
+    s.set(2, 12, PATH + 2);
+    if frame == 0 {
+        for y in 8..12 {
+            s.set(9, y, THREAD);
+        }
+        s.set(9, 12, PATH + 2);
+    } else {
+        for (x, y) in [(9, 8), (10, 7)] {
+            s.set(x, y, THREAD);
+        }
+        s.set(10, 6, PATH + 2);
+    }
+    for y in 13..15 {
+        for x in [4, 5, 6, 7] {
+            s.set(x, y, WOOD + 1);
+        }
+    }
+    for x in [3, 4, 5, 6, 7, 8] {
+        s.set(x, 15, WOOD);
+    }
+    s.outline()
+}
+
+/// An ingot lying on the ground: a bar narrower on top, in its metal's colors.
+fn make_ingot(top: u8, face: u8, side: u8) -> Sprite {
+    let mut s = Sprite::blank(14, 8);
+    for x in 3..11 {
+        s.set(x, 3, top);
+    }
+    for x in 2..12 {
+        s.set(x, 4, top);
+    }
+    for y in 5..8 {
+        for x in 1..13 {
+            s.set(x, y, if x >= 11 { side } else { face });
+        }
+    }
+    s.outline()
+}
+
 fn make_tool_icon(id: &str) -> Sprite {
     let mut s = Sprite::blank(8, 8);
     match id {
@@ -745,6 +891,118 @@ fn make_tool_icon(id: &str) -> Sprite {
                     if !corner {
                         s.set(x, y, if x == 3 || x == 5 { WOOD + 2 } else if y == 2 { SPARK + 1 } else { SPARK });
                     }
+                }
+            }
+        }
+        // A small bronze bell.
+        "temple_bell" => {
+            for (k, hw) in [1, 1, 2, 2, 2, 3, 4].into_iter().enumerate() {
+                let y = 1 + k as i32;
+                for x in 4 - hw..4 + hw {
+                    s.set(x, y, if x == 4 - hw && hw > 1 { SPARK + 1 } else if x < 4 { SPARK } else { WOOD + 3 });
+                }
+            }
+            s.set(3, 0, WOOD + 2);
+            s.set(4, 0, WOOD + 2);
+        }
+        // Grey paste in a little trough.
+        "mortar" => {
+            for y in 3..=4 {
+                for x in 1..=6 {
+                    s.set(x, y, if y == 3 { TEXT_DIM } else { HUD_HI });
+                }
+            }
+            for x in 0..=7 {
+                s.set(x, 5, WOOD + 2);
+                s.set(x, 6, WOOD + 1);
+            }
+        }
+        // A cake of wax with its comb still showing.
+        "beeswax" => {
+            for y in 2..=6 {
+                for x in 1..=6 {
+                    s.set(x, y, if y == 2 { SPARK + 2 } else if (x + y) % 3 == 0 { SPARK } else { SPARK + 1 });
+                }
+            }
+        }
+        // A golden jar of oil.
+        "oil" => {
+            for (x, y) in [(3, 1), (4, 1), (3, 2), (4, 2)] {
+                s.set(x, y, WOOD + 3);
+            }
+            for y in 3..=6 {
+                for x in 1..=6 {
+                    s.set(x, y, if x <= 2 { SPARK + 1 } else { SPARK });
+                }
+            }
+        }
+        "red_clay" => circle_fill(&mut s, 4, 4, 3, [WOOD + 1, THREAD + 1, THREAD + 2]),
+        "charcoal" => {
+            circle_fill(&mut s, 2, 5, 2, [HUD_SHADOW, HUD_FILL, HUD_MID]);
+            circle_fill(&mut s, 5, 4, 2, [HUD_SHADOW, HUD_FILL, HUD_MID]);
+        }
+        // Porous grey lumps.
+        "coke" => {
+            circle_fill(&mut s, 2, 4, 2, [HUD_MID, HUD_HI, TEXT_DIM]);
+            circle_fill(&mut s, 5, 4, 2, [HUD_MID, HUD_HI, TEXT_DIM]);
+            s.set(2, 4, HUD_SHADOW);
+            s.set(5, 3, HUD_SHADOW);
+        }
+        // A bar, narrower on top, in its metal's colors.
+        "copper_ingot" | "tin_ingot" => {
+            let (top, face, side) = if id == "copper_ingot" { (SPARK + 1, SPARK, WOOD + 2) } else { (COTTON + 2, COTTON + 1, COTTON) };
+            for x in 2..=5 {
+                s.set(x, 3, top);
+            }
+            for y in 4..=6 {
+                for x in 1..=6 {
+                    s.set(x, y, if x == 6 { side } else { face });
+                }
+            }
+        }
+        // A blade with its teeth along the bottom, and a handle.
+        "saw" => {
+            for x in 1..=5 {
+                s.set(x, 3, TEXT_DIM);
+                s.set(x, 4, HUD_HI);
+            }
+            for x in (1..=5).step_by(2) {
+                s.set(x, 5, HUD_HI);
+            }
+            for y in 2..=5 {
+                s.set(6, y, WOOD + 2);
+            }
+            s.set(7, 3, WOOD + 2);
+        }
+        // An iron blade on a wooden handle.
+        "metal_chisel" => {
+            for (x, y) in [(1, 6), (2, 5), (3, 4)] {
+                s.set(x, y, HUD_HI);
+            }
+            for (x, y) in [(4, 3), (5, 2), (6, 1)] {
+                s.set(x, y, WOOD + 2);
+            }
+            s.set(4, 4, WOOD + 1);
+        }
+        // A stone head lashed to a stick.
+        "stone_hammer" => {
+            for y in 1..=3 {
+                for x in 1..=5 {
+                    s.set(x, y, if y == 1 { STONE[2] } else { STONE[1] });
+                }
+            }
+            for y in 4..=7 {
+                s.set(3, y, WOOD + 2);
+            }
+        }
+        // A wooden handle and an iron blade.
+        "shovel" => {
+            for (x, y) in [(6, 0), (5, 1), (5, 2), (4, 3)] {
+                s.set(x, y, WOOD + 2);
+            }
+            for y in 4..=7 {
+                for x in 1..=4 {
+                    s.set(x, y, if x == 1 || y == 4 { HUD_HI } else { TEXT_DIM });
                 }
             }
         }
@@ -1013,6 +1271,80 @@ fn make_wagon_wheel() -> Sprite {
         }
     }
     circle_fill(&mut s, cx, cy, 1, [WOOD + 1, WOOD + 2, WOOD + 3]);
+    s.outline()
+}
+
+/// The wagonwright's bench: a bench with a wheel leaning on it and a spoke across its top.
+fn make_wagon_bench() -> Sprite {
+    let mut s = Sprite::blank(16, 14);
+    for x in 1..=14 {
+        s.set(x, 4, WOOD + 3);
+        s.set(x, 5, WOOD + 2);
+        s.set(x, 6, WOOD + 1);
+    }
+    for y in 7..=13 {
+        for x in [2, 3, 12, 13] {
+            s.set(x, y, if x % 2 == 0 { WOOD + 1 } else { WOOD });
+        }
+    }
+    // A spoke being shaped, on top.
+    for x in 4..=10 {
+        s.set(x, 3, PLANK + 2);
+    }
+    // The wheel against its front leg.
+    let (cx, cy, r) = (10, 9, 4);
+    for y in cy - r..=cy + r {
+        for x in cx - r..=cx + r {
+            let d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+            if d <= r * r && d > (r - 1) * (r - 1) {
+                s.set(x, y, WOOD + 2);
+            }
+        }
+    }
+    for t in -2..=2 {
+        s.set(cx + t, cy, WOOD + 1);
+        s.set(cx, cy + t, WOOD + 1);
+    }
+    s.outline()
+}
+
+/// A cart half built: its box of planks propped on a block, its shaft out front, and one
+/// wheel leaning on it, waiting for the other.
+fn make_cart_frame() -> Sprite {
+    let mut s = Sprite::blank(16, 14);
+    // The box: a plank floor and side boards with posts.
+    for x in 3..=14 {
+        s.set(x, 3, WOOD + 3);
+        s.set(x, 4, WOOD + 2);
+        s.set(x, 6, WOOD + 2);
+        s.set(x, 7, WOOD + 1);
+    }
+    for x in [3, 8, 14] {
+        s.set(x, 5, WOOD + 1);
+    }
+    // The shaft, out to the left.
+    for x in 0..=2 {
+        s.set(x, 6, WOOD + 2);
+    }
+    // A stone block under its back, and its first wheel leaning on its side.
+    for y in 8..=13 {
+        for x in 11..=14 {
+            s.set(x, y, if y == 8 { STONE[2] } else { STONE[1] });
+        }
+    }
+    let (cx, cy, r) = (6, 9, 4);
+    for y in cy - r..=cy + r {
+        for x in cx - r..=cx + r {
+            let d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+            if d <= r * r && d > (r - 1) * (r - 1) {
+                s.set(x, y, if y > cy { WOOD } else { WOOD + 2 });
+            }
+        }
+    }
+    for t in -2..=2 {
+        s.set(cx + t, cy, WOOD + 1);
+        s.set(cx, cy + t, WOOD + 1);
+    }
     s.outline()
 }
 
@@ -1376,7 +1708,16 @@ pub struct Sprites {
     pub kiln_kit: Sprite,
     pub planks: Sprite,
     pub wagon_wheel: Sprite,
+    pub wagon_bench: Sprite,
+    pub cart_frame: Sprite,
     pub pumpkin_asleep: Sprite,
+    pub bell: Sprite,
+    pub bell_hung: Sprite,
+    pub bell_frame: Sprite,
+    pub plaque: Sprite,
+    pub trader: [Sprite; 2],
+    pub copper_ingot: Sprite,
+    pub tin_ingot: Sprite,
     tool_icons: Vec<(&'static str, Sprite)>,
     /// The type of thing each good with no icon of its own is shown as, from the data.
     typed_icons: std::collections::HashMap<String, Type>,
@@ -1435,8 +1776,17 @@ impl Sprites {
             kiln_kit: make_kiln_kit(),
             planks: make_planks(),
             wagon_wheel: make_wagon_wheel(),
+            wagon_bench: make_wagon_bench(),
+            cart_frame: make_cart_frame(),
             pumpkin_asleep: make_sleeping_pumpkin(false),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            bell: make_bell(),
+            bell_hung: make_bell_hung(),
+            bell_frame: make_bell_frame(),
+            plaque: make_plaque(),
+            trader: [make_trader(0), make_trader(1)],
+            copper_ingot: make_ingot(SPARK + 1, SPARK, WOOD + 2),
+            tin_ingot: make_ingot(COTTON + 2, COTTON + 1, COTTON),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             typed_icons: crate::data::Data::load().goods.iter().filter_map(|gt| Some((gt.id.clone(), type_of(gt)?))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
@@ -1573,6 +1923,9 @@ impl Sprites {
             "planks" => &self.planks,
             "wagon_wheel" => &self.wagon_wheel,
             "pumpkin" => &self.pumpkin_asleep,
+            "temple_bell" => &self.bell,
+            "copper_ingot" => &self.copper_ingot,
+            "tin_ingot" => &self.tin_ingot,
             _ => return None,
         })
     }
@@ -1628,7 +1981,7 @@ mod tests {
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
         let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit, &sp.planks, &sp.wagon_wheel, &sp.pumpkin_asleep];
+        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit, &sp.planks, &sp.wagon_wheel, &sp.pumpkin_asleep, &sp.bell, &sp.bell_frame, &sp.trader[0], &sp.trader[1], &sp.copper_ingot, &sp.tin_ingot, &sp.wagon_bench, &sp.cart_frame];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);

@@ -73,10 +73,10 @@ impl Game {
         parts.into_iter().map(|(n, k)| if k == 1 { one(&n) } else { several(k, &n) }).collect::<Vec<_>>().join(", ")
     }
 
-    /// Every recipe some workshop in the game can make.
+    /// Every recipe some workshop in the game can make (a trader's trades aren't making).
     pub(crate) fn recipes_in_play(&self) -> Vec<&'static str> {
         let mut all: Vec<&'static str> = Vec::new();
-        for r in ShopKind::all().flat_map(|k| k.recipes().iter().copied()) {
+        for r in ShopKind::all().filter(|k| !k.trades()).flat_map(|k| k.recipes().iter().copied()) {
             if !all.contains(&r) {
                 all.push(r);
             }
@@ -139,7 +139,8 @@ impl Game {
         let units = self.around(t, k);
         let on = |x: i32, y: i32| x.div_euclid(SCREEN_W) == tf.x.div_euclid(SCREEN_W) && y.div_euclid(SCREEN_H) == tf.y.div_euclid(SCREEN_H);
         let (mut ready, mut short) = (Vec::new(), Vec::new());
-        for s in (0..self.world.shops.len()).filter(|&s| on(self.world.shops[s].spot.0, self.world.shops[s].spot.1) && !self.worn_out(s)) {
+        // A craftsman's ideas are for making things, not trading.
+        for s in (0..self.world.shops.len()).filter(|&s| on(self.world.shops[s].spot.0, self.world.shops[s].spot.1) && !self.worn_out(s) && !self.world.shops[s].kind.trades()) {
             for &r in self.world.shops[s].kind.recipes() {
                 let recipe = self.data.good(r);
                 let mut used = Vec::new();
@@ -172,6 +173,29 @@ impl Game {
 
     /// What craftsman `t` says to commune `k`'s player now: a thoughtful "HMM..." when someone
     /// works near his door, and the idea it's their turn for.
+    /// What a working townsperson says, facing them: what their bench makes from what (so
+    /// watching them teaches it), then their own words, one at a time; Space asks for the next.
+    pub(crate) fn worker_says(&self, j: usize, k: usize) -> Vec<String> {
+        let Some(w) = self.monsters[j].worker.and_then(|n| self.world.workers.get(n)) else { return Vec::new() };
+        let bench = self.world.shops.iter().position(|s| s.owner == Some(self.monsters[j].id));
+        let mut lines: Vec<String> = bench.map(|s| self.offers(s)).unwrap_or_default().iter().map(|r| format!("{} TAKES {}.", one(&self.good_name(r)), self.inputs_text(self.data.good(r)))).collect();
+        lines.extend(w.says.iter().map(|s| s.to_string()));
+        let n = self.communes[k].idea_turn % lines.len().max(1);
+        lines.into_iter().nth(n).into_iter().collect()
+    }
+
+    /// What the trader says, facing him: what his stall gives, while it gives anything.
+    pub(crate) fn trader_says(&self, t: usize) -> Vec<String> {
+        let tf = &self.world.townsfolk[t];
+        let stall = (0..self.world.shops.len()).filter(|&s| self.world.shops[s].kind.trades()).min_by_key(|&s| (self.world.shops[s].spot.0 - tf.x).abs() + (self.world.shops[s].spot.1 - tf.y).abs());
+        let names: Vec<String> = stall.map(|s| self.offers(s)).unwrap_or_default().iter().map(|r| self.good_name(self.data.good(r).output())).collect();
+        let Some((last, rest)) = names.split_last() else {
+            return vec!["YOU MAKE EVERYTHING I'VE GOT NOW. I'LL BE HEADING HOME.".into()];
+        };
+        let list = if rest.is_empty() { last.clone() } else { format!("{} AND {last}", rest.join(", ")) };
+        vec![format!("I'VE GOT {list} FROM THE HILLS, FOR YOUR CLOTH, THREAD AND ROPE. PUT THEM ON MY COUNTER.")]
+    }
+
     pub(crate) fn craftsman_says(&self, t: usize, k: usize) -> Vec<String> {
         let tf = &self.world.townsfolk[t];
         let mut said = Vec::new();

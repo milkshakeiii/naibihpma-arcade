@@ -21,11 +21,21 @@
     {
       "id": "builders_bench",
       "label": "BUILDERS' BENCH",
-      "about": "Pinewater's big public bench by the southeast road, where kits, wagon wheels and the bigger weaving tools are made: six pads, and only the tools for building.",
+      "about": "Pinewater's big public bench by the southeast road, where kits and the bigger weaving tools are made: six pads, and only the tools for building. Wheels and wagon kits are the wagonwright's.",
       "map_char": "Z",
       "look": "bench",
       "building": false,
-      "recipes": ["workbench_kit", "kiln_kit", "cotton_gin", "spinning_wheel", "waist_loom", "spinnery_kit", "dye_house_kit", "indigo_house_kit", "loom_house_kit", "wagon_wheel", "wagon_kit", "bin_kit"],
+      "recipes": ["workbench_kit", "kiln_kit", "cotton_gin", "spinning_wheel", "waist_loom", "spinnery_kit", "dye_house_kit", "indigo_house_kit", "loom_house_kit", "bin_kit"],
+      "lends": ["saw", "metal_chisel", "stone_hammer"]
+    },
+    {
+      "id": "wagonwright",
+      "label": "WAGONWRIGHT'S BENCH",
+      "about": "In Pinewater's wagonwright's yard: Old Spoke works his own, and the one by his gate is for anyone. Wheels and wagon kits, and nothing else, so it hints at nothing else.",
+      "map_char": "J",
+      "look": "wagon_bench",
+      "building": false,
+      "recipes": ["wagon_wheel", "wagon_kit"],
       "lends": ["saw", "metal_chisel", "stone_hammer"]
     },
     {
@@ -65,11 +75,11 @@
     {
       "id": "kiln",
       "label": "KILN",
-      "about": "Burns ash into lye, or limestone into quicklime.",
+      "about": "Burns ash into lye, limestone into quicklime, or wood into charcoal.",
       "map_char": "K",
       "look": "kiln",
       "building": true,
-      "recipes": ["lye", "quicklime"],
+      "recipes": ["lye", "quicklime", "charcoal"],
       "kit": {
         "good": "kiln_kit",
         "plain_worth": 22,
@@ -109,6 +119,33 @@
         "outs": [[0, 1]],
         "pegs": [[1, 0]]
       }
+    },
+    {
+      "id": "foundry",
+      "label": "FOUNDRY",
+      "about": "Temple Town's foundry, where the Temple Bell is cast: eleven pads, and it lends a chisel and a shovel.",
+      "map_char": "O",
+      "look": "kiln",
+      "building": true,
+      "recipes": ["temple_bell"],
+      "lends": ["metal_chisel", "shovel"]
+    },
+    {
+      "id": "trader_stall",
+      "label": "TRADER'S STALL",
+      "about": "A temporary trader from the hills, for testing: Cloth Reaches goods for what the bell needs from provinces not open yet. Each trade wants a different mix, since the pads choose. It offers only what nothing in the world makes or grows.",
+      "map_char": "R",
+      "look": "bench",
+      "building": false,
+      "trades": [
+        { "id": "trade_copper_ingot", "makes": "copper_ingot", "wants": [["fabric", "dyed"], ["fabric", "dyed"]] },
+        { "id": "trade_tin_ingot", "makes": "tin_ingot", "wants": [["fabric"], ["fabric"]] },
+        { "id": "trade_beeswax", "makes": "beeswax", "wants": [["fabric"]] },
+        { "id": "trade_oil", "makes": "oil", "wants": [["thread"], ["thread"]] },
+        { "id": "trade_mortar", "makes": "mortar", "wants": [["thread"]] },
+        { "id": "trade_coke", "makes": "coke", "wants": [["rope"], ["rope"]] },
+        { "id": "trade_red_clay", "makes": "red_clay", "wants": [["rope"]] }
+      ]
     }
   ],
   "bin_kit": { "good": "bin_kit", "plain_worth": 28, "named_by": "wood", "room": 12 },

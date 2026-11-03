@@ -39,11 +39,128 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// A world for trying what's new around the Temple Bell (`--temple-test-world`), saved as
+/// "TEMPLE TEST" in the world list. Both river crossings are built and Mogg and Bruna stand at
+/// the trader's stall in Temple Town. Laid out ready, all plain work with Mogg's share:
+/// - by the stall, cloth, blue cloth, thread and rope, enough for each trade twice;
+/// - by the foundry, everything a bell takes, and a wagon kit (to haul it) and a bin kit (which
+///   won't set up in town);
+/// - in the temple, a bell ready to hang, so the one cast next finds the frame resting;
+/// - by Tanglemere's kiln, logs and sticks for charcoal.
+fn temple_test_world() {
+    let g = temple_test_game();
+    let path = save::new_world_path().with_file_name("temple-test.json");
+    match save::save(&g, &path) {
+        Ok(()) => println!("saved {} as {}", path.display(), save::display_name(&path)),
+        Err(e) => eprintln!("saving {} failed: {e}", path.display()),
+    }
+}
+
+fn temple_test_game() -> Game {
+    let mut g = Game::new();
+    for board in g.world.boards.iter_mut().filter(|b| matches!(b.project, world::Project::Footbridge | world::Project::Bridge)) {
+        board.have = board.need;
+    }
+    g.world.build_footbridge();
+    g.world.build_bridge();
+    let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
+    let (sx, sy) = g.world.shops[stall].spot;
+    let ours: Vec<usize> = (0..g.monsters.len()).filter(|&i| g.monsters[i].commune == 0).collect();
+    for (n, &i) in ours.iter().enumerate() {
+        (g.monsters[i].x, g.monsters[i].y) = (sx + 2 * n as i32, sy + 2);
+    }
+    let mogg = g.monsters[ours[0]].id;
+    // Plain, standard work made from `from`, with Mogg's share, so whatever it goes into is his too.
+    let plain = |g: &Game, id: &str, carried: &[&str], depth: u32, from: &[&str]| {
+        let raw: Vec<econ::RawMaterial> = from
+            .iter()
+            .map(|f| {
+                let r = g.data.good(f);
+                econ::RawMaterial { good: r.id.clone(), base_value: r.raw_material_base_value.unwrap_or(5.0), density: r.raw_material_density.unwrap_or(1.0), spent: false }
+            })
+            .collect();
+        let value = econ::value(g.data.good(id), &raw, depth, 1.0, None);
+        econ::ItemData { good: id.into(), quality: 1.0, carried_tags: carried.iter().map(|t| t.to_string()).collect(), raw, depth, value, shares: vec![econ::Share { monster: mogg, count: 1.0 }], wear: 0, haul: Vec::new(), carted: None }
+    };
+    // Lays goods on free ground (`floor`: grass or a building's floor) in the box, row by row.
+    let lay = |g: &mut Game, goods: Vec<econ::ItemData>, xs: std::ops::RangeInclusive<i32>, ys: std::ops::RangeInclusive<i32>, floor: world::Tile| {
+        let free: Vec<(i32, i32)> = ys.flat_map(|y| xs.clone().map(move |x| (x, y))).filter(|&(x, y)| g.world.tile(x, y) == floor && g.world.item_at(x, y).is_none() && g.world.plant_at(x, y).is_none() && g.monster_at(x, y).is_none()).collect();
+        assert!(free.len() >= goods.len(), "room for {} goods", goods.len());
+        for (d, (x, y)) in goods.into_iter().zip(free) {
+            g.world.items.push(world::Item::new(x, y, d));
+        }
+    };
+    // By the stall, a row of each.
+    let cotton = &["cotton_bolls"][..];
+    for (k, (id, carried, depth, count)) in [("dyed_fabric", &["cotton", "indigo"][..], 4, 4), ("fabric", &["cotton"][..], 3, 6), ("thread", &["cotton"][..], 2, 6), ("rope", &["cotton"][..], 3, 6)].into_iter().enumerate() {
+        let goods = (0..count).map(|_| plain(&g, id, carried, depth, cotton)).collect();
+        let y = sy + 1 + k as i32;
+        lay(&mut g, goods, sx - 15..=sx - 3, y..=y, world::Tile::Grass);
+    }
+    // By the foundry, a bell's worth, then the two kits.
+    let foundry = g.world.shops.iter().position(|s| s.kind.label() == "FOUNDRY").expect("the foundry");
+    let (fx, fy) = g.world.shops[foundry].spot;
+    let bell_set: Vec<econ::ItemData> = [
+        ("quicklime", "limestone"),
+        ("mortar", "mortar"),
+        ("beeswax", "beeswax"),
+        ("oil", "oil"),
+        ("red_clay", "red_clay"),
+        ("charcoal", "hemlock_log"),
+        ("hemlock_log", "hemlock_log"),
+        ("elder_sticks", "elder_sticks"),
+        ("coke", "coke"),
+        ("copper_ingot", "copper_ingot"),
+        ("tin_ingot", "tin_ingot"),
+    ]
+    .iter()
+    .map(|&(id, from)| plain(&g, id, &[], (id != from) as u32, &[from]))
+    .collect();
+    lay(&mut g, bell_set, fx - 12..=fx + 8, fy + 6..=fy + 6, world::Tile::Grass);
+    let kits = vec![plain(&g, "wagon_kit", &["oak"], 3, &["oak_log"; 12]), plain(&g, "bin_kit", &["hemlock"], 2, &["hemlock_log"; 6])];
+    lay(&mut g, kits, fx + 1..=fx + 6, fy + 8..=fy + 8, world::Tile::Grass);
+    // In the temple, three tiles in front of the frame: push it down into it.
+    let frame = g.world.boards.iter().position(|b| b.project == world::Project::Bell).expect("the bell frame");
+    let (bx, by) = (g.world.boards[frame].x, g.world.boards[frame].y);
+    let bell = plain(&g, "temple_bell", &["bronze"], 3, &["copper_ingot", "tin_ingot", "limestone", "red_clay", "mortar", "beeswax", "oil"]);
+    g.world.items.push(world::Item::new(bx, by - 3, bell));
+    // By Tanglemere's kiln, two logs and two sticks: charcoal twice.
+    let kiln = g.world.shops.iter().position(|s| s.kind.label() == "KILN" && s.frontier.is_none()).expect("Tanglemere's kiln");
+    let (kx, ky) = g.world.shops[kiln].spot;
+    let wood = ["hemlock_log", "hemlock_log", "elder_sticks", "elder_sticks"].iter().map(|&id| plain(&g, id, &[], 0, &[id])).collect();
+    lay(&mut g, wood, kx - 3..=kx + 3, ky + 1..=ky + 3, world::Tile::Floor);
+    g
+}
+
+#[cfg(test)]
+#[test]
+fn the_temple_test_world_has_whats_new_ready_to_try() {
+    let g = temple_test_game();
+    let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
+    let (sx, sy) = g.world.shops[stall].spot;
+    assert!(g.monsters.iter().filter(|m| m.commune == 0).all(|m| (m.x - sx).abs() <= 2 && m.y == sy + 2), "Mogg and Bruna stand at the stall");
+    assert!(g.world.footbridge_built(), "the river can be crossed");
+    let lying = |group: &Vec<String>| (0..g.world.items.len()).filter(|&i| g.world.item_matches(&g.data, i, group)).count();
+    for r in g.offers(stall).into_iter().chain(["temple_bell", "charcoal"]) {
+        for (_, group) in g.data.good(r).input_groups() {
+            assert!(lying(group) >= 2 || r == "temple_bell", "{r} wants {group:?}: {} lie about", lying(group));
+            assert!(lying(group) >= 1, "{r} wants {group:?}");
+        }
+    }
+    assert!(g.world.items.iter().any(|it| it.good() == "temple_bell"), "a bell to hang");
+    let loaded = save::from_json(&save::to_json(&g)).expect("it saves and loads");
+    assert_eq!(loaded.world.items.len(), g.world.items.len());
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let after = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
     if args.iter().any(|a| a == "--export-screenshots") {
         export_screenshots(&after("--export-screenshots").map_or_else(|| PathBuf::from("screenshots"), PathBuf::from));
+        return;
+    }
+    if args.iter().any(|a| a == "--temple-test-world") {
+        temple_test_world();
         return;
     }
     if args.iter().any(|a| a == "--server") {
@@ -229,10 +346,11 @@ fn export_screenshots(dir: &Path) {
 
     // M2: the footbridge's board, the footbridge, the wilderness and Tanglemere.
     g.communes[0].renown = 0.0;
-    let board = g.world.boards[0].clone();
+    let ford = g.world.boards.iter().position(|b| b.project == world::Project::Footbridge).expect("the footbridge's board");
+    let board = g.world.boards[ford].clone();
     (g.monsters[0].x, g.monsters[0].y) = (board.x, board.y + 1);
     g.monsters[0].facing = game::Dir::Up;
-    g.world.boards[0].have = board.need - 1;
+    g.world.boards[ford].have = board.need - 1;
     g.run_ticks(2);
     g.communes[0].inspecting = true;
     save(&g, "13_footbridge_board.png");
@@ -460,7 +578,7 @@ fn export_screenshots(dir: &Path) {
     (g.communes[0].sheet, g.communes[0].sheet_page) = (false, 0);
     // Old Sawgrass, asked what could be made from two logs and a rope lying by his bench.
     (g.monsters[c].playing, g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (false, 28, 28, game::Dir::Left);
-    for (x, id) in [(30, "hemlock_log"), (31, "hemlock_log"), (32, "rope")] {
+    for (x, id) in [(36, "hemlock_log"), (37, "hemlock_log"), (38, "rope")] {
         let mut d = g.world.items.first().map(|it| it.data.clone()).unwrap_or_else(|| fg.world.items[0].data.clone());
         (d.good, d.carried_tags) = (id.into(), Vec::new());
         g.world.items.push(world::Item::new(x, 20, d));
@@ -483,5 +601,43 @@ fn export_screenshots(dir: &Path) {
     (d.good, d.carried_tags) = ("pumpkin".into(), Vec::new());
     g.world.items.push(world::Item::new(pad.0, pad.1, d));
     shot(&g, "46_aiming.png");
+    // Temple Town: the trader at his stall says what he's got.
+    let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
+    let (sx, sy) = g.world.shops[stall].spot;
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (sx, sy, game::Dir::Up);
+    shot(&g, "47_trader.png");
+    // The foundry, where the bell is cast: eleven pads, a chisel and a shovel lent.
+    let foundry = g.world.shops.iter().position(|s| s.kind.label() == "FOUNDRY").expect("the foundry");
+    (g.monsters[c].x, g.monsters[c].y) = g.world.shops[foundry].spot;
+    g.communes[0].inspecting = true;
+    g.communes[0].card_page = 0;
+    shot(&g, "48_foundry.png");
+    g.communes[0].inspecting = false;
+    // A bell hung in the temple: it rings for everyone, and the plaque keeps it.
+    let frame = g.world.boards.iter().position(|b| b.project == world::Project::Bell).expect("the bell frame");
+    let (fx, fy) = (g.world.boards[frame].x, g.world.boards[frame].y);
+    g.world.bells.push(world::Hung { quality: 1.4, metal: "BRONZE".into(), caster: "MOGG".into(), others: 12 });
+    (g.world.boards[frame].have, g.world.boards[frame].rest) = (1, 1000);
+    let line = game::Game::bell_line(g.world.bells.last().expect("a bell"));
+    g.announcement = Some(game::Announcement { title: "THE TEMPLE BELL RINGS!".into(), line, t: 100 });
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (fx, fy - 2, game::Dir::Down);
+    shot(&g, "49_bell_rings.png");
+    g.announcement = None;
+    let (px, py) = g.world.plaques[0];
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (px, py - 1, game::Dir::Down);
+    g.communes[0].inspecting = true;
+    shot(&g, "50_bell_plaque.png");
+    g.communes[0].inspecting = false;
+    // Old Spoke's yard: his woodpiles, his bench and order board, and the bench by his gate.
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (30, 24, game::Dir::Up);
+    shot(&g, "51_old_spokes_yard.png");
+    // Facing him, he says what a wheel takes; his card says who he is.
+    let spoke = g.monsters.iter().position(|m| m.worker.is_some()).expect("Old Spoke");
+    (g.monsters[spoke].x, g.monsters[spoke].y, g.monsters[spoke].playing, g.monsters[spoke].slide) = (33, 22, false, None);
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (33, 23, game::Dir::Up);
+    shot(&g, "52_old_spoke_talks.png");
+    g.communes[0].inspecting = true;
+    shot(&g, "53_old_spoke_card.png");
+    g.communes[0].inspecting = false;
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

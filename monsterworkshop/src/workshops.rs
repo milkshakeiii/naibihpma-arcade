@@ -20,6 +20,9 @@
 //!   that names and colors it (a workbench by its wood: "OAK WORKBENCH"), and its open-air
 //!   layout as offsets from the work spot for one
 //!   facing down (turned the way it's unpacked): `pads`, `outs` (output mats) and `pegs`.
+//! - `trades`, for a trader's stall instead of `recipes`: each trade's `id` (a recipe, made
+//!   when the data loads), the good it `makes`, and what it `wants` on the pads. A trade has no
+//!   skill or quality roll; see `econ::trade`.
 //! - `about`: a note for people; the game doesn't read it.
 //!
 //! Beside the kinds, `bin_kit` and `wagon_kit` are the kits that unpack into a bin or a wagon
@@ -68,10 +71,26 @@ struct WorkshopType {
     map_char: char,
     look: &'static str,
     building: bool,
+    #[serde(default)]
     recipes: Vec<&'static str>,
     #[serde(default)]
     lends: Vec<&'static str>,
     kit: Option<Kit>,
+    #[serde(default)]
+    trades: Vec<Trade>,
+}
+
+/// One of a trader's trades: a recipe whose product is another good.
+#[derive(Deserialize)]
+pub struct Trade {
+    pub id: &'static str,
+    pub makes: &'static str,
+    pub wants: Vec<Vec<&'static str>>,
+}
+
+/// Every trader's trades, for the data to make recipes of.
+pub fn trades() -> impl Iterator<Item = &'static Trade> {
+    types().iter().flat_map(|t| &t.trades)
 }
 
 /// The kit that sets a workshop up out in the wilds, and how it lays it out.
@@ -89,8 +108,12 @@ pub struct Kit {
 fn file() -> &'static WorkshopsFile {
     static FILE: OnceLock<WorkshopsFile> = OnceLock::new();
     FILE.get_or_init(|| {
-        let file = serde_json::from_str::<WorkshopsFile>(WORKSHOPS).expect("data/workshops.json");
-        for t in &file.workshop_types {
+        let mut file = serde_json::from_str::<WorkshopsFile>(WORKSHOPS).expect("data/workshops.json");
+        for t in &mut file.workshop_types {
+            // A trader's recipes are its trades.
+            if !t.trades.is_empty() {
+                t.recipes = t.trades.iter().map(|tr| tr.id).collect();
+            }
             assert!(!crate::world::MAP_LEGEND.contains(t.map_char), "{}'s map character {:?} already means something else on the map", t.id, t.map_char);
             assert!(crate::render::LOOKS.contains(&t.look), "{} looks like {:?}, which nothing draws", t.id, t.look);
         }
@@ -137,6 +160,11 @@ impl ShopKind {
 
     pub fn label(self) -> &'static str {
         self.ty().label
+    }
+
+    /// A trader's stall: its recipes are trades.
+    pub fn trades(self) -> bool {
+        !self.ty().trades.is_empty()
     }
 
     pub fn look(self) -> &'static str {
@@ -225,13 +253,15 @@ mod tests {
 
     /// Every recipe of every kind can be made starting from what grows on the map: at a town
     /// workshop on the map, with the tools it lends, or at a frontier one whose kit can be made,
-    /// with tools that can be made.
+    /// with tools that can be made. A trader's goods count as made once its trade can be.
     #[test]
     fn everything_in_play_can_be_made_from_what_grows_on_the_map() {
         let data = Data::load();
         let world = World::new(&data);
         let in_town: HashSet<ShopKind> = world.shops.iter().map(|s| s.kind).collect();
+        // Goods that can be had, and recipes that can be made (a trade's good is another good).
         let mut made: BTreeSet<&str> = world.plants.iter().map(|p| data.good(&p.good).id.as_str()).collect();
+        let mut can: BTreeSet<&str> = BTreeSet::new();
         let provided = |made: &BTreeSet<&str>, group: &Vec<String>| made.iter().any(|id| matches(&data.good(id).type_tags, group));
         loop {
             let before = made.len();
@@ -243,7 +273,8 @@ mod tests {
                     let inputs = g.input_goods_tags_required.iter().all(|grp| provided(&made, grp));
                     let tools = |lent: bool| g.tools_required_tags.iter().filter(|grp| !grp.is_empty()).all(|grp| provided(&made, grp) || (lent && k.builtin_tools().iter().any(|t| matches(&data.good(t).type_tags, grp))));
                     if inputs && ((town && tools(true)) || (frontier && tools(false))) {
-                        made.insert(r);
+                        can.insert(r);
+                        made.insert(g.output());
                     }
                 }
             }
@@ -253,7 +284,7 @@ mod tests {
         }
         let mut missing = Vec::new();
         for k in ShopKind::all() {
-            for &r in k.recipes().iter().filter(|r| !made.contains(*r)) {
+            for &r in k.recipes().iter().filter(|r| !can.contains(*r)) {
                 let g = data.good(r);
                 let lent = |grp: &Vec<String>| in_town.contains(&k) && k.builtin_tools().iter().any(|t| matches(&data.good(t).type_tags, grp));
                 let lacks: Vec<String> = g.input_goods_tags_required.iter().chain(&g.tools_required_tags).filter(|grp| !grp.is_empty() && !provided(&made, grp) && !lent(grp)).map(|grp| grp.join(" ")).collect();

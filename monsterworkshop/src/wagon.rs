@@ -191,7 +191,7 @@ impl Game {
         let mut item = self.world.items.remove(it);
         item.data.hauled_by(hauler);
         let wagon = &mut self.world.wagons[w];
-        wagon.stock.push((item.data, area_name(wagon.at.0).to_string()));
+        wagon.stock.push((item.data, area_name(wagon.at.0, wagon.at.1).to_string()));
         wagon.bounce = 4;
         Ok(())
     }
@@ -229,7 +229,7 @@ impl Game {
             let wagon = &mut self.world.wagons[w];
             let (mut data, _) = wagon.stock.remove(0);
             // Brought here from somewhere else: the wagon's leader earns the journey's credit.
-            if from != area_name(wagon.at.0) {
+            if from != area_name(wagon.at.0, wagon.at.1) {
                 data.carted = wagon.last_leader;
             }
             let back = dir_to(wagon.pumpkin, wagon.at);

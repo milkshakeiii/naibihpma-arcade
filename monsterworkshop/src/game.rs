@@ -23,6 +23,15 @@ const WAIT_BEFORE_SAYING: u16 = 12;
 /// A held direction starts walking on its own only after ~267 ms, so a tap is one tile.
 const HOLD_REPEAT_TICKS: u8 = 4;
 const BANNER_TICKS: u16 = 45;
+/// How long the bell frame rests after a bell is hung before a new one can replace it: an hour
+/// of play.
+const BELL_REST_TICKS: u32 = 15 * 60 * 60;
+/// How long a working townsperson rests after filling an order: thirty seconds.
+const BREAK_TICKS: u32 = 15 * 30;
+/// How long a filled order takes to go out before a new one starts: twenty seconds.
+const ORDER_REST_TICKS: u32 = 15 * 20;
+/// How long news everyone sees stays up: ten seconds.
+const ANNOUNCE_TICKS: u16 = 150;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sfx {
@@ -41,12 +50,14 @@ pub enum Sfx {
     LoopOff,
     Switch,
     Deny,
+    /// The Temple Bell, heard by everyone.
+    Bell,
 }
 
 impl Sfx {
     /// Every sound, in the order they're numbered when sent to a player.
     #[cfg_attr(not(windows), allow(dead_code))]
-    pub const ALL: [Sfx; 15] = [
+    pub const ALL: [Sfx; 16] = [
         Sfx::Step,
         Sfx::Push,
         Sfx::Bump,
@@ -62,6 +73,7 @@ impl Sfx {
         Sfx::LoopOff,
         Sfx::Switch,
         Sfx::Deny,
+        Sfx::Bell,
     ];
 }
 
@@ -244,6 +256,12 @@ pub struct Monster {
     /// Its two hands: the gathering tools it holds (see Equipment in DESIGN.md).
     #[serde(default)]
     pub hands: [Option<crate::econ::ItemData>; 2],
+    /// A working townsperson's monster: which of the world's workers it is.
+    #[serde(default)]
+    pub worker: Option<usize>,
+    /// Ticks left of a working townsperson's break.
+    #[serde(default)]
+    pub rest: u32,
     /// Why it last gave a goal up (someone in the way, say), told until it next finishes one.
     #[serde(default)]
     pub gave_up: String,
@@ -333,6 +351,8 @@ impl Monster {
             knot: None,
             no_room: 0,
             hands: [None, None],
+            worker: None,
+            rest: 0,
             gave_up: String::new(),
             since: 0,
             loops: 0,
@@ -410,6 +430,9 @@ pub(crate) enum Ev {
 pub struct Commune {
     /// The key its player's game identifies itself with; empty until a player claims it.
     pub key: String,
+    /// The town's own working folk, whom no player claims (see `found_town`).
+    #[serde(default)]
+    pub town: bool,
     pub renown: f64,
     /// The monster this player controls, always one of the commune's own.
     pub controlled: usize,
@@ -472,6 +495,16 @@ pub struct Commune {
 pub(crate) enum Heard {
     At((i32, i32)),
     By(usize),
+    /// Every player, wherever they are: the Temple Bell.
+    Everyone,
+}
+
+/// News every player sees at once, such as a bell hung in the temple: a headline and a line
+/// under it, for `t` more ticks.
+pub struct Announcement {
+    pub title: String,
+    pub line: String,
+    pub t: u16,
 }
 
 pub struct Game {
@@ -491,6 +524,7 @@ pub struct Game {
     pub(crate) roster_timer: u32,
     pub(crate) next_id: u32,
     pub floaters: Vec<Floater>,
+    pub announcement: Option<Announcement>,
 }
 
 impl Game {
@@ -518,10 +552,137 @@ impl Game {
             roster_timer: 0,
             next_id: 1,
             floaters: Vec::new(),
+            announcement: None,
         };
         g.found_commune(["MOGG", "BRUNA"]);
         g.applicants = (0..stands).map(|_| Some(g.roll_applicant())).collect();
+        g.found_town();
         g
+    }
+
+    /// The town's working folk (`World::workers`): a commune of their own that no player
+    /// claims, each a monster on its loop at a bench of its own, fed by supplies of its own.
+    /// Whatever those set out and that bench makes is theirs.
+    fn found_town(&mut self) {
+        if self.world.workers.is_empty() {
+            return;
+        }
+        let k = self.communes.len();
+        let first = self.monsters.len();
+        for (n, w) in self.world.workers.clone().into_iter().enumerate() {
+            let id = self.next_id;
+            self.next_id += 1;
+            let mut m = Monster::new(id, k, w.name, "goblin", &self.data, w.at, starting_skills(&["handcrafts", "engineering", "athletics"], w.skills));
+            let mut goals = Vec::new();
+            for t in &w.tasks {
+                match *t {
+                    Task::Move(good, from, to) => {
+                        goals.push(Goal::Move { good: good.into(), from, to });
+                        if let Some(s) = self.world.supplies.iter_mut().find(|s| s.at == from) {
+                            s.owner = Some(id);
+                        }
+                    }
+                    Task::Work((x, y)) => {
+                        let s = self.world.shop_at_spot(x, y).unwrap_or_else(|| panic!("{}'s bench at {x},{y}", w.name));
+                        self.world.shops[s].owner = Some(id);
+                        goals.push(Goal::Activate(Thing::Shop(s)));
+                    }
+                }
+            }
+            (m.routine, m.playing, m.worker) = (Some(Routine { flag: w.at, goals }), true, Some(n));
+            m.hands[0] = Some(crate::econ::plain(&self.data, "stone_hammer", "limestone"));
+            self.monsters.push(m);
+        }
+        self.communes.push(Commune { controlled: first, town: true, examine_hinted: true, ..Commune::default() });
+    }
+
+    /// A working townsperson is due a break: it starts once the step they're in the middle of
+    /// is done (an order is filled by a push, part way through a carry).
+    fn start_break(&mut self, i: usize) {
+        self.monsters[i].rest = BREAK_TICKS;
+    }
+
+    /// Working townsfolk on a break walk back to their own spot (where their loop starts), rest
+    /// there, and then take their loop up again where they left it.
+    fn tick_breaks(&mut self) {
+        for i in 0..self.monsters.len() {
+            let m = &self.monsters[i];
+            if m.rest == 0 || m.playing || !m.idle() {
+                continue;
+            }
+            let Some(spot) = m.routine.as_ref().map(|r| r.flag) else { continue };
+            if (m.x, m.y) != spot {
+                let mut heard = Vec::new();
+                if let crate::motion::Going::Stuck(_) = self.go_toward(i, spot, None, &mut heard) {
+                    // Somebody's on his spot: he rests where he is.
+                    self.monsters[i].rest -= 1;
+                }
+                let at = (self.monsters[i].x, self.monsters[i].y);
+                self.sounds.extend(heard.into_iter().map(|s| (Heard::At(at), s)));
+                continue;
+            }
+            let m = &mut self.monsters[i];
+            m.rest -= 1;
+            if m.rest == 0 {
+                m.playing = true;
+            }
+        }
+    }
+
+    /// The town's supplies set out a fresh good wherever theirs has been taken, after a while:
+    /// out of the shed or wall beside it, if there is one, as a bin pushes goods out of its chute.
+    fn tick_supplies(&mut self) {
+        for s in 0..self.world.supplies.len() {
+            let (x, y) = self.world.supplies[s].at;
+            if self.world.item_at(x, y).is_some() || self.monster_at(x, y).is_some() {
+                self.world.supplies[s].timer = 0;
+                continue;
+            }
+            let sup = &mut self.world.supplies[s];
+            sup.timer += 1;
+            if sup.timer >= SUPPLY_TICKS {
+                sup.timer = 0;
+                let (good, from, owner) = (sup.good, sup.from, sup.owner);
+                let out = DIRS.iter().copied().find(|d| {
+                    let (dx, dy) = d.delta();
+                    self.world.tile(x - dx, y - dy) == Tile::Wall
+                });
+                let slide = out.map(|dir| Slide { dir, left: PUSH_TICKS, total: PUSH_TICKS });
+                let item = Item { hop: if slide.is_some() { 0 } else { 4 }, slide, owner, ..Item::new(x, y, crate::econ::plain(&self.data, good, from)) };
+                self.world.items.push(item);
+            }
+        }
+    }
+
+    /// The world without its working townsfolk, for tests of other things that count on only the
+    /// first player's monsters, communes and goods being there. Right after `new`, before anyone
+    /// joins.
+    #[cfg(test)]
+    pub(crate) fn without_town(mut self) -> Self {
+        if let Some(k) = self.communes.iter().position(|c| c.town) {
+            assert_eq!(k, self.communes.len() - 1, "nobody joined after the town");
+            self.monsters.retain(|m| m.commune != k);
+            self.communes.remove(k);
+        }
+        self.world.supplies.clear();
+        self.world.items.retain(|it| it.owner.is_none());
+        for s in self.world.shops.iter_mut() {
+            s.owner = None;
+        }
+        self
+    }
+
+    /// Whose item `it` is, if it's a working townsperson's and not monster `i`'s: their name.
+    pub(crate) fn owned_by_other(&self, i: usize, it: usize) -> Option<&str> {
+        let owner = self.world.items[it].owner.filter(|&o| o != self.monsters[i].id)?;
+        self.monsters.iter().find(|m| m.id == owner).map(|m| m.name.as_str())
+    }
+
+    /// The working townsperson monster `c` faces, if any.
+    pub fn faced_worker(&self, c: usize) -> Option<usize> {
+        let m = &self.monsters[c];
+        let (dx, dy) = m.facing.delta();
+        self.monster_at(m.x + dx, m.y + dy).filter(|&j| self.monsters[j].worker.is_some())
     }
 
     /// The commune of the player with this key: theirs if they've played here before, else one
@@ -530,7 +691,7 @@ impl Game {
         if let Some(k) = self.communes.iter().position(|c| c.key == key) {
             return k;
         }
-        let k = self.communes.iter().position(|c| c.key.is_empty()).unwrap_or_else(|| self.join());
+        let k = self.communes.iter().position(|c| c.key.is_empty() && !c.town).unwrap_or_else(|| self.join());
         self.communes[k].key = key.to_string();
         k
     }
@@ -558,7 +719,7 @@ impl Game {
         }
         self.monsters[first].bubble = Some(Bubble { text: format!("HI, I'M {crafter}! LET'S MAKE SOME CLOTH."), ttl: 60, warn: false, waiting: false });
         let m = &self.monsters[first];
-        let area = area_name(crate::render::screen_of(m.x, m.y).0);
+        let area = { let (sx, sy) = crate::render::screen_of(m.x, m.y); area_name(sx, sy) };
         self.communes.push(Commune { controlled: first, area, ..Commune::default() });
         k
     }
@@ -599,6 +760,7 @@ impl Game {
             .iter()
             .filter(|(h, _)| match *h {
                 Heard::By(c) => c == k,
+                Heard::Everyone => true,
                 Heard::At((x, y)) => crate::render::screen_of(x, y) == screen,
             })
             .map(|&(_, s)| s)
@@ -703,6 +865,9 @@ impl Game {
 
     /// A good pushed into a project board: renown as for a delivery, and the project moves on.
     fn contribute(&mut self, b: usize, data: ItemData, sfx: &mut Vec<Sfx>) {
+        if self.world.boards[b].project == Project::Bell {
+            self.hang_bell(b, &data);
+        }
         let board = &mut self.world.boards[b];
         board.have += 1;
         board.bounce = 4;
@@ -714,8 +879,66 @@ impl Game {
         }
     }
 
+    /// A bell pushed into the temple's frame goes on its plaque: how well it was made, who cast
+    /// it (whoever holds the most shares in it) and how many others had a share. Then the frame
+    /// rests before it takes another.
+    fn hang_bell(&mut self, b: usize, bell: &ItemData) {
+        let top = bell.shares.iter().max_by(|a, b| a.count.total_cmp(&b.count));
+        let caster = top.and_then(|s| self.monsters.iter().find(|m| m.id == s.monster)).map_or_else(|| "SOMEONE".to_string(), |m| m.name.clone());
+        let others = bell.shares.len().saturating_sub(1);
+        let metal = self.data.metal_of(&bell.carried_tags).unwrap_or_default().to_uppercase();
+        self.world.bells.push(Hung { quality: bell.quality, metal, caster, others });
+        self.world.boards[b].rest = BELL_REST_TICKS;
+    }
+
+    /// The bell frame's rest after a bell is hung: when it's over, a new bell can replace the
+    /// one hanging. And a board's bounce settles.
+    fn tick_boards(&mut self) {
+        for board in self.world.boards.iter_mut() {
+            board.bounce = board.bounce.saturating_sub(1);
+            if board.rest > 0 {
+                board.rest -= 1;
+                if board.rest == 0 {
+                    board.have = 0;
+                }
+            }
+        }
+    }
+
+    /// How a hung bell is told of: "A MASTERWORK BRONZE BELL, CAST BY MOGG AND 12 OTHERS."
+    pub(crate) fn bell_line(h: &Hung) -> String {
+        let others = match h.others {
+            0 => String::new(),
+            1 => " AND 1 OTHER".into(),
+            n => format!(" AND {n} OTHERS"),
+        };
+        let what = [crate::econ::tier_name(h.quality), h.metal.as_str(), "BELL"].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" ");
+        format!("{}, CAST BY {}{others}.", crate::recipes::one(&what), h.caster)
+    }
+
     fn finish_project(&mut self, b: usize, sfx: &mut Vec<Sfx>) {
         match self.world.boards[b].project {
+            Project::Order => {
+                // It goes out; after a rest a new one starts. Whoever works toward it takes a break.
+                let board = &mut self.world.boards[b];
+                board.rest = ORDER_REST_TICKS;
+                let (x, y, title) = (board.x, board.y, board.title.clone());
+                let worker = self.monsters.iter().position(|m| m.worker.is_some() && m.routine.as_ref().is_some_and(|r| r.goals.iter().any(|g| matches!(g, Goal::Move { to, .. } if *to == (x, y)))));
+                if let Some(w) = worker {
+                    self.start_break(w);
+                }
+                let at = (x * TS + 8, y * TS);
+                self.floaters.push(Floater { text: format!("{title} IS FILLED!"), from: at, to: (at.0, at.1 - 30), t: 0, total: 60, delay: 10, color: SPARK + 2 });
+                self.world.burst(x, y, PKind::Spark, 6);
+            }
+            Project::Bell => {
+                // It rings for everyone, wherever they are, and everyone hears how well it was made.
+                let line = self.world.bells.last().map_or_else(String::new, Self::bell_line);
+                self.announcement = Some(Announcement { title: "THE TEMPLE BELL RINGS!".into(), line, t: ANNOUNCE_TICKS });
+                self.sounds.push((Heard::Everyone, Sfx::Bell));
+                let (x, y) = (self.world.boards[b].x, self.world.boards[b].y);
+                self.world.burst(x, y, PKind::Spark, 12);
+            }
             Project::Bridge => {
                 self.world.build_bridge();
                 for (x, y) in self.world.bridge.clone() {
@@ -781,6 +1004,11 @@ impl Game {
         for i in 0..self.monsters.len() {
             // Heard on the screen where the monster ends its turn.
             let mut heard = Vec::new();
+            if self.monsters[i].playing && self.monsters[i].rest > 0 && self.monsters[i].idle() {
+                // A working townsperson's break begins between steps.
+                self.monsters[i].playing = false;
+                self.leave_loop(i);
+            }
             if self.monsters[i].playing {
                 self.run_loop(i, &mut heard);
             } else if self.monsters[i].homing && self.monsters[i].idle() {
@@ -793,6 +1021,8 @@ impl Game {
         self.untangle(&mut Vec::new());
         self.advance_motion();
         self.tick_wagons();
+        self.tick_supplies();
+        self.tick_breaks();
         self.tick_work();
         self.tick_frontier();
         self.tick_hall();
@@ -801,6 +1031,13 @@ impl Game {
             f.t += 1;
         }
         self.floaters.retain(|f| f.t < f.total);
+        if let Some(a) = self.announcement.as_mut() {
+            a.t = a.t.saturating_sub(1);
+        }
+        if self.announcement.as_ref().is_some_and(|a| a.t == 0) {
+            self.announcement = None;
+        }
+        self.tick_boards();
         for m in self.monsters.iter_mut() {
             if let Some(b) = m.bubble.as_mut() {
                 b.ttl = b.ttl.saturating_sub(1);
@@ -817,7 +1054,7 @@ impl Game {
         }
         for c in self.communes.iter_mut() {
             let m = &self.monsters[c.controlled];
-            let area = area_name(crate::render::screen_of(m.x, m.y).0);
+            let area = { let (sx, sy) = crate::render::screen_of(m.x, m.y); area_name(sx, sy) };
             if area != c.area {
                 c.area = area;
                 c.banner = Some((area, BANNER_TICKS));
@@ -1085,6 +1322,9 @@ impl Game {
         if self.world.items[it].locked {
             return StepRes::Blocked("THAT'S BEING WORKED ON.".into());
         }
+        if let Some(name) = self.owned_by_other(i, it) {
+            return StepRes::Blocked(format!("THAT'S {name}'S."));
+        }
         if !self.world.walkable(tx, ty) || self.monster_at(tx, ty).is_some() || self.applicant_at(tx, ty) || self.world.item_at(tx, ty).is_some() || self.world.cart_at(tx, ty) {
             return StepRes::Blocked(self.water_note(tx, ty));
         }
@@ -1147,12 +1387,19 @@ impl Game {
             if self.world.items[it].locked {
                 return StepRes::Blocked("THAT'S BEING WORKED ON.".into());
             }
+            if let Some(name) = self.owned_by_other(i, it) {
+                return StepRes::Blocked(format!("THAT'S {name}'S."));
+            }
             let (bx, by) = (tx + dx, ty + dy);
             ticks = self.push_ticks(i, &self.world.items[it].data).max(pull);
             if let Some(b) = self.world.board_at(bx, by) {
                 let board = &self.world.boards[b];
                 if board.done() {
-                    return StepRes::Blocked("THAT PROJECT IS DONE.".into());
+                    return StepRes::Blocked(match board.project {
+                        Project::Bell => format!("A BELL HANGS HERE. A NEW ONE CAN REPLACE IT IN {} MINUTES.", board.rest.div_ceil(15 * 60)),
+                        Project::Order => "THAT ORDER'S ON ITS WAY. A NEW ONE SOON.".into(),
+                        _ => "THAT PROJECT IS DONE.".into(),
+                    });
                 }
                 if !self.board_takes(b, &good) {
                     return StepRes::Blocked(format!("THE BOARD WANTS {}.", self.good_name(&board.wants)));
@@ -1249,6 +1496,22 @@ impl Game {
         if let Some(res) = self.use_wagon_ahead(i, sfx) {
             return res;
         }
+        // Standing at a work spot, Space works it, whoever it faces (the trader stands behind
+        // his stall's).
+        let (x, y) = (self.monsters[i].x, self.monsters[i].y);
+        if let Some(s) = self.world.shop_at_spot(x, y) {
+            return self.use_shop(i, s, sfx);
+        }
+        // Asking a working townsperson something: the next thing they say.
+        if self.faced_worker(i).is_some() && !self.monsters[i].playing {
+            let k = self.monsters[i].commune;
+            self.communes[k].idea_turn += 1;
+            return UseRes::Done;
+        }
+        // The trader just talks (facing him shows it); trading is at his stall.
+        if self.faced_townsfolk(i).is_some_and(|t| self.world.townsfolk[t].kind == Folk::Trader) {
+            return UseRes::Done;
+        }
         // Asking a craftsman: another idea, and it goes in the commune's book.
         if let Some(t) = self.faced_townsfolk(i).filter(|_| !self.monsters[i].playing) {
             let k = self.monsters[i].commune;
@@ -1262,10 +1525,6 @@ impl Game {
             }
             sfx.push(Sfx::Pop);
             return UseRes::Done;
-        }
-        let (x, y) = (self.monsters[i].x, self.monsters[i].y);
-        if let Some(s) = self.world.shop_at_spot(x, y) {
-            return self.use_shop(i, s, sfx);
         }
         if let Some(p) = self.world.plant_at(x, y) {
             return self.use_plant(i, p, sfx);
@@ -1284,7 +1543,7 @@ impl Game {
     fn tool_ahead(&self, i: usize) -> Option<usize> {
         let m = &self.monsters[i];
         let (dx, dy) = m.facing.delta();
-        self.world.item_at(m.x + dx, m.y + dy).filter(|&it| self.data.try_good(self.world.items[it].good()).is_some_and(|g| self.data.holdable(g)))
+        self.world.item_at(m.x + dx, m.y + dy).filter(|&it| self.owned_by_other(i, it).is_none() && self.data.try_good(self.world.items[it].good()).is_some_and(|g| self.data.holdable(g)))
     }
 
     /// What monster `i` holds weighs against its body's capacity.
@@ -1544,6 +1803,9 @@ impl Game {
         let events = std::mem::take(&mut self.events);
         let stored = |good: &str| self.world.bins.iter().any(|b| b.stock.iter().any(|d| d.good == good));
         for k in 0..self.communes.len() {
+            if self.communes[k].town {
+                continue;
+            }
             let mine: Vec<&Ev> = events.iter().filter(|(c, _)| *c == k).map(|(_, e)| e).collect();
             let own = || self.monsters.iter().filter(move |m| m.commune == k);
             let c = &mut self.communes[k];
@@ -1571,7 +1833,7 @@ impl Game {
                     9 => own().count() > 2,
                     10 => made("rope"),
                     11 => self.world.footbridge_built(),
-                    12 => own().any(|m| area_name(m.x) == "TANGLEMERE"),
+                    12 => own().any(|m| area_name(m.x, m.y) == "TANGLEMERE"),
                     13 => made("lye"),
                     14 => made("quicklime"),
                     15 => made("indigo"),

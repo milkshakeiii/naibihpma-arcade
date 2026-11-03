@@ -141,7 +141,7 @@ pub(super) fn full_chain(g: &Game) -> Routine {
 
 /// `n` monsters, all looping the routine `make` gives, starting along the row below the flag.
 fn on_one_loop(n: usize, make: fn(&Game) -> Routine) -> Game {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     while g.monsters.len() < n {
         let skills = g.monsters[0].skills.clone();
         let (id, name) = (10 + g.monsters.len() as u32, NAMES[g.monsters.len() - 2]);
@@ -362,7 +362,7 @@ fn on_ground((x, y): (i32, i32)) -> (i32, i32) {
 /// Walkers on a test ground laid over the meadow ('#' is hedge, anything else grass). Each
 /// starts at the first of its stops and walks to each in turn, round and round.
 fn walkers(rows: &[&str], stops: &[&[(i32, i32)]]) -> (Game, Walkers) {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     while g.monsters.len() < stops.len() {
         let skills = g.monsters[0].skills.clone();
         let id = 10 + g.monsters.len() as u32;

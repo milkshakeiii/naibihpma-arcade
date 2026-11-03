@@ -222,6 +222,13 @@ fn build_sfx_bank() -> Vec<Arc<Vec<i16>>> {
         synth(60, |t| sine(t, 1480.0) * decay(t, 0.06, 2) * 0.3),
         // Deny: soft low buzz.
         synth(170, |t| (sine(t, 150.0) + 0.5 * sine(t, 300.0)).signum() * decay(t, 0.17, 1) * 0.12),
+        // Bell: a big bronze bell's partials (hum, prime, minor third, fifth, nominal), each dying
+        // away at its own rate, the low hum longest.
+        synth(4000, |t| {
+            let strike = (t * 400.0).min(1.0);
+            let partials = [(110.0, 0.5, 4.0), (220.0, 1.0, 3.2), (262.0, 0.6, 2.6), (330.0, 0.35, 2.0), (440.0, 0.5, 1.4), (587.0, 0.25, 0.8)];
+            partials.iter().map(|&(f, a, len)| a * sine(t, f) * decay(t, len, 2)).sum::<f32>() * strike * 0.3
+        }),
     ];
     bank.into_iter().map(Arc::new).collect()
 }

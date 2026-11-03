@@ -34,42 +34,156 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovc";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNQxy";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
     map: &'static str,
+    /// Where its northwest corner lies in the world, in tiles. Between regions is hedge.
+    at: (i32, i32),
     /// Building names, each placed by one tile of the building's top wall (region coordinates).
     labels: &'static [((i32, i32), &'static str)],
     /// Signpost texts and the way their arrows point.
     signs: &'static [(&'static str, Dir)],
     /// Project boards: the project, the good it wants, how many, and what finishing it does.
     boards: &'static [(&'static str, &'static str, u32, Project)],
+    /// A working townsperson's supplies (`G`): the good each sets out, and the raw material it's
+    /// plainly made from.
+    supplies: &'static [(&'static str, &'static str)],
+    /// Working townsfolk (`N`), where each starts.
+    workers: &'static [WorkerSpec],
 }
 
-/// West to east. Each region's entities are listed after the previous region's, so adding a
-/// region never reorders what an older save refers to.
-const REGIONS: [Region; 3] = [
-    Region { map: include_str!("../data/pinewater.map"), labels: &[((4, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS")], signs: &[("TANGLEMERE", Dir::Right)], boards: &[] },
+/// A working townsperson as a region's data gives them: a monster of the town's on a loop at a
+/// bench of their own (see `Game::found_town`).
+pub struct WorkerSpec {
+    pub name: &'static str,
+    /// What they are: "WAGONWRIGHT".
+    pub title: &'static str,
+    /// Their card's lines, and what they say, one at a time (after what their bench makes).
+    pub about: &'static [&'static str],
+    pub says: &'static [&'static str],
+    pub skills: &'static [(&'static str, f64)],
+    /// Their loop, in region coordinates.
+    pub tasks: &'static [Task],
+}
+
+/// One goal of a working townsperson's loop.
+#[derive(Clone, Copy, Debug)]
+pub enum Task {
+    /// Get this good from where it lies to there.
+    Move(&'static str, (i32, i32), (i32, i32)),
+    /// Work the bench whose spot this is.
+    Work((i32, i32)),
+}
+
+/// A working townsperson in the world: their spec, where they start, and their loop in world
+/// coordinates.
+#[derive(Clone)]
+pub struct Worker {
+    pub name: &'static str,
+    pub title: &'static str,
+    pub about: &'static [&'static str],
+    pub says: &'static [&'static str],
+    pub skills: &'static [(&'static str, f64)],
+    pub at: (i32, i32),
+    pub tasks: Vec<Task>,
+}
+
+/// Where a working townsperson's goods come from: a good set out on its tile whenever theirs has
+/// been taken, after a while.
+#[derive(Clone, Debug)]
+pub struct Supply {
+    pub at: (i32, i32),
+    pub good: &'static str,
+    pub from: &'static str,
+    /// The monster whose it is (`None` until the town is founded).
+    pub owner: Option<u32>,
+    pub timer: u32,
+}
+
+/// Scenery in a yard: you walk round it, and examining it says what it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Prop {
+    Wheels,
+    Cart,
+    Fence,
+}
+
+/// Each region's entities are listed after the previous region's, so adding a region never
+/// reorders what an older save refers to: the road west to east, then Temple Town south of it.
+const REGIONS: [Region; 4] = [
+    Region {
+        map: include_str!("../data/pinewater.map"),
+        at: (0, 0),
+        labels: &[((4, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((30, 17), "OLD SPOKE'S YARD")],
+        signs: &[("TANGLEMERE", Dir::Right)],
+        boards: &[("OLD SPOKE'S ORDER", "wagon_wheel", 4, Project::Order)],
+        supplies: &[("oak_log", "oak_log"), ("planks", "hemlock_log"), ("elder_sticks", "elder_sticks")],
+        workers: &[OLD_SPOKE],
+    },
     Region {
         map: include_str!("../data/wilderness.map"),
+        at: (50, 0),
+        supplies: &[],
+        workers: &[],
         labels: &[],
-        signs: &[("TANGLEMERE", Dir::Right)],
+        signs: &[("TANGLEMERE", Dir::Right), ("TEMPLE TOWN", Dir::Down)],
         boards: &[("A ROPE FOR THE FOOTBRIDGE", "rope", 3, Project::Footbridge), ("A BRIDGE ACROSS THE RIVER", "log", 12, Project::Bridge)],
     },
     Region {
         map: include_str!("../data/tanglemere.map"),
+        at: (125, 0),
         labels: &[((34, 2), "CLOTH HALL")],
         signs: &[("PINEWATER", Dir::Left)],
         boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
+    Region {
+        map: include_str!("../data/temple_town.map"),
+        at: (75, 32),
+        labels: &[((12, 18), "TEMPLE")],
+        signs: &[],
+        boards: &[("THE TEMPLE BELL", "temple_bell", 1, Project::Bell)],
+        supplies: &[],
+        workers: &[],
     },
 ];
 
-/// Named stretches of the world by their first column, announced on arrival.
-const AREAS: [(i32, &str); 5] = [(0, "PINEWATER"), (50, "TINLESS"), (75, "THATCH HILLS"), (100, "DYE MEADOWS"), (125, "TANGLEMERE")];
+/// Pinewater's wagonwright, after Xi Zhong, who legend says made the first cart. He fetches his
+/// wood to his bench, makes a wheel and takes it to his order board.
+const OLD_SPOKE: WorkerSpec = WorkerSpec {
+    name: "OLD SPOKE",
+    title: "WAGONWRIGHT",
+    about: &["HE MAKES WAGON WHEELS AT HIS OWN BENCH, FROM HIS OWN WOOD. WATCH HOW HE DOES IT.", "THE BENCH BY HIS GATE IS FOR ANYONE. HIS ORDER BOARD TAKES ANYONE'S WHEELS, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
+    says: &["OAK MAKES THE STRONGEST SPOKES. NOTHING ELSE WILL DO FOR A WHEEL.", "TWO WHEELS, PLANKS, AN OAK LOG AND A PUMPKIN TO PULL IT: THAT'S A WAGON. MY GATE BENCH MAKES THOSE TOO.", "MY ORDERS TAKE ANYONE'S WHEELS. THERE'S ALWAYS A CART WANTING ONE."],
+    skills: &[("wagon_wright", 0.8), ("carpentry", 0.6), ("hauling", 0.4)],
+    tasks: &[
+        Task::Move("oak_log", (28, 19), (31, 20)),
+        Task::Move("planks", (28, 21), (30, 21)),
+        Task::Move("planks", (28, 21), (30, 20)),
+        Task::Move("elder_sticks", (29, 23), (30, 22)),
+        Task::Move("elder_sticks", (29, 23), (32, 20)),
+        Task::Work((31, 21)),
+        Task::Move("wagon_wheel", (32, 21), (34, 21)),
+    ],
+};
 
-pub fn area_name(x: i32) -> &'static str {
-    AREAS.iter().rev().find(|(x0, _)| x >= *x0).map_or(AREAS[0].1, |a| a.1)
+/// How long a working townsperson's supply takes to set out a fresh good once theirs is taken:
+/// four seconds, so a second plank from the same stack is a short wait.
+pub const SUPPLY_TICKS: u32 = 60;
+
+/// Named stretches of the world by their northwest corner, announced on arrival: the road west
+/// to east, then Temple Town south of it.
+const AREAS: [(i32, i32, &str); 6] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN")];
+
+/// The world's height, the rows of regions above together: a made-up world's copies repeat it.
+const WORLD_ROWS: i32 = 64;
+
+pub fn area_name(x: i32, y: i32) -> &'static str {
+    let y = y.rem_euclid(WORLD_ROWS);
+    AREAS.iter().rev().find(|&&(x0, y0, _)| x >= x0 && y >= y0).map_or(AREAS[0].2, |a| a.2)
 }
 
 fn plant_good(ch: char) -> Option<&'static str> {
@@ -186,11 +300,14 @@ pub struct Item {
     pub slide: Option<Slide>,
     pub hop: u8,
     pub locked: bool, // on a pad that is being worked
+    /// The working townsperson whose it is (a monster's id): only they move it.
+    #[serde(default)]
+    pub owner: Option<u32>,
 }
 
 impl Item {
     pub fn new(x: i32, y: i32, data: ItemData) -> Self {
-        Self { id: 0, x, y, data, slide: None, hop: 0, locked: false }
+        Self { id: 0, x, y, data, slide: None, hop: 0, locked: false, owner: None }
     }
 
     pub fn good(&self) -> &str {
@@ -242,13 +359,38 @@ impl Plant {
 /// carpenter, who's said to have invented the saw when a toothed blade of grass cut his hand.
 pub const CRAFTSMAN: &str = "OLD SAWGRASS";
 
-/// A townsperson who isn't anyone's monster (M3d): a craftsman who stands in his place, blocks
-/// the way like anyone, and says what you could make from what's around him.
+/// The trader a map's `u` stands for (temporary, for testing): a human, since only humans
+/// barter, behind the counter of a trader's stall.
+pub const TRADER: &str = "THE TRADER";
+
+/// A townsperson who isn't anyone's monster (M3d): someone who stands in their place and
+/// blocks the way like anyone.
 #[derive(Clone, Debug)]
 pub struct Townsfolk {
     pub x: i32,
     pub y: i32,
     pub name: String,
+    pub kind: Folk,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Folk {
+    /// Says what you could make from what's around him.
+    Craftsman,
+    /// Says what he'll give for what at the stall beside him.
+    Trader,
+}
+
+/// A bell hung in the temple: how well it was made, who cast it and how many others had a
+/// share in it. The temple's plaque lists them.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Hung {
+    pub quality: f64,
+    /// What it's cast in ("BRONZE"), if its metal is known.
+    #[serde(default)]
+    pub metal: String,
+    pub caster: String,
+    pub others: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -289,6 +431,12 @@ pub enum Project {
     Footbridge,
     /// The bridge goes up where the river was, and wagons can cross.
     Bridge,
+    /// A working townsperson's order: anyone's goods count toward it. Filled, it goes out, and
+    /// after a rest a new one starts.
+    Order,
+    /// The Temple Bell hangs in its frame and rings for everyone. After a rest, a new bell can
+    /// replace it.
+    Bell,
 }
 
 /// A town project: push the goods it wants into the board. Each one pays renown like a
@@ -303,6 +451,9 @@ pub struct Board {
     pub have: u32,
     pub project: Project,
     pub bounce: u8,
+    /// Ticks until it takes another (the bell frame, after a bell is hung).
+    #[serde(default)]
+    pub rest: u32,
 }
 
 impl Board {
@@ -388,6 +539,10 @@ pub struct Shop {
     /// What its pads last worked toward (`Game::aim`): with them empty, it stays set up for it.
     #[serde(default)]
     pub aimed: Option<String>,
+    /// A working townsperson's own bench (their monster's id): only they work it, and what it
+    /// makes is theirs.
+    #[serde(skip)]
+    pub owner: Option<u32>,
 }
 
 impl Shop {
@@ -476,6 +631,14 @@ pub struct World {
     /// Townsfolk who aren't anyone's monster, standing in their places: Old Sawgrass first.
     /// They come from the map, never from a save.
     pub townsfolk: Vec<Townsfolk>,
+    /// Plaques on walls: examining one reads the bells hung in the temple.
+    pub plaques: Vec<(i32, i32)>,
+    /// Working townsfolk, from the map; `Game::found_town` makes them monsters.
+    pub workers: Vec<Worker>,
+    pub supplies: Vec<Supply>,
+    pub props: Vec<((i32, i32), Prop)>,
+    /// Every bell hung in the temple, first first.
+    pub bells: Vec<Hung>,
     /// The last id given to an item.
     pub last_item_id: u32,
     seed: u32,
@@ -483,7 +646,7 @@ pub struct World {
 
 impl World {
     pub fn new(data: &Data) -> Self {
-        Self::build(data, &[REGIONS.iter().collect()])
+        Self::build(data, &REGIONS.iter().map(|r| (r.at, r)).collect::<Vec<_>>())
     }
 
     /// A made-up world for load tests: `copies` of the whole world stacked north to south, with
@@ -491,9 +654,9 @@ impl World {
     /// world, and every river bridged. Saves can't hold it, since a save keeps only what's on the
     /// map and the map comes from the game's data.
     pub fn made_up(data: &Data, copies: usize) -> Self {
-        let layout: Vec<Vec<&Region>> = (0..copies).map(|_| REGIONS.iter().collect()).collect();
-        let mut world = Self::build(data, &layout);
-        let rh = world.h / copies as i32;
+        let placed: Vec<((i32, i32), &Region)> = (0..copies as i32).flat_map(|k| REGIONS.iter().map(move |r| ((r.at.0, r.at.1 + k * WORLD_ROWS), r))).collect();
+        let mut world = Self::build(data, &placed);
+        let rh = WORLD_ROWS;
         for seam in (1..copies as i32).map(|k| k * rh) {
             for x in 0..world.w {
                 if world.walkable(x, seam - 2) && world.walkable(x, seam + 1) {
@@ -506,33 +669,24 @@ impl World {
         world
     }
 
-    /// The world from region maps: each row of `layout` laid west to east, the rows north to
-    /// south.
-    fn build(data: &Data, layout: &[Vec<&Region>]) -> Self {
-        let maps: Vec<Vec<Vec<&str>>> = layout.iter().map(|row| row.iter().map(|r| r.map.lines().filter(|l| !l.is_empty()).collect()).collect()).collect();
-        let rh = maps[0][0].len() as i32;
-        let w: i32 = maps[0].iter().map(|rows| rows[0].len() as i32).sum();
-        let h = rh * maps.len() as i32;
-        // Each region with where its northwest corner goes.
-        let mut placed = Vec::new();
-        for (n, (regions, maps)) in layout.iter().zip(&maps).enumerate() {
-            let mut ox = 0;
-            for (region, rows) in regions.iter().zip(maps) {
-                placed.push((ox, n as i32 * rh, *region, rows));
-                ox += rows[0].len() as i32;
-            }
-            assert_eq!(ox, w, "every row of regions is {w} wide");
-        }
+    /// The world from region maps, each with where its northwest corner goes. Whatever no
+    /// region covers is hedge.
+    fn build(data: &Data, layout: &[((i32, i32), &Region)]) -> Self {
+        let placed: Vec<(i32, i32, &Region, Vec<&str>)> = layout.iter().map(|&((ox, oy), r)| (ox, oy, r, r.map.lines().filter(|l| !l.is_empty()).collect())).collect();
+        let w = placed.iter().map(|(ox, _, _, rows)| ox + rows[0].len() as i32).max().unwrap_or(0);
+        let h = placed.iter().map(|(_, oy, _, rows)| oy + rows.len() as i32).max().unwrap_or(0);
         let mut tiles = vec![Tile::Hedge; (w * h) as usize];
         let (mut plants, mut bins, mut shops, mut starts) = (Vec::new(), Vec::new(), Vec::new(), [None; 2]);
         let (mut stands, mut boards, mut signs, mut labels, mut boat) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        let mut townsfolk = Vec::new();
+        let (mut townsfolk, mut plaques) = (Vec::new(), Vec::new());
+        let (mut workers, mut supplies, mut props) = (Vec::new(), Vec::new(), Vec::new());
         let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
         for (ox, oy, region, rows) in placed {
-            assert_eq!(rows.len() as i32, rh, "every region is {rh} rows tall");
             let rw = rows[0].len() as i32;
             let (mut sign_texts, mut board_specs) = (region.signs.iter(), region.boards.iter());
+            let (mut supply_specs, mut worker_specs) = (region.supplies.iter(), region.workers.iter());
+            let at = |(x, y): (i32, i32)| (x + ox, y + oy);
             labels.extend(region.labels.iter().map(|&((x, y), text)| ((x + ox, y + oy), text)));
             for (y, row) in rows.iter().enumerate() {
                 assert_eq!(row.len() as i32, rw, "map row {y} is {} wide", row.len());
@@ -544,7 +698,7 @@ impl World {
                         _ if shop_kind.is_some() => Tile::Spot,
                         '#' => Tile::Hedge,
                         ',' | 'm' => Tile::Path,
-                        'W' => Tile::Wall,
+                        'W' | 'H' => Tile::Wall,
                         '_' | 'a' | 'c' => Tile::Floor,
                         'D' => Tile::Door,
                         'p' => Tile::Pad,
@@ -553,7 +707,7 @@ impl World {
                         'C' | 'T' | 'b' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
-                        's' => Tile::Sign,
+                        's' | 'Q' | 'x' | 'y' => Tile::Sign,
                         '1' | '2' if street_next => Tile::Path,
                         _ => Tile::Grass,
                     };
@@ -562,14 +716,14 @@ impl World {
                         plants.push(Plant { x, y, good: good.into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
                     }
                     if let Some(kind) = shop_kind {
-                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None, aimed: None });
+                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None, aimed: None, owner: None });
                     }
                     match ch {
                         'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None }),
                         'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None }),
                         'b' => {
                             let &(title, wants, need, project) = board_specs.next().expect("a project for every board");
-                            boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0 });
+                            boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0, rest: 0 });
                         }
                         's' => {
                             let &(text, dir) = sign_texts.next().expect("a text for every signpost");
@@ -580,7 +734,28 @@ impl World {
                         'U' => wagon_at.push((x, y)),
                         'P' => pumpkin_at.push((x, y)),
                         'a' => stands.push((x, y)),
-                        'c' => townsfolk.push(Townsfolk { x, y, name: CRAFTSMAN.into() }),
+                        'c' => townsfolk.push(Townsfolk { x, y, name: CRAFTSMAN.into(), kind: Folk::Craftsman }),
+                        'u' => townsfolk.push(Townsfolk { x, y, name: TRADER.into(), kind: Folk::Trader }),
+                        'H' => plaques.push((x, y)),
+                        'G' => {
+                            let &(good, from) = supply_specs.next().expect("a good for every supply");
+                            supplies.push(Supply { at: (x, y), good, from, owner: None, timer: SUPPLY_TICKS - 1 });
+                        }
+                        'N' => {
+                            let w = worker_specs.next().expect("a worker for every N");
+                            let tasks = w
+                                .tasks
+                                .iter()
+                                .map(|t| match *t {
+                                    Task::Move(good, from, to) => Task::Move(good, at(from), at(to)),
+                                    Task::Work(spot) => Task::Work(at(spot)),
+                                })
+                                .collect();
+                            workers.push(Worker { name: w.name, title: w.title, about: w.about, says: w.says, skills: w.skills, at: (x, y), tasks });
+                        }
+                        'Q' => props.push(((x, y), Prop::Wheels)),
+                        'x' => props.push(((x, y), Prop::Fence)),
+                        'y' => props.push(((x, y), Prop::Cart)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
                         '1' | '2' => _ = starts[(ch as u8 - b'1') as usize].get_or_insert((x, y)),
@@ -635,7 +810,7 @@ impl World {
                 material: String::new(),
             })
             .collect();
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, last_item_id: 0, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`

@@ -9,7 +9,7 @@ use crate::tutorial::{self, wrap, HELP, STAGES};
 use crate::world::*;
 
 /// The sprites a workshop kind's `look` can name (`data/workshops.json`).
-pub const LOOKS: [&str; 6] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat"];
+pub const LOOKS: [&str; 7] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench"];
 
 pub const VIEW_H: i32 = SCREEN_H * TS; // 256; the HUD fills the remaining 44 rows
 const HOP: [i32; 7] = [0, 2, 4, 5, 5, 4, 2];
@@ -79,6 +79,7 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
             "kiln" => (&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], -5),
             "indigo_vat" => (&sp.indigo_vat, -4),
             "dye_vat" => (&sp.dye_vat, -4),
+            "wagon_bench" => (&sp.wagon_bench, TS - sp.wagon_bench.h - 4),
             _ => (&sp.bench, TS - sp.bench.h - 4),
         };
         // A frontier workshop in its material's tones: a hemlock one lighter than an oak one.
@@ -114,9 +115,11 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     }
     draw_progress(g, fb, &v);
     draw_applicant_pitch(g, sp, fb, &v);
-    draw_craftsman_talk(g, sp, fb, &v);
+    draw_townsfolk_talk(g, sp, fb, &v);
+    draw_worker_talk(g, sp, fb, &v);
     draw_floaters(g, fb, &v);
     draw_banner(me, fb);
+    draw_announcement(g, fb);
     if me.inspecting && !me.help {
         draw_card(g, sp, fb, &v);
     }
@@ -483,7 +486,7 @@ fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<String> {
     let shop = &g.world.shops[s];
     let aim = g.aim(s, &|_| true);
     if tile == Tile::OutMat {
-        return Some(aim.recipe);
+        return Some(g.data.good(&aim.recipe).output().to_string());
     }
     let k = shop.pads.iter().filter(|&&(x, y)| g.world.item_at(x, y).is_none()).position(|&p| p == (tx, ty))?;
     ghost_good(g, aim.missing.get(k)?)
@@ -503,21 +506,43 @@ fn peg_hint(g: &Game, tx: i32, ty: i32) -> Option<&'static str> {
     shop.kind.builtin_tools().get(k).copied()
 }
 
-/// Facing a craftsman: what he'd make from what's around, just for this player. (Space asks
-/// him for another idea; his card says so.)
-fn draw_craftsman_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+/// Facing a townsperson: a craftsman says what he'd make from what's around, just for this
+/// player (Space asks him for another idea; his card says so); the trader, what he's got.
+fn draw_townsfolk_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     let Some(t) = g.faced_townsfolk(v.c) else { return };
     let tf = &g.world.townsfolk[t];
     if !v.sees(tf.x, tf.y) {
         return;
     }
+    let says = match tf.kind {
+        crate::world::Folk::Craftsman => g.craftsman_says(t, v.k),
+        crate::world::Folk::Trader => g.trader_says(t),
+    };
+    talk_bubble(fb, sp, v, (tf.x, tf.y), says);
+}
+
+/// Facing a working townsperson: what their bench makes from what, or their own words.
+fn draw_worker_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    let Some(j) = g.faced_worker(v.c) else { return };
+    let m = &g.monsters[j];
+    if !v.sees(m.x, m.y) || m.slide.is_some() {
+        return;
+    }
+    talk_bubble(fb, sp, v, (m.x, m.y), g.worker_says(j, v.k));
+}
+
+/// A speech bubble over someone at `at`, saying `says`.
+fn talk_bubble(fb: &mut Framebuffer, sp: &Sprites, v: &View, at: (i32, i32), says: Vec<String>) {
     let mut lines = Vec::new();
-    for said in g.craftsman_says(t, v.k) {
+    for said in says {
         lines.extend(wrap(&said, 30));
     }
     let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
     let h = lines.len() as i32 * 9 + 4;
-    let (px, py) = v.px(tf.x, tf.y);
+    if lines.is_empty() {
+        return;
+    }
+    let (px, py) = v.px(at.0, at.1);
     let cx = px + 8;
     let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn: false };
     draw_bubble(fb, sp, &b);
@@ -825,10 +850,57 @@ fn draw_trees(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
 fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     for b in g.world.boards.iter().filter(|b| v.sees(b.x, b.y)) {
         let (x, y) = v.px(b.x, b.y);
+        if b.project == Project::Bell {
+            // The temple's frame, with the newest bell hanging from its beam.
+            fb.blit(&sp.bell_frame, x, y, false);
+            if !g.world.bells.is_empty() {
+                fb.rect_fill(x + 7, y + 3, 2, 1, WOOD);
+                fb.blit(&sp.bell_hung, x + 3, y + 4, false);
+            }
+            continue;
+        }
         let y = y - (b.bounce > 1) as i32;
         fb.blit(&sp.board, x, y, false);
         let (text, col) = if b.done() { ("DONE".to_string(), TEXT_GOOD) } else { (format!("{}/{}", b.have, b.need), TEXT) };
         fb.text_centered(&text, x + 9, y - 8, col, Some(OUTLINE), 1);
+    }
+    // A working townsperson's supplies: a low pallet, so the woodpile reads as one when empty.
+    for s in g.world.supplies.iter().filter(|s| v.sees(s.at.0, s.at.1)) {
+        let (x, y) = v.px(s.at.0, s.at.1);
+        fb.rect_fill(x + 1, y + 12, 14, 2, WOOD + 1);
+        for k in [2, 7, 12] {
+            fb.rect_fill(x + k, y + 14, 2, 1, WOOD);
+        }
+    }
+    for &((px, py), prop) in g.world.props.iter().filter(|((x, y), _)| v.sees(*x, *y)) {
+        let (x, y) = v.px(px, py);
+        match prop {
+            Prop::Wheels => fb.blit(&sp.wagon_wheel, x, y + TS - sp.wagon_wheel.h, false),
+            Prop::Cart => fb.blit(&sp.cart_frame, x, y + TS - sp.cart_frame.h, false),
+            Prop::Fence => {
+                // A post, with rails to the fence on either side.
+                let fence = |dx: i32, dy: i32| g.world.props.iter().any(|&(at, p)| p == Prop::Fence && at == (px + dx, py + dy));
+                fb.rect_fill(x + 6, y + 3, 4, 12, WOOD + 2);
+                fb.rect_fill(x + 6, y + 3, 4, 1, WOOD + 3);
+                for (dx, rx) in [(-1, 0), (1, 10)] {
+                    if fence(dx, 0) {
+                        fb.rect_fill(x + rx, y + 6, 6, 2, WOOD + 1);
+                        fb.rect_fill(x + rx, y + 11, 6, 2, WOOD + 1);
+                    }
+                }
+                // Up and down, a rail joins the posts.
+                if fence(0, -1) {
+                    fb.rect_fill(x + 7, y, 2, 3, WOOD + 1);
+                }
+                if fence(0, 1) {
+                    fb.rect_fill(x + 7, y + 15, 2, 1, WOOD + 1);
+                }
+            }
+        }
+    }
+    for &(px, py) in g.world.plaques.iter().filter(|&&(x, y)| v.sees(x, y)) {
+        let (x, y) = v.px(px, py);
+        fb.blit(&sp.plaque, x + 2, y + 4, false);
     }
     for s in g.world.signs.iter().filter(|s| v.sees(s.x, s.y)) {
         let (x, y) = v.px(s.x, s.y);
@@ -837,6 +909,12 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
         let lx = (x + 8 - w / 2).clamp(6, 394 - w);
         fb.text(s.text, lx, y - 8, TEXT, Some(OUTLINE), 1);
         // A small arrow beside the name, pointing the way.
+        if s.dir == Dir::Down {
+            for (k, h) in [5, 3, 1].iter().enumerate() {
+                fb.rect_fill(lx + w + 4 - h / 2, y - 8 + 1 + k as i32, *h, 1, SPARK + 2);
+            }
+            continue;
+        }
         let (ax, dir) = if s.dir == Dir::Left { (lx - 5, -1) } else { (lx + w + 2, 1) };
         for (k, h) in [5, 3, 1].iter().enumerate() {
             let col = ax + if dir > 0 { k as i32 } else { 2 - k as i32 };
@@ -876,7 +954,8 @@ fn draw_bin(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, b: &Bin) {
 fn draw_flags(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     // Flags sharing a tile (a copied loop) stand side by side.
     let mut drawn: Vec<(i32, i32)> = Vec::new();
-    for m in &g.monsters {
+    // A working townsperson's loop is their trade, not a flag in the ground.
+    for m in g.monsters.iter().filter(|m| m.worker.is_none()) {
         let flag = if m.species == Species::Goblin { &sp.flag_goblin } else { &sp.flag_cyclops };
         if let Some((fx, fy)) = m.rec.as_ref().or(m.routine.as_ref()).map(|r| r.flag) {
             let n = drawn.iter().filter(|&&p| p == (fx, fy)).count() as i32;
@@ -972,16 +1051,25 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 fb.blit(s, tx + (TS - s.w) / 2, ty + TS - s.h, k % 2 == 1);
             }
             Body::Townsfolk(k) => {
-                // An old carpenter: weathered tan where a goblin is green, a saw on his back.
                 let t = &g.world.townsfolk[k];
-                let s = &sp.goblin[(g.frame / 12) as usize % 2];
                 let (tx, ty) = v.px(t.x, t.y);
-                let (x, y) = (tx + (TS - s.w) / 2, ty + TS - s.h);
                 fb.rect_checker(tx + 3, ty + TS - 2, 10, 2, SHADOW);
-                blit_tinted(fb, s, x, y, true, ramp_named("plank").map(|to| Tint { from: (GOBLIN, 3), to }));
-                fb.rect_fill(x + s.w - 2, y + 2, 1, 3, WOOD + 2);
-                for k in 0..6 {
-                    fb.pset(x + s.w - 1, y + 5 + k, if k % 2 == 0 { TEXT_DIM } else { TEXT });
+                match t.kind {
+                    crate::world::Folk::Craftsman => {
+                        // An old carpenter: weathered tan where a goblin is green, a saw on his back.
+                        let s = &sp.goblin[(g.frame / 12) as usize % 2];
+                        let (x, y) = (tx + (TS - s.w) / 2, ty + TS - s.h);
+                        blit_tinted(fb, s, x, y, true, ramp_named("plank").map(|to| Tint { from: (GOBLIN, 3), to }));
+                        fb.rect_fill(x + s.w - 2, y + 2, 1, 3, WOOD + 2);
+                        for k in 0..6 {
+                            fb.pset(x + s.w - 1, y + 5 + k, if k % 2 == 0 { TEXT_DIM } else { TEXT });
+                        }
+                    }
+                    crate::world::Folk::Trader => {
+                        // Now and then he lifts a hand to passers-by.
+                        let s = &sp.trader[((g.frame / 20) % 6 == 5) as usize];
+                        fb.blit(s, tx + (TS - s.w) / 2, ty + TS - s.h, false);
+                    }
                 }
             }
             Body::Wagon(k) => {
@@ -1028,7 +1116,12 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let (ox, oy) = Slide::offset(m.slide);
                 let (tx, ty) = v.px(m.x, m.y);
                 fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
-                fb.blit(s, x, y, flip);
+                if m.worker.is_some() {
+                    // A working townsperson: weathered, in leather tones.
+                    blit_tinted(fb, s, x, y, flip, ramp_named("mat").map(|to| Tint { from: (GOBLIN, 3), to }));
+                } else {
+                    fb.blit(s, x, y, flip);
+                }
                 // What it holds, a tool in each hand that's full: a handle and its head.
                 for (h, held) in m.hands.iter().enumerate() {
                     if held.is_some() {
@@ -1102,6 +1195,9 @@ fn draw_markers(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
             fb.blit(&sp.marker, x + s.w / 2 - 3, top - 6 + bob, false);
         }
         let (bx, by) = (x + s.w - 3, top);
+        if m.worker.is_some() {
+            continue;
+        }
         if m.rec.is_some() {
             fb.rect_fill(bx, by, 5, 5, OUTLINE);
             fb.rect_fill(bx + 1, by + 1, 3, 3, REC + 1);
@@ -1132,7 +1228,8 @@ fn state_of(g: &Game, i: usize) -> (&'static str, u8) {
 /// they are doing, so a stuck one is noticeable from anywhere.
 fn draw_edge_markers(g: &Game, fb: &mut Framebuffer, v: &View) {
     let mut placed: Vec<(i32, i32)> = Vec::new();
-    for (i, m) in g.monsters.iter().enumerate().filter(|(_, m)| !v.sees(m.x, m.y)) {
+    // Nobody's marker for a working townsperson: they're the town's, not anyone's to find.
+    for (i, m) in g.monsters.iter().enumerate().filter(|(_, m)| !v.sees(m.x, m.y) && m.worker.is_none()) {
         let (px, py) = v.px(m.x, m.y);
         let (x, y) = ((px + 8).clamp(9, 391), (py + 8).clamp(9, VIEW_H - 9));
         // Markers sharing a spot slide along the edge to the nearest clear one; if the edge is
@@ -1186,6 +1283,17 @@ fn draw_roster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
 }
 
 /// The area's name, shown for a moment on arrival.
+/// News for everyone, such as a bell hung in the temple: a headline in big letters and a line
+/// under it, below the area banner.
+fn draw_announcement(g: &Game, fb: &mut Framebuffer) {
+    let Some(a) = &g.announcement else { return };
+    let w = (Framebuffer::text_width(&a.title, 2).max(Framebuffer::text_width(&a.line, 1)) + 24).min(396);
+    let (x, y) = ((400 - w) / 2, 40);
+    fb.rect_bevel(x, y, w, 40, HUD_FILL, HUD_HI, HUD_SHADOW);
+    fb.text_centered(&a.title, 200, y + 6, SPARK + 2, Some(HUD_SHADOW), 2);
+    fb.text_centered(&a.line, 200, y + 26, TEXT, Some(HUD_SHADOW), 1);
+}
+
 fn draw_banner(me: &crate::game::Commune, fb: &mut Framebuffer) {
     let Some((name, t)) = me.banner else { return };
     let drop = (45 - t as i32).min(4) * 2 - 8;
@@ -1242,7 +1350,8 @@ fn layout_bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
     for i in order {
         let m = &g.monsters[i];
         let Some(b) = &m.bubble else { continue };
-        if !v.sees(m.x, m.y) {
+        // A working townsperson says nothing unasked: facing them shows their talk.
+        if !v.sees(m.x, m.y) || m.worker.is_some() {
             continue;
         }
         // Monsters you are not steering only show what they wait for, not a sentence.
@@ -1378,13 +1487,19 @@ fn every_good_a_workshop_makes_or_takes_has_an_icon_for_its_ghosts_and_cards() {
     let mut missing = Vec::new();
     for kind in crate::workshops::ShopKind::all() {
         for &r in kind.recipes() {
-            if sp.icon(r).is_none() {
+            if sp.icon(g.data.good(r).output()).is_none() {
                 missing.push(r.to_string());
             }
             for (_, group) in g.data.good(r).input_groups() {
                 if ghost_good(&g, group).is_none_or(|id| sp.icon(&id).is_none()) {
                     missing.push(format!("{r}'s {group:?}"));
                 }
+            }
+        }
+        // And the tools a town one lends, ghosted on its pegs.
+        for &t in kind.builtin_tools() {
+            if sp.icon(t).is_none() {
+                missing.push(format!("{}'s {t}", kind.id()));
             }
         }
     }
@@ -1404,14 +1519,14 @@ fn a_benchs_mats_show_what_its_pads_are_working_toward() {
     (g.monsters[c].x, g.monsters[c].y) = g.world.shops[bench].spot;
     g.frame = 30;
     assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("kiln_kit"), "still");
-    let pumpkin = crate::econ::ItemData { good: "pumpkin".into(), quality: 0.5, carried_tags: Vec::new(), raw: Vec::new(), depth: 0, value: 1.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None };
-    g.world.items.push(crate::world::Item::new(pads[0].0, pads[0].1, pumpkin));
-    assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("wagon_kit"), "a pumpkin goes into a wagon kit");
+    let cloth = crate::econ::ItemData { good: "fabric".into(), quality: 0.5, carried_tags: Vec::new(), raw: Vec::new(), depth: 0, value: 1.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None };
+    g.world.items.push(crate::world::Item::new(pads[0].0, pads[0].1, cloth));
+    assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("loom_house_kit"), "cloth goes into a loom house kit");
     assert_eq!(hint(&g, pads[0], Tile::Pad), None, "a pad with something on it has no ghost");
-    assert_eq!(hint(&g, pads[1], Tile::Pad).as_deref(), Some("wagon_wheel"), "the empty pads show what's still missing, in order");
+    assert_eq!(hint(&g, pads[1], Tile::Pad).as_deref(), Some("planks"), "the empty pads show what's still missing, in order");
     let rest: Vec<Option<String>> = pads[2..].iter().map(|&p| hint(&g, p, Tile::Pad)).collect();
-    assert_eq!(rest[0].as_deref(), Some("wagon_wheel"));
-    assert!(rest[1..].iter().all(|h| h.is_some()) && !rest.iter().any(|h| h.as_deref() == Some("pumpkin")), "{rest:?}");
+    assert_eq!(rest[0].as_deref(), Some("planks"));
+    assert!(rest[1..].iter().all(|h| h.is_some()) && !rest.iter().any(|h| h.as_deref() == Some("fabric")), "{rest:?}");
 }
 
 /// Facing a kit: the workshop it would set up, as a ghost on the ground (a checkerboard, so

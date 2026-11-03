@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 13;
+pub const VERSION: u32 = 16;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -28,6 +28,9 @@ struct SaveRef<'a> {
     bins: &'a [Bin],
     shops: &'a [Shop],
     boards: &'a [Board],
+    bells: &'a [crate::world::Hung],
+    /// How far each working townsperson's supply is toward setting out its next good.
+    supply_timers: Vec<u32>,
     wagons: &'a [Wagon],
     monsters: &'a [Monster],
     applicants: &'a [Option<Applicant>],
@@ -54,6 +57,10 @@ struct SaveData {
     bins: Vec<Bin>,
     shops: Vec<Shop>,
     boards: Vec<Board>,
+    #[serde(default)]
+    bells: Vec<crate::world::Hung>,
+    #[serde(default)]
+    supply_timers: Vec<u32>,
     wagons: Vec<Wagon>,
     monsters: Vec<Monster>,
     applicants: Vec<Option<Applicant>>,
@@ -74,6 +81,8 @@ pub fn to_json(g: &Game) -> String {
         bins: &g.world.bins,
         shops: &g.world.shops,
         boards: &g.world.boards,
+        bells: &g.world.bells,
+        supply_timers: g.world.supplies.iter().map(|s| s.timer).collect(),
         wagons: &g.world.wagons,
         monsters: &g.monsters,
         applicants: &g.applicants,
@@ -122,6 +131,10 @@ pub fn from_json(json: &str) -> Result<Game, String> {
         g.world.lay_shop(s);
     }
     g.world.boards = d.boards;
+    g.world.bells = d.bells;
+    for (s, t) in g.world.supplies.iter_mut().zip(d.supply_timers) {
+        s.timer = t;
+    }
     g.world.wagons = d.wagons;
     // Finished projects that changed the map change it again.
     if g.world.boards.iter().any(|b| b.project == Project::Footbridge && b.done()) {
@@ -138,7 +151,7 @@ pub fn from_json(json: &str) -> Result<Game, String> {
         }
         // Already where they are: no banner announcing it.
         let m = &g.monsters[c.controlled];
-        c.area = crate::world::area_name(crate::render::screen_of(m.x, m.y).0);
+        c.area = { let (sx, sy) = crate::render::screen_of(m.x, m.y); crate::world::area_name(sx, sy) };
     }
     g.applicants = d.applicants;
     g.applicant_timers = d.applicant_timers;

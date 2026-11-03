@@ -308,7 +308,7 @@ pub fn carried_tags(recipe: &GoodType, inputs: &[&ItemData], data: &Data) -> Vec
             }
         }
     }
-    out
+    data.alloyed(&out)
 }
 
 /// All raw materials behind the inputs, and the refinement depth of the output.
@@ -467,6 +467,38 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
             ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0, haul: Vec::new(), carted: None }
         })
         .collect()
+}
+
+/// A good of standard quality, plainly made from `from` (planks from a hemlock log), carrying
+/// `from`'s variety where the recipe carries it: what a working townsperson's supply sets out.
+pub fn plain(data: &Data, good: &str, from: &str) -> ItemData {
+    let (gt, src) = (data.good(good), data.good(from));
+    let raw = vec![RawMaterial { good: src.id.clone(), base_value: src.raw_material_base_value.unwrap_or(1.0), density: src.raw_material_density.unwrap_or(1.0), spent: false }];
+    let depth = (good != from) as u32;
+    let carry: Vec<&String> = gt.input_goods_tags_carryover.iter().flatten().collect();
+    let carried_tags = src.variety.as_ref().map(|v| v.name.clone()).filter(|v| carry.contains(&v)).into_iter().collect();
+    let value = value(gt, &raw, depth, 1.0, None);
+    ItemData { good: good.into(), quality: 1.0, carried_tags, raw, depth, value, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+}
+
+/// The quality of what a trader gives: plain, standard work. No skill goes into a trade, so a
+/// good made well at home beats it.
+pub const TRADE_QUALITY: f64 = 1.0;
+
+/// What a trader gives for goods (`recipe` a trade): the good it makes, plain, as if it came
+/// from elsewhere: one raw material of its own, worth what was given for it, carrying the
+/// givers' shares.
+pub fn trade(recipe: &GoodType, inputs: &[&ItemData], data: &Data) -> ItemData {
+    let gives = data.good(recipe.output());
+    let given: Vec<&RawMaterial> = inputs.iter().flat_map(|i| &i.raw).collect();
+    let density = gives.raw_material_density.unwrap_or_else(|| total(given.iter().map(|r| r.density)) / given.len().max(1) as f64);
+    let raw = vec![RawMaterial { good: gives.id.clone(), base_value: total(given.iter().map(|r| r.base_value)), density, spent: false }];
+    let mut shares = Vec::new();
+    for s in inputs.iter().flat_map(|i| &i.shares) {
+        add_share(&mut shares, s.monster, s.count);
+    }
+    let value = value(gives, &raw, 0, TRADE_QUALITY, None);
+    ItemData { good: gives.id.clone(), quality: TRADE_QUALITY, carried_tags: Vec::new(), raw, depth: 0, value, shares, wear: 0, haul: Vec::new(), carted: None }
 }
 
 /// What one craft taught, for skill popups and the forecast card.

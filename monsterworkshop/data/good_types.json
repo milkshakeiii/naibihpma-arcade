@@ -7635,6 +7635,295 @@
         "bin kit"
       ],
       "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": false,
+      "id": "charcoal",
+      "input_goods_tags_carryover": [
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "log"
+        ],
+        [
+          "fuel"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Charcoal",
+      "primary_applied_skill": "firing",
+      "production_time": 600,
+      "quantity": 2,
+      "raw_material_density": 40,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "chemistry",
+        "prospecting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "charcoal",
+        "fuel",
+        "heat"
+      ],
+      "value_added_shares": 3
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "id": "mortar",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Mortar",
+      "primary_applied_skill": "chemistry",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 160,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "firing",
+        "stone_carving"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "handcrafts"
+      ],
+      "type_tags": [
+        "mortar"
+      ],
+      "value_added_shares": 3
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "id": "beeswax",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Beeswax",
+      "primary_applied_skill": "gathering",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 96,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "harvesting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "science",
+        "handcrafts"
+      ],
+      "type_tags": [
+        "beeswax",
+        "wax"
+      ],
+      "value_added_shares": 3
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "id": "oil",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Oil",
+      "primary_applied_skill": "milling",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 92,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "chemistry"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "handcrafts"
+      ],
+      "type_tags": [
+        "oil"
+      ],
+      "value_added_shares": 3
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "id": "copper_ingot",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Copper Ingot",
+      "primary_applied_skill": "casting",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 890,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "handcrafts"
+      ],
+      "type_tags": [
+        "metal",
+        "ingot",
+        "copper"
+      ],
+      "value_added_shares": 3,
+      "variety": {
+        "name": "copper",
+        "of": [
+          "metal"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "id": "tin_ingot",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Tin Ingot",
+      "primary_applied_skill": "casting",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 730,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "handcrafts"
+      ],
+      "type_tags": [
+        "metal",
+        "ingot",
+        "tin"
+      ],
+      "value_added_shares": 3,
+      "variety": {
+        "name": "tin",
+        "of": [
+          "metal"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 8,
+      "has_quality": true,
+      "id": "shovel",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Shovel",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 300,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "carpentry",
+        "prospecting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "shovel",
+        "metal"
+      ],
+      "value_added_shares": 3
+    }
+  ],
+  "alloys": [
+    {
+      "name": "bronze",
+      "of": [
+        "copper",
+        "tin"
+      ]
     }
   ]
 }

@@ -43,7 +43,7 @@ fn a_tap_moves_one_tile_and_a_long_hold_keeps_walking() {
 
 #[test]
 fn hedges_block_and_items_push_one_tile() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.script("LL");
     assert_eq!((g.monsters[0].x, g.monsters[0].y), (1, 8), "the hedge stops the second step");
     g.script("RD");
@@ -68,7 +68,7 @@ fn harvesting_pops_a_boll_and_teaches_the_harvester() {
 
 #[test]
 fn the_whole_chain_makes_cotton_fabric_with_a_full_history() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.script(MOGG_HARVEST);
     assert_eq!(g.communes[0].tutorial.stage, 3, "harvested and binned");
     g.script("t");
@@ -242,7 +242,7 @@ fn examining_a_plant_forecasts_the_harvest() {
 
 #[test]
 fn renown_welcomes_an_applicant_and_a_new_one_arrives() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     let stand = g.world.stands[1];
     (g.monsters[0].x, g.monsters[0].y) = (stand.0, stand.1 - 1);
     g.monsters[0].facing = Dir::Down;
@@ -299,7 +299,8 @@ fn two_thread_on_the_gate_bench_twist_into_rope_by_hand() {
 #[test]
 fn rope_for_the_board_builds_a_footbridge_that_goods_cross() {
     let mut g = Game::new();
-    let (bx, by) = (g.world.boards[0].x, g.world.boards[0].y);
+    let fb = g.world.boards.iter().position(|b| b.project == Project::Footbridge).expect("the footbridge's board");
+    let (bx, by) = (g.world.boards[fb].x, g.world.boards[fb].y);
     let (&(west, y), &(east, _)) = (g.world.footbridge.first().unwrap(), g.world.footbridge.last().unwrap());
 
     // Not built yet: the river stops you, and says why.
@@ -308,12 +309,12 @@ fn rope_for_the_board_builds_a_footbridge_that_goods_cross() {
     assert_eq!(g.monsters[0].x, west - 1, "the river stops you");
     assert!(g.monsters[0].bubble.as_ref().is_some_and(|b| b.text.contains("NEEDS ROPE")));
 
-    g.world.boards[0].have = g.world.boards[0].need - 1;
+    g.world.boards[fb].have = g.world.boards[fb].need - 1;
     g.world.items.push(Item::new(bx, by + 1, good_like(&g.data, "rope", 0.9)));
     stand(&mut g, (bx, by + 2), Dir::Up);
     let renown = g.communes[0].renown;
     g.script("U");
-    assert!(g.world.boards[0].done() && g.world.footbridge_built(), "the last rope builds the footbridge");
+    assert!(g.world.boards[fb].done() && g.world.footbridge_built(), "the last rope builds the footbridge");
     assert!(g.communes[0].renown > renown, "rope for the board earns renown");
 
     // Push a bolt of cloth across it.
@@ -1266,7 +1267,7 @@ fn a_led_wagon_backs_out_of_a_pocket_it_cant_turn_round_in() {
 
 #[test]
 fn monsters_sharing_one_plant_all_get_to_harvest_it() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     let p = g.world.plant_at(8, 8).unwrap();
     g.world.plants[p].regrow = 40;
     for (k, name) in ["ISKA", "WREN"].into_iter().enumerate() {
@@ -1416,12 +1417,12 @@ fn a_benchs_card_and_message_aim_at_the_closest_recipe() {
     assert!(has_line(&card, "FOR WORKBENCH KIT: PUT ANOTHER LOG ON A PAD."), "and says the same");
     g.script("u");
     assert!(said(&g, c).contains("FOR WORKBENCH KIT: PUT ANOTHER LOG ON A PAD."), "{}", said(&g, c));
-    // A pumpkin instead: only a wagon kit takes one.
+    // Cloth instead: only a loom house kit takes it.
     let log = g.world.item_at(pad.0, pad.1).unwrap();
-    g.world.items[log].data = ItemData { good: "pumpkin".into(), carried_tags: Vec::new(), ..tool(&g, "pumpkin") };
+    g.world.items[log].data = ItemData { good: "fabric".into(), carried_tags: Vec::new(), ..tool(&g, "fabric") };
     let aim = g.aim(bench, &|_| true);
-    assert_eq!((aim.recipe.as_str(), aim.missing.len()), ("wagon_kit", 5));
-    assert_eq!(crate::inspect::card(&g, 0).title, "BUILDERS' BENCH: WAGON KIT");
+    assert_eq!((aim.recipe.as_str(), aim.missing.len()), ("loom_house_kit", 5));
+    assert_eq!(crate::inspect::card(&g, 0).title, "BUILDERS' BENCH: LOOM HOUSE KIT");
 }
 
 #[test]
@@ -1430,18 +1431,18 @@ fn a_cleared_bench_stays_set_up_for_what_its_pads_last_worked_toward() {
     let c = g.communes[0].controlled;
     let bench = g.world.shops.iter().position(|s| s.kind.label() == "BUILDERS' BENCH").expect("the builders' bench");
     let pad = g.world.shops[bench].pads[3];
-    // A pumpkin pushed onto a pad from the west.
-    g.world.items.push(Item::new(pad.0 - 1, pad.1, ItemData { good: "pumpkin".into(), carried_tags: Vec::new(), ..tool(&g, "pumpkin") }));
+    // Cloth pushed onto a pad from the west.
+    g.world.items.push(Item::new(pad.0 - 1, pad.1, ItemData { good: "fabric".into(), carried_tags: Vec::new(), ..tool(&g, "fabric") }));
     (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (pad.0 - 2, pad.1, Dir::Right);
     assert_eq!(g.aim(bench, &|_| true).recipe, "kiln_kit");
     g.script("R");
-    assert_eq!(g.world.item_at(pad.0, pad.1).map(|it| g.world.items[it].good().to_string()).as_deref(), Some("pumpkin"), "{}", said(&g, c));
-    assert_eq!(g.aim(bench, &|_| true).recipe, "wagon_kit");
+    assert_eq!(g.world.item_at(pad.0, pad.1).map(|it| g.world.items[it].good().to_string()).as_deref(), Some("fabric"), "{}", said(&g, c));
+    assert_eq!(g.aim(bench, &|_| true).recipe, "loom_house_kit");
     let it = g.world.item_at(pad.0, pad.1).unwrap();
     g.world.items.remove(it);
-    assert_eq!(g.aim(bench, &|_| true).recipe, "wagon_kit", "cleared, it stays set up for a wagon kit");
+    assert_eq!(g.aim(bench, &|_| true).recipe, "loom_house_kit", "cleared, it stays set up for a loom house kit");
     (g.monsters[c].x, g.monsters[c].y) = g.world.shops[bench].spot;
-    assert_eq!(crate::inspect::card(&g, 0).title, "BUILDERS' BENCH: WAGON KIT");
+    assert_eq!(crate::inspect::card(&g, 0).title, "BUILDERS' BENCH: LOOM HOUSE KIT");
 }
 
 #[test]
@@ -1506,4 +1507,196 @@ fn old_sawgrass_says_what_could_be_made_from_whats_around() {
     g.world.items.push(Item::new(34, 20, ItemData { good: "rope".into(), carried_tags: Vec::new(), ..tool(&g, "rope") }));
     let says = g.craftsman_says(t, 0).join(" ");
     assert!(says.contains("WITH ONE MORE ROPE YOU COULD MAKE A BIN KIT"), "{says}");
+}
+
+#[test]
+fn a_trader_gives_plain_goods_worth_what_was_given_carrying_the_givers_shares() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
+    let (spot, pads) = (g.world.shops[stall].spot, g.world.shops[stall].pads.clone());
+    let cloth = ItemData { good: "fabric".into(), carried_tags: Vec::new(), ..tool(&g, "fabric") };
+    let given: f64 = cloth.raw.iter().map(|r| r.base_value).sum();
+    g.world.items.push(Item::new(pads[0].0, pads[0].1, cloth));
+    // At the stall's spot, facing the trader behind it: Space trades, rather than talking.
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (spot.0, spot.1, Dir::Up);
+    assert!(g.faced_townsfolk(c).is_some(), "the trader stands behind his stall");
+    assert_eq!(g.aim(stall, &|_| true).recipe, "trade_beeswax", "one cloth is for beeswax");
+    g.script("u");
+    g.run_ticks(60);
+    let out = g.world.items.iter().find(|it| it.good() == "beeswax").unwrap_or_else(|| panic!("no beeswax: {}", said(&g, c)));
+    assert_eq!(out.data.quality, crate::econ::TRADE_QUALITY, "plain work");
+    assert!(out.data.shares.iter().any(|s| s.monster == 9), "the cloth's makers share in it");
+    assert!((out.data.raw[0].base_value - given).abs() < 1e-9, "worth what was given");
+    // It offers only what nothing in the world makes or grows.
+    assert!(g.offers(stall).contains(&"trade_red_clay"));
+    let mut clay = g.world.plants[0].clone();
+    clay.good = "red_clay".into();
+    g.world.plants.push(clay);
+    assert!(!g.offers(stall).contains(&"trade_red_clay"), "clay grows here now");
+}
+
+#[test]
+fn a_bell_cast_from_traded_goods_hangs_rings_for_everyone_and_is_remembered() {
+    let mut g = Game::new();
+    let (a, b) = (g.player("a"), g.player("b"));
+    assert_ne!(a, b);
+    let c = g.communes[a].controlled;
+    let foundry = g.world.shops.iter().position(|s| s.kind.label() == "FOUNDRY").expect("the foundry");
+    let (spot, pads) = (g.world.shops[foundry].spot, g.world.shops[foundry].pads.clone());
+    assert_eq!(crate::world::area_name(spot.0, spot.1), "TEMPLE TOWN");
+    let goods = ["quicklime", "mortar", "beeswax", "oil", "red_clay", "charcoal", "hemlock_log", "elder_sticks", "coke", "copper_ingot", "tin_ingot"];
+    for (&id, &(x, y)) in goods.iter().zip(&pads) {
+        g.world.items.push(Item::new(x, y, ItemData { good: id.into(), carried_tags: Vec::new(), ..tool(&g, id) }));
+    }
+    (g.monsters[c].x, g.monsters[c].y) = spot;
+    assert_eq!(g.aim(foundry, &|_| true).recipe, "temple_bell", "{}", g.pads_note(foundry, &|_| true));
+    g.script_as(a, "u");
+    g.run_ticks(60);
+    let bell = g.world.items.iter().position(|it| it.good() == "temple_bell").unwrap_or_else(|| panic!("no bell: {}", said(&g, c)));
+    assert_eq!(g.world.items[bell].data.carried_tags, ["bronze"], "copper and tin met in it: a bronze bell");
+    assert_eq!(crate::inspect::display_name(&g, &g.world.items[bell].data), "BRONZE TEMPLE BELL", "copper with tin goes by its alloy's name");
+    // Pushed into the temple's frame, it hangs and rings.
+    let frame = g.world.boards.iter().position(|b| b.project == Project::Bell).expect("the bell frame");
+    let (fx, fy) = (g.world.boards[frame].x, g.world.boards[frame].y);
+    (g.world.items[bell].x, g.world.items[bell].y) = (fx, fy - 1);
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (fx, fy - 2, Dir::Down);
+    let renown = g.communes[a].renown;
+    let mut down = Input::default();
+    (down.pressed[1], down.held[1]) = (true, true);
+    g.press(a, down);
+    assert_eq!(g.world.bells.len(), 1, "{}", said(&g, c));
+    assert!(g.sounds_for(b).contains(&Sfx::Bell), "the other player hears it, wherever they are");
+    assert!(g.announcement.as_ref().is_some_and(|n| n.line.contains("BRONZE BELL, CAST BY")), "and everyone sees how well it was made, in what: {:?}", g.announcement.as_ref().map(|n| &n.line));
+    assert!(g.communes[a].renown > renown, "its caster's commune shares in it");
+    assert!(g.world.boards[frame].done() && g.world.boards[frame].rest > 0, "then the frame rests");
+    // Saved and loaded, the temple remembers it.
+    let copy = crate::save::from_json(&crate::save::to_json(&g)).expect("loads");
+    assert_eq!(copy.world.bells.len(), 1);
+    // After its rest, a new bell can replace it.
+    g.world.boards[frame].rest = 1;
+    g.run_ticks(1);
+    assert!(!g.world.boards[frame].done(), "it takes a new bell");
+}
+
+/// Old Spoke, and his order board.
+fn old_spoke(g: &Game) -> (usize, usize) {
+    (g.monsters.iter().position(|m| m.worker.is_some()).expect("Old Spoke"), g.world.boards.iter().position(|b| b.project == Project::Order).expect("his order board"))
+}
+
+#[test]
+fn old_spoke_makes_wheels_from_his_own_wood_and_fills_his_orders() {
+    let mut g = Game::new();
+    let (spoke, order) = old_spoke(&g);
+    let mut filled = false;
+    for _ in 0..6000 {
+        g.run_ticks(1);
+        filled |= g.world.boards[order].done();
+    }
+    assert!(filled, "four wheels filled an order: {} at goal {}, {:?}", g.monsters[spoke].name, g.monsters[spoke].pc, g.monsters[spoke].wait_reason);
+    assert!(g.communes.iter().filter(|c| c.town).all(|c| c.renown > 0.0), "his wheels earn the town renown, not anyone's commune");
+}
+
+#[test]
+fn old_spokes_wood_and_bench_are_his() {
+    let mut g = Game::new();
+    let (spoke, _) = old_spoke(&g);
+    g.monsters[spoke].playing = false;
+    g.run_ticks(2);
+    let c = g.communes[0].controlled;
+    let plank = g.world.items.iter().position(|it| it.owner.is_some() && it.good() == "planks").expect("his planks set out");
+    let (px, py) = (g.world.items[plank].x, g.world.items[plank].y);
+    stand(&mut g, (px + 1, py), Dir::Left);
+    g.script("L");
+    assert_eq!((g.world.items[plank].x, g.world.items[plank].y), (px, py), "Mogg can't push it");
+    assert!(said(&g, c).contains("THAT'S OLD SPOKE'S."), "{}", said(&g, c));
+    assert!(!g.may_take(c, plank), "nor can a loop take it");
+    let bench = g.world.shops.iter().position(|s| s.owner == Some(g.monsters[spoke].id)).expect("his bench");
+    let spot = g.world.shops[bench].spot;
+    stand(&mut g, spot, Dir::Down);
+    g.script("u");
+    assert!(said(&g, c).contains("THAT'S OLD SPOKE'S OWN BENCH"), "{}", said(&g, c));
+}
+
+#[test]
+fn anyone_can_aid_old_spokes_order_with_their_own_wheels() {
+    let mut g = Game::new();
+    let (spoke, order) = old_spoke(&g);
+    g.monsters[spoke].playing = false;
+    let (bx, by) = (g.world.boards[order].x, g.world.boards[order].y);
+    g.world.items.push(Item::new(bx - 1, by, ItemData { good: "wagon_wheel".into(), ..tool(&g, "wagon_wheel") }));
+    stand(&mut g, (bx - 2, by), Dir::Right);
+    let renown = g.communes[0].renown;
+    g.script("R");
+    assert_eq!(g.world.boards[order].have, 1, "{}", said(&g, g.communes[0].controlled));
+    assert!(g.communes[0].renown >= renown, "it earns renown for whoever made it");
+}
+
+#[test]
+fn the_wagonwrights_bench_hints_only_at_wagon_things_and_nobody_joins_the_town() {
+    let mut g = Game::new();
+    let gate = g.world.shops.iter().position(|s| s.kind.label() == "WAGONWRIGHT'S BENCH" && s.owner.is_none()).expect("the bench by his gate");
+    assert_eq!(g.offers(gate), ["wagon_wheel", "wagon_kit"]);
+    let builders = g.world.shops.iter().position(|s| s.kind.label() == "BUILDERS' BENCH").expect("the builders' bench");
+    assert!(!g.offers(builders).iter().any(|r| r.starts_with("wagon")), "wheels and wagon kits moved to the wagonwright's");
+    let c = g.communes[0].controlled;
+    let spot = g.world.shops[gate].spot;
+    stand(&mut g, spot, Dir::Down);
+    let card = crate::inspect::card(&g, 0);
+    assert_eq!(card.title, "WAGONWRIGHT'S BENCH: WAGON KIT");
+    assert!(has_line(&card, "WAGON WHEEL:") && !has_line(&card, "MORE."), "and it also makes only wheels");
+    // Facing him, he says what his bench makes, from what.
+    let (spoke, _) = old_spoke(&g);
+    g.monsters[spoke].playing = false;
+    let (sx, sy) = (g.monsters[spoke].x, g.monsters[spoke].y);
+    stand(&mut g, (sx, sy + 1), Dir::Up);
+    assert_eq!(g.faced_worker(c), Some(spoke));
+    assert_eq!(g.worker_says(spoke, 0), ["A WAGON WHEEL TAKES AN OAK LOG, 2 PLANKS, 2 STICKS."]);
+    // Players never get the town's commune.
+    let (a, b) = (g.player("a"), g.player("b"));
+    assert!(!g.communes[a].town && !g.communes[b].town && a != b);
+}
+
+#[test]
+fn old_spoke_takes_a_break_after_each_order_then_picks_up_where_he_left_off() {
+    let mut g = Game::new();
+    let (spoke, order) = old_spoke(&g);
+    let need = g.world.boards[order].need;
+    g.world.boards[order].have = need - 1;
+    for _ in 0..3000 {
+        g.run_ticks(1);
+        // The break begins once the push that filled the order is done.
+        if g.monsters[spoke].rest > 0 && !g.monsters[spoke].playing {
+            break;
+        }
+    }
+    assert!(g.monsters[spoke].rest > 0 && !g.monsters[spoke].playing, "the last wheel of an order, then a break: {:?}", g.monsters[spoke].wait_reason);
+    assert_eq!(g.worker_says(spoke, 0), ["A WAGON WHEEL TAKES AN OAK LOG, 2 PLANKS, 2 STICKS."], "nothing said about it: he just talks as ever");
+    let spot = g.monsters[spoke].routine.as_ref().map(|r| r.flag).expect("his loop");
+    let mut rested_there = false;
+    for _ in 0..(15 * 30 + 300) {
+        g.run_ticks(1);
+        rested_there |= (g.monsters[spoke].x, g.monsters[spoke].y) == spot;
+        if g.monsters[spoke].playing {
+            break;
+        }
+    }
+    assert!(rested_there, "he rests at his own spot");
+    assert!(g.monsters[spoke].playing && g.monsters[spoke].rest == 0, "then he's back at it");
+}
+
+#[test]
+fn a_supply_beside_a_shed_sets_its_goods_out_of_the_shed() {
+    let mut g = Game::new();
+    let (spoke, _) = old_spoke(&g);
+    g.monsters[spoke].playing = false;
+    let at = g.world.supplies[0].at;
+    // A shed wall to its west; its good taken.
+    let w = g.world.w;
+    g.world.tiles[(at.1 * w + at.0 - 1) as usize] = Tile::Wall;
+    g.world.items.retain(|it| (it.x, it.y) != at);
+    g.world.supplies[0].timer = 0;
+    g.run_ticks(crate::world::SUPPLY_TICKS);
+    let k = g.world.item_at(at.0, at.1).expect("a fresh good set out");
+    assert_eq!(g.world.items[k].slide.map(|s| s.dir), Some(Dir::Right), "sliding out of the shed, not appearing from nowhere");
 }

@@ -59,7 +59,7 @@ To feel a slow connection on a fast one, add `--lag MS`: every round trip takes 
 
 The game opens on a title screen listing your worlds; pick one or start a new one. Worlds save to `%APPDATA%\MonsterWorkshop\worlds\` every minute and when you quit.
 
-The world is 7×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. Pinewater, the weaving town, is in the west; the road east crosses the pine river by a rope ferry (once the town has made rope for it), passes through the wilderness, and reaches Tanglemere, the dyeing town, where a kiln, an indigo house and a dye house turn Pinewater's cloth indigo blue. Monsters on other screens show as markers at the screen edge. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
+The road is 7×2 flip screens: walk off an edge and the view flips to the next screen, while every monster keeps working everywhere. Pinewater, the weaving town, is in the west, with Old Spoke the wagonwright working in his yard beside the gathering hall; the road east crosses the pine river by a rope ferry (once the town has made rope for it), passes through the wilderness, and reaches Tanglemere, the dyeing town, where a kiln, an indigo house and a dye house turn Pinewater's cloth indigo blue. A branch south of the road leads to Temple Town (2×2 screens), where the Temple Bell is cast at the foundry and hung in the temple, with a trader who gives what it needs from places not open yet for cloth, thread and rope. Monsters on other screens show as markers at the screen edge. The bottom panel teaches the chain step by step, then asks you to teach each monster part of it.
 
 ## How it works
 
@@ -70,7 +70,7 @@ The world is 7×2 flip screens: walk off an edge and the view flips to the next 
 ## Files
 
 - `data/good_types.json`, `data/skills.json`, `data/monster_types.json`: the tech tree, skills and monster types, embedded in the executable.
-- `data/pinewater.map`, `data/wilderness.map`, `data/tanglemere.map`: the regions as character grids, laid side by side; `src/data.rs` and `src/world.rs` load them.
+- `data/pinewater.map`, `data/wilderness.map`, `data/tanglemere.map`, `data/temple_town.map`: the regions as character grids, each placed by its northwest corner; `src/data.rs` and `src/world.rs` load them.
 - `src/econ.rs`: the crafting rules (quality, quantity, time, learning, value, shares), with `econ_tests.rs`.
 - `src/game.rs`: monsters, input, pushing, record/replay and tutorial progress, with `game_tests.rs`.
 - `src/work.rs`: timed work: harvesting, crafting at workshops, chutes and output mats.
@@ -88,4 +88,10 @@ Tests cover the crafting rules, the whole Fabric chain played by hand, and two m
 
 ```bash
 cargo run --release -- --export-screenshots screenshots
+```
+
+To try the Temple Bell without playing up to it, write a world that has everything laid out (the crossings built, Mogg and Bruna at the trader's stall, cloth for each trade, a bell's worth by the foundry, a bell to hang, wood by the kiln), then pick TEMPLE TEST on the title screen:
+
+```bash
+cargo run --release -- --temple-test-world
 ```

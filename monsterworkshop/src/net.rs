@@ -16,7 +16,7 @@ use crate::game::{Input, Sfx};
 use std::io::{self, Read, Write};
 
 /// Bump when messages change; a player's game and a server must agree on it.
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 pub const DEFAULT_PORT: u16 = 7777;
 const MAX_MESSAGE: usize = 4 << 20;
 

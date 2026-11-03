@@ -28,7 +28,7 @@ fn room_to_step(g: &mut Game, i: usize, d: Dir) {
 
 #[test]
 fn a_newcomer_starts_at_the_gate_beside_whoever_is_there() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     let k = g.join();
     assert_eq!((k, g.communes.len()), (1, 2));
     let theirs: Vec<&Monster> = g.monsters.iter().filter(|m| m.commune == 1).collect();
@@ -48,7 +48,7 @@ fn a_newcomer_starts_at_the_gate_beside_whoever_is_there() {
 
 #[test]
 fn tab_switches_only_between_your_own_monsters() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.join();
     let first = g.communes[1].controlled;
     g.script_as(1, "t");
@@ -62,7 +62,7 @@ fn tab_switches_only_between_your_own_monsters() {
 
 #[test]
 fn each_player_moves_only_the_monster_they_control() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.join();
     let (mogg, theirs) = (g.communes[0].controlled, g.communes[1].controlled);
     room_to_step(&mut g, mogg, Dir::Up);
@@ -84,7 +84,7 @@ fn each_player_moves_only_the_monster_they_control() {
 
 #[test]
 fn renown_goes_to_each_contributors_commune_by_its_shares() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.join();
     let (mogg, theirs) = (g.monsters[0].id, g.monsters.iter().find(|m| m.commune == 1).unwrap().id);
     let shares = [Share { monster: mogg, count: 3.0 }, Share { monster: theirs, count: 1.0 }];
@@ -96,7 +96,7 @@ fn renown_goes_to_each_contributors_commune_by_its_shares() {
 
 #[test]
 fn a_delivery_pays_the_maker_and_the_hauler_from_another_commune() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.join();
     let store = g.world.bins.iter().position(|b| b.scores).expect("the cloth store");
     let (bx, by) = (g.world.bins[store].x, g.world.bins[store].y);
@@ -123,7 +123,7 @@ fn a_delivery_pays_the_maker_and_the_hauler_from_another_commune() {
 
 #[test]
 fn hiring_spends_your_renown_and_the_helper_joins_your_commune() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.join();
     let stand = g.world.stands[1];
     let c = g.communes[1].controlled;
@@ -142,7 +142,7 @@ fn hiring_spends_your_renown_and_the_helper_joins_your_commune() {
 
 #[test]
 fn a_newcomer_skips_steps_already_done_in_the_world_but_not_their_own() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.join();
     // Somebody else stored fabric and recorded a loop.
     let store = g.world.bins.iter().position(|b| b.scores).expect("the cloth store");
@@ -165,7 +165,7 @@ fn a_newcomer_skips_steps_already_done_in_the_world_but_not_their_own() {
 
 #[test]
 fn each_player_hears_their_own_actions_and_their_own_screen() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     g.join();
     g.press(1, Input { rec_pressed: true, ..Input::default() });
     assert!(g.sounds_for(1).contains(&Sfx::RecOn));
@@ -182,12 +182,13 @@ fn each_player_hears_their_own_actions_and_their_own_screen() {
 
 #[test]
 fn a_world_with_two_players_saves_and_loads_exactly() {
+    // With the town and its working folk, as every real world has.
     let mut g = Game::new();
-    g.join();
-    g.script_as(1, "UUt");
-    g.communes[1].renown = 12.5;
+    let k = g.join();
+    g.script_as(k, "UUt");
+    g.communes[k].renown = 12.5;
     let copy = crate::save::from_json(&crate::save::to_json(&g)).expect("loads");
     assert_eq!(crate::save::to_json(&copy), crate::save::to_json(&g));
-    assert_eq!(copy.communes.len(), 2);
-    assert_eq!(copy.communes[1].controlled, g.communes[1].controlled);
+    assert_eq!(copy.communes.len(), 3, "the first player's, the town's, and the newcomer's");
+    assert_eq!(copy.communes[k].controlled, g.communes[k].controlled);
 }

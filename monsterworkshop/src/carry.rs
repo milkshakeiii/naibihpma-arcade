@@ -210,7 +210,7 @@ impl Game {
 
     /// Is this a stray: a good nobody is moving or using?
     pub(crate) fn is_stray(&self, it: &crate::world::Item) -> bool {
-        !it.locked && (it.id == 0 || !self.monsters.iter().any(|m| m.holds.contains(&Hold::Item(it.id))))
+        it.owner.is_none() && !it.locked && (it.id == 0 || !self.monsters.iter().any(|m| m.holds.contains(&Hold::Item(it.id))))
     }
 
     /// Starts shoving stray item `o` aside, off the tiles in `avoid`. False if there's nowhere

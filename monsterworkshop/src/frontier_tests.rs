@@ -205,7 +205,7 @@ fn a_loop_works_a_frontier_workshop_like_any_other() {
 
 #[test]
 fn a_bench_saws_a_log_into_two_planks_of_its_wood() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     let s = bench_in_the_meadow(&mut g);
     let (pads, pegs) = (g.world.shops[s].pads.clone(), g.world.shops[s].pegs.clone());
     g.world.items.push(Item::new(pads[0].0, pads[0].1, raw(&g, "oak_log")));
@@ -271,7 +271,7 @@ fn a_bin_from_a_kit_takes_one_kind_of_good_up_to_its_room() {
 
 #[test]
 fn a_bin_left_alone_falls_apart_and_sets_its_goods_out() {
-    let mut g = Game::new();
+    let mut g = Game::new().without_town();
     let b = bin_in_the_meadow(&mut g);
     for _ in 0..3 {
         g.put_in_bin(b, raw(&g, "oak_log"));

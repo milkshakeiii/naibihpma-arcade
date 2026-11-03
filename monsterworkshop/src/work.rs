@@ -11,6 +11,8 @@ use crate::world::*;
 /// fast single-player pace. A persistent world would run slower.
 pub const GAME_SECONDS_PER_TICK: f64 = 4.0;
 const LEARNED_POPUP_TICKS: u16 = 45;
+/// How long a trade takes: two seconds, however skilled the monster, since the trader does it.
+const TRADE_TICKS: u32 = 30;
 
 enum ToolSource {
     Peg(usize),
@@ -43,6 +45,9 @@ pub(crate) struct Preview {
 
 impl Game {
     pub(crate) fn job_ticks(&self, recipe: &str, monster: usize) -> u32 {
+        if self.data.good(recipe).is_trade() {
+            return TRADE_TICKS;
+        }
         let secs = econ::production_seconds(self.data.good(recipe), &self.monsters[monster].stats);
         ((secs / GAME_SECONDS_PER_TICK).round() as u32).max(1)
     }
@@ -125,6 +130,9 @@ impl Game {
             return UseRes::Wait(self.worn_note(s));
         }
         let shop = &self.world.shops[s];
+        if let Some(name) = shop.owner.filter(|&o| o != self.monsters[i].id).and_then(|o| self.monsters.iter().find(|m| m.id == o)).map(|m| m.name.clone()) {
+            return UseRes::Wait(format!("THAT'S {name}'S OWN BENCH. ANOTHER NEARBY IS FOR ANYONE."));
+        }
         if shop.job.is_some() {
             return UseRes::Wait(format!("THE {} IS BUSY.", shop.kind.label()));
         }
@@ -133,13 +141,17 @@ impl Game {
         if shop.pending.len() >= OUTPUT_BUFFER {
             return UseRes::Full(format!("THE {} IS FULL. CLEAR ITS OUTPUT MAT.", kind.label()));
         }
+        let offers = self.offers(s);
+        if offers.is_empty() {
+            return UseRes::Wait("THE TRADER HAS NOTHING YOU CAN'T MAKE HERE.".into());
+        }
         // A loop leaves what another monster has reserved on the pads alone.
         let ok = |it: usize| self.may_take(i, it);
-        let Some((recipe, inputs)) = self.best_recipe(s, kind.recipes(), &ok) else {
+        let Some((recipe, inputs)) = self.best_recipe(s, &offers, &ok) else {
             let note = self.pads_note(s, &ok);
             // Nothing on the pads yet: say there's more it makes, and where to see it.
             let empty = self.world.shops[s].pads.iter().all(|&(x, y)| self.world.item_at(x, y).is_none());
-            let more = kind.recipes().len().saturating_sub(1);
+            let more = offers.len().saturating_sub(1);
             return UseRes::Missing(if empty && more > 0 { format!("{note} IT MAKES {more} MORE: HOLD E, THEN TAB TWICE.") } else { note });
         };
         if let Err(missing) = self.match_tools(s, &recipe) {
@@ -221,12 +233,17 @@ impl Game {
     /// accepts count.
     pub(crate) fn aim(&self, s: usize, ok: &dyn Fn(usize) -> bool) -> Aim {
         let shop = &self.world.shops[s];
-        if let Some((recipe, used)) = self.best_recipe(s, shop.kind.recipes(), ok) {
+        let offers = self.offers(s);
+        if let Some((recipe, used)) = self.best_recipe(s, &offers, ok) {
             return Aim { recipe, used, missing: Vec::new() };
         }
         let on_pads: Vec<usize> = shop.pads.iter().filter_map(|&(x, y)| self.world.item_at(x, y)).filter(|&it| ok(it)).collect();
         let resting = shop.resting(&self.data);
-        let closest = shop.kind.recipes().iter().enumerate().map(|(n, &r)| {
+        if offers.is_empty() {
+            // A trader with nothing left to offer.
+            return Aim { recipe: resting.to_string(), used: Vec::new(), missing: self.data.good(resting).input_groups().map(|(_, g)| g.clone()).collect() };
+        }
+        let closest = offers.iter().enumerate().map(|(n, &r)| {
             let (mut used, mut missing) = (Vec::new(), Vec::new());
             for (_, group) in self.data.good(r).input_groups() {
                 match on_pads.iter().copied().find(|&it| !used.contains(&it) && self.world.item_matches(&self.data, it, group)) {
@@ -240,6 +257,18 @@ impl Game {
         });
         let (_, recipe, used, missing) = closest.min_by_key(|(key, ..)| *key).expect("a workshop makes something");
         Aim { recipe: recipe.to_string(), used, missing }
+    }
+
+    /// What workshop `s` makes now: its kind's recipes. But a trader's stall offers only what
+    /// nothing else in the world makes or grows, so each trade leaves by itself once something
+    /// in play makes its good.
+    pub(crate) fn offers(&self, s: usize) -> Vec<&'static str> {
+        let kind = self.world.shops[s].kind;
+        if !kind.trades() {
+            return kind.recipes().to_vec();
+        }
+        let made_here = |good: &str| self.world.plants.iter().any(|p| p.good == good) || self.world.shops.iter().any(|o| !o.kind.trades() && o.kind.recipes().contains(&good));
+        kind.recipes().iter().copied().filter(|r| !made_here(self.data.good(r).output())).collect()
     }
 
     /// The recipe the pads hold ingredients for. When several fit, the one that uses the most
@@ -396,10 +425,15 @@ impl Game {
         let shares = shop.frontier.as_ref().map_or_else(Vec::new, |f| f.shares.clone());
         let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares });
         let (stats, skills, id) = (self.monsters[m].stats.clone(), self.monsters[m].skills.clone(), self.monsters[m].id);
-        let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: workshop.as_ref() };
-        let produced = econ::produce(&craft, &self.data, &mut self.rng);
-        let secs = econ::production_seconds(&recipe, &stats);
-        let learned = econ::learn(&mut self.monsters[m].skills, &stats, &recipe, &self.data, secs);
+        // A trade teaches nothing: the trader does the work.
+        let (produced, learned) = if recipe.is_trade() {
+            (vec![econ::trade(&recipe, &inputs.iter().collect::<Vec<_>>(), &self.data)], None)
+        } else {
+            let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: workshop.as_ref() };
+            let produced = econ::produce(&craft, &self.data, &mut self.rng);
+            let secs = econ::production_seconds(&recipe, &stats);
+            (produced, Some(econ::learn(&mut self.monsters[m].skills, &stats, &recipe, &self.data, secs)))
+        };
 
         // Inputs are used up; tools on pegs wear by their weight and may break.
         let mut gone: Vec<(i32, i32)> = inputs_idx.iter().map(|&i| (self.world.items[i].x, self.world.items[i].y)).collect();
@@ -425,7 +459,9 @@ impl Game {
         shop.out_timer = DISPENSE_TICKS;
         self.world.burst(sx, sy, PKind::Spark, 6);
         self.monsters[m].busy = false;
-        self.monsters[m].learned = Some((recipe.id.clone(), learned, LEARNED_POPUP_TICKS));
+        if let Some(learned) = learned {
+            self.monsters[m].learned = Some((recipe.id.clone(), learned, LEARNED_POPUP_TICKS));
+        }
         self.event(m, Ev::Made(recipe.id.clone()));
         self.sound((sx, sy), Sfx::Chime);
         let k = self.monsters[m].commune;
@@ -453,7 +489,9 @@ impl Game {
         }
         shop.out_timer = 0;
         let data = shop.pending.remove(0);
-        self.world.items.push(Item { hop: 5, ..Item::new(x, y, data) });
+        // What a working townsperson's bench makes is theirs.
+        let owner = shop.owner;
+        self.world.items.push(Item { hop: 5, owner, ..Item::new(x, y, data) });
         self.world.burst(x, y, PKind::Spark, 10);
         self.sound((x, y), Sfx::Plop);
     }

@@ -212,7 +212,7 @@ impl Game {
                 } else {
                     None
                 }
-            } else if matches!(area_name(t.0), "PINEWATER" | "TANGLEMERE") {
+            } else if matches!(area_name(t.0, t.1), "PINEWATER" | "TANGLEMERE" | "TEMPLE TOWN") {
                 Some("NOBODY BUILDS IN TOWN. TAKE IT OUT INTO THE WILDS.")
             } else if w.tile(t.0, t.1) == Tile::Path {
                 Some("NOT ON THE ROAD.")
@@ -242,7 +242,7 @@ impl Game {
         let news = match fp.what {
             Unpacks::Shop(kind) => {
                 let frontier = Frontier { kit: data.good.clone(), material, speed: speed(&data), shares: data.shares.clone(), worked: 0, idle: 0, fallen: false };
-                let shop = Shop { kind, spot: fp.spot, pad_flash: vec![0; fp.pads.len()], pads: fp.pads, pegs: fp.pegs, outs: fp.outs, quality: data.quality, job: None, pending: Vec::new(), out_timer: 0, frontier: Some(frontier), aimed: None };
+                let shop = Shop { kind, spot: fp.spot, pad_flash: vec![0; fp.pads.len()], pads: fp.pads, pegs: fp.pegs, outs: fp.outs, quality: data.quality, job: None, pending: Vec::new(), out_timer: 0, frontier: Some(frontier), aimed: None, owner: None };
                 self.world.shops.push(shop);
                 let s = self.world.shops.len() - 1;
                 self.world.lay_shop(s);

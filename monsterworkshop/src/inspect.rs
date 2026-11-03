@@ -6,7 +6,7 @@ use crate::data::{matches, GoodType};
 use crate::econ::{self, chance_at_least, tier_name, Craft, Crafter, Forecast, ItemData, EXCEPTIONAL, MASTERWORK};
 use crate::game::{Game, RENOWN_PER_VALUE};
 use crate::palette::*;
-use crate::world::{Dir, Project, Tile, TS};
+use crate::world::{Dir, Folk, Project, Prop, Tile, TS};
 
 /// Small pictures that lead a line. Each means the same thing on every card.
 #[derive(Clone, Debug, PartialEq)]
@@ -140,10 +140,10 @@ fn odds(p: f64) -> String {
 }
 
 /// "INDIGO COTTON DYED FABRIC": the good's name led by the varieties it carries, the last
-/// one added first.
+/// one added first ("BRONZE TEMPLE BELL": copper and tin met in it).
 pub fn display_name(g: &Game, item: &ItemData) -> String {
     let name = g.good_name(&item.good);
-    let mut words: Vec<String> = item.carried_tags.iter().rev().map(|t| t.to_uppercase()).filter(|t| !name.contains(t.as_str())).collect();
+    let mut words: Vec<String> = g.data.alloyed(&item.carried_tags).iter().rev().map(|t| t.to_uppercase()).filter(|t| !name.contains(t.as_str())).collect();
     words.push(name);
     words.join(" ")
 }
@@ -155,15 +155,30 @@ pub fn card(g: &Game, k: usize) -> Card {
     let (dx, dy) = m.facing.delta();
     let (fx, fy) = (m.x + dx, m.y + dy);
     if let Some(s) = g.world.shop_at_spot(m.x, m.y).or_else(|| g.world.shop_at_spot(fx, fy)) {
-        return forecast_card(g, s, c);
+        return if g.world.shops[s].kind.trades() { trade_card(g, s) } else { forecast_card(g, s, c) };
     }
     if let Some(a) = g.faced_applicant(c) {
         return applicant_card(g, a, k);
     }
     if let Some(t) = g.faced_townsfolk(c) {
         let tf = &g.world.townsfolk[t];
-        let lines = vec![line("HE KNOWS HOW EVERYTHING IS MADE.", TEXT), line("SPACE: ASK WHAT YOU COULD MAKE FROM WHAT'S AROUND HERE.", TEXT_DIM)];
-        return Card::one(format!("{} THE CRAFTSMAN", tf.name), lines, (tf.x, tf.y));
+        return match tf.kind {
+            Folk::Craftsman => {
+                let lines = vec![line("HE KNOWS HOW EVERYTHING IS MADE.", TEXT), line("SPACE: ASK WHAT YOU COULD MAKE FROM WHAT'S AROUND HERE.", TEXT_DIM)];
+                Card::one(format!("{} THE CRAFTSMAN", tf.name), lines, (tf.x, tf.y))
+            }
+            Folk::Trader => {
+                let lines = vec![
+                    line("A HUMAN FROM THE HILLS. HUMANS BARTER; MONSTERS SHARE.", TEXT),
+                    line("HE BRINGS WHAT THE BELL NEEDS FROM PLACES NOT OPEN YET, AND GOES HOME ONCE YOU MAKE IT ALL HERE.", TEXT_DIM),
+                    line("TRADE AT HIS STALL: GOODS ON ITS PADS, THEN SPACE AT ITS SPOT.", TEXT_DIM),
+                ];
+                Card::one(tf.name.clone(), lines, (tf.x, tf.y))
+            }
+        };
+    }
+    if g.world.plaques.contains(&(fx, fy)) {
+        return plaque_card(g, (fx, fy));
     }
     if let Some(i) = g.world.item_at(fx, fy) {
         return item_card(g, &g.world.items[i].data, (fx, fy), c);
@@ -174,7 +189,13 @@ pub fn card(g: &Game, k: usize) -> Card {
         }
     }
     if let Some(o) = g.monster_at(fx, fy) {
-        return monster_card(g, o);
+        return match g.monsters[o].worker {
+            Some(n) => worker_card(g, o, n),
+            None => monster_card(g, o),
+        };
+    }
+    if let Some(&(_, prop)) = g.world.props.iter().find(|(at, _)| *at == (fx, fy)) {
+        return prop_card(g, prop, (fx, fy));
     }
     if let Some(w) = g.world.pumpkin_at(fx, fy) {
         let leader = g.world.wagons[w].leader.and_then(|id| g.monsters.iter().find(|m| m.id == id)).map(|m| m.name.clone());
@@ -235,11 +256,50 @@ fn wagon_card(g: &Game, w: usize, at: (i32, i32), c: usize) -> Card {
     Card::two("WAGON", first, details, at)
 }
 
+/// A working townsperson: who they are, and their card's lines from the data.
+fn worker_card(g: &Game, j: usize, n: usize) -> Card {
+    let (m, w) = (&g.monsters[j], &g.world.workers[n]);
+    let lines = w.about.iter().enumerate().map(|(k, l)| line(*l, if k == 0 { TEXT } else { TEXT_DIM })).collect();
+    Card::one(format!("{} THE {}", m.name, w.title), lines, (m.x, m.y))
+}
+
+/// Scenery: what it is, and what goes into the real thing.
+fn prop_card(g: &Game, prop: Prop, at: (i32, i32)) -> Card {
+    let made = |good: &str| line(format!("{}: {}.", g.good_name(good), g.inputs_text(g.data.good(good))), TEXT_DIM).icon(Icon::Good(good.into()));
+    match prop {
+        Prop::Wheels => Card::one("SPARE WAGON WHEELS", vec![line("FINISHED, WAITING FOR A CART.", TEXT), made("wagon_wheel")], at),
+        Prop::Cart => Card::one("A CART, HALF BUILT", vec![line("IT'S WAITING FOR ITS WHEELS.", TEXT), made("wagon_kit")], at),
+        Prop::Fence => Card::one("A FENCE", vec![line("AROUND A YARD. WALK IN BY ITS GATE.", TEXT_DIM)], at),
+    }
+}
+
+/// The temple's plaque: every bell hung there, the newest first.
+fn plaque_card(g: &Game, at: (i32, i32)) -> Card {
+    let mut lines: Vec<Line> = g.world.bells.iter().enumerate().rev().map(|(n, h)| line(format!("{}. {}", n + 1, Game::bell_line(h)), if n + 1 == g.world.bells.len() { TEXT } else { TEXT_DIM })).collect();
+    if lines.is_empty() {
+        lines.push(line("NO BELL HAS HUNG HERE YET.", TEXT_DIM));
+    }
+    Card::one("THE TEMPLE'S BELLS", lines, at)
+}
+
 fn board_card(g: &Game, b: usize) -> Card {
     let board = &g.world.boards[b];
+    if board.project == Project::Bell {
+        let mut lines = Vec::new();
+        if let Some(h) = g.world.bells.last() {
+            lines.push(line(format!("IT HOLDS {}", Game::bell_line(h)), TEXT_GOOD));
+        }
+        lines.push(if board.done() {
+            line(format!("A NEW BELL CAN REPLACE IT IN {} MINUTES.", board.rest.div_ceil(15 * 60)), TEXT_DIM)
+        } else {
+            line("PUSH A TEMPLE BELL IN TO HANG IT. EVERYONE WILL HEAR IT RING.", TEXT).icon(Icon::Good("temple_bell".into()))
+        });
+        lines.push(line("THE PLAQUE ON THE WALL KEEPS EVERY BELL HUNG HERE.", TEXT_DIM));
+        return Card::one(board.title.clone(), lines, (board.x, board.y));
+    }
     let name = g.good_name(&board.wants);
     let lines = if board.done() {
-        vec![line("DONE! THANK YOU, EVERYONE.", TEXT_GOOD)]
+        vec![line(if board.project == Project::Order { "FILLED, AND ON ITS WAY. A NEW ORDER SOON." } else { "DONE! THANK YOU, EVERYONE." }, TEXT_GOOD)]
     } else {
         vec![
             line(format!("{} OF {} {name}", board.have, board.need), TEXT)
@@ -300,6 +360,10 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
     // Where it comes from and where it goes: hints for what to make next.
     if let Some(&kind) = g.made_at(&item.good).first() {
         details.push(line(format!("MADE AT {} FROM {}.", crate::recipes::one(kind.label()), g.inputs_text(gt)), TEXT_DIM));
+    }
+    let traded = (0..g.world.shops.len()).filter(|&s| g.world.shops[s].kind.trades()).flat_map(|s| g.offers(s)).find(|r| g.data.good(r).output() == item.good);
+    if let Some(r) = traded {
+        details.push(line(format!("A TRADER GIVES ONE FOR {}.", g.inputs_text(g.data.good(r))), TEXT_DIM));
     }
     let into = g.goes_into(gt);
     if !into.is_empty() {
@@ -363,7 +427,7 @@ fn town_tool_card(g: &Game, at: (i32, i32)) -> Option<Card> {
 /// What an ability is for: what it does besides crafting (STR pushes, CHA leads wagons), then
 /// the applied skills whose recipes in play lean on it most, as many as fit.
 pub(crate) fn ability_uses(g: &Game, a: usize) -> String {
-    let in_play: std::collections::BTreeSet<&str> = crate::world::ShopKind::all().flat_map(|k| k.recipes().iter().copied()).chain(g.world.plants.iter().map(|p| p.good.as_str())).collect();
+    let in_play: std::collections::BTreeSet<&str> = crate::world::ShopKind::all().filter(|k| !k.trades()).flat_map(|k| k.recipes().iter().copied()).chain(g.world.plants.iter().map(|p| p.good.as_str())).collect();
     let mut count: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for gt in in_play.iter().filter_map(|id| g.data.try_good(id)).filter(|gt| gt.relevant_ability_score == a) {
         *count.entry(gt.primary_applied_skill.as_str()).or_default() += 1;
@@ -565,6 +629,33 @@ fn usual_range(f: &Forecast, m: &crate::game::Monster) -> (f64, f64) {
     (econ::nudge((f.mean - 2.0 * f.sigma).max(0.0), &m.stats), f.mean + 2.0 * f.sigma)
 }
 
+/// At a trader's stall: the trade its pads are working toward, and the others it offers. No
+/// forecast, since no skill goes into a trade.
+fn trade_card(g: &Game, s: usize) -> Card {
+    let shop = &g.world.shops[s];
+    let offers = g.offers(s);
+    let aim = g.aim(s, &|_| true);
+    let trade = g.data.good(&aim.recipe);
+    let gives = trade.output().to_string();
+    let mut first = Vec::new();
+    if offers.is_empty() {
+        first.push(line("THE TRADER HAS NOTHING YOU CAN'T MAKE HERE.", TEXT_DIM));
+    } else if aim.missing.is_empty() {
+        first.push(line("SPACE TRADES.", TEXT_GOOD));
+    } else {
+        first.push(line(g.pads_note(s, &|_| true), TEXT_WARN).icon(Icon::Warn));
+    }
+    first.push(line(format!("{} FOR {}.", g.inputs_text(trade), crate::recipes::one(&g.good_name(&gives))), TEXT).icon(Icon::Good(gives)));
+    first.push(line("PLAIN WORK, WORTH WHAT YOU GIVE. WHOEVER MADE WHAT YOU GIVE SHARES IN WHAT IT GOES INTO.", TEXT_DIM));
+    let mut also = vec![line("IT ALSO GIVES", TEXT_DIM)];
+    for r in offers.into_iter().filter(|&r| r != aim.recipe) {
+        let t = g.data.good(r);
+        also.push(line(format!("{}: {}", t.name.to_uppercase(), g.inputs_text(t)), TEXT).icon(Icon::Good(t.output().to_string())));
+    }
+    let also = if also.len() > 1 { also } else { Vec::new() };
+    Card::two(format!("{}: {}", g.shop_name(s), trade.name.to_uppercase()), first, also, shop.spot)
+}
+
 fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     let pv = g.preview(s);
     let shop = &g.world.shops[s];
@@ -632,7 +723,7 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     // A few more of what it makes, picked for whoever's looking: what suits their skills best,
     // then what the commune has never made. (The rest: the craftsman, goods' cards, the ghosts
     // on its pads.)
-    let mut others: Vec<&str> = shop.kind.recipes().iter().copied().filter(|&r| r != pv.recipe).collect();
+    let mut others: Vec<&str> = g.offers(s).into_iter().filter(|&r| r != pv.recipe).collect();
     let mut card = Card::two(format!("{}: {}", g.shop_name(s), recipe.name.to_uppercase()), first, details, shop.spot);
     if !others.is_empty() {
         let made = &g.communes[m.commune].made;

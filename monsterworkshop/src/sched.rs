@@ -91,8 +91,8 @@ impl Game {
                 None => Vec::new(),
             },
             Goal::Activate(Thing::Shop(s)) => {
-                let shop = &self.world.shops[*s];
-                shop.kind.recipes().iter().flat_map(|r| shop.outs.iter().map(move |&o| (r.to_string(), o))).collect()
+                let outs = &self.world.shops[*s].outs;
+                self.offers(*s).iter().flat_map(|r| outs.iter().map(move |&o| (self.data.good(r).output().to_string(), o))).collect()
             }
             _ => Vec::new(),
         }
@@ -142,7 +142,7 @@ impl Game {
     /// monster you steer takes anything, and the loops make it again)?
     pub(crate) fn may_take(&self, i: usize, k: usize) -> bool {
         let id = self.world.items[k].id;
-        !self.monsters[i].playing || id == 0 || self.holder(i, Hold::Item(id)).is_none()
+        self.owned_by_other(i, k).is_none() && (!self.monsters[i].playing || id == 0 || self.holder(i, Hold::Item(id)).is_none())
     }
 
     /// Which goals of a loop are wanted right now: every one whose destination isn't already
@@ -172,9 +172,11 @@ impl Game {
         if shop.pending.len() < crate::world::OUTPUT_BUFFER {
             return false;
         }
-        match self.best_recipe(s, shop.kind.recipes(), &|_| true) {
-            Some((making, _)) => shop.pending.iter().any(|d| d.good == making),
-            None => shop.kind.recipes().iter().any(|r| shop.pending.iter().any(|d| d.good == *r)),
+        let offers = self.offers(s);
+        let output = |r: &str| self.data.good(r).output().to_string();
+        match self.best_recipe(s, &offers, &|_| true) {
+            Some((making, _)) => shop.pending.iter().any(|d| d.good == output(&making)),
+            None => offers.iter().any(|r| shop.pending.iter().any(|d| d.good == output(r))),
         }
     }
 
@@ -253,7 +255,7 @@ impl Game {
                     let item = &self.world.items[it];
                     !item.locked && (item.id == 0 || self.holder(i, Hold::Item(item.id)).is_none())
                 };
-                let Some((recipe, inputs)) = self.best_recipe(s, shop.kind.recipes(), &ok) else {
+                let Some((recipe, inputs)) = self.best_recipe(s, &self.offers(s), &ok) else {
                     return Err(Why::world(self.pads_note(s, &ok)));
                 };
                 if let Err(missing) = self.missing_tool(s, &recipe) {

@@ -64,6 +64,10 @@ pub struct GoodType {
     /// the oak variety of wood, so whatever carries wood from them carries "oak".
     #[serde(default)]
     pub variety: Option<VarietyOf>,
+    /// For a trade (see `workshops.rs`), the good it gives: a trade is a recipe whose product is
+    /// another good.
+    #[serde(default)]
+    pub makes: Option<String>,
 }
 
 /// A good's own variety: its name (one of its type tags), the categories it's a variety of,
@@ -92,6 +96,15 @@ fn sixty() -> u32 {
 impl GoodType {
     pub fn is_raw(&self) -> bool {
         self.raw_material_base_value.is_some()
+    }
+
+    /// The good this recipe makes: itself, or for a trade the good it gives.
+    pub fn output(&self) -> &str {
+        self.makes.as_deref().unwrap_or(&self.id)
+    }
+
+    pub fn is_trade(&self) -> bool {
+        self.makes.is_some()
     }
 
     /// Input slots that actually require something (some data lists empty groups).
@@ -153,6 +166,17 @@ pub struct SkillDefs {
 #[derive(Deserialize)]
 struct GoodsFile {
     good_types: Vec<GoodType>,
+    #[serde(default)]
+    alloys: Vec<Alloy>,
+}
+
+/// Metals that become an alloy when they meet in a good: copper with tin is bronze. An alloy is
+/// a variety of whatever its metals both are (bronze is a metal), so it's one more road to its
+/// tag: bronze from copper and tin is the same bronze as from a bronze ingot.
+#[derive(Deserialize, Clone, Debug)]
+pub struct Alloy {
+    pub name: String,
+    pub of: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -180,12 +204,27 @@ pub struct Data {
     pub monster_types: BTreeMap<String, MonsterType>,
     pub skills: SkillDefs,
     pub varieties: Vec<Variety>,
+    pub alloys: Vec<Alloy>,
 }
 
 impl Data {
     pub fn load() -> Self {
-        let mut goods = serde_json::from_str::<GoodsFile>(GOOD_TYPES).expect("data/good_types.json").good_types;
-        let varieties = gather_varieties(&goods);
+        let file = serde_json::from_str::<GoodsFile>(GOOD_TYPES).expect("data/good_types.json");
+        let (mut goods, alloys) = (file.good_types, file.alloys);
+        // A trader's trades are recipes too, each named for the good it gives.
+        for t in crate::workshops::trades() {
+            let gives = goods.iter().find(|g| g.id == t.makes).unwrap_or_else(|| panic!("a trade makes {}, which isn't a good", t.makes));
+            let trade = serde_json::json!({ "id": t.id, "name": gives.name, "type_tags": [], "has_quality": false, "primary_applied_skill": "", "input_goods_tags_required": t.wants, "makes": t.makes });
+            goods.push(serde_json::from_value(trade).expect("a trade as a recipe"));
+        }
+        let mut varieties = gather_varieties(&goods);
+        for a in &alloys {
+            let of: Vec<String> = varieties.iter().find(|v| a.of.first() == Some(&v.tag)).map_or_else(Vec::new, |first| first.of.iter().filter(|c| a.of.iter().all(|m| varieties.iter().any(|v| &v.tag == m && v.is(c)))).cloned().collect());
+            match varieties.iter_mut().find(|v| v.tag == a.name) {
+                Some(v) => v.of.extend(of.into_iter().filter(|c| !v.of.contains(c)).collect::<Vec<_>>()),
+                None => varieties.push(Variety { tag: a.name.clone(), of, color: None }),
+            }
+        }
         for g in &mut goods {
             for carry in &mut g.input_goods_tags_carryover {
                 *carry = expand(carry, &varieties);
@@ -194,7 +233,30 @@ impl Data {
         let by_id = goods.iter().enumerate().map(|(i, g)| (g.id.clone(), i)).collect();
         let monster_types = serde_json::from_str::<MonstersFile>(MONSTER_TYPES).expect("data/monster_types.json").monster_types;
         let skills = serde_json::from_str::<SkillDefs>(SKILLS).expect("data/skills.json");
-        Self { goods, by_id, monster_types, skills, varieties }
+        Self { goods, by_id, monster_types, skills, varieties, alloys }
+    }
+
+    /// Carried varieties once metals have met: an alloy's metals, all there, become the alloy,
+    /// where the first of them was; and a metal meeting its alloy goes into it (bronze with more
+    /// copper is still bronze).
+    pub fn alloyed(&self, carried: &[String]) -> Vec<String> {
+        let mut out = carried.to_vec();
+        for a in &self.alloys {
+            if let Some(at) = out.iter().position(|t| a.of.contains(t)).filter(|_| a.of.iter().all(|m| out.contains(m))) {
+                out.retain(|t| !a.of.contains(t));
+                out.insert(at.min(out.len()), a.name.clone());
+            }
+            if out.contains(&a.name) {
+                out.retain(|t| !a.of.contains(t));
+            }
+        }
+        out
+    }
+
+    /// The metal a good is made of ("bronze"), if it carries any.
+    pub fn metal_of(&self, carried: &[String]) -> Option<String> {
+        let metals: Vec<String> = self.alloyed(carried).into_iter().filter(|t| self.variety(t).is_some_and(|v| v.is("metal"))).collect();
+        (!metals.is_empty()).then(|| metals.join(" "))
     }
 
     pub fn variety(&self, tag: &str) -> Option<&Variety> {
@@ -308,6 +370,19 @@ mod tests {
     /// Varieties are declared on the goods that are them, and recipes carry whole categories:
     /// a new wood is one good declaring itself a variety of wood, and every recipe that carries
     /// wood carries it.
+    #[test]
+    fn metals_that_meet_become_their_alloy() {
+        let d = Data::load();
+        let tags = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(d.variety("bronze").is_some_and(|v| v.is("metal")), "bronze is a metal of its own");
+        assert_eq!(d.alloyed(&tags(&["copper", "tin"])), ["bronze"]);
+        assert_eq!(d.alloyed(&tags(&["cotton", "tin", "copper"])), ["cotton", "bronze"], "where the first of its metals was");
+        assert_eq!(d.alloyed(&tags(&["bronze", "copper"])), ["bronze"], "more copper in bronze is still bronze");
+        assert_eq!(d.alloyed(&tags(&["copper"])), ["copper"], "copper alone is copper");
+        assert!(d.good("temple_bell").input_goods_tags_carryover.iter().any(|c| c.iter().any(|t| t == "bronze")), "bronze carries over into a bell by either road");
+        assert_eq!(d.metal_of(&tags(&["copper", "tin"])).as_deref(), Some("bronze"));
+    }
+
     #[test]
     fn recipes_carry_categories_of_declared_varieties() {
         let d = Data::load();

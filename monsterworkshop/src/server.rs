@@ -330,7 +330,7 @@ mod tests {
 
     fn server() -> Server {
         let dir = std::env::temp_dir().join(format!("mw_server_test_{}_{}", std::process::id(), rand_suffix()));
-        Server::new(Game::new(), dir.join("world.json"), TcpListener::bind("127.0.0.1:0").unwrap()).unwrap()
+        Server::new(Game::new().without_town(), dir.join("world.json"), TcpListener::bind("127.0.0.1:0").unwrap()).unwrap()
     }
 
     fn rand_suffix() -> u64 {
