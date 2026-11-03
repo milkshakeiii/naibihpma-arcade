@@ -22,6 +22,15 @@ fn builtin_tool(id: &str) -> ItemData {
     ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
 }
 
+/// What a workshop's pads are working toward (see `Game::aim`).
+pub(crate) struct Aim {
+    pub recipe: String,
+    /// The pad items it uses, in recipe order.
+    pub used: Vec<usize>,
+    /// What it still needs, in recipe order: nothing when the pads make it now.
+    pub missing: Vec<Vec<String>>,
+}
+
 /// What a work spot would make right now, for the forecast card.
 pub(crate) struct Preview {
     pub recipe: String,
@@ -131,7 +140,7 @@ impl Game {
             // Nothing on the pads yet: say there's more it makes, and where to see it.
             let empty = self.world.shops[s].pads.iter().all(|&(x, y)| self.world.item_at(x, y).is_none());
             let more = kind.recipes().len().saturating_sub(1);
-            return UseRes::Missing(if empty && more > 0 { format!("{note} IT MAKES {more} MORE: HOLD E, THEN TAB.") } else { note });
+            return UseRes::Missing(if empty && more > 0 { format!("{note} IT MAKES {more} MORE: HOLD E, THEN TAB TWICE.") } else { note });
         };
         if let Err(missing) = self.match_tools(s, &recipe) {
             return UseRes::Wait(format!("FOR {}: {missing} ON A PEG.", self.good_name(&recipe)));
@@ -158,25 +167,12 @@ impl Game {
         let shop = &self.world.shops[s];
         let on_pads: Vec<usize> = shop.pads.iter().filter_map(|&(x, y)| self.world.item_at(x, y)).filter(|&it| ok(it)).collect();
         let taken = shop.pads.iter().filter(|&&(x, y)| self.world.item_at(x, y).is_some()).count();
-        let shown = shop.default_recipe(&self.data);
-        // How close each recipe comes: using the most of what's there, then the one an empty
-        // workshop shows (the one that fills its pads), then the fewest inputs missing.
-        let closest = shop.kind.recipes().iter().enumerate().map(|(n, &r)| {
-            let (mut used, mut missing) = (Vec::new(), Vec::new());
-            for (_, group) in self.data.good(r).input_groups() {
-                match on_pads.iter().copied().find(|&it| !used.contains(&it) && self.world.item_matches(&self.data, it, group)) {
-                    Some(it) => used.push(it),
-                    None => missing.push(group.clone()),
-                }
-            }
-            ((std::cmp::Reverse(used.len()), r != shown, missing.len(), n), r, missing, used)
-        });
-        let Some((_, recipe, missing, used)) = closest.min_by_key(|(key, ..)| *key) else { return String::new() };
+        let Aim { recipe, used, missing } = self.aim(s, ok);
         let Some(group) = missing.first() else { return String::new() };
         let another = used.iter().any(|&it| self.world.item_matches(&self.data, it, group));
         let name = self.describe_type(group);
         let want = if another { format!("ANOTHER {name}") } else { crate::recipes::one(&name) };
-        let aim = format!("FOR {}:", self.good_name(recipe));
+        let aim = format!("FOR {}:", self.good_name(&recipe));
         let lead = if used.is_empty() && !on_pads.is_empty() {
             let there: Vec<String> = on_pads.iter().map(|&it| crate::recipes::one(&self.good_name(self.world.items[it].good()))).collect();
             format!("NOTHING HERE TAKES {}. ", there.join(" WITH "))
@@ -190,12 +186,8 @@ impl Game {
     }
 
     pub(crate) fn preview(&self, s: usize) -> Preview {
-        let kind = self.world.shops[s].kind;
-        let found = self.best_recipe(s, kind.recipes(), &|_| true);
-        let (recipe, inputs) = match found {
-            Some((r, idx)) => (r, Ok(idx.iter().map(|&i| self.world.items[i].data.clone()).collect())),
-            None => (self.world.shops[s].default_recipe(&self.data).to_string(), Err(self.pads_note(s, &|_| true))),
-        };
+        let Aim { recipe, used, missing } = self.aim(s, &|_| true);
+        let inputs = if missing.is_empty() { Ok(used.iter().map(|&i| self.world.items[i].data.clone()).collect()) } else { Err(self.pads_note(s, &|_| true)) };
         let tools = self.match_tools(s, &recipe).map(|src| {
             src.iter()
                 .map(|t| match t {
@@ -209,6 +201,45 @@ impl Game {
         let shares = shop.frontier.as_ref().map_or_else(Vec::new, |f| f.shares.clone());
         let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares });
         Preview { recipe, inputs, tools, workshop }
+    }
+
+    /// A good just landed on one of workshop `s`'s pads: if they're working toward something
+    /// now, the workshop stays set up for it once they're cleared. (Every good reaches a pad by
+    /// a push or a pull, loops' included.)
+    pub(crate) fn remember_aim(&mut self, s: usize) {
+        let aim = self.aim(s, &|_| true);
+        if !aim.used.is_empty() {
+            self.world.shops[s].aimed = Some(aim.recipe);
+        }
+    }
+
+    /// What workshop `s`'s pads are working toward, the one answer its card, its mats and its
+    /// monsters' messages all give: the recipe they make right now, if any (`best_recipe`);
+    /// else the one that uses the most of what's on them, with the fewest inputs still missing;
+    /// with nothing of use on them, the one it rests on (`Shop::resting`: what they last worked
+    /// toward). Ties go to the resting recipe, then the earlier one. Only pad items `ok`
+    /// accepts count.
+    pub(crate) fn aim(&self, s: usize, ok: &dyn Fn(usize) -> bool) -> Aim {
+        let shop = &self.world.shops[s];
+        if let Some((recipe, used)) = self.best_recipe(s, shop.kind.recipes(), ok) {
+            return Aim { recipe, used, missing: Vec::new() };
+        }
+        let on_pads: Vec<usize> = shop.pads.iter().filter_map(|&(x, y)| self.world.item_at(x, y)).filter(|&it| ok(it)).collect();
+        let resting = shop.resting(&self.data);
+        let closest = shop.kind.recipes().iter().enumerate().map(|(n, &r)| {
+            let (mut used, mut missing) = (Vec::new(), Vec::new());
+            for (_, group) in self.data.good(r).input_groups() {
+                match on_pads.iter().copied().find(|&it| !used.contains(&it) && self.world.item_matches(&self.data, it, group)) {
+                    Some(it) => used.push(it),
+                    None => missing.push(group.clone()),
+                }
+            }
+            // Using nothing, every recipe is as far off: the resting one.
+            let short = if used.is_empty() { 0 } else { missing.len() };
+            ((std::cmp::Reverse(used.len()), short, r != resting, n), r, used, missing)
+        });
+        let (_, recipe, used, missing) = closest.min_by_key(|(key, ..)| *key).expect("a workshop makes something");
+        Aim { recipe: recipe.to_string(), used, missing }
     }
 
     /// The recipe the pads hold ingredients for. When several fit, the one that uses the most

@@ -224,7 +224,7 @@ fn wagon_card(g: &Game, w: usize, at: (i32, i32), c: usize) -> Card {
         Some(good) => line(format!("{} {}", wagon.stock.len(), g.good_name(good)), TEXT).icon(Icon::Good(good.to_string())),
         None => line("EMPTY. PUSH GOODS INTO IT, ONE KIND AT A TIME.", TEXT_DIM),
     }];
-    let used: f64 = wagon.stock.iter().map(|(d, _)| g.data.good(&d.good).storage_volume).sum();
+    let used = econ::total(wagon.stock.iter().map(|(d, _)| g.data.good(&d.good).storage_volume));
     first.push(line(format!("ROOM {used:.1} OF {:.1}", wagon.room), TEXT).bar(used / wagon.room));
     first.push(if wagon.open { line("TAILGATE OPEN: PARKED, IT UNLOADS BEHIND.", TEXT_GOOD) } else { line("TAILGATE SHUT. SPACE AT ITS BACK OPENS IT.", TEXT_DIM) });
     let details = vec![
@@ -525,7 +525,7 @@ fn bin_card(g: &Game, b: usize) -> Card {
         lines.push(line("ITS CHUTE PUSHES THEM OUT ONE AT A TIME.", TEXT_DIM));
     }
     if let Some(f) = &bin.frontier {
-        let used: f64 = bin.stock.iter().map(|d| g.data.good(&d.good).storage_volume).sum();
+        let used = econ::total(bin.stock.iter().map(|d| g.data.good(&d.good).storage_volume));
         lines.push(line(format!("HOLDS {used:.1} OF {:.1}.", f.room), TEXT));
         if bin.accepts.is_empty() {
             lines.push(line("IT TAKES THE FIRST KIND OF GOOD PUSHED IN, AND ONLY THAT.", TEXT_DIM));
@@ -629,22 +629,24 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
             details.push(line(format!("BUILT BY {}: THEY SHARE IN ITS WORK.", makers.join(", ")), TEXT_DIM));
         }
     }
+    // A few more of what it makes, picked for whoever's looking: what suits their skills best,
+    // then what the commune has never made. (The rest: the craftsman, goods' cards, the ghosts
+    // on its pads.)
+    let mut others: Vec<&str> = shop.kind.recipes().iter().copied().filter(|&r| r != pv.recipe).collect();
     let mut card = Card::two(format!("{}: {}", g.shop_name(s), recipe.name.to_uppercase()), first, details, shop.spot);
-    // Everything it makes, five to a page, what the commune has made in green.
-    let recipes = shop.kind.recipes();
-    if recipes.len() > 1 {
+    if !others.is_empty() {
         let made = &g.communes[m.commune].made;
-        let pages = recipes.len().div_ceil(5);
-        for (p, chunk) in recipes.chunks(5).enumerate() {
-            let head = if pages > 1 { format!("WHAT IT MAKES ({} OF {pages})", p + 1) } else { "WHAT IT MAKES".into() };
-            let mut page = vec![line(head, TEXT_DIM)];
-            for &r in chunk {
-                let gt = g.data.good(r);
-                let col = if made.contains(r) { TEXT_GOOD } else { TEXT };
-                page.push(line(format!("{}: {}", gt.name.to_uppercase(), g.inputs_text(gt)), col).icon(Icon::Good(r.to_string())));
-            }
-            card.pages.push(page);
+        let skill = |r: &str| m.skills.applied(&g.data.good(r).primary_applied_skill);
+        others.sort_by(|a, b| skill(b).total_cmp(&skill(a)).then(made.contains(*a).cmp(&made.contains(*b))));
+        let mut also = vec![line("IT ALSO MAKES", TEXT_DIM)];
+        for &r in others.iter().take(3) {
+            let gt = g.data.good(r);
+            also.push(line(format!("{}: {}", gt.name.to_uppercase(), g.inputs_text(gt)), TEXT).icon(Icon::Good(r.to_string())));
         }
+        if others.len() > 3 {
+            also.push(line(format!("AND {} MORE.", others.len() - 3), TEXT_DIM));
+        }
+        card.pages.push(also);
     }
     card
 }

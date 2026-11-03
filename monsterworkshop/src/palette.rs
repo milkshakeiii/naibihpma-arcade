@@ -56,6 +56,11 @@ const RAMPS: [(u8, u8); 16] = [
     (WATER, 3),
 ];
 
+/// Whether `c` is in the lighter half of its ramp. A color of its own counts as light.
+pub fn is_light(c: u8) -> bool {
+    RAMPS.iter().find(|&&(start, n)| c >= start && c < start + n).is_none_or(|&(start, n)| c - start >= n.div_ceil(2))
+}
+
 /// `c` moved `k` steps lighter (or darker, if negative) within its ramp.
 pub fn shift(c: u8, k: i32) -> u8 {
     for (start, n) in RAMPS {

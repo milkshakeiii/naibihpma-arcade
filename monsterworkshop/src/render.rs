@@ -130,6 +130,9 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     if me.help {
         draw_help(fb);
     }
+    if me.leaving {
+        draw_leaving(fb);
+    }
 }
 
 /// The character sheet (C), the one full-screen page, kept by tradition: the monster itself,
@@ -198,8 +201,7 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
     t(fb, 16, 150, "WORN: NOTHING YET", TEXT_DIM);
     t(fb, 16, 160, "INSIDE: NOTHING YET", TEXT_DIM);
     let ty = &g.data.monster_types[m.kind.as_str()];
-    let held: f64 = m.hands.iter().flatten().map(|d| crate::econ::weight(g.data.good(&d.good), d)).sum();
-    t(fb, 16, 176, &format!("BODY {:.0} OF {}", held, ty.body_cap), TEXT);
+    t(fb, 16, 176, &format!("BODY {:.0} OF {}", g.held_weight(i), ty.body_cap), TEXT);
     t(fb, 16, 186, &format!("MIND 0 OF {}", ty.mind_cap), TEXT);
     if m.earned > 0.0 {
         t(fb, 16, 202, &format!("EARNED {} RENOWN", m.earned.floor()), TEXT);
@@ -226,7 +228,7 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
 }
 
 /// Page 3: the commune's recipe book. By workshop, everything its monsters have made, and in
-/// dimmer letters what a craftsman has told of, each with what it takes.
+/// grey what a craftsman has told of, each with what it takes.
 fn sheet_book(g: &Game, fb: &mut Framebuffer, k: usize) {
     let c = &g.communes[k];
     let mut rows: Vec<(String, u8)> = Vec::new();
@@ -238,8 +240,9 @@ fn sheet_book(g: &Game, fb: &mut Framebuffer, k: usize) {
         rows.push((kind.label().to_string(), SPARK + 1));
         for r in known {
             let gt = g.data.good(r);
-            let (tail, col) = if c.made.contains(r) { ("", TEXT) } else { (" (HEARD OF)", TEXT_DIM) };
-            for (n, row) in wrap(&format!("{}: {}{tail}", gt.name.to_uppercase(), g.inputs_text(gt)), 58).into_iter().enumerate() {
+            // Heard of but not made yet: in grey.
+            let col = if c.made.contains(r) { TEXT } else { TEXT_DIM };
+            for (n, row) in wrap(&format!("{}: {}", gt.name.to_uppercase(), g.inputs_text(gt)), 58).into_iter().enumerate() {
                 rows.push((if n == 0 { format!("  {row}") } else { format!("    {row}") }, col));
             }
         }
@@ -428,13 +431,17 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
         let flash = pad.is_some_and(|(s, k)| g.world.shops[s].pad_flash[k] > 0);
         let edge = if flash { SPARK + 2 } else if tile == Tile::OutMat { MAT + 2 } else { MAT };
         fb.rect_fill(x0 + 1, y0 + 1, TS - 2, TS - 2, edge);
+        // Plain, so a ghost reads on it, with a dotted weave just inside its edge.
+        fb.rect_fill(x0 + 2, y0 + 2, TS - 4, TS - 4, MAT);
         for y in 2..TS - 2 {
             for x in 2..TS - 2 {
-                fb.pset(x0 + x, y0 + y, if ((x / 2) + (y / 2)) % 2 == 0 { MAT + 1 } else { MAT });
+                if (x == 2 || y == 2 || x == TS - 3 || y == TS - 3) && (x + y) % 2 == 0 {
+                    fb.pset(x0 + x, y0 + y, MAT + 1);
+                }
             }
         }
         if g.world.item_at(tx, ty).is_none() {
-            if let Some(icon) = mat_hint(g, v, tx, ty, tile).and_then(|id| sp.icon(&id)) {
+            if let Some(icon) = mat_hint(g, tx, ty, tile).and_then(|id| sp.icon(&id)) {
                 blit_ghost(fb, icon, x0 + 4, y0 + 4);
             }
         }
@@ -467,41 +474,26 @@ fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
     bounded(-1, 0) && bounded(1, 0) && bounded(0, -1) && bounded(0, 1)
 }
 
-/// What belongs on a pad (that pad's input, in recipe order) or an output mat (the output),
-/// for the recipe the workshop shows (see `shown_recipe`). A good the world grows or makes
-/// nearby is shown before a far-off one.
-fn mat_hint(g: &Game, v: &View, tx: i32, ty: i32, tile: Tile) -> Option<String> {
+/// What belongs on an empty pad or an output mat, for what the workshop's pads are working
+/// toward (`Game::aim`, the same as its card and its monsters say, so best fit never
+/// surprises): the output on its mat, and on the empty pads, in order, the inputs it still
+/// needs. A good the world grows or makes nearby is shown before a far-off one.
+fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<String> {
     let s = g.world.shops.iter().position(|s| s.pads.contains(&(tx, ty)) || s.outs.contains(&(tx, ty)))?;
     let shop = &g.world.shops[s];
-    let recipe = shown_recipe(g, v, s);
-    let recipe = recipe.as_str();
+    let aim = g.aim(s, &|_| true);
     if tile == Tile::OutMat {
-        return Some(recipe.to_string());
+        return Some(aim.recipe);
     }
-    let k = shop.pads.iter().position(|&p| p == (tx, ty))?;
-    let group = g.data.good(recipe).input_groups().nth(k).or_else(|| g.data.good(recipe).input_groups().next())?.1;
+    let k = shop.pads.iter().filter(|&&(x, y)| g.world.item_at(x, y).is_none()).position(|&p| p == (tx, ty))?;
+    ghost_good(g, aim.missing.get(k)?)
+}
+
+/// The good a ghost shows for an input: one the world grows or makes nearby before a far-off one.
+fn ghost_good(g: &Game, group: &[String]) -> Option<String> {
     let local = |id: &str| g.world.plants.iter().any(|p| p.good == id) || g.world.shops.iter().any(|s| s.kind.recipes().contains(&id));
     let fits: Vec<&crate::data::GoodType> = g.data.goods.iter().filter(|p| crate::data::matches(&p.type_tags, group)).collect();
     fits.iter().find(|p| local(&p.id)).or(fits.first()).map(|p| p.id.clone())
-}
-
-/// The recipe a workshop's mats hint at: what its pads make right now, if they make anything,
-/// so best fit never surprises; else, while the viewer's monster stands at its spot with its
-/// pads empty, each recipe it knows in turn, two seconds each; else the one that fills its pads.
-fn shown_recipe(g: &Game, v: &View, s: usize) -> String {
-    let shop = &g.world.shops[s];
-    if let Some((recipe, _)) = g.best_recipe(s, shop.kind.recipes(), &|_| true) {
-        return recipe;
-    }
-    let m = &g.monsters[v.c];
-    let empty = shop.pads.iter().all(|&(x, y)| g.world.item_at(x, y).is_none());
-    if empty && (m.x, m.y) == shop.spot {
-        let fit: Vec<&str> = shop.kind.recipes().iter().copied().filter(|r| g.data.good(r).input_groups().count() <= shop.pads.len()).collect();
-        if !fit.is_empty() {
-            return fit[(g.frame / 30) as usize % fit.len()].to_string();
-        }
-    }
-    shop.default_recipe(&g.data).to_string()
 }
 
 /// The built-in tool a peg stands in for.
@@ -511,19 +503,18 @@ fn peg_hint(g: &Game, tx: i32, ty: i32) -> Option<&'static str> {
     shop.kind.builtin_tools().get(k).copied()
 }
 
-/// Facing a craftsman: what he'd make from what's around (just for this player), and that
-/// Space asks him for another idea.
+/// Facing a craftsman: what he'd make from what's around, just for this player. (Space asks
+/// him for another idea; his card says so.)
 fn draw_craftsman_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     let Some(t) = g.faced_townsfolk(v.c) else { return };
     let tf = &g.world.townsfolk[t];
     if !v.sees(tf.x, tf.y) {
         return;
     }
-    let mut lines = vec![format!("{} THE CRAFTSMAN", tf.name)];
+    let mut lines = Vec::new();
     for said in g.craftsman_says(t, v.k) {
         lines.extend(wrap(&said, 30));
     }
-    lines.push("SPACE: ANOTHER IDEA".into());
     let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
     let h = lines.len() as i32 * 9 + 4;
     let (px, py) = v.px(tf.x, tf.y);
@@ -779,13 +770,14 @@ fn draw_icon(fb: &mut Framebuffer, sp: &Sprites, icon: &Icon, x: i32, y: i32) {
     }
 }
 
-/// Every other pixel of a sprite: a dithered "this goes here" hint, no alpha.
+/// A sprite in the mat's two light tones, its own lights and darks kept: a "this goes here"
+/// hint that reads clearly but is plainly not the good itself (no alpha, no outline).
 fn blit_ghost(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32) {
     for sy in 0..s.h {
         for sx in 0..s.w {
             let c = s.px[(sy * s.w + sx) as usize];
-            if c > 1 && (x + sx + y + sy) % 2 == 0 {
-                fb.pset(x + sx, y + sy, MAT + 2);
+            if c > 1 {
+                fb.pset(x + sx, y + sy, if crate::palette::is_light(c) { MAT + 2 } else { MAT + 1 });
             }
         }
     }
@@ -1379,6 +1371,49 @@ fn a_long_status_fits_beside_the_renown() {
     assert!(cut.len() == 50 && cut.starts_with("MOGG: WAITING") && cut.ends_with("..."), "{cut}");
 }
 
+#[cfg(test)]
+#[test]
+fn every_good_a_workshop_makes_or_takes_has_an_icon_for_its_ghosts_and_cards() {
+    let (g, sp) = (Game::new(), Sprites::new());
+    let mut missing = Vec::new();
+    for kind in crate::workshops::ShopKind::all() {
+        for &r in kind.recipes() {
+            if sp.icon(r).is_none() {
+                missing.push(r.to_string());
+            }
+            for (_, group) in g.data.good(r).input_groups() {
+                if ghost_good(&g, group).is_none_or(|id| sp.icon(&id).is_none()) {
+                    missing.push(format!("{r}'s {group:?}"));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "no icon: {missing:?}");
+}
+
+#[cfg(test)]
+#[test]
+fn a_benchs_mats_show_what_its_pads_are_working_toward() {
+    let mut g = Game::new();
+    let bench = g.world.shops.iter().position(|s| s.kind.label() == "BUILDERS' BENCH").expect("the builders' bench");
+    let (pads, out) = (g.world.shops[bench].pads.clone(), g.world.shops[bench].outs[0]);
+    let hint = |g: &Game, (x, y): (i32, i32), tile| mat_hint(g, x, y, tile);
+    assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("kiln_kit"), "resting on what fills its pads");
+    // Standing at it doesn't turn the ghosts through its recipes: they show what the card says.
+    let c = g.communes[0].controlled;
+    (g.monsters[c].x, g.monsters[c].y) = g.world.shops[bench].spot;
+    g.frame = 30;
+    assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("kiln_kit"), "still");
+    let pumpkin = crate::econ::ItemData { good: "pumpkin".into(), quality: 0.5, carried_tags: Vec::new(), raw: Vec::new(), depth: 0, value: 1.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None };
+    g.world.items.push(crate::world::Item::new(pads[0].0, pads[0].1, pumpkin));
+    assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("wagon_kit"), "a pumpkin goes into a wagon kit");
+    assert_eq!(hint(&g, pads[0], Tile::Pad), None, "a pad with something on it has no ghost");
+    assert_eq!(hint(&g, pads[1], Tile::Pad).as_deref(), Some("wagon_wheel"), "the empty pads show what's still missing, in order");
+    let rest: Vec<Option<String>> = pads[2..].iter().map(|&p| hint(&g, p, Tile::Pad)).collect();
+    assert_eq!(rest[0].as_deref(), Some("wagon_wheel"));
+    assert!(rest[1..].iter().all(|h| h.is_some()) && !rest.iter().any(|h| h.as_deref() == Some("pumpkin")), "{rest:?}");
+}
+
 /// Facing a kit: the workshop it would set up, as a ghost on the ground (a checkerboard, so
 /// what's under it still shows), red on the tiles where something's in the way.
 fn draw_kit_ghost(g: &Game, fb: &mut Framebuffer, v: &View) {
@@ -1429,6 +1464,20 @@ pub fn draw_title(fb: &mut Framebuffer, worlds: &[String], sel: usize, error: Op
         }
     }
     fb.text_centered("ARROWS PICK  SPACE STARTS  DEL DELETES  ESC QUITS", 200, 282, TEXT, Some(OUTLINE), 1);
+}
+
+/// Esc with nothing open: whether to leave the world.
+fn draw_leaving(fb: &mut Framebuffer) {
+    let lines = ["ESC AGAIN: TO THE TITLE SCREEN", "ANY OTHER KEY: STAY"];
+    let w = lines.iter().map(|l| Framebuffer::text_width(l, 1)).max().unwrap_or(0) + 32;
+    let h = lines.len() as i32 * 11 + 28;
+    let (x, y) = ((400 - w) / 2, (VIEW_H - h) / 2);
+    fb.rect_checker(0, 0, 400, VIEW_H, OUTLINE);
+    fb.rect_bevel(x, y, w, h, HUD_FILL, HUD_HI, HUD_SHADOW);
+    fb.text_centered("LEAVE THE WORLD?", x + w / 2, y + 7, SPARK + 2, Some(HUD_SHADOW), 1);
+    for (k, line) in lines.iter().enumerate() {
+        fb.text_centered(line, x + w / 2, y + 20 + k as i32 * 11, TEXT, Some(HUD_SHADOW), 1);
+    }
 }
 
 fn draw_help(fb: &mut Framebuffer) {

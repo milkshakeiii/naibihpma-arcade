@@ -170,15 +170,15 @@ impl Game {
         new
     }
 
-    /// What craftsman `t` says to commune `k`'s player now: a quip when someone works right by
-    /// him, and the idea it's their turn for.
+    /// What craftsman `t` says to commune `k`'s player now: a thoughtful "HMM..." when someone
+    /// works near his door, and the idea it's their turn for.
     pub(crate) fn craftsman_says(&self, t: usize, k: usize) -> Vec<String> {
         let tf = &self.world.townsfolk[t];
         let mut said = Vec::new();
-        let near = |s: &crate::world::Shop| (s.spot.0 - tf.x).abs() + (s.spot.1 - tf.y).abs() <= 4;
+        let near = |s: &crate::world::Shop| (s.spot.0 - tf.x).abs() + (s.spot.1 - tf.y).abs() <= 10;
         if self.world.shops.iter().any(|s| near(s) && s.job.is_some()) {
-            // 班门弄斧: an axe swung at the master carpenter's own door.
-            said.push("SWINGING AN AXE AT MY DOOR, ARE WE? GO ON THEN.".to_string());
+            // Watching someone work by his door (班门弄斧, an axe swung at Lu Ban's).
+            said.push("HMM...".to_string());
         }
         let ideas = self.ideas(t, k);
         said.push(match ideas.get(self.communes[k].idea_turn % ideas.len().max(1)) {

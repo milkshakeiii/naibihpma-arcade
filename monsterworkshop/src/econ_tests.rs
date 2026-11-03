@@ -364,3 +364,9 @@ fn used_up_inputs_count_toward_value_but_not_weight() {
     assert!(dyed.raw.iter().any(|r| r.spent && r.good == "elder_sticks"), "the burned fuel is in its history");
     assert!(dyed.value > fabric.value, "and still adds value");
 }
+
+#[test]
+fn nothing_adds_up_to_zero_not_minus_zero() {
+    assert_eq!(format!("{:.0}", total([])), "0", "an empty hand weighs 0");
+    assert_eq!(format!("{:.1}", total([0.5, 1.0])), "1.5");
+}

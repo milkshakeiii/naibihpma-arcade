@@ -119,7 +119,7 @@ fn turn((x, y): (i32, i32), d: Dir) -> (i32, i32) {
 
 /// What a kit's materials are worth: the base values of everything in it, unaffected by quality.
 fn worth(data: &ItemData) -> f64 {
-    data.raw.iter().map(|r| r.base_value).sum()
+    crate::econ::total(data.raw.iter().map(|r| r.base_value))
 }
 
 /// How much faster a workshop from this kit works: by what its materials are worth against the
@@ -242,7 +242,7 @@ impl Game {
         let news = match fp.what {
             Unpacks::Shop(kind) => {
                 let frontier = Frontier { kit: data.good.clone(), material, speed: speed(&data), shares: data.shares.clone(), worked: 0, idle: 0, fallen: false };
-                let shop = Shop { kind, spot: fp.spot, pad_flash: vec![0; fp.pads.len()], pads: fp.pads, pegs: fp.pegs, outs: fp.outs, quality: data.quality, job: None, pending: Vec::new(), out_timer: 0, frontier: Some(frontier) };
+                let shop = Shop { kind, spot: fp.spot, pad_flash: vec![0; fp.pads.len()], pads: fp.pads, pegs: fp.pegs, outs: fp.outs, quality: data.quality, job: None, pending: Vec::new(), out_timer: 0, frontier: Some(frontier), aimed: None };
                 self.world.shops.push(shop);
                 let s = self.world.shops.len() - 1;
                 self.world.lay_shop(s);
@@ -286,7 +286,7 @@ impl Game {
             return Err(format!("ONLY {} GOES IN THERE.", names.join(" OR ")));
         }
         if let Some(f) = &bin.frontier {
-            let used: f64 = bin.stock.iter().map(|d| self.data.good(&d.good).storage_volume).sum();
+            let used = crate::econ::total(bin.stock.iter().map(|d| self.data.good(&d.good).storage_volume));
             if used + gt.storage_volume > f.room + 1e-9 {
                 return Err(format!("{} IS FULL.", self.bin_name(b)));
             }

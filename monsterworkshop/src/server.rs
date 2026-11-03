@@ -158,6 +158,13 @@ impl Server {
             }
         }
         self.game.update(&inputs);
+        // Players who've said they're leaving go back to their title screens.
+        for i in (0..self.players.len()).rev() {
+            if let Some(k) = self.players[i].commune.filter(|&k| self.game.communes[k].left) {
+                self.game.communes[k].left = false;
+                self.let_go(i, "");
+            }
+        }
         let simulated = Instant::now();
         self.show();
         let shown = Instant::now();
@@ -238,13 +245,11 @@ impl Server {
         }
     }
 
-    /// Lets a player go, telling them why if there's a reason. Their writer sends what's queued,
-    /// then closes the connection.
+    /// Lets a player go, telling them why (nothing, when they chose to leave). Their writer
+    /// sends what's queued, then closes the connection.
     fn let_go(&mut self, i: usize, why: &str) {
         let p = self.players.remove(i);
-        if !why.is_empty() {
-            let _ = p.out.try_send(ToPlayer::Bye(why.into()).encode());
-        }
+        let _ = p.out.try_send(ToPlayer::Bye(why.into()).encode());
     }
 }
 
@@ -423,6 +428,29 @@ mod tests {
         assert_eq!(s2.commune, s1.commune, "the same commune as before");
         assert!(s1.bye.as_deref().unwrap().contains("SOMEWHERE ELSE"));
         assert_eq!(s.game.communes.len(), 2, "nobody new joined");
+    }
+
+    #[test]
+    fn esc_twice_with_nothing_open_sends_a_player_back_to_their_title_screen() {
+        let mut s = server();
+        let mut a = Connection::connect(s.addr(), "key-a", Duration::ZERO).unwrap();
+        let mut sa = seen();
+        tick_until(&mut s, |_| {
+            take(&a, &mut sa);
+            sa.commune.is_some()
+        });
+        let k = sa.commune.unwrap();
+        a.keys(&Input { back_pressed: true, ..Input::default() }).unwrap();
+        tick_until(&mut s, |s| s.game.communes[k].leaving);
+        assert!(sa.bye.is_none(), "the first asks");
+        a.keys(&Input::default()).unwrap();
+        a.keys(&Input { back_pressed: true, ..Input::default() }).unwrap();
+        tick_until(&mut s, |_| {
+            take(&a, &mut sa);
+            sa.bye.is_some()
+        });
+        assert_eq!(sa.bye.as_deref(), Some(""), "the second leaves, with nothing to explain");
+        assert!(s.players.is_empty());
     }
 
     #[test]

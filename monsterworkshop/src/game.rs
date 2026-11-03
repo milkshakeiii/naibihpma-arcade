@@ -78,7 +78,6 @@ pub struct Input {
     pub tab_held: bool,
     pub cancel_pressed: bool,
     pub help_pressed: bool,
-    pub quit_pressed: bool,
     /// Del, on the title screen: delete the picked world.
     pub delete_pressed: bool,
     /// E held down: examine.
@@ -87,12 +86,19 @@ pub struct Input {
     pub pull: bool,
     /// C: open or close the character sheet.
     pub sheet_pressed: bool,
-    /// Esc with the character sheet open: close it. (A player's game turns Esc into this,
-    /// rather than leaving the world, while it knows the sheet is open.)
-    pub close_pressed: bool,
+    /// Esc: backs out of what's open (the help, then the character sheet); with nothing open,
+    /// asks before leaving the world, and leaves if it has asked already. On the title screen
+    /// it asks before quitting.
+    pub back_pressed: bool,
 }
 
 impl Input {
+    /// Whether any key went down (not just stayed held).
+    pub fn any_pressed(&self) -> bool {
+        self.pressed.iter().any(|&p| p)
+            || [self.use_pressed, self.rec_pressed, self.play_pressed, self.tab_pressed, self.cancel_pressed, self.help_pressed, self.delete_pressed, self.sheet_pressed, self.back_pressed].contains(&true)
+    }
+
     /// Both together: anything held or gone down in either. Keys polled between ticks are
     /// gathered like this.
     pub fn or(&self, o: &Input) -> Input {
@@ -109,12 +115,11 @@ impl Input {
             (&mut i.tab_held, o.tab_held),
             (&mut i.cancel_pressed, o.cancel_pressed),
             (&mut i.help_pressed, o.help_pressed),
-            (&mut i.quit_pressed, o.quit_pressed),
             (&mut i.delete_pressed, o.delete_pressed),
             (&mut i.inspect, o.inspect),
             (&mut i.pull, o.pull),
             (&mut i.sheet_pressed, o.sheet_pressed),
-            (&mut i.close_pressed, o.close_pressed),
+            (&mut i.back_pressed, o.back_pressed),
         ] {
             *a |= b;
         }
@@ -453,6 +458,12 @@ pub struct Commune {
     pub(crate) area: &'static str,
     #[serde(skip)]
     pub banner: Option<(&'static str, u16)>,
+    /// Esc with nothing open asks whether to leave the world; Esc again leaves (`left`), and
+    /// the server sends this player back to their title screen.
+    #[serde(skip)]
+    pub leaving: bool,
+    #[serde(skip)]
+    pub left: bool,
 }
 
 /// Who hears a sound: everyone looking at the screen it's on, or only one commune's player
@@ -835,15 +846,32 @@ impl Game {
     /// Commune `k`'s player: the screen they look at, and the monster they control.
     fn player_input(&mut self, k: usize, inp: &Input, sfx: &mut Vec<Sfx>) {
         let me = &mut self.communes[k];
+        // Esc backs out of what's open, the top first; with nothing open it asks before leaving
+        // the world. While it asks, any other key takes the question back and does nothing else.
+        if inp.back_pressed {
+            if me.help {
+                me.help = false;
+            } else if me.sheet {
+                me.sheet = false;
+            } else if me.leaving {
+                (me.leaving, me.left) = (false, true);
+            } else {
+                me.leaving = true;
+                (me.inspecting, me.roster) = (false, false);
+                (me.hold, me.queued, me.queued_use) = (None, None, false);
+            }
+            return;
+        }
+        if me.leaving {
+            me.leaving = !inp.any_pressed();
+            return;
+        }
         if inp.help_pressed {
             me.help = !me.help;
         }
         if inp.sheet_pressed {
             me.sheet = !me.sheet;
             (me.sheet_page, me.sheet_hand) = (0, 0);
-        }
-        if inp.close_pressed {
-            me.sheet = false;
         }
         if me.sheet {
             // The sheet takes the keys: Tab turns its page, up and down choose a hand, Space
@@ -1076,6 +1104,7 @@ impl Game {
         (item.x, item.y, item.hop, item.slide) = (x, y, 0, slide);
         if let Some((s, k)) = self.world.pad_owner(x, y) {
             self.world.shops[s].pad_flash[k] = 5;
+            self.remember_aim(s);
             sfx.push(Sfx::Pad);
         }
         self.world.dust(ix, iy, d);
@@ -1176,6 +1205,7 @@ impl Game {
                 item.slide = Some(Slide { dir: d, left: ticks, total: ticks });
                 if let Some((s, k)) = self.world.pad_owner(bx, by) {
                     self.world.shops[s].pad_flash[k] = 5;
+                    self.remember_aim(s);
                     sfx.push(Sfx::Pad);
                 }
                 self.world.dust(tx, ty, d);
@@ -1258,8 +1288,8 @@ impl Game {
     }
 
     /// What monster `i` holds weighs against its body's capacity.
-    fn held_weight(&self, i: usize) -> f64 {
-        self.monsters[i].hands.iter().flatten().map(|d| crate::econ::weight(self.data.good(&d.good), d)).sum()
+    pub(crate) fn held_weight(&self, i: usize) -> f64 {
+        crate::econ::total(self.monsters[i].hands.iter().flatten().map(|d| crate::econ::weight(self.data.good(&d.good), d)))
     }
 
     /// Monster `i` takes tool `it` from the ground into a free hand, if it has one and can
@@ -1594,8 +1624,8 @@ impl Game {
     }
 
     /// Scripted play for tests and screenshots, as the first commune's player: `U D L R` move,
-    /// `u` use, `r` record, `p` play, `t` tab, `x` cancel, `h` help. Waits for each action to
-    /// finish.
+    /// `u` use, `r` record, `p` play, `t` tab, `x` cancel, `h` help, `c` the sheet, `b` back
+    /// (Esc). Waits for each action to finish.
     pub fn script(&mut self, keys: &str) {
         self.script_as(0, keys);
     }
@@ -1624,6 +1654,7 @@ impl Game {
                 'x' => inp.cancel_pressed = true,
                 'h' => inp.help_pressed = true,
                 'c' => inp.sheet_pressed = true,
+                'b' => inp.back_pressed = true,
                 _ => continue,
             }
             self.press(k, inp);

@@ -1368,6 +1368,27 @@ fn the_character_sheet_takes_the_keys_and_puts_a_tool_down() {
 }
 
 #[test]
+fn esc_backs_out_of_whats_open_then_asks_before_leaving() {
+    let mut g = Game::new();
+    g.script("ch");
+    assert!(g.communes[0].help && g.communes[0].sheet);
+    g.script("b");
+    assert!(!g.communes[0].help && g.communes[0].sheet, "the help first, on top");
+    g.script("b");
+    assert!(!g.communes[0].sheet, "then the sheet");
+    assert!(!g.communes[0].leaving);
+    g.script("b");
+    assert!(g.communes[0].leaving && !g.communes[0].left, "with nothing open, it asks");
+    let c = g.communes[0].controlled;
+    let x = g.monsters[c].x;
+    g.script("R");
+    assert!(!g.communes[0].leaving, "another key takes the question back");
+    assert_eq!(g.monsters[c].x, x, "and does nothing else");
+    g.script("bb");
+    assert!(g.communes[0].left, "Esc twice leaves");
+}
+
+#[test]
 fn inputs_are_named_as_types_of_things() {
     let g = Game::new();
     let group = |tags: &[&str]| tags.iter().map(|t| t.to_string()).collect::<Vec<String>>();
@@ -1377,6 +1398,50 @@ fn inputs_are_named_as_types_of_things() {
     assert_eq!(g.describe_type(&group(&["ashy"])), "ASHY STALKS", "a note in brackets doesn't count");
     assert_eq!(g.inputs_text(g.data.good("wagon_kit")), "2 WAGON WHEELS, AN OAK LOG, 2 PLANKS, A PUMPKIN");
     assert_eq!(g.inputs_text(g.data.good("workbench_kit")), "2 LOGS, ROPE");
+}
+
+#[test]
+fn a_benchs_card_and_message_aim_at_the_closest_recipe() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    let bench = g.world.shops.iter().position(|s| s.kind.label() == "BUILDERS' BENCH").expect("the builders' bench");
+    let pad = g.world.shops[bench].pads[0];
+    (g.monsters[c].x, g.monsters[c].y) = g.world.shops[bench].spot;
+    assert_eq!(g.aim(bench, &|_| true).recipe, "kiln_kit", "empty, it rests on what fills its pads");
+    // One log: the nearest of what a log goes into (two short), not the resting kiln kit (five).
+    g.world.items.push(Item::new(pad.0, pad.1, ItemData { good: "hemlock_log".into(), carried_tags: Vec::new(), ..tool(&g, "hemlock_log") }));
+    assert_eq!(g.aim(bench, &|_| true).recipe, "workbench_kit");
+    let card = crate::inspect::card(&g, 0);
+    assert_eq!(card.title, "BUILDERS' BENCH: WORKBENCH KIT", "the card names what it aims at");
+    assert!(has_line(&card, "FOR WORKBENCH KIT: PUT ANOTHER LOG ON A PAD."), "and says the same");
+    g.script("u");
+    assert!(said(&g, c).contains("FOR WORKBENCH KIT: PUT ANOTHER LOG ON A PAD."), "{}", said(&g, c));
+    // A pumpkin instead: only a wagon kit takes one.
+    let log = g.world.item_at(pad.0, pad.1).unwrap();
+    g.world.items[log].data = ItemData { good: "pumpkin".into(), carried_tags: Vec::new(), ..tool(&g, "pumpkin") };
+    let aim = g.aim(bench, &|_| true);
+    assert_eq!((aim.recipe.as_str(), aim.missing.len()), ("wagon_kit", 5));
+    assert_eq!(crate::inspect::card(&g, 0).title, "BUILDERS' BENCH: WAGON KIT");
+}
+
+#[test]
+fn a_cleared_bench_stays_set_up_for_what_its_pads_last_worked_toward() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    let bench = g.world.shops.iter().position(|s| s.kind.label() == "BUILDERS' BENCH").expect("the builders' bench");
+    let pad = g.world.shops[bench].pads[3];
+    // A pumpkin pushed onto a pad from the west.
+    g.world.items.push(Item::new(pad.0 - 1, pad.1, ItemData { good: "pumpkin".into(), carried_tags: Vec::new(), ..tool(&g, "pumpkin") }));
+    (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (pad.0 - 2, pad.1, Dir::Right);
+    assert_eq!(g.aim(bench, &|_| true).recipe, "kiln_kit");
+    g.script("R");
+    assert_eq!(g.world.item_at(pad.0, pad.1).map(|it| g.world.items[it].good().to_string()).as_deref(), Some("pumpkin"), "{}", said(&g, c));
+    assert_eq!(g.aim(bench, &|_| true).recipe, "wagon_kit");
+    let it = g.world.item_at(pad.0, pad.1).unwrap();
+    g.world.items.remove(it);
+    assert_eq!(g.aim(bench, &|_| true).recipe, "wagon_kit", "cleared, it stays set up for a wagon kit");
+    (g.monsters[c].x, g.monsters[c].y) = g.world.shops[bench].spot;
+    assert_eq!(crate::inspect::card(&g, 0).title, "BUILDERS' BENCH: WAGON KIT");
 }
 
 #[test]
@@ -1396,7 +1461,9 @@ fn a_bench_says_what_its_pads_are_for_and_what_else_it_makes() {
     g.script("u");
     assert!(said(&g, c).contains("NOTHING HERE TAKES FABRIC WITH A PUMPKIN. FOR ROPE: SWAP THE FABRIC FOR THREAD."), "{}", said(&g, c));
     let card = crate::inspect::card(&g, 0);
-    assert!(has_line(&card, "WHAT IT MAKES") && has_line(&card, "PLANKS: A LOG"), "its card lists what it makes");
+    assert!(has_line(&card, "IT ALSO MAKES") && has_line(&card, "AND 2 MORE."), "its card gives a few examples of what else it makes");
+    assert_eq!(card.pages.len(), 3, "on a third page of its own, after the details");
+    assert!(card.pages[2].iter().any(|l| l.text.starts_with("IT ALSO MAKES")), "the third page");
 }
 
 #[test]

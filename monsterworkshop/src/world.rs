@@ -50,7 +50,7 @@ struct Region {
 /// West to east. Each region's entities are listed after the previous region's, so adding a
 /// region never reorders what an older save refers to.
 const REGIONS: [Region; 3] = [
-    Region { map: include_str!("../data/pinewater.map"), labels: &[((4, 19), "GATHERING HALL")], signs: &[("TANGLEMERE", Dir::Right)], boards: &[] },
+    Region { map: include_str!("../data/pinewater.map"), labels: &[((4, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS")], signs: &[("TANGLEMERE", Dir::Right)], boards: &[] },
     Region {
         map: include_str!("../data/wilderness.map"),
         labels: &[],
@@ -385,6 +385,9 @@ pub struct Shop {
     /// Built from a kit out in the wilds (see `frontier.rs`); town workshops have none.
     #[serde(default)]
     pub frontier: Option<crate::frontier::Frontier>,
+    /// What its pads last worked toward (`Game::aim`): with them empty, it stays set up for it.
+    #[serde(default)]
+    pub aimed: Option<String>,
 }
 
 impl Shop {
@@ -394,6 +397,12 @@ impl Shop {
     pub fn default_recipe(&self, data: &Data) -> &'static str {
         let recipes = self.kind.recipes();
         recipes.iter().copied().find(|r| data.good(r).input_groups().count() == self.pads.len()).unwrap_or(recipes[0])
+    }
+
+    /// What it rests on with nothing of use on its pads: what they last worked toward, else what
+    /// it's set up for at first.
+    pub fn resting<'a>(&'a self, data: &Data) -> &'a str {
+        self.aimed.as_deref().unwrap_or_else(|| self.default_recipe(data))
     }
 }
 
@@ -536,7 +545,7 @@ impl World {
                         '#' => Tile::Hedge,
                         ',' | 'm' => Tile::Path,
                         'W' => Tile::Wall,
-                        '_' | 'a' => Tile::Floor,
+                        '_' | 'a' | 'c' => Tile::Floor,
                         'D' => Tile::Door,
                         'p' => Tile::Pad,
                         'g' => Tile::Peg,
@@ -553,7 +562,7 @@ impl World {
                         plants.push(Plant { x, y, good: good.into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
                     }
                     if let Some(kind) = shop_kind {
-                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None });
+                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None, aimed: None });
                     }
                     match ch {
                         'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None }),

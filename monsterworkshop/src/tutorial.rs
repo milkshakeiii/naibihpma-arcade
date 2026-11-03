@@ -43,7 +43,7 @@ pub const HELP: [&str; 12] = [
     "C               CHARACTER SHEET (HANDS, LOOP)",
     "F1              THIS HELP",
     "F2              CRT SCANLINES",
-    "ESC             QUIT",
+    "ESC             CLOSE, OR LEAVE",
 ];
 
 #[derive(Default, Serialize, Deserialize)]

@@ -459,17 +459,29 @@ fn export_screenshots(dir: &Path) {
     shot(&g, "42_recipe_book.png");
     (g.communes[0].sheet, g.communes[0].sheet_page) = (false, 0);
     // Old Sawgrass, asked what could be made from two logs and a rope lying by his bench.
-    (g.monsters[c].playing, g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (false, 40, 29, game::Dir::Up);
+    (g.monsters[c].playing, g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (false, 28, 28, game::Dir::Left);
     for (x, id) in [(30, "hemlock_log"), (31, "hemlock_log"), (32, "rope")] {
         let mut d = g.world.items.first().map(|it| it.data.clone()).unwrap_or_else(|| fg.world.items[0].data.clone());
         (d.good, d.carried_tags) = (id.into(), Vec::new());
         g.world.items.push(world::Item::new(x, 20, d));
     }
     shot(&g, "43_old_sawgrass.png");
-    // The builders' bench's card: what it makes, the first five of twelve.
+    // The builders' bench's card: a few of what else it makes, on its third page.
     (g.monsters[c].x, g.monsters[c].y) = (36, 28);
     g.communes[0].inspecting = true;
     g.communes[0].card_page = 2;
     shot(&g, "44_what_it_makes.png");
+    // Esc with nothing open.
+    (g.communes[0].inspecting, g.communes[0].leaving) = (false, true);
+    shot(&g, "45_leaving.png");
+    // A pumpkin on the builders' bench: it aims at a wagon kit, and its empty pads' ghosts show
+    // what's still missing.
+    g.communes[0].leaving = false;
+    let bench = g.world.shops.iter().position(|s| s.spot == (36, 28)).expect("the builders' bench");
+    let pad = g.world.shops[bench].pads[3];
+    let mut d = g.world.items[0].data.clone();
+    (d.good, d.carried_tags) = ("pumpkin".into(), Vec::new());
+    g.world.items.push(world::Item::new(pad.0, pad.1, d));
+    shot(&g, "46_aiming.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

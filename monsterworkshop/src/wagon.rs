@@ -42,7 +42,7 @@ impl Game {
     }
 
     pub(crate) fn load_weight(&self, w: usize) -> f64 {
-        self.world.wagons[w].stock.iter().map(|(d, _)| econ::weight(self.data.good(&d.good), d)).sum()
+        econ::total(self.world.wagons[w].stock.iter().map(|(d, _)| econ::weight(self.data.good(&d.good), d)))
     }
 
     pub(crate) fn wagon_ticks(&self, i: usize, w: usize) -> u8 {
@@ -184,7 +184,7 @@ impl Game {
         if let Some(have) = wagon.good().filter(|g| *g != good) {
             return Err(format!("THE WAGON IS CARRYING {}.", self.good_name(have)));
         }
-        let used: f64 = wagon.stock.iter().map(|(d, _)| self.data.good(&d.good).storage_volume).sum();
+        let used = econ::total(wagon.stock.iter().map(|(d, _)| self.data.good(&d.good).storage_volume));
         if used + self.data.good(&good).storage_volume > wagon.room + 1e-9 {
             return Err("THE WAGON IS FULL.".into());
         }

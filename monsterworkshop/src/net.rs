@@ -16,7 +16,7 @@ use crate::game::{Input, Sfx};
 use std::io::{self, Read, Write};
 
 /// Bump when messages change; a player's game and a server must agree on it.
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 pub const DEFAULT_PORT: u16 = 7777;
 const MAX_MESSAGE: usize = 4 << 20;
 
@@ -120,7 +120,7 @@ impl ToPlayer {
 /// Keys as bits: what's held, and what went down since the last message. Quitting and deleting
 /// worlds never reach a server.
 fn key_bits(i: &Input) -> u32 {
-    let flags = [i.use_pressed, i.rec_pressed, i.play_pressed, i.tab_pressed, i.tab_held, i.cancel_pressed, i.help_pressed, i.inspect, i.pull, i.sheet_pressed, i.close_pressed];
+    let flags = [i.use_pressed, i.rec_pressed, i.play_pressed, i.tab_pressed, i.tab_held, i.cancel_pressed, i.help_pressed, i.inspect, i.pull, i.sheet_pressed, i.back_pressed];
     let dirs = (0..4).map(|k| (i.held[k] as u32) << k | (i.pressed[k] as u32) << (4 + k));
     dirs.chain(flags.iter().enumerate().map(|(k, &f)| (f as u32) << (8 + k))).fold(0, |a, b| a | b)
 }
@@ -140,7 +140,7 @@ fn keys_from_bits(b: u32) -> Input {
         inspect: bit(15),
         pull: bit(16),
         sheet_pressed: bit(17),
-        close_pressed: bit(18),
+        back_pressed: bit(18),
         ..Input::default()
     }
 }
@@ -187,13 +187,13 @@ mod tests {
 
     #[test]
     fn keys_survive_the_trip() {
-        let i = Input { held: [true, false, false, true], pressed: [false, false, true, false], use_pressed: true, tab_held: true, inspect: true, pull: true, cancel_pressed: true, sheet_pressed: true, close_pressed: true, ..Input::default() };
+        let i = Input { held: [true, false, false, true], pressed: [false, false, true, false], use_pressed: true, tab_held: true, inspect: true, pull: true, cancel_pressed: true, sheet_pressed: true, back_pressed: true, ..Input::default() };
         let mut wire = Vec::new();
         ToServer::Keys(i).write(&mut wire).unwrap();
         let ToServer::Keys(back) = ToServer::read(&mut wire.as_slice()).unwrap() else { panic!("not keys") };
         assert_eq!(key_bits(&back), key_bits(&i));
         assert!(any_pressed(&i) && !any_pressed(&held_part(&i)));
-        let quit = Input { quit_pressed: true, delete_pressed: true, ..Input::default() };
+        let quit = Input { delete_pressed: true, ..Input::default() };
         assert_eq!(key_bits(&quit), 0, "quitting never reaches a server");
     }
 

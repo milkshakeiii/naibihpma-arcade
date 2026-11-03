@@ -55,7 +55,7 @@ To feel a slow connection on a fast one, add `--lag MS`: every round trip takes 
 | C | Character sheet: the monster, its hands and its loop (Tab turns the page; up and down choose a hand, Space puts its tool down ahead; C or Esc closes) |
 | F1 | Controls |
 | F2 | CRT scanlines on/off |
-| Esc | Save and quit (on the title screen: quit; with the character sheet open: close it) |
+| Esc | Close what's open (help, then the character sheet); with nothing open, ask to leave the world, and Esc again goes to the title screen (it's saved). On the title screen, ask to quit. |
 
 The game opens on a title screen listing your worlds; pick one or start a new one. Worlds save to `%APPDATA%\MonsterWorkshop\worlds\` every minute and when you quit.
 

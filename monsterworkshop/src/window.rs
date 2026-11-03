@@ -31,15 +31,22 @@ use winapi::um::winuser::*;
 
 /// The title screen's list of worlds, or a world being played.
 enum Screen {
-    /// `deleting`: Del was pressed once on the picked world; Del again deletes it.
-    Title { worlds: Vec<PathBuf>, sel: usize, error: Option<String>, deleting: bool },
+    /// `asking`: Esc or Del was pressed once (quit? delete the picked world?); the same key
+    /// again does it.
+    Title { worlds: Vec<PathBuf>, sel: usize, error: Option<String>, asking: Option<Ask> },
     /// `local`: the world's own server, when playing alone.
     Play { conn: Connection, local: Option<Local> },
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Ask {
+    Quit,
+    Delete,
+}
+
 impl Screen {
     fn title(error: Option<String>) -> Self {
-        Screen::Title { worlds: save::list_worlds(), sel: 0, error, deleting: false }
+        Screen::Title { worlds: save::list_worlds(), sel: 0, error, asking: None }
     }
 
     /// Leaves a world: its server, if it runs here, saves and stops.
@@ -128,7 +135,7 @@ impl Keys {
         i.cancel_pressed = self.cancel.rose(key_down(VK_BACK));
         i.help_pressed = self.f1.rose(key_down(VK_F1));
         i.sheet_pressed = self.sheet.rose(key_down('C' as i32));
-        i.quit_pressed = self.esc.rose(key_down(VK_ESCAPE));
+        i.back_pressed = self.esc.rose(key_down(VK_ESCAPE));
         i.delete_pressed = self.del.rose(key_down(VK_DELETE));
         (i, self.f2.rose(key_down(VK_F2)))
     }
@@ -208,9 +215,6 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
         let mut keys = Keys::default();
         let mut latched = Input::default();
         let mut crt = true;
-        // Whether the character sheet is open, as far as this game knows: then Esc closes it
-        // rather than leaving the world.
-        let mut sheet_open = false;
         let mut screen = match connect {
             Some(addr) => {
                 let addr = if addr.contains(':') { addr } else { format!("{addr}:{}", net::DEFAULT_PORT) };
@@ -240,16 +244,9 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
             let mut redraw = f2;
             crt ^= f2;
 
-            // Playing: keys go out as they change, and pictures are shown as they arrive.
+            // Playing: keys go out as they change, and pictures are shown as they arrive. (Esc
+            // too: the world knows what's open, and says goodbye when it's left.)
             if let Screen::Play { conn, .. } = &mut screen {
-                let mut polled = polled;
-                sheet_open ^= polled.sheet_pressed;
-                if polled.quit_pressed && sheet_open {
-                    (polled.quit_pressed, polled.close_pressed, sheet_open) = (false, true, false);
-                }
-                if polled.quit_pressed {
-                    break 'running;
-                }
                 let mut lost = conn.keys(&polled).err().map(|e| format!("LOST THE CONNECTION: {e}"));
                 for m in conn.messages() {
                     match m {
@@ -268,7 +265,7 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
                     }
                 }
                 if let Some(why) = lost {
-                    screen.leave(Screen::title(Some(why.to_uppercase())));
+                    screen.leave(Screen::title(Some(why.to_uppercase()).filter(|w| !w.is_empty())));
                 }
             }
             latched = latched.or(&polled);
@@ -280,36 +277,39 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
                     next_tick = now + tick;
                 }
                 let inp = std::mem::take(&mut latched);
-                if let Screen::Title { worlds, sel, error, deleting } = &mut screen {
+                if let Screen::Title { worlds, sel, error, asking } = &mut screen {
                     let count = worlds.len() + 1; // "NEW WORLD" first, then saved worlds
-                    // Anything but a second Del keeps the world.
-                    let kept = *deleting && (inp.pressed.iter().any(|&p| p) || inp.use_pressed || inp.quit_pressed);
-                    if kept {
-                        (*deleting, *error) = (false, None);
-                    } else if inp.quit_pressed {
-                        break 'running;
-                    }
-                    if inp.pressed[0] {
-                        *sel = (*sel + count - 1) % count;
-                    }
-                    if inp.pressed[1] {
-                        *sel = (*sel + 1) % count;
-                    }
-                    if inp.delete_pressed && *sel > 0 {
-                        let path = worlds[*sel - 1].clone();
-                        if *deleting {
-                            let failed = save::delete(&path).err().map(|e| format!("COULDN'T DELETE IT: {e}"));
-                            let left = save::list_worlds();
-                            *sel = (*sel).min(left.len());
-                            (*worlds, *error, *deleting) = (left, failed, false);
-                        } else {
-                            *deleting = true;
-                            *error = Some(format!("DEL AGAIN DELETES {} FOR GOOD. ESC KEEPS IT.", save::display_name(&path)));
+                    // While it asks, the same key again does it, and any other key takes the
+                    // question back and does nothing else.
+                    let answering = asking.is_some();
+                    if answering && inp.any_pressed() {
+                        (*asking, *error) = match asking.take() {
+                            Some(Ask::Quit) if inp.back_pressed => break 'running,
+                            Some(Ask::Delete) if inp.delete_pressed => {
+                                let failed = save::delete(&worlds[*sel - 1]).err().map(|e| format!("COULDN'T DELETE IT: {e}"));
+                                *worlds = save::list_worlds();
+                                *sel = (*sel).min(worlds.len());
+                                (None, failed)
+                            }
+                            _ => (None, None),
+                        };
+                    } else if !answering {
+                        if inp.back_pressed {
+                            (*asking, *error) = (Some(Ask::Quit), Some("ESC AGAIN QUITS. ANY OTHER KEY STAYS.".into()));
+                        }
+                        if inp.pressed[0] {
+                            *sel = (*sel + count - 1) % count;
+                        }
+                        if inp.pressed[1] {
+                            *sel = (*sel + 1) % count;
+                        }
+                        if inp.delete_pressed && *sel > 0 {
+                            (*asking, *error) = (Some(Ask::Delete), Some(format!("DEL AGAIN DELETES {} FOR GOOD. ESC KEEPS IT.", save::display_name(&worlds[*sel - 1]))));
                         }
                     }
                     let names: Vec<String> = worlds.iter().map(|p| save::display_name(p)).collect();
-                    render::draw_title(&mut fb, &names, *sel, error.as_deref(), *deleting);
-                    if inp.use_pressed && !kept {
+                    render::draw_title(&mut fb, &names, *sel, error.as_deref(), *asking == Some(Ask::Delete));
+                    if inp.use_pressed && !answering && asking.is_none() {
                         let started = if *sel == 0 {
                             Ok((Game::new(), save::new_world_path()))
                         } else {

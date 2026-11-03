@@ -717,6 +717,37 @@ fn make_tool_icon(id: &str) -> Sprite {
                 s.set(4, y, COTTON + 1);
             }
         }
+        // Two boards, end grain to the right.
+        "planks" => {
+            for row in [2, 5] {
+                for x in 0..=7 {
+                    s.set(x, row, WOOD + 3);
+                    s.set(x, row + 1, if x == 7 { WOOD + 1 } else { WOOD + 2 });
+                }
+            }
+        }
+        // A rim, four spokes and a hub.
+        "wagon_wheel" => {
+            for (x, y) in [(2, 1), (3, 1), (4, 1), (1, 2), (5, 2), (0, 3), (6, 3), (0, 4), (6, 4), (0, 5), (6, 5), (1, 6), (5, 6), (2, 7), (3, 7), (4, 7)] {
+                s.set(x, y, if y > 4 { WOOD } else { WOOD + 2 });
+            }
+            for (x, y) in [(3, 2), (3, 3), (3, 5), (3, 6), (1, 4), (2, 4), (4, 4), (5, 4)] {
+                s.set(x, y, WOOD + 1);
+            }
+            s.set(3, 4, WOOD + 3);
+        }
+        // Ribbed and round, with its stem.
+        "pumpkin" => {
+            s.set(4, 1, LEAF);
+            for y in 2..=6 {
+                for x in 1..=6 {
+                    let corner = (y == 2 || y == 6) && (x == 1 || x == 6);
+                    if !corner {
+                        s.set(x, y, if x == 3 || x == 5 { WOOD + 2 } else if y == 2 { SPARK + 1 } else { SPARK });
+                    }
+                }
+            }
+        }
         // Wooden flanges around wound red thread, as the spool lies in the world.
         "spool" => {
             for x in 1..=6 {
@@ -1347,6 +1378,8 @@ pub struct Sprites {
     pub wagon_wheel: Sprite,
     pub pumpkin_asleep: Sprite,
     tool_icons: Vec<(&'static str, Sprite)>,
+    /// The type of thing each good with no icon of its own is shown as, from the data.
+    typed_icons: std::collections::HashMap<String, Type>,
     pub spool: Sprite,
     pub plant: [Sprite; 3],
     pub wheel: [Sprite; 2],
@@ -1403,7 +1436,8 @@ impl Sprites {
             planks: make_planks(),
             wagon_wheel: make_wagon_wheel(),
             pumpkin_asleep: make_sleeping_pumpkin(false),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            typed_icons: crate::data::Data::load().goods.iter().filter_map(|gt| Some((gt.id.clone(), type_of(gt)?))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
             wheel: [make_wheel(0), make_wheel(1)],
@@ -1443,6 +1477,45 @@ impl Sprites {
     }
 }
 
+/// The types of thing a good with no art of its own is drawn as, by its tags.
+#[derive(Clone, Copy)]
+enum Type {
+    Log,
+    Sticks,
+    Bamboo,
+    Stalks,
+    Leaves,
+    Stone,
+    Fiber,
+    Thread,
+    Fabric,
+    Rope,
+    Lime,
+    Tub,
+    Kit,
+}
+
+fn type_of(gt: &crate::data::GoodType) -> Option<Type> {
+    let raw = gt.is_raw();
+    let has = |t: &str| gt.type_tags.iter().any(|x| x == t);
+    Some(match () {
+        _ if raw && has("log") => Type::Log,
+        _ if raw && has("sticks") => Type::Sticks,
+        _ if raw && has("bamboo") => Type::Bamboo,
+        _ if raw && has("stalks") => Type::Stalks,
+        _ if raw && has("leaves") => Type::Leaves,
+        _ if raw && has("stone") => Type::Stone,
+        _ if has("fiber") => Type::Fiber,
+        _ if has("thread") => Type::Thread,
+        _ if has("fabric") => Type::Fabric,
+        _ if has("rope") => Type::Rope,
+        _ if has("lime") => Type::Lime,
+        _ if has("tub") => Type::Tub,
+        _ if has("kit") => Type::Kit,
+        _ => return None,
+    })
+}
+
 impl Sprites {
     /// How a good lies in the world: its own art if it has some (similar goods can look a little
     /// different, not just be colored differently), otherwise its type's art, with the ramp its
@@ -1452,26 +1525,22 @@ impl Sprites {
         if let Some(own) = self.own_item(good) {
             return (own, None);
         }
-        let tags = gt.map_or(&[][..], |gt| &gt.type_tags[..]);
-        let raw = gt.is_some_and(|gt| gt.is_raw());
-        let has = |t: &str| tags.iter().any(|x| x == t);
         let (wood, cotton) = (ramp_named("wood"), ramp_named("cotton"));
-        let typed = match () {
-            _ if raw && has("log") => Some((&self.oak_log, wood)),
-            _ if raw && has("sticks") => Some((&self.sticks, wood)),
-            _ if raw && has("bamboo") => Some((&self.bamboo, None)),
-            _ if raw && has("stalks") => Some((&self.stalk_bundle, None)),
-            _ if raw && has("leaves") => Some((&self.leaves, None)),
-            _ if raw && has("stone") => Some((&self.limestone, None)),
-            _ if has("fiber") => Some((&self.slivers, cotton)),
-            _ if has("thread") => Some((&self.thread, None)),
-            _ if has("fabric") => Some((&self.fabric, cotton)),
-            _ if has("rope") => Some((&self.rope, None)),
-            _ if has("lime") => Some((&self.quicklime, None)),
-            _ if has("tub") => Some((&self.tub, None)),
-            _ if has("kit") => Some((&self.bench_kit, wood)),
-            _ => None,
-        };
+        let typed = gt.and_then(type_of).map(|t| match t {
+            Type::Log => (&self.oak_log, wood),
+            Type::Sticks => (&self.sticks, wood),
+            Type::Bamboo => (&self.bamboo, None),
+            Type::Stalks => (&self.stalk_bundle, None),
+            Type::Leaves => (&self.leaves, None),
+            Type::Stone => (&self.limestone, None),
+            Type::Fiber => (&self.slivers, cotton),
+            Type::Thread => (&self.thread, None),
+            Type::Fabric => (&self.fabric, cotton),
+            Type::Rope => (&self.rope, None),
+            Type::Lime => (&self.quicklime, None),
+            Type::Tub => (&self.tub, None),
+            Type::Kit => (&self.bench_kit, wood),
+        });
         typed.unwrap_or_else(|| (self.icon(good).unwrap_or(&self.crate_), None))
     }
 
@@ -1523,7 +1592,25 @@ impl Sprites {
         match good {
             "cotton_bolls" => Some(&self.icon_cotton),
             "thread" => Some(&self.icon_thread),
-            _ => self.tool_icons.iter().find(|(id, _)| *id == good).map(|(_, s)| s),
+            _ => self.tool_icons.iter().find(|(id, _)| *id == good).map(|(_, s)| s).or_else(|| {
+                // No icon of its own: its type's, as a pine log is drawn as a log.
+                let of = match self.typed_icons.get(good)? {
+                    Type::Log => "oak_log",
+                    Type::Sticks => "elder_sticks",
+                    Type::Bamboo => "arrow_bamboo",
+                    Type::Stalks => "ramie_stalks",
+                    Type::Leaves => "indigofera_leaves",
+                    Type::Stone => "limestone",
+                    Type::Fiber => "cotton_slivers",
+                    Type::Thread => "thread",
+                    Type::Fabric => "fabric",
+                    Type::Rope => "rope",
+                    Type::Lime => "quicklime",
+                    Type::Tub => "wooden_tub",
+                    Type::Kit => "workbench_kit",
+                };
+                (of != good).then(|| self.icon(of)).flatten()
+            }),
         }
     }
 }

@@ -331,6 +331,12 @@ pub fn lineage(recipe: &GoodType, inputs: &[&ItemData]) -> (Vec<RawMaterial>, u3
     (raw, depth)
 }
 
+/// Adds amounts up, coming to 0 when there are none. (Rust's float sums start from -0, so an
+/// empty hand or bin would read "-0".)
+pub fn total(amounts: impl IntoIterator<Item = f64>) -> f64 {
+    amounts.into_iter().fold(0.0, |a, b| a + b)
+}
+
 pub fn weight(recipe: &GoodType, item: &ItemData) -> f64 {
     if let Some(d) = recipe.raw_material_density {
         return d * recipe.storage_volume;
@@ -351,7 +357,7 @@ pub fn value(recipe: &GoodType, raw: &[RawMaterial], depth: u32, quality: f64, c
     if let Some(base) = recipe.raw_material_base_value {
         return base * q.sqrt();
     }
-    let raw_value: f64 = raw.iter().map(|r| r.base_value).sum();
+    let raw_value = total(raw.iter().map(|r| r.base_value));
     let v = raw_value * q.powf(0.5 + 0.5 * depth as f64);
     match crafter {
         Some(st) => v * (10.0 + ability(st, crate::data::CHA) / 2.0) / 10.0,

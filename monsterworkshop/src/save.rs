@@ -114,7 +114,7 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     let town = g.world.shops.len();
     for (s, saved) in d.shops.into_iter().enumerate() {
         match g.world.shops.get_mut(s) {
-            Some(shop) => (shop.job, shop.pending, shop.out_timer) = (saved.job, saved.pending, saved.out_timer),
+            Some(shop) => (shop.job, shop.pending, shop.out_timer, shop.aimed) = (saved.job, saved.pending, saved.out_timer, saved.aimed),
             None => g.world.shops.push(saved),
         }
     }
