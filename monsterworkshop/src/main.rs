@@ -11,6 +11,7 @@ mod econ;
 mod framebuffer;
 mod frontier;
 mod game;
+mod gear;
 mod inspect;
 mod knot;
 mod loadtest;
@@ -49,21 +50,70 @@ use std::sync::Arc;
 /// - in the temple, a bell ready to hang, so the one cast next finds the frame resting;
 /// - by Tanglemere's kiln, logs and sticks for charcoal.
 fn temple_test_world() {
-    let g = temple_test_game();
-    let path = save::new_world_path().with_file_name("temple-test.json");
-    match save::save(&g, &path) {
+    save_test_world(&temple_test_game(), "temple-test.json");
+}
+
+/// A world for trying equipment (`--outfitter-test-world`), saved as "OUTFITTER TEST" in the
+/// world list. Both river crossings are built, and Mogg and Bruna stand in Tanglemere's
+/// outfitter's with 1500 renown to spend. Mogg is ten renown short of seasoned, and a bolt of
+/// his cloth lies just inside the cloth hall's door: push it up into the store.
+fn outfitter_test_world() {
+    save_test_world(&outfitter_test_game(), "outfitter-test.json");
+}
+
+fn save_test_world(g: &Game, file: &str) {
+    let path = save::new_world_path().with_file_name(file);
+    match save::save(g, &path) {
         Ok(()) => println!("saved {} as {}", path.display(), save::display_name(&path)),
         Err(e) => eprintln!("saving {} failed: {e}", path.display()),
     }
 }
 
-pub(crate) fn temple_test_game() -> Game {
+/// A new world with both river crossings built.
+fn bridged_game() -> Game {
     let mut g = Game::new();
     for board in g.world.boards.iter_mut().filter(|b| matches!(b.project, world::Project::Footbridge | world::Project::Bridge)) {
         board.have = board.need;
     }
     g.world.build_footbridge();
     g.world.build_bridge();
+    g
+}
+
+/// A plain, standard good made from `from`, with `owner`'s share, so whatever it goes into is
+/// theirs too.
+fn plain_work(g: &Game, owner: u32, id: &str, carried: &[&str], depth: u32, from: &[&str]) -> econ::ItemData {
+    let raw: Vec<econ::RawMaterial> = from
+        .iter()
+        .map(|f| {
+            let r = g.data.good(f);
+            econ::RawMaterial { good: r.id.clone(), base_value: r.raw_material_base_value.unwrap_or(5.0), density: r.raw_material_density.unwrap_or(1.0), spent: false }
+        })
+        .collect();
+    let value = econ::value(g.data.good(id), &raw, depth, 1.0, None);
+    econ::ItemData { good: id.into(), quality: 1.0, carried_tags: carried.iter().map(|t| t.to_string()).collect(), raw, depth, value, shares: vec![econ::Share { monster: owner, count: 1.0 }], wear: 0, haul: Vec::new(), carted: None }
+}
+
+pub(crate) fn outfitter_test_game() -> Game {
+    let mut g = bridged_game();
+    let t = g.world.townsfolk.iter().position(|t| t.kind == world::Folk::Outfitter).expect("the outfitter");
+    let (tx, ty) = (g.world.townsfolk[t].x, g.world.townsfolk[t].y);
+    let ours: Vec<usize> = (0..g.monsters.len()).filter(|&i| g.monsters[i].commune == 0).collect();
+    for (n, &i) in ours.iter().enumerate() {
+        let m = &mut g.monsters[i];
+        (m.x, m.y, m.facing) = (tx - 2 + 4 * n as i32, ty, world::Dir::Down);
+    }
+    g.communes[0].renown = 1500.0;
+    let mogg = ours[0];
+    g.monsters[mogg].earned = 990.0;
+    let store = g.world.bins.iter().find(|b| b.scores && b.x >= 125).map(|b| (b.x, b.y)).expect("Tanglemere's cloth store");
+    let cloth = plain_work(&g, g.monsters[mogg].id, "fabric", &["cotton"], 3, &["cotton_bolls"]);
+    g.world.items.push(world::Item::new(store.0, store.1 + 2, cloth));
+    g
+}
+
+pub(crate) fn temple_test_game() -> Game {
+    let mut g = bridged_game();
     let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
     let (sx, sy) = g.world.shops[stall].spot;
     let ours: Vec<usize> = (0..g.monsters.len()).filter(|&i| g.monsters[i].commune == 0).collect();
@@ -72,17 +122,7 @@ pub(crate) fn temple_test_game() -> Game {
     }
     let mogg = g.monsters[ours[0]].id;
     // Plain, standard work made from `from`, with Mogg's share, so whatever it goes into is his too.
-    let plain = |g: &Game, id: &str, carried: &[&str], depth: u32, from: &[&str]| {
-        let raw: Vec<econ::RawMaterial> = from
-            .iter()
-            .map(|f| {
-                let r = g.data.good(f);
-                econ::RawMaterial { good: r.id.clone(), base_value: r.raw_material_base_value.unwrap_or(5.0), density: r.raw_material_density.unwrap_or(1.0), spent: false }
-            })
-            .collect();
-        let value = econ::value(g.data.good(id), &raw, depth, 1.0, None);
-        econ::ItemData { good: id.into(), quality: 1.0, carried_tags: carried.iter().map(|t| t.to_string()).collect(), raw, depth, value, shares: vec![econ::Share { monster: mogg, count: 1.0 }], wear: 0, haul: Vec::new(), carted: None }
-    };
+    let plain = |g: &Game, id: &str, carried: &[&str], depth: u32, from: &[&str]| plain_work(g, mogg, id, carried, depth, from);
     // Lays goods on free ground (`floor`: grass or a building's floor) in the box, row by row.
     let lay = |g: &mut Game, goods: Vec<econ::ItemData>, xs: std::ops::RangeInclusive<i32>, ys: std::ops::RangeInclusive<i32>, floor: world::Tile| {
         let free: Vec<(i32, i32)> = ys.flat_map(|y| xs.clone().map(move |x| (x, y))).filter(|&(x, y)| g.world.tile(x, y) == floor && g.world.item_at(x, y).is_none() && g.world.plant_at(x, y).is_none() && g.monster_at(x, y).is_none()).collect();
@@ -158,6 +198,20 @@ pub(crate) fn temple_test_game() -> Game {
 
 #[cfg(test)]
 #[test]
+fn the_outfitter_test_world_has_renown_to_spend_and_a_season_one_bolt_away() {
+    let mut g = outfitter_test_game();
+    assert!(g.communes[0].renown >= 1000.0);
+    let mogg = g.communes[0].controlled;
+    assert!(g.world.racks.iter().any(|r| (r.x - g.monsters[mogg].x).abs() <= 3 && r.y == g.monsters[mogg].y + 1), "racks beside Mogg");
+    // Push the bolt up into the store: Mogg is seasoned.
+    let store = g.world.bins.iter().find(|b| b.scores && b.x >= 125).map(|b| (b.x, b.y)).expect("the store");
+    (g.monsters[mogg].x, g.monsters[mogg].y) = (store.0, store.1 + 3);
+    g.script("UU");
+    assert!(crate::gear::seasoning(g.monsters[mogg].earned) == 1, "earned {}", g.monsters[mogg].earned);
+}
+
+#[cfg(test)]
+#[test]
 fn the_temple_test_world_has_whats_new_ready_to_try() {
     let g = temple_test_game();
     let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
@@ -200,6 +254,10 @@ fn main() {
     }
     if args.iter().any(|a| a == "--temple-test-world") {
         temple_test_world();
+        return;
+    }
+    if args.iter().any(|a| a == "--outfitter-test-world") {
+        outfitter_test_world();
         return;
     }
     if args.iter().any(|a| a == "--server") {
@@ -505,16 +563,16 @@ fn export_screenshots(dir: &Path) {
     use_now(&mut g);
     g.run_ticks(12);
     save(&g, "24_kiln_burning.png");
-    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (154, 6, game::Dir::Up);
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (154, 5, game::Dir::Up);
     g.run_ticks(3);
     save(&g, "25_indigo_house_empty.png");
-    put(&mut g, (140, 4), "fabric", &["cotton"]);
-    put(&mut g, (142, 4), "indigo", &["indigofera"]);
-    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (141, 4, game::Dir::Down);
+    put(&mut g, (141, 4), "fabric", &["cotton"]);
+    put(&mut g, (143, 4), "indigo", &["indigofera"]);
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (142, 4, game::Dir::Down);
     use_now(&mut g);
     g.run_ticks(40);
-    put(&mut g, (141, 6), "dyed_fabric", &["cotton", "indigo"]);
-    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (141, 5, game::Dir::Down);
+    put(&mut g, (142, 6), "dyed_fabric", &["cotton", "indigo"]);
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (142, 5, game::Dir::Down);
     g.communes[0].inspecting = true;
     save(&g, "26_dye_house.png");
     g.communes[0].inspecting = false;
@@ -645,7 +703,7 @@ fn export_screenshots(dir: &Path) {
     let c = g.communes[0].controlled;
     let mut hammer = g.world.items.first().map(|it| it.data.clone()).unwrap_or_else(|| fg.world.items[0].data.clone());
     (hammer.good, hammer.carried_tags, hammer.quality) = ("stone_hammer".into(), vec!["oak".into()], 0.7);
-    g.monsters[c].hands[0] = Some(hammer);
+    g.monsters[c].hands[0] = Some(game::Held::Tool(hammer));
     g.communes[0].sheet = true;
     shot(&g, "40_character_sheet.png");
     // Its loop: the whole fabric chain, partway round.

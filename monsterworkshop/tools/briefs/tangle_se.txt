@@ -1,0 +1,16 @@
+tanglemere_150_16
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is one quarter of TANGLEMERE, the dyers' town by a lake, where cloth is dyed madder red and indigo blue. This is its south-east corner: the lake and the indigo fields. Recompose the screen into a charming, cozy, lived-in corner of the town, the way a fine level designer and pixel artist would: think about composition, framing, clusters and open space, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Use the pieces already in the picture, and add decorations generously but tastefully, scattered about the open ground and the shore as well as by the fields. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground or like crops, since those are things players pick up and harvest.
+- Keep the dark hedge border where it is, and keep the path where it crosses the top edge, since it joins this screen to the town above. Keep the lake where it crosses the left edge, since it goes on into the next screen. In between, the path may bend and lead into the fields, new dirt paths may be laid, and the lake's shore may change shape.
+- Leave walking room: everything below must be reachable on foot from the path over open ground, one tile wide at least.
+
+What is here, and what must stay true:
+- THE INDIGO FIELD: the twelve round green bushes with pink flowers, in rows. Keep twelve, with open ground on every side of each, since monsters stand on them to pick leaves and set the leaves out beside them. They may be arranged differently, in rows or beds, so long as each keeps open ground around it.
+- The woods along the bottom of the screen, and the trees by the right edge.
+
+Decorations that would suit it: around the field, a low fence or hedge rows with a gate, a scarecrow, a little field shelter or shed, baskets on a bench, a water trough; by the lake, reeds and rushes, a wooden jetty, lily pads, a heron on a post; anywhere, trees, flowers and mossy rocks.
+
+Return only the image.

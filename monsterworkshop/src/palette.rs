@@ -71,6 +71,19 @@ pub fn shift(c: u8, k: i32) -> u8 {
     c
 }
 
+/// A shade of a ramp by its name, as the data gives a piece of equipment's color: ("thread", 1)
+/// is the madder red's middle. Past a ramp's last shade, its lightest.
+pub fn color_named(name: &str, shade: u8) -> Option<u8> {
+    let start = match name {
+        "spark" => SPARK,
+        "goblin" => GOBLIN,
+        "cyclops" => CYCLOPS,
+        "path" => PATH,
+        _ => ramp_named(name)?.0,
+    };
+    RAMPS.iter().find(|(s, _)| *s == start).map(|&(s, n)| s + shade.min(n - 1))
+}
+
 /// A ramp by the name the data gives a variety's color ("plank", "water"): its first index and
 /// how many shades it has.
 pub fn ramp_named(name: &str) -> Option<(u8, u8)> {

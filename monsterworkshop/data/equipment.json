@@ -1,0 +1,24 @@
+{
+  "pieces": [
+    {"id": "rope_belt", "name": "Rope Belt", "slot": "worn", "kind": "belt", "body": 10, "renown": 50, "bonus": {"str": 1}, "color": ["plank", 3], "about": "A STOUT ROPE KNOTTED AT THE WAIST, TO PUT YOUR BACK INTO IT."},
+    {"id": "cloth_gloves", "name": "Cloth Gloves", "slot": "worn", "kind": "gloves", "body": 10, "renown": 50, "bonus": {"dex": 1}, "color": ["cotton", 2], "about": "SOFT COTTON GLOVES THAT KEEP THE FINGERS NIMBLE."},
+    {"id": "straw_sandals", "name": "Straw Sandals", "slot": "worn", "kind": "shoes", "body": 10, "renown": 50, "bonus": {"con": 1}, "color": ["mat", 2], "about": "WOVEN STRAW, GOOD FOR A LONG DAY ON YOUR FEET."},
+    {"id": "headband", "name": "Headband", "slot": "worn", "kind": "headband", "mind": 10, "renown": 50, "bonus": {"int": 1}, "color": ["thread", 1], "about": "A RED BAND TIED ROUND THE BROW, TO KEEP YOUR MIND ON THE WORK."},
+    {"id": "temple_charm", "name": "Temple Charm", "slot": "worn", "kind": "charm", "mind": 10, "renown": 50, "bonus": {"wis": 1}, "color": ["spark", 2], "about": "A LITTLE CHARM FROM THE TEMPLE ON A CORD, FOR A STEADY HEART."},
+    {"id": "bead_earrings", "name": "Bead Earrings", "slot": "worn", "kind": "earrings", "mind": 10, "renown": 50, "bonus": {"cha": 1}, "color": ["water", 2], "about": "BRIGHT BLUE BEADS THAT CATCH THE EYE."},
+
+    {"id": "buckled_belt", "name": "Bronze-Buckled Belt", "slot": "worn", "kind": "belt", "body": 20, "renown": 200, "bonus": {"str": 2}, "color": ["wood", 1], "about": "LEATHER WITH A BRONZE BUCKLE, FROM THE HILLS."},
+    {"id": "silk_gloves", "name": "Silk Gloves", "slot": "worn", "kind": "gloves", "body": 20, "renown": 200, "bonus": {"dex": 2}, "color": ["flower", 1], "about": "SILK SO FINE YOU FORGET YOU'RE WEARING IT."},
+    {"id": "sturdy_boots", "name": "Sturdy Boots", "slot": "worn", "kind": "shoes", "body": 20, "renown": 200, "bonus": {"con": 2}, "color": ["wood", 0], "about": "THICK-SOLED BOOTS FOR ANY ROAD."},
+    {"id": "spectacles", "name": "Spectacles", "slot": "worn", "kind": "spectacles", "mind": 20, "renown": 200, "bonus": {"int": 2}, "color": ["spark", 1], "about": "TWO GROUND LENSES FROM OVERSEAS. THE SMALL PRINT, AT LAST."},
+    {"id": "jade_pendant", "name": "Jade Pendant", "slot": "worn", "kind": "charm", "mind": 20, "renown": 200, "bonus": {"wis": 2}, "color": ["leaf", 2], "about": "A GREEN STONE, COOL IN THE HAND, CALM IN THE MIND."},
+    {"id": "pearl_earrings", "name": "Pearl Earrings", "slot": "worn", "kind": "earrings", "mind": 20, "renown": 200, "bonus": {"cha": 2}, "color": ["cotton", 2], "about": "PEARLS FROM THE COAST. EVERYONE NOTICES."},
+
+    {"id": "belt_of_strength", "name": "Belt of Strength", "slot": "worn", "kind": "belt", "body": 40, "renown": 800, "bonus": {"str": 3}, "color": ["spark", 2], "about": "THEY SAY IT ONCE HELD UP A MOUNTAIN."},
+    {"id": "gloves_of_dexterity", "name": "Gloves of Dexterity", "slot": "worn", "kind": "gloves", "body": 40, "renown": 800, "bonus": {"dex": 3}, "color": ["spark", 2], "about": "THE NEEDLE THREADS ITSELF."},
+    {"id": "boots_of_endurance", "name": "Boots of Endurance", "slot": "worn", "kind": "shoes", "body": 40, "renown": 800, "bonus": {"con": 3}, "color": ["spark", 2], "about": "THE ROAD GETS SHORTER UNDER THEM."},
+    {"id": "headband_of_intellect", "name": "Headband of Intellect", "slot": "worn", "kind": "headband", "mind": 40, "renown": 800, "bonus": {"int": 3}, "color": ["spark", 2], "about": "THOUGHTS COME CLEAR AND IN ORDER."},
+    {"id": "periapt_of_wisdom", "name": "Periapt of Wisdom", "slot": "worn", "kind": "charm", "mind": 40, "renown": 800, "bonus": {"wis": 3}, "color": ["water", 2], "about": "AN OLD STONE THAT HAS SEEN EVERYTHING ONCE."},
+    {"id": "cloak_of_charisma", "name": "Cloak of Charisma", "slot": "worn", "kind": "cloak", "mind": 40, "renown": 800, "bonus": {"cha": 3}, "color": ["thread", 1], "about": "HEADS TURN. PUMPKINS FOLLOW GLADLY."}
+  ]
+}

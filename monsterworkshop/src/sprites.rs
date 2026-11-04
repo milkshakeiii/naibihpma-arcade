@@ -120,6 +120,62 @@ const CYCLOPS_ART: [&str; 16] = [
 ];
 const CYCLOPS_LEGS_B: [&str; 2] = ["......55.55.....", ".....444.444...."];
 
+/// A goblin's or a cyclops's frames with what it has on drawn in: each piece by its kind, in its
+/// color, where it's worn (gloves on the hands, a belt at the waist, sandals on the feet).
+pub(crate) fn dressed_frames(goblin: bool, look: &[(&str, u8)]) -> [Sprite; 4] {
+    let (art, legs_b) = if goblin { (&GOBLIN_ART, &GOBLIN_LEGS_B) } else { (&CYCLOPS_ART, &CYCLOPS_LEGS_B) };
+    let mut b = art.to_vec();
+    b[14] = legs_b[0];
+    b[15] = legs_b[1];
+    let (mut idle, mut walk_b) = (Sprite::from_art(art, monster_key), Sprite::from_art(&b, monster_key));
+    for &(kind, c) in look {
+        wear(&mut idle, goblin, kind, c);
+        wear(&mut walk_b, goblin, kind, c);
+    }
+    let breath = idle.squash(11);
+    [idle.clone().outline(), breath.outline(), idle.outline(), walk_b.outline()]
+}
+
+/// Draws a piece of kind `kind` onto a monster's raw art (before its outline), in color `c`.
+fn wear(s: &mut Sprite, goblin: bool, kind: &str, c: u8) {
+    let body = |s: &Sprite, x: i32, y: i32| x >= 0 && y >= 0 && x < s.w && y < s.h && s.px[(y * s.w + x) as usize] > 1;
+    // Recolors the body's own pixels in a row from x0 to x1.
+    let band = |s: &mut Sprite, y: i32, x0: i32, x1: i32| {
+        for x in x0..=x1 {
+            if body(s, x, y) {
+                s.set(x, y, c);
+            }
+        }
+    };
+    let dots: &[(i32, i32)] = match (kind, goblin) {
+        ("gloves", true) => &[(4, 12), (4, 13), (11, 12), (11, 13)],
+        ("gloves", false) => &[(3, 12), (3, 13), (13, 12), (13, 13)],
+        ("charm", true) => &[(7, 11), (8, 11)],
+        ("charm", false) => &[(8, 11)],
+        ("earrings", true) => &[(1, 6), (14, 6)],
+        ("earrings", false) => &[(2, 8), (14, 8)],
+        ("spectacles", true) => &[(4, 7), (7, 7), (8, 7), (11, 7)],
+        ("spectacles", false) => &[(4, 7), (11, 7)],
+        _ => &[],
+    };
+    for &(x, y) in dots {
+        s.set(x, y, c);
+    }
+    match (kind, goblin) {
+        ("shoes", _) => band(s, 15, 0, 15),
+        ("belt", true) => band(s, 12, 5, 10),
+        ("belt", false) => band(s, 13, 5, 11),
+        ("headband", true) => band(s, 6, 3, 12),
+        ("headband", false) => band(s, 4, 4, 11),
+        ("cloak", true) => band(s, 13, 4, 11),
+        ("cloak", false) => {
+            band(s, 12, 3, 13);
+            band(s, 13, 3, 13);
+        }
+        _ => {}
+    }
+}
+
 /// Frames: idle, idle breathing (squashed), walk A, walk B.
 fn monster_frames(art: &[&str; 16], legs_b: &[&str; 2]) -> [Sprite; 4] {
     let mut b = art.to_vec();

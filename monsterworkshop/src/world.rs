@@ -32,12 +32,13 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam
 // `0` a gate into a province past the first, shut until its board's goal is met
+// `░` paving  `╪` a jetty (planks over water)
 // Work spots are marked by their kind's `map_char` in `data/workshops.json` (`B` workbench,
 // `S` spinnery, `L` loom house...). Each `p` pad, `g` tool peg and `o` output mat belongs to the
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -58,6 +59,10 @@ struct Region {
     supplies: &'static [(&'static str, &'static str)],
     /// Working townsfolk (`N`), where each starts.
     workers: &'static [WorkerSpec],
+    /// Racks of equipment, each showing one piece given for renown (region coordinates).
+    racks: &'static [((i32, i32), &'static str)],
+    /// Townsfolk placed by the region's data rather than the map (region coordinates).
+    folk: &'static [((i32, i32), Folk)],
 }
 
 /// A working townsperson as a region's data gives them: a monster of the town's on a loop at a
@@ -143,19 +148,27 @@ pub struct PropKind {
     /// How far its art reaches below its tiles, in pixels: a chain hanging from a wall into the
     /// room. Art taller than its tiles reaches up instead (a chimney over the roof).
     pub drop: i32,
+    /// Afloat or growing in water, which stays water under it (lily pads, reeds, a boat).
+    pub on_water: bool,
 }
 
 const fn prop(id: &'static str, ch: char, name: &'static str, about: &'static str, size: (i32, i32)) -> PropKind {
-    PropKind { id, ch, name, about, shows: None, size, on_wall: false, drop: 0 }
+    PropKind { id, ch, name, about, shows: None, size, on_wall: false, drop: 0, on_water: false }
 }
 
 const fn wall_prop(id: &'static str, ch: char, name: &'static str, about: &'static str, drop: i32) -> PropKind {
-    PropKind { id, ch, name, about, shows: None, size: (1, 1), on_wall: true, drop }
+    PropKind { id, ch, name, about, shows: None, size: (1, 1), on_wall: true, drop, on_water: false }
 }
 
-/// Every kind of scenery. Fences, stone walls, rails, washing lines, gate posts and the hillside
-/// join their neighbors of the same kind; the rest is drawn whole on its tiles.
-pub const PROPS: [PropKind; 42] = [
+const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'static str, size: (i32, i32)) -> PropKind {
+    PropKind { id, ch, name, about, shows: None, size, on_wall: false, drop: 0, on_water: true }
+}
+
+/// Every kind of scenery. Fences, stone walls, rails, washing and drying lines, gate posts, the
+/// awning over a shop's door and the hillside join their neighbors of the same kind; the rest is
+/// drawn whole on its tiles. The map marks newer kinds with characters past plain ASCII, which ran
+/// out (2026-11-04).
+pub const PROPS: [PropKind; 62] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -202,6 +215,27 @@ pub const PROPS: [PropKind; 42] = [
     // The houses'.
     prop("well", '>', "THE WELL", "COLD WATER, FOR ANYONE.", (2, 2)),
     prop("washing_line", ']', "A WASHING LINE", "SOMEBODY'S LAUNDRY, DRYING IN THE SUN.", (1, 1)),
+    // Tanglemere's (2026-11-04): the dyers' town, the outfitter's, the lake and the indigo field.
+    prop("drying_line", 'ð', "A DRYING LINE", "CLOTH FRESH FROM THE VATS, HUNG OUT TO DRY. THE COLOR SETS IN THE SUN.", (1, 1)),
+    prop("dye_barrel", 'ø', "A DYE BARREL", "INDIGO, MADDER, OR CLEAN WATER TO RINSE IN. MIND YOUR HANDS.", (1, 1)),
+    prop("dye_tub", 'ö', "A DYE TUB", "A BATCH STEEPING. IT STAINS WHATEVER IT TOUCHES.", (1, 1)),
+    prop("cloth_shelf", '¶', "SHELVES OF CLOTH", "FOLDED BOLTS, IN EVERY COLOR THE TOWN DYES.", (1, 1)),
+    prop("cutting_table", '÷', "A CUTTING TABLE", "SHEARS, AND A BOLT HALF UNROLLED.", (2, 1)),
+    wall_prop("hanging_cloth", '¤', "A WOVEN HANGING", "THE WEAVERS' FINEST, HUNG WHERE EVERYONE SEES IT.", 10),
+    prop("dummy", 'ì', "A DRESSMAKER'S DUMMY", "A JACKET PINNED TO IT, HALF MADE.", (1, 1)),
+    prop("mirror", 'ï', "A TALL MIRROR", "FOR TRYING THINGS ON. IT'S POLISHED EVERY MORNING.", (1, 1)),
+    prop("shop_sign", '§', "THE OUTFITTER'S SIGN", "A NEEDLE AND RED THREAD: THINGS TO WEAR, WITHIN.", (1, 1)),
+    wall_prop("shop_awning", '¬', "THE OUTFITTER'S AWNING", "STRIPED BLUE AND WHITE, OVER THE DOOR.", 0),
+    prop("timber_gate", 'π', "TANGLEMERE'S GATE", "TIMBER POSTS AND A BEAM: THE DYERS' TOWN BEGINS HERE.", (1, 1)),
+    prop("stone_pile", '•', "A PILE OF STONES", "LIMESTONE, WAITING TO BE BURNT.", (1, 1)),
+    prop("stump", 'º', "A STUMP", "FOR SITTING ON, OR SPLITTING KINDLING.", (1, 1)),
+    water_prop("reeds", '¥', "REEDS", "THEY GROW THICK IN THE SHALLOWS.", (1, 1)),
+    water_prop("lily_pads", 'ò', "LILY PADS", "A FROG'S STEPPING STONES.", (1, 1)),
+    water_prop("rowboat", 'ß', "A ROWING BOAT", "TIED UP AT THE JETTY. NOBODY'S FISHING TODAY.", (2, 1)),
+    prop("field_shed", 'ħ', "THE FIELD SHED", "BASKETS FOR THE LEAVES, AND A HOE.", (2, 2)),
+    prop("scarecrow", 'ŝ', "A SCARECROW", "IN AN INDIGO SHIRT, OF COURSE.", (1, 1)),
+    prop("field_trough", '≈', "A WATER TROUGH", "FOR RINSING THE LEAVES BEFORE THEY GO TO THE VATS.", (2, 1)),
+    prop("shrub", 'ŏ', "A BOX SHRUB", "CLIPPED ROUND. NOTHING ON IT TO PICK.", (1, 1)),
 ];
 
 
@@ -212,6 +246,8 @@ const REGIONS: [Region; 5] = [
         map: include_str!("../data/pinewater.map"),
         province: "",
         at: (0, 0),
+        racks: &[],
+        folk: &[],
         labels: &[((5, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((16, 18), "OLD SPOKE'S YARD")],
         signs: &[("TANGLEMERE", Dir::Right)],
         boards: &[("OLD SPOKE'S ORDER", "wagon_wheel", 4, Project::Order)],
@@ -222,6 +258,8 @@ const REGIONS: [Region; 5] = [
         map: include_str!("../data/wilderness.map"),
         province: "",
         at: (50, 0),
+        racks: &[],
+        folk: &[],
         supplies: &[],
         workers: &[],
         labels: &[],
@@ -232,7 +270,10 @@ const REGIONS: [Region; 5] = [
         map: include_str!("../data/tanglemere.map"),
         province: "",
         at: (125, 0),
-        labels: &[((34, 2), "CLOTH HALL")],
+        // The outfitter's: the plain pieces, given for renown, and Old Thimble between them.
+        racks: &[((40, 14), "rope_belt"), ((41, 14), "cloth_gloves"), ((42, 14), "straw_sandals"), ((44, 14), "headband"), ((45, 14), "temple_charm"), ((46, 14), "bead_earrings")],
+        folk: &[((43, 13), Folk::Outfitter)],
+        labels: &[((39, 2), "CLOTH HALL"), ((46, 10), "OUTFITTER")],
         signs: &[("PINEWATER", Dir::Left)],
         boards: &[],
         supplies: &[],
@@ -242,6 +283,8 @@ const REGIONS: [Region; 5] = [
         map: include_str!("../data/temple_town.map"),
         province: "",
         at: (75, 32),
+        racks: &[],
+        folk: &[],
         labels: &[((12, 22), "TEMPLE")],
         signs: &[],
         boards: &[("OLD SOOT'S ORDER", "coal", 6, Project::Order), ("THE TEMPLE BELL", "temple_bell", 1, Project::Bell)],
@@ -254,6 +297,8 @@ const REGIONS: [Region; 5] = [
         map: include_str!("../data/high_pass.map"),
         province: "THE HILLS",
         at: (125, 32),
+        racks: &[],
+        folk: &[],
         labels: &[],
         signs: &[("THE HILLS", Dir::Right)],
         boards: &[("THE PASS TO THE HILLS", "fabric", 20, Project::Gate)],
@@ -391,11 +436,15 @@ pub enum Tile {
     /// A gate into a closed province, shut: nobody, no good and no wagon gets past. Opened, it's
     /// road.
     Gate,
+    /// A rack showing a piece of equipment, given for renown to whoever faces it (Space).
+    Rack,
+    /// Cobbles: a town square, walked and driven on like a road.
+    Paving,
 }
 
 impl Tile {
     pub fn walkable(self) -> bool {
-        !matches!(self, Tile::Hedge | Tile::Wall | Tile::Bin | Tile::Water | Tile::Tree | Tile::Sign | Tile::Gate)
+        !matches!(self, Tile::Hedge | Tile::Wall | Tile::Bin | Tile::Water | Tile::Tree | Tile::Sign | Tile::Gate | Tile::Rack)
     }
 
     /// Items slide over anything a monster can walk on except a work spot.
@@ -504,6 +553,17 @@ pub const CRAFTSMAN: &str = "OLD SAWGRASS";
 /// barter, behind the counter of a trader's stall.
 pub const TRADER: &str = "THE TRADER";
 
+/// The outfitter a region's data places: Old Thimble, who keeps the town's things to wear.
+pub const OUTFITTER: &str = "OLD THIMBLE";
+
+/// A rack of equipment: the piece it shows, given for renown to whoever faces it.
+#[derive(Clone, Debug)]
+pub struct Rack {
+    pub x: i32,
+    pub y: i32,
+    pub piece: &'static str,
+}
+
 /// A townsperson who isn't anyone's monster (M3d): someone who stands in their place and
 /// blocks the way like anyone.
 #[derive(Clone, Debug)]
@@ -520,6 +580,8 @@ pub enum Folk {
     Craftsman,
     /// Says what he'll give for what at the stall beside him.
     Trader,
+    /// Keeps the racks of things to wear beside them.
+    Outfitter,
 }
 
 /// A bell hung in the temple: how well it was made, who cast it and how many others had a
@@ -797,6 +859,8 @@ pub struct World {
     pub workers: Vec<Worker>,
     pub supplies: Vec<Supply>,
     pub props: Vec<((i32, i32), Prop)>,
+    /// Racks of equipment.
+    pub racks: Vec<Rack>,
     /// Gates into the provinces past the first.
     pub gates: Vec<Gate>,
     /// Each region's box (x, y, width, height) and the province it's in.
@@ -836,7 +900,8 @@ impl World {
     /// The world from region maps, each with where its northwest corner goes. Whatever no
     /// region covers is hedge.
     fn build(data: &Data, layout: &[((i32, i32), &Region)]) -> Self {
-        let placed: Vec<(i32, i32, &Region, Vec<&str>)> = layout.iter().map(|&((ox, oy), r)| (ox, oy, r, r.map.lines().filter(|l| !l.is_empty()).collect())).collect();
+        // Maps are read by character, not byte: any character can mark a kind of thing.
+        let placed: Vec<(i32, i32, &Region, Vec<Vec<char>>)> = layout.iter().map(|&((ox, oy), r)| (ox, oy, r, r.map.lines().filter(|l| !l.is_empty()).map(|l| l.chars().collect()).collect())).collect();
         let w = placed.iter().map(|(ox, _, _, rows)| ox + rows[0].len() as i32).max().unwrap_or(0);
         let h = placed.iter().map(|(_, oy, _, rows)| oy + rows.len() as i32).max().unwrap_or(0);
         let mut tiles = vec![Tile::Hedge; (w * h) as usize];
@@ -846,7 +911,7 @@ impl World {
         let (mut workers, mut supplies, mut props) = (Vec::new(), Vec::new(), Vec::new());
         let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
-        let (mut gates, mut provinces) = (Vec::new(), Vec::new());
+        let (mut gates, mut provinces, mut racks) = (Vec::new(), Vec::new(), Vec::new());
         for (ox, oy, region, rows) in placed {
             let rw = rows[0].len() as i32;
             provinces.push(((ox, oy, rw, rows.len() as i32), region.province));
@@ -857,14 +922,15 @@ impl World {
             labels.extend(region.labels.iter().map(|&((x, y), text)| ((x + ox, y + oy), text)));
             for (y, row) in rows.iter().enumerate() {
                 assert_eq!(row.len() as i32, rw, "map row {y} is {} wide", row.len());
-                for (lx, ch) in row.chars().enumerate() {
+                for (lx, &ch) in row.iter().enumerate() {
                     let (x, y) = (lx as i32 + ox, y as i32 + oy);
-                    let street_next = row.as_bytes().get(lx + 1) == Some(&b',') || (lx > 0 && row.as_bytes()[lx - 1] == b',');
+                    let street_next = row.get(lx + 1) == Some(&',') || (lx > 0 && row[lx - 1] == ',');
                     let shop_kind = ShopKind::by_map_char(ch);
                     let prop_kind = PROPS.iter().find(|k| k.ch == ch);
                     let tile = match ch {
                         _ if shop_kind.is_some() => Tile::Spot,
                         _ if prop_kind.is_some_and(|k| k.on_wall) => Tile::Wall,
+                        _ if prop_kind.is_some_and(|k| k.on_water) => Tile::Water,
                         _ if prop_kind.is_some() => Tile::Sign,
                         '#' => Tile::Hedge,
                         ',' | 'm' => Tile::Path,
@@ -878,6 +944,9 @@ impl World {
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
                         '0' => Tile::Gate,
+                        '░' => Tile::Paving,
+                        // A jetty: planks over the water, walked like the footbridge.
+                        '╪' => Tile::Footbridge,
                         's' => Tile::Sign,
                         '1' | '2' if street_next => Tile::Path,
                         _ => Tile::Grass,
@@ -891,7 +960,7 @@ impl World {
                     if let Some(k) = prop_kind {
                         let run = |dx: i32, dy: i32| {
                             let mut n = 0;
-                            while rows.get((y - oy + dy * (n + 1)) as usize).and_then(|r| r.chars().nth((lx as i32 + dx * (n + 1)) as usize)) == Some(ch) && lx as i32 + dx * (n + 1) >= 0 && y - oy + dy * (n + 1) >= 0 {
+                            while rows.get((y - oy + dy * (n + 1)) as usize).and_then(|r| r.get((lx as i32 + dx * (n + 1)) as usize)).copied() == Some(ch) && lx as i32 + dx * (n + 1) >= 0 && y - oy + dy * (n + 1) >= 0 {
                                 n += 1;
                             }
                             n
@@ -948,6 +1017,21 @@ impl World {
                     tiles[(y * w + x) as usize] = tile;
                 }
             }
+            for &((x, y), piece) in region.racks {
+                let (x, y) = at((x, y));
+                assert!(data.try_piece(piece).is_some(), "a rack shows {piece}, which isn't a piece of equipment");
+                tiles[(y * w + x) as usize] = Tile::Rack;
+                racks.push(Rack { x, y, piece });
+            }
+            for &(spot, kind) in region.folk {
+                let (x, y) = at(spot);
+                let name = match kind {
+                    Folk::Craftsman => CRAFTSMAN,
+                    Folk::Trader => TRADER,
+                    Folk::Outfitter => OUTFITTER,
+                };
+                townsfolk.push(Townsfolk { x, y, name: name.into(), kind });
+            }
             if !gate_tiles.is_empty() {
                 let board = (first_board..boards.len()).find(|&b| boards[b].project == Project::Gate).expect("a board for the gate");
                 gates.push(Gate { tiles: gate_tiles, board, province: region.province });
@@ -998,7 +1082,7 @@ impl World {
                 material: String::new(),
             })
             .collect();
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, gates, provinces, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, racks, gates, provinces, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`

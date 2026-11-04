@@ -5,6 +5,7 @@
 //! answered on the same tick and collisions are settled before anything is drawn.
 
 use crate::data::{Data, Stats};
+use crate::gear::SheetLine;
 use crate::econ::{ItemData, Learned, Rng, Share, Skills};
 use crate::palette::{SPARK, TEXT_GOOD};
 use serde::{Deserialize, Serialize};
@@ -257,9 +258,10 @@ pub struct Monster {
     /// Ticks it goes on saying there's no way through without passing through someone.
     #[serde(default)]
     pub no_room: u16,
-    /// Its two hands: the gathering tools it holds (see Equipment in DESIGN.md).
+    /// Its hands, as many as its type has: each holds a gathering tool or a carried piece of
+    /// equipment (see Equipment in DESIGN.md).
     #[serde(default)]
-    pub hands: [Option<crate::econ::ItemData>; 2],
+    pub hands: Vec<Option<Held>>,
     /// A working townsperson's monster: which of the world's workers it is.
     #[serde(default)]
     pub worker: Option<usize>,
@@ -279,9 +281,43 @@ pub struct Monster {
     pub steps: u32,
     /// Renown credited to this monster from scored goods.
     pub earned: f64,
+    /// The equipment it has on, given for renown (piece ids, in the order given).
+    #[serde(default)]
+    pub gear: Vec<String>,
     /// What the last finished job taught, for skill popups.
     #[serde(skip)]
     pub learned: Option<(String, Learned, u16)>,
+}
+
+/// What a hand holds: a gathering tool, or a piece of equipment carried (a towel, a magnifying
+/// glass), as the original's personal items were held.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Held {
+    Tool(crate::econ::ItemData),
+    Piece(String),
+}
+
+impl Held {
+    pub fn tool(&self) -> Option<&crate::econ::ItemData> {
+        match self {
+            Held::Tool(d) => Some(d),
+            Held::Piece(_) => None,
+        }
+    }
+
+    pub fn tool_mut(&mut self) -> Option<&mut crate::econ::ItemData> {
+        match self {
+            Held::Tool(d) => Some(d),
+            Held::Piece(_) => None,
+        }
+    }
+
+    pub fn piece(&self) -> Option<&str> {
+        match self {
+            Held::Piece(id) => Some(id),
+            Held::Tool(_) => None,
+        }
+    }
 }
 
 /// Someone waiting in the hiring hall: a monster type with three talents already rolled.
@@ -354,7 +390,7 @@ impl Monster {
             giving_way: None,
             knot: None,
             no_room: 0,
-            hands: [None, None],
+            hands: vec![None; data.monster_types[kind].slots.hands as usize],
             worker: None,
             rest: 0,
             gave_up: String::new(),
@@ -362,12 +398,33 @@ impl Monster {
             loops: 0,
             steps: 0,
             earned: 0.0,
+            gear: Vec::new(),
             learned: None,
         }
     }
 
     pub fn idle(&self) -> bool {
         self.slide.is_none() && !self.busy
+    }
+
+    /// The tool in hand `h`, if it holds one.
+    pub fn tool(&self, h: usize) -> Option<&crate::econ::ItemData> {
+        self.hands.get(h)?.as_ref()?.tool()
+    }
+
+    /// The tools in its hands.
+    pub fn tools(&self) -> impl Iterator<Item = &crate::econ::ItemData> {
+        self.hands.iter().flatten().filter_map(Held::tool)
+    }
+
+    /// The pieces of equipment carried in its hands.
+    pub fn carried(&self) -> impl Iterator<Item = &str> {
+        self.hands.iter().flatten().filter_map(Held::piece)
+    }
+
+    /// Every piece it has: worn and inside, then carried.
+    pub fn pieces(&self) -> impl Iterator<Item = &str> {
+        self.gear.iter().map(String::as_str).chain(self.carried())
     }
 
     /// Round the end of its loop and back to the start.
@@ -480,6 +537,9 @@ pub struct Commune {
     pub sheet_page: usize,
     #[serde(skip)]
     pub sheet_hand: usize,
+    /// The sheet's line whose piece Space takes off if pressed again.
+    #[serde(skip)]
+    pub sheet_confirm: Option<usize>,
     /// The named area the view is in, and a banner announcing it on arrival.
     #[serde(skip)]
     pub(crate) area: &'static str,
@@ -521,7 +581,7 @@ pub struct Game {
     /// What happened this tick, and to which commune (tutorial progress).
     pub(crate) events: Vec<(usize, Ev)>,
     /// This tick's sounds. Each player hears theirs through `sounds_for`.
-    sounds: Vec<(Heard, Sfx)>,
+    pub(crate) sounds: Vec<(Heard, Sfx)>,
     /// One slot per stand in the gathering hall; empty while a new applicant is on the way.
     pub applicants: Vec<Option<Applicant>>,
     pub(crate) applicant_timers: Vec<u32>,
@@ -559,7 +619,7 @@ impl Game {
             announcement: None,
         };
         g.found_commune(["MOGG", "BRUNA"]);
-        g.applicants = (0..stands).map(|_| Some(g.roll_applicant())).collect();
+        g.applicants = (0..stands).map(|k| Some(g.roll_applicant(k))).collect();
         g.found_town();
         g
     }
@@ -601,7 +661,7 @@ impl Game {
             }
             (m.routine, m.playing, m.worker) = (Some(Routine { flag: w.at, goals }), true, Some(n));
             for (hand, &(good, from)) in m.hands.iter_mut().zip(w.holds) {
-                *hand = Some(crate::econ::plain(&self.data, good, from));
+                *hand = Some(Held::Tool(crate::econ::plain(&self.data, good, from)));
             }
             self.monsters.push(m);
         }
@@ -729,6 +789,8 @@ impl Game {
         let first = self.monsters.len();
         for (n, ((name, kind), skills)) in [(crafter, "goblin"), (gatherer, "cyclops")].into_iter().zip(skills).enumerate() {
             let at = self.free_tile_near(self.world.starts[n]);
+            // A new commune's first two have their types' own abilities: the tutorial is made
+            // for them. Newcomers at the hall are rolled.
             self.monsters.push(Monster::new(self.next_id, k, name, kind, &self.data, at, skills));
             self.next_id += 1;
         }
@@ -792,8 +854,9 @@ impl Game {
         self.events.push((self.monsters[i].commune, e));
     }
 
-    /// A new applicant: a type with three distinct talents, rolled from the world's dice.
-    fn roll_applicant(&mut self) -> Applicant {
+    /// A new applicant at stand `k`: a type with three distinct talents, and abilities a point or
+    /// two either side of its type's, rolled from the world's dice.
+    fn roll_applicant(&mut self, k: usize) -> Applicant {
         const KINDS: [&str; 2] = ["goblin", "cyclops"]; // the types with sprites so far
         let kind = KINDS[(self.rng.next_u64() % KINDS.len() as u64) as usize];
         let mut pool = self.data.skills.transferable_skills.clone();
@@ -804,7 +867,8 @@ impl Game {
         }
         let name = NAMES[(self.rng.next_u64() % NAMES.len() as u64) as usize].to_string();
         let t = &self.data.monster_types[kind];
-        Applicant { kind: kind.to_string(), name, transferable, cost: t.cost, stats: t.stats.clone() }
+        let stats = crate::gear::rolled(&t.stats, (self.frame as u64) << 16 | k as u64);
+        Applicant { kind: kind.to_string(), name, transferable, cost: t.cost, stats }
     }
 
     /// Is an applicant standing on this tile? They block the way like anyone else.
@@ -848,6 +912,7 @@ impl Game {
         self.applicant_timers[k] = APPLICANT_ARRIVES;
         let skills = Skills { transferable: a.transferable.clone(), ..Skills::default() };
         let mut m = Monster::new(self.next_id, commune, &a.name, &a.kind, &self.data, self.world.stands[k], skills);
+        m.stats = a.stats.clone();
         self.next_id += 1;
         m.facing = Dir::Up;
         m.bubble = Some(Bubble { text: format!("I'M {}! HAPPY TO JOIN.", a.name), ttl: BUBBLE_TICKS, warn: false, waiting: false });
@@ -867,7 +932,10 @@ impl Game {
         }
         for s in shares {
             let credit = value * s.count / total;
-            if let Some(m) = self.monsters.iter_mut().find(|m| m.id == s.monster) {
+            let Some(i) = self.monsters.iter().position(|m| m.id == s.monster) else { continue };
+            let before = self.monsters[i].earned;
+            {
+                let m = &mut self.monsters[i];
                 m.earned += credit;
                 self.communes[m.commune].renown += credit;
                 if credit >= 0.5 {
@@ -875,6 +943,7 @@ impl Game {
                     self.floaters.push(Floater { text: format!("{} +{}", m.name, credit.round()), from: (at.0, at.1 - 20), to, t: 0, total: 44, delay: 14, color: TEXT_GOOD });
                 }
             }
+            self.season(i, before);
         }
     }
 
@@ -1024,7 +1093,7 @@ impl Game {
             if self.applicants[k].is_none() {
                 self.applicant_timers[k] = self.applicant_timers[k].saturating_sub(1);
                 if self.applicant_timers[k] == 0 && clear {
-                    self.applicants[k] = Some(self.roll_applicant());
+                    self.applicants[k] = Some(self.roll_applicant(k));
                 }
             }
         }
@@ -1032,7 +1101,7 @@ impl Game {
         if self.roster_timer >= ROSTER_REFRESH && !self.applicants.is_empty() {
             self.roster_timer = 0;
             let k = (self.frame / ROSTER_REFRESH) as usize % self.applicants.len();
-            self.applicants[k] = Some(self.roll_applicant());
+            self.applicants[k] = Some(self.roll_applicant(k));
         }
     }
 
@@ -1153,7 +1222,7 @@ impl Game {
         }
         if inp.sheet_pressed {
             me.sheet = !me.sheet;
-            (me.sheet_page, me.sheet_hand) = (0, 0);
+            (me.sheet_page, me.sheet_hand, me.sheet_confirm) = (0, 0, None);
         }
         if me.sheet {
             // The sheet takes the keys: Tab turns its page, up and down choose a hand, Space
@@ -1165,16 +1234,39 @@ impl Game {
                 me.sheet_page = (me.sheet_page + 1) % 3;
                 me.sheet_scroll = 0;
             }
-            // Up and down choose a hand on the first page, and scroll the book on the third.
+            // Up and down choose a line on the first page (a hand, or a slot and what's in it),
+            // and scroll the book on the third.
+            let c = me.controlled;
+            let lines = self.sheet_lines(c);
+            let me = &mut self.communes[k];
             match me.sheet_page {
-                0 if inp.pressed[0] || inp.pressed[1] => me.sheet_hand = 1 - me.sheet_hand,
+                0 if inp.pressed[0] => (me.sheet_hand, me.sheet_confirm) = (me.sheet_hand.saturating_sub(1), None),
+                0 if inp.pressed[1] => (me.sheet_hand, me.sheet_confirm) = ((me.sheet_hand + 1).min(lines.len().saturating_sub(1)), None),
                 2 if inp.pressed[0] => me.sheet_scroll = me.sheet_scroll.saturating_sub(1),
                 2 if inp.pressed[1] => me.sheet_scroll += 1,
                 _ => {}
             }
-            let (c, hand) = (me.controlled, me.sheet_hand);
-            if inp.use_pressed && !self.monsters[c].playing && self.monsters[c].idle() {
-                self.put_down(c, hand, sfx);
+            let (line, confirm) = (me.sheet_hand, me.sheet_confirm);
+            if inp.use_pressed && me.sheet_page == 0 && !self.monsters[c].playing && self.monsters[c].idle() {
+                // Space puts a hand's tool down, and takes a piece off, asking first: it's gone
+                // for good.
+                let carried = match lines.get(line) {
+                    Some(SheetLine::Hand(h)) => self.monsters[c].hands[*h].as_ref().and_then(Held::piece).map(|p| SheetLine::Gear(crate::data::Slot::Hand, Some(p.to_string()))),
+                    _ => None,
+                };
+                match carried.as_ref().or(lines.get(line)) {
+                    Some(SheetLine::Hand(h)) => self.put_down(c, *h, sfx),
+                    Some(SheetLine::Gear(_, Some(id))) if confirm == Some(line) => {
+                        self.communes[k].sheet_confirm = None;
+                        self.take_off(c, id, sfx);
+                    }
+                    Some(SheetLine::Gear(_, Some(_))) => {
+                        self.communes[k].sheet_confirm = Some(line);
+                        sfx.push(Sfx::Pop);
+                    }
+                    Some(SheetLine::Gear(_, None)) => sfx.push(Sfx::Deny),
+                    None => {}
+                }
             }
             return;
         }
@@ -1254,6 +1346,10 @@ impl Game {
                 self.welcome(c, a, sfx);
                 return;
             }
+            if let Some(r) = self.faced_rack(c) {
+                self.give_piece(c, r, sfx);
+                return;
+            }
         }
         if inp.use_pressed || std::mem::take(&mut self.communes[k].queued_use) {
             self.communes[k].queued = None;
@@ -1270,7 +1366,7 @@ impl Game {
                     }
                     (None, Some(t)) => self.record_goal(c, Goal::Activate(t)),
                     (None, None) => {
-                        if let Some((good, from)) = tool.filter(|(good, _)| self.monsters[c].hands.iter().flatten().any(|h| h.good == *good)) {
+                        if let Some((good, from)) = tool.filter(|(good, _)| self.monsters[c].tools().any(|h| h.good == *good)) {
                             self.record_goal(c, Goal::Take { good, from });
                         }
                     }
@@ -1548,8 +1644,9 @@ impl Game {
             self.communes[k].idea_turn += 1;
             return UseRes::Done;
         }
-        // The trader just talks (facing him shows it); trading is at his stall.
-        if self.faced_townsfolk(i).is_some_and(|t| self.world.townsfolk[t].kind == Folk::Trader) {
+        // The trader and the outfitter just talk (facing them shows it); trading is at his
+        // stall, and the outfitter's pieces are on the racks.
+        if self.faced_townsfolk(i).is_some_and(|t| self.world.townsfolk[t].kind != Folk::Craftsman) {
             return UseRes::Done;
         }
         // Asking a craftsman: another idea, and it goes in the commune's book.
@@ -1581,7 +1678,7 @@ impl Game {
 
     /// Does monster `i` hold a `good` with wear left?
     pub(crate) fn holds_working(&self, i: usize, good: &str) -> bool {
-        self.monsters[i].hands.iter().flatten().any(|h| h.good == good && h.durability_left() > 0)
+        self.monsters[i].tools().any(|h| h.good == good && h.durability_left() > 0)
     }
 
     /// A tool on the ground just ahead of monster `i` that it could hold in a hand.
@@ -1593,7 +1690,7 @@ impl Game {
 
     /// What monster `i` holds weighs against its body's capacity.
     pub(crate) fn held_weight(&self, i: usize) -> f64 {
-        crate::econ::total(self.monsters[i].hands.iter().flatten().map(|d| crate::econ::weight(self.data.good(&d.good), d)))
+        crate::econ::total(self.monsters[i].tools().map(|d| crate::econ::weight(self.data.good(&d.good), d)))
     }
 
     /// Monster `i` takes tool `it` from the ground into a free hand, if it has one and can
@@ -1611,13 +1708,14 @@ impl Game {
         };
         let data = &self.world.items[it].data;
         let cap = self.data.monster_types[self.monsters[i].kind.as_str()].body_cap as f64;
-        if self.held_weight(i) + crate::econ::weight(self.data.good(&data.good), data) > cap {
+        // What it has on weighs on its body too.
+        if self.body_used(i) + crate::econ::weight(self.data.good(&data.good), data) > cap {
             sfx.push(Sfx::Deny);
             return UseRes::Wait("THAT'S MORE THAN I CAN HOLD.".into());
         }
         let data = self.world.items.remove(it).data;
         let text = format!("{} TAKES THE {}.", self.monsters[i].name, self.good_name(&data.good));
-        self.monsters[i].hands[hand] = Some(data);
+        self.monsters[i].hands[hand] = Some(Held::Tool(data));
         self.say(i, &text, false);
         sfx.push(Sfx::Pop);
         UseRes::Done
@@ -1628,7 +1726,7 @@ impl Game {
         let m = &self.monsters[i];
         let (dx, dy) = m.facing.delta();
         let (x, y) = (m.x + dx, m.y + dy);
-        let Some(good) = m.hands[hand].as_ref().map(|d| d.good.clone()) else {
+        let Some(good) = m.tool(hand).map(|d| d.good.clone()) else {
             self.say(i, "THAT HAND IS EMPTY.", true);
             sfx.push(Sfx::Deny);
             return;
@@ -1640,7 +1738,7 @@ impl Game {
             return;
         }
         let text = format!("{} PUTS DOWN THE {}.", self.monsters[i].name, self.good_name(&good));
-        if let Some(data) = self.monsters[i].hands[hand].take() {
+        if let Some(Held::Tool(data)) = self.monsters[i].hands[hand].take() {
             self.world.items.push(crate::world::Item::new(x, y, data));
         }
         self.say(i, &text, false);
@@ -1650,11 +1748,11 @@ impl Game {
     /// The hands holding the tools that gathering `good` needs, one for each tool it asks
     /// for, or what's missing ("MISSING A TOOL: SHOVEL.").
     pub(crate) fn held_tools(&self, i: usize, good: &crate::data::GoodType) -> Result<Vec<usize>, String> {
-        let hands = &self.monsters[i].hands;
+        let m = &self.monsters[i];
         let mut used = Vec::new();
         for group in good.tools_required_tags.iter().filter(|g| !g.is_empty()) {
-            let fits = |h: usize| hands[h].as_ref().is_some_and(|d| d.durability_left() > 0 && self.data.try_good(&d.good).is_some_and(|t| crate::data::matches(&t.type_tags, group)));
-            match (0..2).find(|&h| !used.contains(&h) && fits(h)) {
+            let fits = |h: usize| m.tool(h).is_some_and(|d| d.durability_left() > 0 && self.data.try_good(&d.good).is_some_and(|t| crate::data::matches(&t.type_tags, group)));
+            match (0..m.hands.len()).find(|&h| !used.contains(&h) && fits(h)) {
                 Some(h) => used.push(h),
                 None => return Err(format!("MISSING A TOOL: {}.", self.describe_group(group))),
             }
@@ -2021,6 +2119,10 @@ mod tests;
 #[cfg(test)]
 #[path = "tangle_tests.rs"]
 mod tangle_tests;
+
+#[cfg(test)]
+#[path = "gear_tests.rs"]
+mod gear_tests;
 
 #[cfg(test)]
 #[path = "frontier_tests.rs"]

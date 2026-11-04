@@ -136,7 +136,7 @@ impl Game {
             out.extend(self.data.try_good(&p.good).map(|g| g.type_tags.clone()));
         }
         let c = self.communes[k].controlled;
-        out.extend(self.monsters[c].hands.iter().flatten().map(tags));
+        out.extend(self.monsters[c].tools().map(tags));
         out
     }
 

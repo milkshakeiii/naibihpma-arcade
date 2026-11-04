@@ -38,7 +38,7 @@ impl Game {
     /// How much weight a monster's wagon pulls at full speed.
     pub(crate) fn pull_capacity(&self, i: usize, w: usize) -> f64 {
         let m = &self.monsters[i];
-        self.world.wagons[w].power * m.stats.cha as f64 * (1.0 + m.skills.applied("wagon_driving"))
+        self.world.wagons[w].power * m.abilities(&self.data).cha as f64 * (1.0 + m.skills.applied("wagon_driving"))
     }
 
     pub(crate) fn load_weight(&self, w: usize) -> f64 {
@@ -52,14 +52,15 @@ impl Game {
     /// Ticks to push a good: anything heavier than the monster moves easily goes slower.
     pub(crate) fn push_ticks(&self, i: usize, item: &ItemData) -> u8 {
         let m = &self.monsters[i];
-        let cap = 10.0 * m.stats.str as f64 * (1.0 + m.skills.applied("hauling"));
+        let cap = 10.0 * m.abilities(&self.data).str as f64 * (1.0 + m.skills.applied("hauling"));
         heavy_ticks(econ::weight(self.data.good(&item.good), item), cap)
     }
 
     /// Practice at hauling or wagon driving: the move's own game time.
     pub(crate) fn practice(&mut self, i: usize, skill: &str, ticks: u8) {
+        let st = self.monsters[i].abilities(&self.data);
         let m = &mut self.monsters[i];
-        econ::practice(&mut m.skills, &m.stats, skill, &self.data, ticks as f64 * crate::work::GAME_SECONDS_PER_TICK);
+        econ::practice(&mut m.skills, &st, skill, &self.data, ticks as f64 * crate::work::GAME_SECONDS_PER_TICK);
     }
 
     /// Space facing a wagon's pumpkin takes its lead; facing a wagon from behind, opens or shuts
@@ -114,6 +115,7 @@ impl Game {
             if self.world.pumpkin_at(x, y).is_some()
                 || self.world.wagon_at(x, y).is_some_and(|w| self.world.wagons[w].behind() == here)
                 || self.applicant_at(x, y)
+                || self.rack_at(x, y).is_some()
                 || item.is_some_and(|k| crate::frontier::kit_kind(self.world.items[k].good()).is_some())
             {
                 return 2;

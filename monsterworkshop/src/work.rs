@@ -48,7 +48,7 @@ impl Game {
         if self.data.good(recipe).is_trade() {
             return TRADE_TICKS;
         }
-        let secs = econ::production_seconds(self.data.good(recipe), &self.monsters[monster].stats);
+        let secs = econ::production_seconds(self.data.good(recipe), &self.monsters[monster].abilities(&self.data));
         ((secs / GAME_SECONDS_PER_TICK).round() as u32).max(1)
     }
 
@@ -376,17 +376,17 @@ impl Game {
         let Some(job) = self.world.plants[p].harvest.take() else { return };
         let m = job.monster;
         let recipe = self.data.good(&job.recipe).clone();
-        let (stats, skills, id) = (self.monsters[m].stats.clone(), self.monsters[m].skills.clone(), self.monsters[m].id);
+        let (stats, skills, id) = (self.monsters[m].abilities(&self.data), self.monsters[m].skills.clone(), self.monsters[m].id);
         // The tools in hand count as tools on pegs do: in the quality roll, and their makers'
         // shares.
         let hands = self.held_tools(m, &recipe).unwrap_or_default();
-        let tools: Vec<ItemData> = hands.iter().filter_map(|&h| self.monsters[m].hands[h].clone()).collect();
+        let tools: Vec<ItemData> = hands.iter().filter_map(|&h| self.monsters[m].tool(h).cloned()).collect();
         let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills }, tools.iter().collect(), &self.data, &mut self.rng);
         // And they wear by their weight, and may break: but a working townsperson's own tools
         // never wear, as a town's workshops never do.
         let worn = if self.monsters[m].worker.is_some() { &[][..] } else { &hands[..] };
         for (k, &h) in worn.iter().enumerate() {
-            let Some(tool) = self.monsters[m].hands[h].as_mut() else { continue };
+            let Some(tool) = self.monsters[m].hands[h].as_mut().and_then(crate::game::Held::tool_mut) else { continue };
             tool.wear += recipe.tool_weight(k);
             if tool.durability_left() == 0 {
                 let good = tool.good.clone();
@@ -433,7 +433,7 @@ impl Game {
         // A frontier workshop's makers share in everything made there.
         let shares = shop.frontier.as_ref().map_or_else(Vec::new, |f| f.shares.clone());
         let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares });
-        let (stats, skills, id) = (self.monsters[m].stats.clone(), self.monsters[m].skills.clone(), self.monsters[m].id);
+        let (stats, skills, id) = (self.monsters[m].abilities(&self.data), self.monsters[m].skills.clone(), self.monsters[m].id);
         // A trade teaches nothing: the trader does the work.
         let (produced, learned) = if recipe.is_trade() {
             (vec![econ::trade(&recipe, &inputs.iter().collect::<Vec<_>>(), &self.data)], None)

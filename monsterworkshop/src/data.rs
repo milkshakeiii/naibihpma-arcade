@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 const GOOD_TYPES: &str = include_str!("../data/good_types.json");
 const SKILLS: &str = include_str!("../data/skills.json");
 const MONSTER_TYPES: &str = include_str!("../data/monster_types.json");
+const EQUIPMENT: &str = include_str!("../data/equipment.json");
 
 /// Ability score indices, as used by `relevant_ability_score` in the data.
 pub const STR: usize = 0;
@@ -133,7 +134,26 @@ pub struct Stats {
     pub cha: i32,
 }
 
+/// The abilities' short names, in index order.
+pub const ABILITIES: [&str; 6] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+
+/// An ability's index from its name in the data ("str", "dex", ...).
+pub fn ability_index(name: &str) -> Option<usize> {
+    ABILITIES.iter().position(|a| a.eq_ignore_ascii_case(name))
+}
+
 impl Stats {
+    pub fn set(&mut self, index: usize, v: i32) {
+        match index {
+            STR => self.str = v,
+            DEX => self.dex = v,
+            CON => self.con = v,
+            INT => self.int = v,
+            WIS => self.wis = v,
+            _ => self.cha = v,
+        }
+    }
+
     pub fn get(&self, index: usize) -> i32 {
         match index {
             STR => self.str,
@@ -153,6 +173,90 @@ pub struct MonsterType {
     pub stats: Stats,
     pub body_cap: u32,
     pub mind_cap: u32,
+    /// How many of each kind of slot it has for equipment.
+    pub slots: Slots,
+}
+
+/// A monster type's slots: its hands (each holds a tool or a carried piece, as the original's
+/// personal items were held), and what it can wear and have inside.
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub struct Slots {
+    pub hands: u32,
+    pub worn: u32,
+    pub inside: u32,
+}
+
+impl Slots {
+    pub fn of(&self, slot: Slot) -> u32 {
+        match slot {
+            Slot::Hand => self.hands,
+            Slot::Worn => self.worn,
+            Slot::Inside => self.inside,
+        }
+    }
+}
+
+/// Where a piece of equipment goes on a monster: held in a hand, worn, or inside.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Slot {
+    Hand,
+    Worn,
+    Inside,
+}
+
+impl Slot {
+    pub fn label(self) -> &'static str {
+        match self {
+            Slot::Hand => "HANDS",
+            Slot::Worn => "WORN",
+            Slot::Inside => "INSIDE",
+        }
+    }
+}
+
+/// A piece of equipment, given for renown (`data/equipment.json`).
+#[derive(Deserialize, Clone, Debug)]
+pub struct Piece {
+    pub id: String,
+    pub name: String,
+    pub slot: Slot,
+    /// What sort of thing it is: one of a kind is worn at a time, and a new one replaces it
+    /// (Gloves of Dexterity take the cloth gloves' place). Where it shows on the sprite.
+    pub kind: String,
+    /// What it costs of the monster's body and mind capacity.
+    #[serde(default)]
+    pub body: u32,
+    #[serde(default)]
+    pub mind: u32,
+    /// The renown it's given at.
+    pub renown: u32,
+    /// What it adds to abilities ("dex": 1).
+    #[serde(default)]
+    pub bonus: BTreeMap<String, i32>,
+    /// The color it's drawn in: a ramp's name and a shade of it.
+    #[serde(default)]
+    pub color: Option<(String, u8)>,
+    /// A line about it for its card.
+    #[serde(default)]
+    pub about: String,
+}
+
+impl Piece {
+    /// What it adds to ability `index`.
+    pub fn bonus_to(&self, index: usize) -> i32 {
+        self.bonus.iter().filter(|(k, _)| ability_index(k) == Some(index)).map(|(_, v)| *v).sum()
+    }
+
+    /// Its bonuses as a card says them: "+1 DEX".
+    pub fn bonus_text(&self) -> String {
+        (0..6).filter(|&a| self.bonus_to(a) != 0).map(|a| format!("{:+} {}", self.bonus_to(a), ABILITIES[a])).collect::<Vec<_>>().join(", ")
+    }
+}
+
+#[derive(Deserialize)]
+struct EquipmentFile {
+    pieces: Vec<Piece>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -205,6 +309,8 @@ pub struct Data {
     pub skills: SkillDefs,
     pub varieties: Vec<Variety>,
     pub alloys: Vec<Alloy>,
+    /// Equipment, given for renown.
+    pub pieces: Vec<Piece>,
 }
 
 impl Data {
@@ -233,7 +339,8 @@ impl Data {
         let by_id = goods.iter().enumerate().map(|(i, g)| (g.id.clone(), i)).collect();
         let monster_types = serde_json::from_str::<MonstersFile>(MONSTER_TYPES).expect("data/monster_types.json").monster_types;
         let skills = serde_json::from_str::<SkillDefs>(SKILLS).expect("data/skills.json");
-        Self { goods, by_id, monster_types, skills, varieties, alloys }
+        let pieces = serde_json::from_str::<EquipmentFile>(EQUIPMENT).expect("data/equipment.json").pieces;
+        Self { goods, by_id, monster_types, skills, varieties, alloys, pieces }
     }
 
     /// Carried varieties once metals have met: an alloy's metals, all there, become the alloy,
@@ -286,6 +393,14 @@ impl Data {
 
     pub fn try_good(&self, id: &str) -> Option<&GoodType> {
         self.by_id.get(id).map(|&i| &self.goods[i])
+    }
+
+    pub fn piece(&self, id: &str) -> &Piece {
+        self.try_piece(id).unwrap_or_else(|| panic!("unknown piece of equipment {id}"))
+    }
+
+    pub fn try_piece(&self, id: &str) -> Option<&Piece> {
+        self.pieces.iter().find(|p| p.id == id)
     }
 }
 

@@ -85,6 +85,7 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     }
     draw_progress(g, fb, &v);
     draw_applicant_pitch(g, sp, fb, &v);
+    draw_rack_pitch(g, sp, fb, &v);
     draw_townsfolk_talk(g, sp, fb, &v);
     draw_worker_talk(g, sp, fb, &v);
     draw_floaters(g, fb, &v);
@@ -169,25 +170,29 @@ fn draw_sheet(g: &Game, sp: &Sprites, fb: &mut Framebuffer, k: usize) {
     fb.text_centered(&title, 200, 8, SPARK + 2, Some(HUD_SHADOW), 1);
     fb.rect_fill(8, 20, 384, 1, HUD_SHADOW);
     match me.sheet_page {
-        0 => sheet_monster(g, sp, fb, me.controlled, me.sheet_hand),
+        0 => sheet_monster(g, sp, fb, me.controlled, me.sheet_hand, me.sheet_confirm),
         1 => sheet_loop(g, fb, me.controlled),
         _ => sheet_book(g, fb, k),
     }
     fb.rect_fill(8, 282, 384, 1, HUD_SHADOW);
     let keys = match me.sheet_page {
-        0 => "UP/DOWN: HAND   SPACE: PUT IT DOWN   TAB: LOOP   C: CLOSE",
+        0 => "UP/DOWN: CHOOSE  SPACE: PUT DOWN, TAKE OFF  TAB: LOOP  C: CLOSE",
         1 => "TAB: RECIPE BOOK   C: CLOSE",
         _ => "UP/DOWN: SCROLL   TAB: BACK   C: CLOSE",
     };
     fb.text_centered(keys, 200, 287, TEXT_DIM, Some(HUD_SHADOW), 1);
 }
 
-/// Page 1: a big portrait, talents, hands, what it wears and carries inside, its capacities,
-/// its abilities and what each is for, and its skills as bars.
-fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen: usize) {
+/// Page 1: a big portrait, talents, hands, its slots and what's in them, its capacities, how
+/// seasoned it is, its abilities and what each is for, and its skills as bars.
+fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen: usize, confirm: Option<usize>) {
     let m = &g.monsters[i];
     let t = |fb: &mut Framebuffer, x: i32, y: i32, text: &str, col: u8| fb.text(text, x, y, col, Some(HUD_SHADOW), 1);
-    let s = &if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops }[0];
+    let dressed = dressed(g, i);
+    let s = match &dressed {
+        Some(frames) => &frames[0],
+        None => &(if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops })[0],
+    };
     // Every pixel three across and three down: whole pixels only.
     for sy in 0..s.h {
         for sx in 0..s.w {
@@ -201,36 +206,65 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
     for (n, talent) in m.skills.transferable.iter().enumerate() {
         t(fb, 76, 40 + n as i32 * 10, &talent.replace('_', " ").to_uppercase(), TEXT);
     }
-    t(fb, 16, 88, "HANDS", SPARK + 1);
-    for (h, held) in m.hands.iter().enumerate() {
-        let y = 100 + h as i32 * 22;
-        if h == chosen {
-            // A small arrow at the chosen hand.
-            for (dx, dy) in [(0, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (0, 4)] {
-                fb.pset(17 + dx, y + 1 + dy, TEXT_GOOD);
-            }
+    // A small arrow at the chosen line.
+    let arrow = |fb: &mut Framebuffer, y: i32| {
+        for (dx, dy) in [(0, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (0, 4)] {
+            fb.pset(17 + dx, y + dy, TEXT_GOOD);
         }
-        match held {
-            Some(d) => {
+    };
+    // Each section's heading, then its lines, each two rows: what's there, and its details.
+    let (mut y, mut section) = (84, None);
+    for (n, l) in g.sheet_lines(i).iter().enumerate() {
+        let (slot, held) = match l {
+            crate::gear::SheetLine::Hand(h) => (crate::data::Slot::Hand, m.hands[*h].as_ref()),
+            crate::gear::SheetLine::Gear(slot, _) => (*slot, None),
+        };
+        if section != Some(slot) {
+            section = Some(slot);
+            t(fb, 16, y, slot.label(), SPARK + 1);
+            y += 12;
+        }
+        if n == chosen {
+            arrow(fb, y);
+        }
+        let piece = match (l, held) {
+            (_, Some(crate::game::Held::Piece(id))) | (crate::gear::SheetLine::Gear(_, Some(id)), _) => g.data.try_piece(id),
+            _ => None,
+        };
+        match (held.and_then(crate::game::Held::tool), piece) {
+            (Some(d), _) => {
                 t(fb, 26, y, &g.good_name(&d.good), TEXT);
-                t(fb, 26, y + 10, &format!("QUALITY {:.2}, WEAR LEFT {}", d.quality, d.durability_left()), TEXT_DIM);
+                t(fb, 26, y + 9, &format!("QUALITY {:.2}, WEAR LEFT {}", d.quality, d.durability_left()), TEXT_DIM);
             }
-            None => t(fb, 26, y, "EMPTY", TEXT_DIM),
+            (None, Some(p)) => {
+                t(fb, 26, y, &p.name.to_uppercase(), TEXT);
+                if confirm == Some(n) {
+                    t(fb, 26, y + 9, "SPACE AGAIN: GONE FOR GOOD", TEXT_WARN);
+                } else {
+                    t(fb, 26, y + 9, &p.bonus_text(), TEXT_GOOD);
+                }
+            }
+            (None, None) => t(fb, 26, y, "EMPTY", TEXT_DIM),
         }
+        y += 20;
     }
-    t(fb, 16, 150, "WORN: NOTHING YET", TEXT_DIM);
-    t(fb, 16, 160, "INSIDE: NOTHING YET", TEXT_DIM);
     let ty = &g.data.monster_types[m.kind.as_str()];
-    t(fb, 16, 176, &format!("BODY {:.0} OF {}", g.held_weight(i), ty.body_cap), TEXT);
-    t(fb, 16, 186, &format!("MIND 0 OF {}", ty.mind_cap), TEXT);
+    t(fb, 16, y + 2, &format!("BODY {:.0} OF {}   MIND {} OF {}", g.body_used(i), ty.body_cap, g.mind_used(i), ty.mind_cap), TEXT);
+    let seasoned = m.seasoned();
     if m.earned > 0.0 {
-        t(fb, 16, 202, &format!("EARNED {} RENOWN", m.earned.floor()), TEXT);
+        t(fb, 16, y + 14, &format!("EARNED {} RENOWN", m.earned.floor()), TEXT);
+    }
+    let next = crate::gear::SEASONED_AT.get(seasoned as usize).map_or(String::new(), |at| format!("{}AT {at}", if seasoned > 0 { "AGAIN " } else { "" }));
+    match seasoned {
+        0 => t(fb, 16, y + 24, &format!("SEASONED {next}"), TEXT_DIM),
+        n => t(fb, 16, y + 24, &format!("SEASONED: +{n} TO ALL{}", if next.is_empty() { String::new() } else { format!(", {next}") }), TEXT_GOOD),
     }
     t(fb, 200, 28, "ABILITIES", SPARK + 1);
-    let st = &m.stats;
-    for (a, (name, v)) in [("STR", st.str), ("DEX", st.dex), ("CON", st.con), ("INT", st.int), ("WIS", st.wis), ("CHA", st.cha)].into_iter().enumerate() {
+    let st = m.abilities(&g.data);
+    for (a, name) in crate::data::ABILITIES.into_iter().enumerate() {
         let y = 40 + a as i32 * 10;
-        t(fb, 200, y, &format!("{name} {v:>2}"), TEXT);
+        let v = st.get(a);
+        t(fb, 200, y, &format!("{name} {v:>2}"), if v > m.stats.get(a) { TEXT_GOOD } else { TEXT });
         t(fb, 242, y, &inspect::ability_uses(g, a), TEXT_DIM);
     }
     t(fb, 200, 108, "SKILLS", SPARK + 1);
@@ -321,6 +355,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
         },
         Tile::Tree | Tile::Sign => under(),
         Tile::Gate => Tile::Path,
+        Tile::Rack => Tile::Floor,
         t => t,
     };
     for y in 0..TS {
@@ -347,6 +382,21 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                     3 => GRASS,
                     _ => GRASS + 1,
                 },
+                Tile::Paving => {
+                    // Cobbles set in the dirt: small rounded stones in staggered rows, each lit
+                    // at its top left and shaded at its bottom right.
+                    let off = if (y / 4) % 2 == 0 { 0 } else { 2 };
+                    let (sx, sy) = ((x + off + tx * 16) % 4, y % 4);
+                    if sx == 3 || sy == 3 {
+                        PATH + 1
+                    } else if (sx == 0 && sy == 0) || (sx == 2 && sy == 2) {
+                        if sx == 0 { TEXT_DIM } else { HUD_MID }
+                    } else if h % 11 == 0 {
+                        HUD_MID
+                    } else {
+                        HUD_HI
+                    }
+                }
                 Tile::Path => match h % 17 {
                     0 => PATH + 2,
                     1 | 2 => PATH,
@@ -435,6 +485,11 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
             }
         }
     }
+    if tile == Tile::Rack {
+        if let Some(r) = g.rack_at(tx, ty) {
+            draw_rack(g, fb, g.world.racks[r].piece, x0, y0);
+        }
+    }
     if tile == Tile::Gate {
         // A gate shut across the way: upright boards banded with iron, a ring to pull on the
         // middle one, and a squat stone tower at each end.
@@ -474,6 +529,10 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
         } else {
             fb.rect_fill(x0, y0 + 6, TS, 4, PLANK);
             fb.rect_fill(x0, y0 + 7, TS, 2, PLANK + 2);
+        }
+        // A shop's awning runs on over its door.
+        if [-1, 1].iter().all(|&d| g.world.prop_at(tx + d, ty).is_some_and(|(_, p)| p.0 == "shop_awning")) {
+            canopy(fb, x0, y0, tx);
         }
     }
     if tile == Tile::Spot {
@@ -582,6 +641,7 @@ fn draw_townsfolk_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     let says = match tf.kind {
         crate::world::Folk::Craftsman => g.craftsman_says(t, v.k),
         crate::world::Folk::Trader => g.trader_says(t),
+        crate::world::Folk::Outfitter => g.outfitter_says(v.c),
     };
     talk_bubble(fb, sp, v, (tf.x, tf.y), says);
 }
@@ -610,6 +670,31 @@ fn talk_bubble(fb: &mut Framebuffer, sp: &Sprites, v: &View, at: (i32, i32), say
     let (px, py) = v.px(at.0, at.1);
     let cx = px + 8;
     let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn: false };
+    draw_bubble(fb, sp, &b);
+}
+
+/// Facing a rack: its piece, what it does and the renown it's given at. Below the rack if
+/// there's room, otherwise over whoever faces it.
+fn draw_rack_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
+    let Some(r) = g.faced_rack(v.c) else { return };
+    let rack = &g.world.racks[r];
+    if !v.sees(rack.x, rack.y) {
+        return;
+    }
+    let p = g.data.piece(rack.piece);
+    let lines = vec![p.name.to_uppercase(), p.bonus_text(), format!("GIVEN AT {} RENOWN", p.renown)];
+    let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
+    let h = lines.len() as i32 * 9 + 4;
+    let (px, py) = v.px(rack.x, rack.y);
+    let cx = px + 8;
+    let warn = g.communes[v.k].renown < p.renown as f64 || g.piece_refusal(v.c, p).is_some();
+    let b = if py + TS + 6 + h <= VIEW_H - 2 {
+        BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: py + TS + 6, w, h, cx, above: false, lines, icon: None, mark: None, warn }
+    } else {
+        let m = &g.monsters[v.c];
+        let my = v.px(m.x, m.y).1;
+        BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (my - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn }
+    };
     draw_bubble(fb, sp, &b);
 }
 
@@ -893,8 +978,29 @@ fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
         while g.world.tile(r + 1, wy) == Tile::Wall || g.world.tile(r + 1, wy) == Tile::Door {
             r += 1;
         }
-        let (x, y) = v.px(l, wy);
-        let w = (r - l + 1) * TS;
+        // Centered on the wall, unless that would cover a door or something hung on the wall
+        // (an awning, a woven hanging): then on the widest stretch of wall clear of them, if
+        // the name fits there.
+        let busy = |x: i32| g.world.tile(x, wy) == Tile::Door || g.world.prop_at(x, wy).is_some();
+        let half = Framebuffer::text_width(label, 1) / 2;
+        let covers = |(a, b): (i32, i32)| {
+            let mid = (a * TS + (b + 1) * TS) / 2;
+            ((mid - half).div_euclid(TS)..=(mid + half - 1).div_euclid(TS)).any(busy)
+        };
+        let mut span = (l, r);
+        if covers(span) {
+            let mut runs: Vec<(i32, i32)> = Vec::new();
+            for x in (l..=r).filter(|&x| !busy(x)) {
+                match runs.last_mut() {
+                    Some(run) if run.1 == x - 1 => run.1 = x,
+                    _ => runs.push((x, x)),
+                }
+            }
+            let fits = |&(a, b): &(i32, i32)| (b - a + 1) * TS >= 2 * half + 4;
+            span = runs.into_iter().filter(fits).max_by_key(|&(a, b)| (b - a, -(a - l))).unwrap_or(span);
+        }
+        let (x, y) = v.px(span.0, wy);
+        let w = (span.1 - span.0 + 1) * TS;
         fb.text_centered(label, x + w / 2, y + 5, WOOD + 3, Some(OUTLINE), 1);
     }
 }
@@ -1039,9 +1145,10 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
                 }
             }
         }
-        "washing_line" => {
-            // A post at each end, the line between, and laundry pegged along it.
-            let (l, r) = (joins("washing_line", -1, 0), joins("washing_line", 1, 0));
+        "washing_line" | "drying_line" => {
+            // A post at each end, the line between, and laundry pegged along it: in the dyers'
+            // town, lengths of cloth fresh from the vats.
+            let (l, r) = (joins(k.id, -1, 0), joins(k.id, 1, 0));
             for (end, ex) in [(l, 2), (r, 12)] {
                 if !end {
                     fb.rect_fill(x + ex - 1, y + 1, 4, 15, OUTLINE);
@@ -1052,6 +1159,14 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
             fb.rect_fill(x + a, y + 3, b - a, 1, TEXT_DIM);
             if l || r {
                 let (cx, cy) = (x + if l && r { 5 } else if r { 6 } else { 4 }, y + 4);
+                if k.id == "drying_line" {
+                    let c = [THREAD + 1, WATER + 1, WATER, THREAD][(hash(px, py) % 4) as usize];
+                    fb.rect_fill(cx - 1, cy - 1, 7, 11, OUTLINE);
+                    fb.rect_fill(cx, cy, 5, 9, c);
+                    fb.rect_fill(cx, cy, 1, 9, shift(c, 1));
+                    fb.rect_fill(cx, cy + 8, 5, 1, shift(c, -1));
+                    return;
+                }
                 match hash(px, py) % 3 {
                     0 => {
                         // A shirt.
@@ -1075,6 +1190,16 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
                 }
             }
         }
+        "timber_gate" => {
+            // A rough timber post on a stone; the beam over the way is overhead.
+            fb.rect_fill(x + 5, y, 6, 16, OUTLINE);
+            fb.rect_fill(x + 6, y, 4, 13, WOOD + 1);
+            fb.rect_fill(x + 6, y, 1, 13, WOOD + 2);
+            fb.rect_fill(x + 9, y, 1, 13, WOOD);
+            fb.rect_fill(x + 4, y + 12, 8, 4, HUD_MID);
+            fb.rect_fill(x + 4, y + 12, 8, 1, HUD_HI);
+        }
+        "shop_awning" => canopy(fb, x, y, px),
         "gate_post" => {
             // A lacquered red post on a stone foot; the beam over the gate is overhead.
             fb.rect_fill(x + 4, y, 8, 16, OUTLINE);
@@ -1087,7 +1212,7 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
         _ => {
             let Some(s) = sp.prop(k.id, hash(px, py)) else { return };
             let (fw, fh) = (k.size.0 * TS, k.size.1 * TS);
-            if !k.on_wall && k.size == (1, 1) && s.h < TS {
+            if !k.on_wall && !k.on_water && k.size == (1, 1) && s.h < TS {
                 fb.rect_checker(x + 3, y + TS - 2, 10, 2, SHADOW);
             }
             fb.blit(s, x + (fw - s.w) / 2, y + fh + k.drop - s.h, false);
@@ -1095,14 +1220,41 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
     }
 }
 
-/// What hangs over everyone's heads: a gate's beam and roof between its two posts, two tiles
+/// A striped canopy across one tile of a shop's front, blue and white with a scalloped edge,
+/// reaching up over the way in.
+fn canopy(fb: &mut Framebuffer, x: i32, y: i32, tx: i32) {
+    fb.rect_fill(x, y - 4, TS, 1, OUTLINE);
+    for dx in 0..TS {
+        let wx = dx + tx * TS;
+        let c = if (wx / 4) % 2 == 0 { WATER + 1 } else { COTTON + 2 };
+        let bottom = 6 + (wx % 4) / 2;
+        fb.rect_fill(x + dx, y - 3, 1, bottom + 3, c);
+        fb.pset(x + dx, y + bottom, OUTLINE);
+    }
+    fb.rect_fill(x, y - 3, TS, 1, COTTON + 2);
+}
+
+/// What hangs over everyone's heads: a gate's beam (and roof) between its two posts, two tiles
 /// apart, so whoever walks through the gate walks under it.
 fn draw_overhead(g: &Game, fb: &mut Framebuffer, v: &View) {
-    for &((px, py), prop) in g.world.props.iter().filter(|((x, y), p)| p.0 == "gate_post" && v.sees(*x, *y)) {
+    for &((px, py), prop) in g.world.props.iter().filter(|((x, y), p)| matches!(p.0, "gate_post" | "timber_gate") && v.sees(*x, *y)) {
         if g.world.prop_at(px + 2, py).is_none_or(|(_, p)| p != prop) {
             continue;
         }
         let (x, y) = v.px(px, py);
+        if prop.0 == "timber_gate" {
+            // A rough-hewn beam on the posts, its cut ends overhanging, a crosspiece below.
+            fb.rect_fill(x - 3, y - 7, 54, 7, OUTLINE);
+            fb.rect_fill(x - 2, y - 6, 52, 5, WOOD + 1);
+            fb.rect_fill(x - 2, y - 6, 52, 1, WOOD + 3);
+            fb.rect_fill(x - 2, y - 2, 52, 1, WOOD);
+            for ex in [x - 2, x + 49] {
+                fb.rect_fill(ex, y - 5, 1, 3, PLANK + 3);
+            }
+            fb.rect_fill(x + 10, y + 1, 28, 3, OUTLINE);
+            fb.rect_fill(x + 10, y + 2, 28, 1, WOOD + 2);
+            continue;
+        }
         // The tie beam between the posts, the lintel above with a gold plaque, and a tiled roof
         // whose eaves turn up at the ends.
         fb.rect_fill(x + 10, y + 1, 28, 4, OUTLINE);
@@ -1270,6 +1422,16 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                             fb.pset(x + s.w - 1, y + 5 + k, if k % 2 == 0 { TEXT_DIM } else { TEXT });
                         }
                     }
+                    crate::world::Folk::Outfitter => {
+                        // A goblin dyed indigo, as befits the dyers' town, a tape measure round
+                        // the neck.
+                        let s = &sp.goblin[(g.frame / 12) as usize % 2];
+                        let (x, y) = (tx + (TS - s.w) / 2, ty + TS - s.h);
+                        blit_tinted(fb, s, x, y, false, ramp_named("water").map(|to| Tint { from: (GOBLIN, 3), to }));
+                        fb.rect_fill(x + 5, y + 11, 6, 1, SPARK + 1);
+                        fb.rect_fill(x + 5, y + 12, 1, 2, SPARK + 1);
+                        fb.pset(x + 10, y + 12, SPARK + 1);
+                    }
                     crate::world::Folk::Trader => {
                         // Now and then he lifts a hand to passers-by.
                         let s = &sp.trader[((g.frame / 20) % 6 == 5) as usize];
@@ -1323,14 +1485,14 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
                 if let Some(w) = m.worker.and_then(|n| g.world.workers.get(n)) {
                     // A working townsperson: weathered, in their trade's own tones (leather, soot).
-                    blit_tinted(fb, s, x, y, flip, Some(Tint { from: (GOBLIN, 3), to: w.skin }));
+                    blit_tinted(fb, &s, x, y, flip, Some(Tint { from: (GOBLIN, 3), to: w.skin }));
                 } else {
-                    fb.blit(s, x, y, flip);
+                    fb.blit(&s, x, y, flip);
                 }
                 // What it holds, a tool in each hand that's full: a handle and its head, a
                 // shovel's blade at the bottom.
-                for (h, held) in m.hands.iter().enumerate() {
-                    let Some(held) = held else { continue };
+                for (h, held) in m.hands.iter().enumerate().take(2) {
+                    let Some(held) = held.as_ref().and_then(crate::game::Held::tool) else { continue };
                     let hx = if (h == 0) != flip { x + s.w - 3 } else { x + 2 };
                     fb.rect_fill(hx, y + s.h - 9, 1, 6, WOOD + 2);
                     if g.data.try_good(&held.good).is_some_and(|t| t.type_tags.iter().any(|t| t == "shovel")) {
@@ -1345,7 +1507,65 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     }
 }
 
-fn monster_pose<'a>(g: &Game, sp: &'a Sprites, v: &View, i: usize) -> (i32, i32, &'a Sprite, bool) {
+/// A rack: a little wooden stand with its piece hung on it (or, shoes, set at its foot), in the
+/// piece's color.
+fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
+    let p = g.data.piece(piece);
+    let c = p.color.as_ref().and_then(|(n, s)| color_named(n, *s)).unwrap_or(TEXT);
+    let dark = shift(c, -1);
+    // The stand: a post on a foot, and a crossbar.
+    fb.rect_fill(x0 + 3, y0 + 13, 10, 2, OUTLINE);
+    fb.rect_fill(x0 + 4, y0 + 13, 8, 1, WOOD + 2);
+    fb.rect_fill(x0 + 7, y0 + 4, 2, 10, OUTLINE);
+    fb.rect_fill(x0 + 7, y0 + 4, 1, 9, WOOD + 2);
+    fb.rect_fill(x0 + 2, y0 + 3, 12, 2, OUTLINE);
+    fb.rect_fill(x0 + 2, y0 + 3, 12, 1, WOOD + 3);
+    let outlined = |fb: &mut Framebuffer, x: i32, y: i32, w: i32, h: i32| {
+        fb.rect_fill(x0 + x - 1, y0 + y - 1, w + 2, h + 2, OUTLINE);
+        fb.rect_fill(x0 + x, y0 + y, w, h, c);
+        fb.rect_fill(x0 + x, y0 + y + h - 1, w, 1, dark);
+    };
+    match p.kind.as_str() {
+        "belt" => {
+            outlined(fb, 3, 6, 10, 2);
+            fb.rect_fill(x0 + 7, y0 + 6, 2, 2, SPARK + 1);
+        }
+        "gloves" => {
+            for gx in [3, 10] {
+                outlined(fb, gx, 6, 3, 4);
+                fb.pset(x0 + gx + if gx < 8 { -1 } else { 3 }, y0 + 7, c);
+            }
+        }
+        "shoes" => {
+            outlined(fb, 2, 11, 4, 2);
+            outlined(fb, 10, 11, 4, 2);
+        }
+        "headband" => {
+            outlined(fb, 4, 5, 8, 1);
+            outlined(fb, 4, 9, 8, 1);
+            fb.rect_fill(x0 + 4, y0 + 5, 1, 5, c);
+            fb.rect_fill(x0 + 11, y0 + 5, 1, 5, c);
+        }
+        "charm" | "earrings" => {
+            let at: &[i32] = if p.kind == "charm" { &[7] } else { &[4, 11] };
+            for &bx in at {
+                fb.rect_fill(x0 + bx, y0 + 5, 1, 3, TEXT_DIM);
+                outlined(fb, bx, 8, 2, 2);
+                fb.pset(x0 + bx, y0 + 8, shift(c, 1));
+            }
+        }
+        _ => outlined(fb, 4, 5, 8, 6),
+    }
+}
+
+/// Monster `i`'s frames with what it has on drawn in, if it has anything on that shows.
+fn dressed(g: &Game, i: usize) -> Option<[Sprite; 4]> {
+    let m = &g.monsters[i];
+    let look: Vec<(&str, u8)> = m.gear.iter().filter_map(|id| g.data.try_piece(id)).filter_map(|p| Some((p.kind.as_str(), p.color.as_ref().and_then(|(n, s)| color_named(n, *s))?))).collect();
+    (!look.is_empty()).then(|| crate::sprites::dressed_frames(m.species == Species::Goblin, &look))
+}
+
+fn monster_pose<'a>(g: &Game, sp: &'a Sprites, v: &View, i: usize) -> (i32, i32, std::borrow::Cow<'a, Sprite>, bool) {
     let m = &g.monsters[i];
     let frames = if m.species == Species::Goblin { &sp.goblin } else { &sp.cyclops };
     let frame = if m.slide.is_some() {
@@ -1355,7 +1575,10 @@ fn monster_pose<'a>(g: &Game, sp: &'a Sprites, v: &View, i: usize) -> (i32, i32,
     } else {
         (g.frame / 10 % 2) as usize
     };
-    let s = &frames[frame];
+    let s: std::borrow::Cow<'a, Sprite> = match dressed(g, i) {
+        Some(worn) => std::borrow::Cow::Owned(worn[frame].clone()),
+        None => std::borrow::Cow::Borrowed(&frames[frame]),
+    };
     let (mut ox, mut oy) = Slide::offset(m.slide);
     if let Some((d, t)) = m.bump {
         let (dx, dy) = d.delta();

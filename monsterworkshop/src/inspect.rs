@@ -2,7 +2,7 @@
 //! when it stands at a work spot. It never pauses the world. The first page holds the few
 //! things that decide what to do next, led by icons; Tab while examining shows the details.
 
-use crate::data::{matches, GoodType};
+use crate::data::{matches, GoodType, ABILITIES};
 use crate::econ::{self, chance_at_least, tier_name, Craft, Crafter, Forecast, ItemData, EXCEPTIONAL, MASTERWORK};
 use crate::game::{Game, RENOWN_PER_VALUE};
 use crate::palette::*;
@@ -102,7 +102,6 @@ fn quality(lo: f64, mid: f64, hi: f64) -> [Line; 2] {
     ]
 }
 
-const ABILITIES: [&str; 6] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 
 fn skill_name(id: &str) -> String {
     id.replace('_', " ").to_uppercase()
@@ -160,12 +159,23 @@ pub fn card(g: &Game, k: usize) -> Card {
     if let Some(a) = g.faced_applicant(c) {
         return applicant_card(g, a, k);
     }
+    if let Some(r) = g.faced_rack(c) {
+        return rack_card(g, r, c, k);
+    }
     if let Some(t) = g.faced_townsfolk(c) {
         let tf = &g.world.townsfolk[t];
         return match tf.kind {
             Folk::Craftsman => {
                 let lines = vec![line("HE KNOWS HOW EVERYTHING IS MADE.", TEXT), line("SPACE: ASK WHAT YOU COULD MAKE FROM WHAT'S AROUND HERE.", TEXT_DIM)];
                 Card::one(format!("{} THE CRAFTSMAN", tf.name), lines, (tf.x, tf.y))
+            }
+            Folk::Outfitter => {
+                let lines = vec![
+                    line("KEEPS THE TOWN'S THINGS TO WEAR, FOR MONSTERS OF SOME RENOWN.", TEXT),
+                    line("EACH IS GIVEN AT SOME RENOWN, AND KEPT FOR GOOD.", TEXT_DIM).icon(Icon::Renown),
+                    line("FACE A RACK TO SEE WHAT ITS PIECE DOES. SPACE, AND IT'S ON.", TEXT_DIM),
+                ];
+                Card::one(format!("{} THE OUTFITTER", tf.name), lines, (tf.x, tf.y))
             }
             Folk::Trader => {
                 let lines = vec![
@@ -416,6 +426,40 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
     Card::two(display_name(g, item), first, details, at)
 }
 
+/// Rack `r`'s piece, as commune `k`'s player sees it for monster `c`: what it does, the renown
+/// it's given at, and whether `c` has room for it.
+fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
+    let rack = &g.world.racks[r];
+    let p = g.data.piece(rack.piece);
+    let m = &g.monsters[c];
+    let renown = g.communes[k].renown;
+    let affordable = renown >= p.renown as f64;
+    let mut first = Vec::new();
+    for a in (0..6).filter(|&a| p.bonus_to(a) != 0) {
+        first.push(line(format!("{:+} {}: {}", p.bonus_to(a), ABILITIES[a], ability_uses(g, a)), TEXT_GOOD));
+    }
+    first.push(line(format!("GIVEN AT {} RENOWN. YOU HAVE {}.", p.renown, renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown));
+    match (g.piece_refusal(c, p), g.bettered(c, p), g.replaces(c, p)) {
+        (Some(why), _, _) => first.push(line(why, TEXT_WARN).icon(Icon::Warn)),
+        (None, Some((by, ability)), _) => first.push(line(format!("{}'S {by} {} AS MUCH {ability}: ONLY THE BEST COUNTS.", m.name, if by.ends_with('S') { "GIVE" } else { "GIVES" }), TEXT_WARN).icon(Icon::Warn)),
+        (None, None, Some(old)) => first.push(line(format!("SPACE: {} PUTS IT ON IN PLACE OF THE {}, FOR GOOD.", m.name, old.name.to_uppercase()), TEXT_DIM)),
+        (None, None, None) if affordable => first.push(line(format!("SPACE: {} PUTS IT ON, FOR GOOD.", m.name), TEXT_DIM)),
+        (None, None, None) => first.push(line("EARN MORE RENOWN TO HAVE IT.", TEXT_DIM)),
+    }
+    let ty = &g.data.monster_types[m.kind.as_str()];
+    let cost = match (p.body, p.mind) {
+        (0, mind) => format!("MIND {mind}"),
+        (body, 0) => format!("BODY {body}"),
+        (body, mind) => format!("BODY {body}, MIND {mind}"),
+    };
+    let details = vec![
+        line(p.about.clone(), TEXT),
+        line(format!("{}. IT TAKES {cost} OF WHAT A MONSTER CAN HAVE ON.", p.slot.label()), TEXT_DIM),
+        line(format!("{}: {} {} OF {} SLOTS, BODY {:.0} OF {}, MIND {} OF {}.", m.name, p.slot.label(), g.gear_in(c, p.slot).len(), ty.slots.of(p.slot), g.body_used(c), ty.body_cap, g.mind_used(c), ty.mind_cap), TEXT_DIM),
+    ];
+    Card::two(p.name.to_uppercase(), first, details, (rack.x, rack.y))
+}
+
 /// Applicant `a`, as commune `k`'s player sees them: can they afford to welcome them?
 fn applicant_card(g: &Game, a: usize, k: usize) -> Card {
     let stand = g.world.stands[a];
@@ -496,7 +540,7 @@ pub(crate) fn goal_text(g: &Game, goal: &crate::game::Goal) -> String {
 
 fn monster_card(g: &Game, i: usize) -> Card {
     let m = &g.monsters[i];
-    let s = &m.stats;
+    let s = &m.abilities(&g.data);
     let (status, warn) = g.status(i);
     let state = status.split_once(": ").map_or(status.clone(), |(_, s)| s.to_string());
     let mut first = vec![if warn { line(state, TEXT_WARN).icon(Icon::Warn) } else { line(state, TEXT_GOOD) }];
@@ -508,14 +552,21 @@ fn monster_card(g: &Game, i: usize) -> Card {
     for (k, v) in skills.into_iter().take(4) {
         first.push(line(format!("{:<13}{}", skill_name(&k), points(v)), TEXT).bar(v));
     }
-    let held: Vec<String> = m.hands.iter().flatten().map(|d| g.good_name(&d.good)).collect();
+    let held: Vec<String> = m.tools().map(|d| g.good_name(&d.good)).chain(m.carried().filter_map(|id| g.data.try_piece(id)).map(|p| crate::recipes::one(&p.name.to_uppercase()))).collect();
     if !held.is_empty() {
         first.push(line(format!("HOLDS {}", held.join(" AND ")), TEXT));
+    }
+    let on: Vec<String> = m.gear.iter().filter_map(|id| g.data.try_piece(id)).map(|p| crate::recipes::one(&p.name.to_uppercase())).collect();
+    if !on.is_empty() {
+        first.push(line(format!("HAS ON {}", crate::recipes::and_list(&on)), TEXT));
     }
     let mut details = vec![
         line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT),
         line(format!("TALENTS: {}", m.skills.transferable.iter().map(|t| skill_name(t)).collect::<Vec<_>>().join(", ")), TEXT_DIM),
     ];
+    if m.seasoned() > 0 {
+        details.push(line(format!("SEASONED: +{} TO EVERY ABILITY", m.seasoned()), TEXT_GOOD));
+    }
     if m.earned > 0.0 {
         details.push(line(format!("EARNED {} RENOWN SO FAR", m.earned.floor()), TEXT).icon(Icon::Renown));
     }
@@ -546,7 +597,7 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
     let recipe = g.data.good(&plant.good);
     let needs: Vec<String> = recipe.tools_required_tags.iter().filter(|t| !t.is_empty()).map(|t| crate::recipes::one(&g.describe_type(t))).collect();
     let tools: Vec<&crate::econ::ItemData> = match g.held_tools(c, recipe) {
-        Ok(hands) => hands.iter().filter_map(|&h| m.hands[h].as_ref()).collect(),
+        Ok(hands) => hands.iter().filter_map(|&h| m.tool(h)).collect(),
         Err(missing) => {
             first.push(line(missing, TEXT_WARN).icon(Icon::Warn));
             Vec::new()
@@ -555,11 +606,12 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
     if !needs.is_empty() {
         details.push(line(format!("IT TAKES {} IN HAND. FACE ONE ON THE GROUND AND PRESS SPACE TO TAKE IT.", crate::recipes::and_list(&needs)), TEXT_DIM));
     }
-    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills }, inputs: Vec::new(), tools, workshop: None };
+    let st = m.abilities(&g.data);
+    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills }, inputs: Vec::new(), tools, workshop: None };
     if recipe.has_quality {
         let f = econ::forecast(&craft);
-        let (lo, hi) = usual_range(&f, m);
-        first.extend(quality(lo, f.expected(&m.stats), hi));
+        let (lo, hi) = usual_range(&f, &st);
+        first.extend(quality(lo, f.expected(&st), hi));
         details.push(line(format!("USUALLY {lo:.2} TO {hi:.2}"), TEXT_DIM));
     }
     let (lo, hi, avg) = econ::quantity_range(&craft);
@@ -639,9 +691,10 @@ pub fn forecast(g: &Game, s: usize, i: usize) -> Option<Forecast> {
     let pv = g.preview(s);
     let (Ok(inputs), Ok(tools)) = (&pv.inputs, &pv.tools) else { return None };
     let m = &g.monsters[i];
+    let st = m.abilities(&g.data);
     let craft = Craft {
         recipe: g.data.good(&pv.recipe),
-        crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills },
+        crafter: Crafter { id: m.id, stats: &st, skills: &m.skills },
         inputs: inputs.iter().collect(),
         tools: tools.iter().collect(),
         workshop: pv.workshop.as_ref(),
@@ -657,12 +710,12 @@ pub fn spot_preview(g: &Game, i: usize) -> Option<String> {
         return None;
     }
     let f = forecast(g, s, i)?;
-    Some(format!("{} EXPECTS QUALITY {:.2}", g.world.shops[s].kind.label(), f.expected(&m.stats)))
+    Some(format!("{} EXPECTS QUALITY {:.2}", g.world.shops[s].kind.label(), f.expected(&m.abilities(&g.data))))
 }
 
 /// Two standard deviations either side: the range most rolls land in.
-fn usual_range(f: &Forecast, m: &crate::game::Monster) -> (f64, f64) {
-    (econ::nudge((f.mean - 2.0 * f.sigma).max(0.0), &m.stats), f.mean + 2.0 * f.sigma)
+fn usual_range(f: &Forecast, st: &crate::data::Stats) -> (f64, f64) {
+    (econ::nudge((f.mean - 2.0 * f.sigma).max(0.0), st), f.mean + 2.0 * f.sigma)
 }
 
 /// At a trader's stall: the trade its pads are working toward, and the others it offers. No
@@ -709,15 +762,16 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
         (Err(need), _, _) => first.push(line(need.clone(), TEXT_WARN).icon(Icon::Warn)),
         (_, Err(tool), _) => first.push(line(format!("FOR {}: {tool} ON A PEG.", g.good_name(&pv.recipe)), TEXT_WARN).icon(Icon::Warn)),
         (Ok(inputs), Ok(tools), Some(f)) => {
-            let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: pv.workshop.as_ref() };
+            let st = m.abilities(&g.data);
+            let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: pv.workshop.as_ref() };
             let (qlo, qhi, avg) = econ::quantity_range(&craft);
             (lo, hi) = (qlo, qhi);
             if qlo != qhi {
                 details.push(line(format!("ABOUT {avg:.1} EACH TIME"), TEXT_DIM));
             }
             if recipe.has_quality {
-                let (rlo, rhi) = usual_range(&f, m);
-                first.extend(quality(rlo, f.expected(&m.stats), rhi));
+                let (rlo, rhi) = usual_range(&f, &st);
+                first.extend(quality(rlo, f.expected(&st), rhi));
                 details.push(line(format!("USUALLY {rlo:.2} TO {rhi:.2}"), TEXT_DIM));
                 let (exc, mw) = (chance_at_least(&f, EXCEPTIONAL), chance_at_least(&f, MASTERWORK));
                 details.push(if exc < 1e-4 {
@@ -791,8 +845,9 @@ fn time_line(g: &Game, recipe: &GoodType, i: usize, lo: u32, hi: u32) -> Line {
 fn learning(g: &Game, recipe: &GoodType, i: usize, jobs: &str) -> (Line, Vec<Line>) {
     let m = &g.monsters[i];
     let mut sk = m.skills.clone();
-    let job_secs = econ::production_seconds(recipe, &m.stats);
-    let l = econ::learn(&mut sk, &m.stats, recipe, &g.data, job_secs);
+    let st = m.abilities(&g.data);
+    let job_secs = econ::production_seconds(recipe, &st);
+    let l = econ::learn(&mut sk, &st, recipe, &g.data, job_secs);
     let primary = skill_name(&recipe.primary_applied_skill);
     let main = line(format!("{primary} +{}  PRACTICE +{}", points(l.primary), points(l.specific)), TEXT_GOOD).icon(Icon::Learn);
     let mut more = Vec::new();
@@ -811,9 +866,10 @@ fn level_off(g: &Game, i: usize, recipe: &GoodType, secs: f64) -> (f64, u32) {
     let m = &g.monsters[i];
     let mut sk = m.skills.clone();
     let skill = &recipe.primary_applied_skill;
+    let st = m.abilities(&g.data);
     for n in 0..3000 {
         let before = sk.applied(skill);
-        econ::learn(&mut sk, &m.stats, recipe, &g.data, secs);
+        econ::learn(&mut sk, &st, recipe, &g.data, secs);
         if sk.applied(skill) - before < 0.0005 {
             return (sk.applied(skill), n);
         }
@@ -838,7 +894,7 @@ fn held_back(g: &Game, f: &Forecast, recipe: &GoodType, i: usize) -> Option<(Str
         }),
         ("TOOL QUALITY".to_string(), f.tool_quality, format!("{:.2}", f.tool_quality), "A BETTER TOOL ON THE PEG WOULD HELP.".to_string()),
         ("PRACTICE".to_string(), f.specific, points(f.specific), if f.primary < 0.1 { format!("IT GROWS ONCE {primary} DOES.") } else { "IT GROWS WITH EVERY CRAFT.".to_string() }),
-        (ability.to_string(), f.ability / econ::ABILITY_FACTOR_CAP, m.stats.get(recipe.relevant_ability_score).to_string(), format!("A MONSTER WITH MORE {ability} WOULD DO BETTER.")),
+        (ability.to_string(), f.ability / econ::ABILITY_FACTOR_CAP, m.abilities(&g.data).get(recipe.relevant_ability_score).to_string(), format!("A MONSTER WITH MORE {ability} WOULD DO BETTER.")),
     ];
     let (name, v, shown, hint) = factors.into_iter().min_by(|a, b| a.1.total_cmp(&b.1))?;
     (v < 0.95).then_some((name, shown, hint))

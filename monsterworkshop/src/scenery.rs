@@ -57,6 +57,23 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "drum" => vec![drum()],
         "altar" => vec![altar()],
         "well" => vec![well()],
+        "dye_barrel" => [INDIGO, MADDER, [WATER, WATER + 1, WATER + 2]].into_iter().map(dye_barrel).collect(),
+        "dye_tub" => [MADDER, INDIGO].into_iter().map(dye_tub).collect(),
+        "cloth_shelf" => vec![cloth_shelf()],
+        "cutting_table" => vec![cutting_table()],
+        "hanging_cloth" => [THREAD + 1, WATER + 1, LEAF + 1].into_iter().map(hanging_cloth).collect(),
+        "dummy" => vec![dummy()],
+        "mirror" => vec![mirror()],
+        "shop_sign" => vec![shop_sign()],
+        "stone_pile" => vec![stone_pile()],
+        "stump" => vec![stump()],
+        "reeds" => (0..2).map(reeds).collect(),
+        "lily_pads" => (0..2).map(lily_pads).collect(),
+        "rowboat" => vec![rowboat()],
+        "field_shed" => vec![field_shed()],
+        "scarecrow" => vec![scarecrow()],
+        "field_trough" => vec![field_trough()],
+        "shrub" => vec![shrub()],
         _ => Vec::new(),
     }
 }
@@ -639,5 +656,310 @@ fn well() -> Sprite {
     rect(&mut s, 7, 9, 24, 9, WOOD + 2);
     rect(&mut s, 15, 10, 15, 16, HUD_HI);
     rect(&mut s, 26, 9, 28, 10, HUD_MID);
+    s.outline()
+}
+
+// Tanglemere's (2026-11-04): the dyers' town, the outfitter's, the lake and the indigo field.
+
+/// Indigo, darkest to lightest.
+const INDIGO: [u8; 3] = [OUTLINE, WATER, WATER + 1];
+/// Madder red.
+const MADDER: [u8; 3] = [WOOD, THREAD, THREAD + 1];
+
+/// A barrel of dye, its top open: indigo, madder red, or clear water for rinsing.
+fn dye_barrel(dye: [u8; 3]) -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    // Staves, lit on the left, with two iron hoops.
+    rect(&mut s, 2, 4, 13, 15, WOOD + 1);
+    rect(&mut s, 2, 4, 4, 15, WOOD + 2);
+    rect(&mut s, 12, 4, 13, 15, WOOD);
+    for x in [6, 9] {
+        rect(&mut s, x, 5, x, 15, WOOD);
+    }
+    for y in [7, 12] {
+        rect(&mut s, 2, y, 13, y, HUD_MID);
+    }
+    // The open top: a rim, and the dye inside, catching the light.
+    rect(&mut s, 2, 1, 13, 4, WOOD + 2);
+    rect(&mut s, 3, 2, 12, 3, dye[1]);
+    rect(&mut s, 3, 2, 12, 2, dye[0]);
+    s.set(5, 3, dye[2]);
+    s.set(6, 3, dye[2]);
+    s.outline()
+}
+
+/// A low tub of dye steeping, a stain run down its side.
+fn dye_tub(dye: [u8; 3]) -> Sprite {
+    let mut s = Sprite::blank(16, 11);
+    rect(&mut s, 1, 3, 14, 10, WOOD + 1);
+    rect(&mut s, 1, 3, 2, 10, WOOD + 2);
+    rect(&mut s, 13, 3, 14, 10, WOOD);
+    rect(&mut s, 1, 7, 14, 7, HUD_MID);
+    rect(&mut s, 1, 0, 14, 3, WOOD + 2);
+    rect(&mut s, 2, 1, 13, 2, dye[1]);
+    rect(&mut s, 3, 1, 6, 1, dye[2]);
+    rect(&mut s, 9, 3, 10, 6, dye[1]);
+    s.set(9, 7, dye[0]);
+    s.outline()
+}
+
+/// Shelves of folded cloth, every color the town dyes.
+fn cloth_shelf() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    rect(&mut s, 1, 0, 14, 15, WOOD);
+    rect(&mut s, 2, 1, 13, 14, WOOD + 1);
+    let colors = [[THREAD + 1, WATER + 1, COTTON + 2, LEAF + 1], [WATER, SPARK + 1, THREAD + 1, FLOWER], [COTTON + 2, LEAF + 1, WATER + 1, THREAD]];
+    for (row, cols) in colors.iter().enumerate() {
+        let y = 2 + row as i32 * 4;
+        for (k, &c) in cols.iter().enumerate() {
+            let x = 2 + k as i32 * 3;
+            rect(&mut s, x, y, x + 2, y + 2, c);
+            s.set(x, y, shift(c, 1));
+        }
+        rect(&mut s, 2, y + 3, 13, y + 3, WOOD + 2);
+    }
+    s.outline()
+}
+
+/// A cutting table, two tiles long: a bolt of cloth half unrolled, and the shears.
+fn cutting_table() -> Sprite {
+    let mut s = Sprite::blank(32, 14);
+    rect(&mut s, 1, 1, 30, 6, PLANK + 2);
+    rect(&mut s, 1, 1, 30, 1, PLANK + 3);
+    rect(&mut s, 1, 7, 30, 8, WOOD + 1);
+    for x in [3, 27] {
+        rect(&mut s, x, 9, x + 1, 13, WOOD);
+    }
+    // The bolt, and its cloth laid out flat.
+    rect(&mut s, 3, 2, 5, 6, WATER + 1);
+    rect(&mut s, 3, 2, 3, 6, WATER + 2);
+    rect(&mut s, 6, 3, 15, 5, WATER + 2);
+    rect(&mut s, 6, 5, 15, 5, WATER + 1);
+    // The shears, open.
+    for k in 0..5 {
+        s.set(20 + k, 2 + k / 2, HUD_HI);
+        s.set(20 + k, 5 - k / 2, HUD_HI);
+    }
+    rect(&mut s, 25, 3, 26, 4, THREAD + 1);
+    s.set(27, 2, THREAD + 1);
+    s.set(27, 5, THREAD + 1);
+    s.outline()
+}
+
+/// A woven cloth hung on the wall, its pattern in the town's dyes.
+fn hanging_cloth(c: u8) -> Sprite {
+    let mut s = Sprite::blank(12, 16);
+    rect(&mut s, 0, 0, 11, 1, WOOD + 2);
+    rect(&mut s, 1, 2, 10, 14, c);
+    for y in (3..14).step_by(3) {
+        for x in (2..10).step_by(2) {
+            s.set(x + (y / 3) % 2, y, COTTON + 2);
+        }
+    }
+    rect(&mut s, 1, 2, 1, 14, shift(c, 1));
+    for x in (1..11).step_by(2) {
+        s.set(x, 15, c);
+    }
+    s.outline()
+}
+
+/// A dressmaker's dummy on its stand, a half-made jacket pinned to it.
+fn dummy() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    rect(&mut s, 7, 0, 8, 1, WOOD + 2);
+    // The torso, shoulders wide, waist in.
+    for (y, (x0, x1)) in [(2, (3, 12)), (3, (3, 12)), (4, (4, 11)), (5, (4, 11)), (6, (5, 10)), (7, (5, 10)), (8, (4, 11)), (9, (4, 11))] {
+        rect(&mut s, x0, y, x1, y, MAT + 2);
+    }
+    rect(&mut s, 3, 2, 6, 7, THREAD + 1);
+    rect(&mut s, 3, 2, 3, 6, THREAD + 2);
+    rect(&mut s, 7, 3, 7, 8, HUD_HI);
+    rect(&mut s, 7, 10, 8, 13, WOOD + 1);
+    rect(&mut s, 4, 14, 11, 15, WOOD);
+    rect(&mut s, 4, 14, 11, 14, WOOD + 2);
+    s.outline()
+}
+
+/// A tall mirror in a wooden frame, for trying things on.
+fn mirror() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    rect(&mut s, 3, 0, 12, 13, WOOD + 2);
+    rect(&mut s, 4, 1, 11, 12, WATER + 2);
+    rect(&mut s, 4, 1, 11, 2, COTTON + 2);
+    for k in 0..4 {
+        s.set(5 + k, 9 - k * 2, COTTON + 2);
+        s.set(5 + k, 10 - k * 2, COTTON + 2);
+    }
+    rect(&mut s, 3, 14, 4, 15, WOOD + 1);
+    rect(&mut s, 11, 14, 12, 15, WOOD + 1);
+    s.outline()
+}
+
+/// The outfitter's sign: a board on a bracket, a needle and its red thread painted on it.
+fn shop_sign() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    rect(&mut s, 13, 0, 14, 15, WOOD + 1);
+    rect(&mut s, 2, 1, 14, 1, WOOD + 2);
+    for x in [3, 11] {
+        s.set(x, 2, HUD_MID);
+    }
+    rect(&mut s, 1, 3, 12, 11, PLANK + 2);
+    rect(&mut s, 1, 3, 12, 3, PLANK + 3);
+    for k in 0..7 {
+        s.set(3 + k, 9 - k, HUD_HI);
+    }
+    s.set(9, 3, HUD_HI);
+    for (x, y) in [(10, 4), (10, 5), (9, 6), (8, 7), (8, 8), (9, 9), (10, 9)] {
+        s.set(x, y, THREAD + 1);
+    }
+    s.outline()
+}
+
+/// A heap of stones, ready to be burnt for lime.
+fn stone_pile() -> Sprite {
+    let mut s = Sprite::blank(16, 13);
+    for &(cx, cy, r) in &[(4, 9, 3), (11, 9, 3), (7, 5, 3), (8, 10, 2)] {
+        circle_fill(&mut s, cx, cy, r, STONE);
+    }
+    s.outline()
+}
+
+/// A tree stump, sawn flat: rings on its face, bark down its sides, roots at its foot.
+fn stump() -> Sprite {
+    let mut s = Sprite::blank(16, 13);
+    rect(&mut s, 3, 4, 12, 10, WOOD + 1);
+    rect(&mut s, 3, 4, 4, 10, WOOD + 2);
+    rect(&mut s, 11, 4, 12, 10, WOOD);
+    for x in [1, 2, 13, 14] {
+        s.set(x, 11, WOOD);
+    }
+    rect(&mut s, 2, 10, 13, 11, WOOD);
+    for y in 1..=6 {
+        let (dy, half) = ((y - 3) as f64 / 2.6, 5.0);
+        let w = (half * (1.0 - dy * dy).max(0.0).sqrt()).round() as i32;
+        rect(&mut s, 8 - w, y, 7 + w, y, PLANK + 3);
+    }
+    for (x, y) in [(5, 3), (6, 2), (7, 2), (8, 2), (9, 2), (10, 3), (10, 4), (5, 4), (6, 5), (9, 5)] {
+        s.set(x, y, PLANK + 1);
+    }
+    s.set(7, 4, PLANK + 1);
+    s.set(8, 4, PLANK + 1);
+    s.outline()
+}
+
+/// Reeds in the shallows, cattails nodding.
+fn reeds(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    let stems: &[(i32, i32)] = if k == 0 { &[(3, 4), (6, 1), (9, 3), (12, 6)] } else { &[(4, 2), (8, 5), (11, 1)] };
+    for &(x, top) in stems {
+        rect(&mut s, x, top + 3, x, 15, LEAF + 1);
+        s.set(x - 1, 13, LEAF);
+        rect(&mut s, x, top, x, top + 2, WOOD + 1);
+    }
+    s.set(1, 12, LEAF + 2);
+    s.set(14, 11, LEAF + 2);
+    s
+}
+
+/// Lily pads afloat, one in flower.
+fn lily_pads(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    let pads: &[(i32, i32, i32)] = if k == 0 { &[(5, 5, 3), (11, 10, 3)] } else { &[(9, 4, 2), (4, 11, 3)] };
+    for &(cx, cy, r) in pads {
+        circle_fill(&mut s, cx, cy, r, [LEAF, LEAF + 1, LEAF + 2]);
+        s.set(cx + 1, cy, WATER + 1);
+        s.set(cx + 2, cy, WATER + 1);
+    }
+    let (fx, fy) = (pads[0].0, pads[0].1);
+    s.set(fx, fy - 1, FLOWER);
+    s.set(fx - 1, fy, FLOWER);
+    s.set(fx, fy, SPARK + 2);
+    s
+}
+
+/// A rowing boat, two tiles long, tied up with its oars shipped.
+fn rowboat() -> Sprite {
+    let mut s = Sprite::blank(32, 14);
+    for x in 1..31 {
+        let taper = ((x - 1).min(30 - x) as f64).min(5.0) as i32;
+        let (top, bottom) = (6 - taper, 7 + taper);
+        rect(&mut s, x, top, x, bottom, WOOD + 1);
+        s.set(x, top, WOOD + 3);
+        s.set(x, bottom, WOOD);
+        if bottom - top > 3 {
+            rect(&mut s, x, top + 2, x, bottom - 2, PLANK + 1);
+        }
+    }
+    for x in [11, 19] {
+        rect(&mut s, x, 3, x + 1, 10, WOOD + 2);
+    }
+    rect(&mut s, 6, 6, 26, 6, PLANK + 3);
+    s.outline()
+}
+
+/// A small field shed, two tiles each way: baskets and a hoe inside.
+fn field_shed() -> Sprite {
+    let mut s = Sprite::blank(32, 32);
+    // The roof, boards running down it.
+    for y in 1..15 {
+        let inset = (15 - y).min(4) / 2;
+        rect(&mut s, 1 + inset, y, 30 - inset, y, if y < 4 { WOOD + 3 } else { WOOD + 2 });
+    }
+    for x in (4..29).step_by(4) {
+        rect(&mut s, x, 3, x, 14, WOOD + 1);
+    }
+    rect(&mut s, 1, 15, 30, 16, WOOD);
+    // The front wall and its open door.
+    rect(&mut s, 3, 17, 28, 31, WOOD + 1);
+    for x in (5..28).step_by(4) {
+        rect(&mut s, x, 17, x, 31, WOOD);
+    }
+    rect(&mut s, 12, 20, 19, 31, OUTLINE);
+    rect(&mut s, 13, 21, 18, 31, HUD_SHADOW);
+    rect(&mut s, 14, 27, 17, 30, MAT + 1);
+    s.outline()
+}
+
+/// A scarecrow in a straw hat, arms out, keeping birds off the indigo.
+fn scarecrow() -> Sprite {
+    let mut s = Sprite::blank(16, 20);
+    rect(&mut s, 7, 8, 8, 19, WOOD + 1);
+    rect(&mut s, 1, 9, 14, 10, WATER + 1);
+    rect(&mut s, 5, 8, 10, 14, WATER + 1);
+    rect(&mut s, 5, 8, 5, 14, WATER + 2);
+    for x in [1, 14] {
+        s.set(x, 11, MAT + 2);
+    }
+    rect(&mut s, 5, 3, 10, 7, MAT + 2);
+    s.set(6, 5, OUTLINE);
+    s.set(9, 5, OUTLINE);
+    rect(&mut s, 3, 2, 12, 3, SPARK + 1);
+    rect(&mut s, 5, 0, 10, 2, SPARK);
+    s.outline()
+}
+
+/// A wooden trough of clean water, two tiles long, for rinsing the leaves.
+fn field_trough() -> Sprite {
+    let mut s = Sprite::blank(32, 12);
+    rect(&mut s, 1, 2, 30, 11, WOOD + 1);
+    rect(&mut s, 1, 2, 30, 2, WOOD + 3);
+    rect(&mut s, 1, 8, 30, 8, WOOD);
+    rect(&mut s, 3, 3, 28, 6, WATER + 1);
+    for x in [7, 8, 18, 24] {
+        s.set(x, 4, WATER + 2);
+    }
+    for x in [2, 28] {
+        rect(&mut s, x, 9, x + 1, 11, WOOD);
+    }
+    s.outline()
+}
+
+/// A shrub clipped round: nothing on it to pick.
+fn shrub() -> Sprite {
+    let mut s = Sprite::blank(16, 14);
+    circle_fill(&mut s, 8, 7, 6, CANOPY);
+    for &(x, y) in &[(5, 4), (9, 3), (11, 7), (6, 9)] {
+        s.set(x, y, HEDGE + 2);
+    }
     s.outline()
 }
