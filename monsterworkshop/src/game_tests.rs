@@ -2023,3 +2023,106 @@ fn a_loop_delivering_to_a_filled_order_waits_saying_so() {
     assert!(g.monsters[0].wait_reason.contains("OLD SOOT'S ORDER IS FILLED. A NEW ONE SOON."), "{}", g.monsters[0].wait_reason);
     assert_eq!(g.world.item_at(from.0, from.1).map(|k| g.world.items[k].good().to_string()), Some("coal".into()), "the coal left where it lies");
 }
+
+/// The gate into the hills and its board.
+fn hill_gate(g: &Game) -> (usize, usize) {
+    let k = g.world.gates.iter().position(|gt| gt.province == "THE HILLS").expect("the gate into the hills");
+    (k, g.world.gates[k].board)
+}
+
+#[test]
+fn a_shut_gate_lets_nobody_past_and_says_what_opens_it() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    let (k, b) = hill_gate(&g);
+    let (gx, gy) = g.world.gates[k].tiles[0];
+    assert_eq!(crate::world::area_name(gx, gy), "THE HIGH PASS");
+    assert_eq!(g.world.boards[b].project, Project::Gate);
+    stand(&mut g, (gx - 1, gy), Dir::Right);
+    g.script("R");
+    assert_eq!(g.monsters[c].x, gx - 1, "it doesn't open for walking into it");
+    assert!(said(&g, c).contains("THE GATE TO THE HILLS IS SHUT"), "{}", said(&g, c));
+    assert!(has_line(&crate::inspect::card(&g, 0), "SHUT"), "its card");
+    assert!(!g.world.item_floor(gx, gy), "and no good gets pushed through it");
+}
+
+#[test]
+fn twenty_cloth_within_the_hour_open_the_gate_for_good_and_everyone_hears() {
+    let mut g = Game::new();
+    let other = g.player("b");
+    let (k, b) = hill_gate(&g);
+    let need = g.world.boards[b].need;
+    let mut sfx = Vec::new();
+    for _ in 0..need - 1 {
+        g.contribute(b, plain_good(&g, "fabric"), &mut sfx);
+        g.run_ticks(15);
+    }
+    assert!(!g.world.gate_open(k) && g.world.tile(g.world.gates[k].tiles[0].0, g.world.gates[k].tiles[0].1) == Tile::Gate, "one short");
+    g.contribute(b, plain_good(&g, "dyed_fabric"), &mut sfx);
+    assert!(g.world.gate_open(k), "dyed cloth is cloth too");
+    assert!(g.world.gates[k].tiles.iter().all(|&(x, y)| g.world.tile(x, y) == Tile::Path), "the gate's tiles are road now");
+    assert_eq!(g.announcement.as_ref().map(|a| a.title.as_str()), Some("THE PASS TO THE HILLS IS OPEN!"));
+    assert!(g.sounds_for(other).contains(&Sfx::Chime), "everyone hears it, wherever they are");
+    // An hour on, with nothing more coming in, it stays open.
+    g.frame += crate::world::GATE_WINDOW_TICKS + 1;
+    g.run_ticks(1);
+    assert!(g.world.gate_open(k), "open for good");
+    let copy = crate::save::from_json(&crate::save::to_json(&g)).expect("loads");
+    let (x, y) = copy.world.gates[k].tiles[0];
+    assert_eq!(copy.world.tile(x, y), Tile::Path, "and still open after a save");
+}
+
+#[test]
+fn a_gate_counts_a_rate_so_old_deliveries_drop_out() {
+    let mut g = Game::new();
+    let (k, b) = hill_gate(&g);
+    let mut sfx = Vec::new();
+    for _ in 0..10 {
+        g.contribute(b, plain_good(&g, "fabric"), &mut sfx);
+    }
+    assert_eq!(g.world.boards[b].have, 10);
+    g.frame += crate::world::GATE_WINDOW_TICKS;
+    g.run_ticks(1);
+    assert_eq!(g.world.boards[b].have, 0, "an hour later they no longer count");
+    assert!(!g.world.gate_open(k));
+}
+
+#[test]
+fn what_grows_in_a_closed_province_doesnt_count_until_its_gate_opens() {
+    let mut g = Game::new();
+    let (k, b) = hill_gate(&g);
+    let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
+    // Clay growing past the shut gate: the trader still has some.
+    let (gx, gy) = g.world.gates[k].tiles[0];
+    let mut clay = g.world.plants[0].clone();
+    (clay.good, clay.x, clay.y) = ("red_clay".into(), gx + 2, gy);
+    g.world.plants.push(clay);
+    assert!(g.world.closed_at(gx + 2, gy));
+    assert!(g.offers(stall).contains(&"trade_red_clay"), "nobody can get at that clay yet");
+    let mut sfx = Vec::new();
+    for _ in 0..g.world.boards[b].need {
+        g.contribute(b, plain_good(&g, "fabric"), &mut sfx);
+    }
+    assert!(!g.world.closed_at(gx + 2, gy));
+    assert!(!g.offers(stall).contains(&"trade_red_clay"), "now it can");
+}
+
+/// The gate's board is on the open side: cloth pushed out of Temple Town along the road east
+/// reaches it.
+#[test]
+fn cloth_from_temple_town_can_be_pushed_out_to_the_gates_board() {
+    let mut g = Game::new();
+    let (_, b) = hill_gate(&g);
+    let board = (g.world.boards[b].x, g.world.boards[b].y);
+    let from = (75 + 40, 32 + 14);
+    assert_eq!(crate::world::area_name(from.0, from.1), "TEMPLE TOWN");
+    g.world.items.push(Item::new(from.0, from.1, plain_good(&g, "fabric")));
+    start_loop(&mut g, 0, Routine { flag: (from.0 - 1, from.1 - 1), goals: vec![Goal::Move { good: "fabric".into(), from, to: board }] }, (from.0 - 1, from.1 - 1));
+    for _ in 0..15 * 120 {
+        if g.world.boards[b].have > 0 {
+            break;
+        }
+        g.run_ticks(1);
+    }
+    assert_eq!(g.world.boards[b].have, 1, "delivered: {:?}", g.monsters[0].wait_reason);
+}

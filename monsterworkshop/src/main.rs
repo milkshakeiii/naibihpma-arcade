@@ -144,6 +144,15 @@ pub(crate) fn temple_test_game() -> Game {
         let w = g.world.w;
         g.world.tiles[(y * w + x) as usize] = world::Tile::Bin;
     }
+    // The pass to the hills, three cloth short of opening: seventeen came in this hour, and
+    // three lie by Temple Town's road east.
+    let gate = g.world.gates.iter().position(|gt| gt.province == "THE HILLS").expect("the gate into the hills");
+    let b = g.world.gates[gate].board;
+    let board = &mut g.world.boards[b];
+    board.log = vec![0; board.need as usize - 3];
+    board.have = board.log.len() as u32;
+    let cloth = (0..3).map(|_| plain(&g, "fabric", &["cotton"], 3, cotton)).collect();
+    lay(&mut g, cloth, 75 + 40..=75 + 46, 32 + 13..=32 + 13, world::Tile::Grass);
     g
 }
 
@@ -163,6 +172,10 @@ fn the_temple_test_world_has_whats_new_ready_to_try() {
         }
     }
     assert!(g.world.items.iter().any(|it| it.good() == "temple_bell"), "a bell to hang");
+    let gate = g.world.gates.iter().find(|gt| gt.province == "THE HILLS").expect("the gate into the hills");
+    let board = &g.world.boards[gate.board];
+    assert_eq!(board.need - board.have, 3, "three cloth short of opening");
+    assert!(g.world.items.iter().filter(|it| it.good() == "fabric" && crate::world::area_name(it.x, it.y) == "TEMPLE TOWN" && it.x >= 75 + 40).count() >= 3, "three to push there");
     for tool in ["pick", "shovel"] {
         let bin = g.world.bins.iter().find(|b| b.accepts == [tool]).unwrap_or_else(|| panic!("a bin of {tool}s"));
         assert_eq!(bin.stock.len(), 12, "twelve spare {tool}s");

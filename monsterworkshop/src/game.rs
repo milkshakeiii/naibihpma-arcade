@@ -883,8 +883,15 @@ impl Game {
         if self.world.boards[b].project == Project::Bell {
             self.hang_bell(b, &data);
         }
+        let frame = self.frame;
         let board = &mut self.world.boards[b];
-        board.have += 1;
+        // A gate's board counts what came in within the last hour; others count up.
+        if board.project == Project::Gate {
+            board.log.push(frame);
+            board.have = board.log.len() as u32;
+        } else {
+            board.have += 1;
+        }
         board.bounce = 4;
         let (bx, by, done) = (board.x, board.y, board.done());
         self.world.burst(bx, by, PKind::Spark, 5);
@@ -909,8 +916,14 @@ impl Game {
     /// The bell frame's rest after a bell is hung: when it's over, a new bell can replace the
     /// one hanging. And a board's bounce settles.
     fn tick_boards(&mut self) {
+        let frame = self.frame;
         for board in self.world.boards.iter_mut() {
             board.bounce = board.bounce.saturating_sub(1);
+            // A gate's board, until it opens: only the last hour's goods count.
+            if board.project == Project::Gate && !board.done() {
+                board.log.retain(|&f| frame.saturating_sub(f) < crate::world::GATE_WINDOW_TICKS);
+                board.have = board.log.len() as u32;
+            }
             if board.rest > 0 {
                 board.rest -= 1;
                 if board.rest == 0 {
@@ -963,6 +976,21 @@ impl Game {
                 let at = ((x + 3) * TS, y * TS);
                 self.floaters.push(Floater { text: "THE BRIDGE IS BUILT!".into(), from: at, to: (at.0, at.1 - 30), t: 0, total: 60, delay: 20, color: SPARK + 2 });
             }
+            Project::Gate => {
+                // It opens for good, and everyone hears of it, wherever they are.
+                let mut province = "";
+                let gates: Vec<usize> = (0..self.world.gates.len()).filter(|&k| self.world.gates[k].board == b).collect();
+                for k in gates {
+                    self.world.open_gate(k);
+                    province = self.world.gates[k].province;
+                    for (x, y) in self.world.gates[k].tiles.clone() {
+                        self.world.burst(x, y, PKind::Spark, 6);
+                    }
+                }
+                let title = format!("{} IS OPEN!", self.world.boards[b].title);
+                self.announcement = Some(Announcement { title, line: format!("THE WAY INTO {province} IS CLEAR, FOR EVERYONE."), t: ANNOUNCE_TICKS });
+                self.sounds.push((Heard::Everyone, Sfx::Chime));
+            }
             Project::Footbridge => {
                 self.world.build_footbridge();
                 let span = self.world.footbridge.clone();
@@ -981,6 +1009,8 @@ impl Game {
     fn water_note(&self, x: i32, y: i32) -> String {
         if self.world.footbridge.contains(&(x, y)) && !self.world.footbridge_built() {
             "THE FOOTBRIDGE NEEDS ROPE.".into()
+        } else if let Some(g) = self.world.gate_at(x, y).filter(|_| self.world.tile(x, y) == crate::world::Tile::Gate) {
+            format!("THE GATE TO {} IS SHUT. ITS BOARD SAYS WHAT OPENS IT.", self.world.gates[g].province)
         } else {
             String::new()
         }

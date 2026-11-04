@@ -55,7 +55,8 @@ impl Game {
     /// "COTTON SLIVERS" for a recipe's input, for hints: a good this town makes or grows if
     /// one fits, otherwise any good that fits.
     pub(crate) fn describe_group(&self, group: &[String]) -> String {
-        let local = |id: &str| self.world.shops.iter().any(|s| s.kind.recipes().contains(&id)) || self.world.plants.iter().any(|p| p.good == id);
+        let open = |(x, y): (i32, i32)| !self.world.closed_at(x, y);
+        let local = |id: &str| self.world.shops.iter().any(|s| open(s.spot) && s.kind.recipes().contains(&id)) || self.world.plants.iter().any(|p| open((p.x, p.y)) && p.good == id);
         let fits: Vec<&crate::data::GoodType> = self.data.goods.iter().filter(|g| matches(&g.type_tags, group)).collect();
         fits.iter()
             .find(|g| local(&g.id))
@@ -271,7 +272,9 @@ impl Game {
         if !kind.trades() {
             return kind.recipes().to_vec();
         }
-        let made_here = |good: &str| self.world.plants.iter().any(|p| p.good == good) || self.world.shops.iter().any(|o| !o.kind.trades() && o.kind.recipes().contains(&good));
+        // What grows or is made in a province still closed off doesn't count yet.
+        let open = |(x, y): (i32, i32)| !self.world.closed_at(x, y);
+        let made_here = |good: &str| self.world.plants.iter().any(|p| open((p.x, p.y)) && p.good == good) || self.world.shops.iter().any(|o| open(o.spot) && !o.kind.trades() && o.kind.recipes().contains(&good));
         kind.recipes().iter().copied().filter(|r| !made_here(self.data.good(r).output())).collect()
     }
 

@@ -320,6 +320,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
             t => t,
         },
         Tile::Tree | Tile::Sign => under(),
+        Tile::Gate => Tile::Path,
         t => t,
     };
     for y in 0..TS {
@@ -430,6 +431,38 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                     1 => fb.rect_fill(x0, y0 + TS - 1, TS, 1, OUTLINE),
                     2 => fb.rect_fill(x0, y0, 1, TS, OUTLINE),
                     _ => fb.rect_fill(x0 + TS - 1, y0, 1, TS, OUTLINE),
+                }
+            }
+        }
+    }
+    if tile == Tile::Gate {
+        // A gate shut across the way: upright boards banded with iron, a ring to pull on the
+        // middle one, and a squat stone tower at each end.
+        let gate = |dy: i32| g.world.tile(tx, ty + dy) == Tile::Gate;
+        fb.rect_fill(x0 + 2, y0, 12, TS, OUTLINE);
+        fb.rect_fill(x0 + 3, y0, 10, TS, WOOD + 1);
+        fb.rect_fill(x0 + 3, y0, 1, TS, WOOD + 2);
+        for bx in [6, 9, 12] {
+            fb.rect_fill(x0 + bx, y0, 1, TS, WOOD);
+        }
+        for by in [4, 11] {
+            fb.rect_fill(x0 + 2, y0 + by, 12, 2, HUD_MID);
+            fb.rect_fill(x0 + 2, y0 + by, 12, 1, HUD_HI);
+            for rx in [4, 7, 10] {
+                fb.pset(x0 + rx, y0 + by + 1, TEXT_DIM);
+            }
+        }
+        if gate(-1) && gate(1) {
+            fb.rect_fill(x0 + 6, y0 + 7, 4, 3, OUTLINE);
+            fb.rect_fill(x0 + 7, y0 + 8, 2, 1, SPARK);
+        }
+        for (dy, py) in [(-1, 0), (1, TS - 7)] {
+            if !gate(dy) {
+                fb.rect_fill(x0, y0 + py, TS, 7, OUTLINE);
+                fb.rect_fill(x0 + 1, y0 + py + 1, TS - 2, 5, HUD_HI);
+                fb.rect_fill(x0 + 1, y0 + py + 1, TS - 2, 1, TEXT_DIM);
+                for jx in [5, 10] {
+                    fb.rect_fill(x0 + jx, y0 + py + 2, 1, 4, HUD_MID);
                 }
             }
         }
@@ -893,7 +926,11 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
         }
         let y = y - (b.bounce > 1) as i32;
         fb.blit(&sp.board, x, y, false);
-        let (text, col) = if b.done() { ("DONE".to_string(), TEXT_GOOD) } else { (format!("{}/{}", b.have, b.need), TEXT) };
+        let (text, col) = match (b.done(), b.project) {
+            (true, Project::Gate) => ("OPEN".to_string(), TEXT_GOOD),
+            (true, _) => ("DONE".to_string(), TEXT_GOOD),
+            _ => (format!("{}/{}", b.have, b.need), TEXT),
+        };
         fb.text_centered(&text, x + 9, y - 8, col, Some(OUTLINE), 1);
     }
     // A working townsperson's supplies: a low pallet, so the woodpile reads as one when empty.

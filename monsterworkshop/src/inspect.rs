@@ -180,6 +180,10 @@ pub fn card(g: &Game, k: usize) -> Card {
     if g.world.plaques.contains(&(fx, fy)) {
         return plaque_card(g, (fx, fy));
     }
+    if let Some(k) = g.world.gate_at(fx, fy).filter(|_| g.world.tile(fx, fy) == Tile::Gate) {
+        let lines = vec![line("SHUT. NOBODY GETS PAST IT YET.", TEXT_WARN).icon(Icon::Warn), line("THE BOARD BESIDE IT SAYS WHAT OPENS IT.", TEXT_DIM)];
+        return Card::one(format!("THE GATE TO {}", g.world.gates[k].province), lines, (fx, fy));
+    }
     if let Some(i) = g.world.item_at(fx, fy) {
         return item_card(g, &g.world.items[i].data, (fx, fy), c);
     }
@@ -298,6 +302,21 @@ fn board_card(g: &Game, b: usize) -> Card {
         return Card::one(board.title.clone(), lines, (board.x, board.y));
     }
     let name = g.good_name(&board.wants);
+    if board.project == Project::Gate {
+        let province = g.world.gates.iter().find(|gt| gt.board == b).map_or("", |gt| gt.province);
+        let lines = if board.done() {
+            vec![line(format!("OPEN! THE WAY INTO {province} IS CLEAR."), TEXT_GOOD)]
+        } else {
+            vec![
+                line(format!("{} OF {} {name} IN THE LAST HOUR", board.have, board.need), TEXT)
+                    .icon(Icon::Good(g.data.goods.iter().find(|p| p.id == board.wants || p.type_tags.contains(&board.wants)).map_or(board.wants.clone(), |p| p.id.clone())))
+                    .bar(board.have as f64 / board.need.max(1) as f64),
+                line(format!("THE GATE OPENS FOR GOOD WHEN {} {name} COME IN WITHIN AN HOUR.", board.need), TEXT_DIM),
+                line("EACH ONE EARNS RENOWN.", TEXT_DIM).icon(Icon::Renown),
+            ]
+        };
+        return Card::one(board.title.clone(), lines, (board.x, board.y));
+    }
     let lines = if board.done() {
         vec![line(if board.project == Project::Order { "FILLED, AND ON ITS WAY. A NEW ORDER SOON." } else { "DONE! THANK YOU, EVERYONE." }, TEXT_GOOD)]
     } else {

@@ -31,16 +31,20 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam
+// `0` a gate into a province past the first, shut until its board's goal is met
 // Work spots are marked by their kind's `map_char` in `data/workshops.json` (`B` workbench,
 // `S` spinnery, `L` loom house...). Each `p` pad, `g` tool peg and `o` output mat belongs to the
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
     map: &'static str,
+    /// The province it's in: "" for the first, always open; another is closed off until one of
+    /// its gates (`0`) opens.
+    province: &'static str,
     /// Where its northwest corner lies in the world, in tiles. Between regions is hedge.
     at: (i32, i32),
     /// Building names, each placed by one tile of the building's top wall (region coordinates).
@@ -203,9 +207,10 @@ pub const PROPS: [PropKind; 42] = [
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 4] = [
+const REGIONS: [Region; 5] = [
     Region {
         map: include_str!("../data/pinewater.map"),
+        province: "",
         at: (0, 0),
         labels: &[((5, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((16, 18), "OLD SPOKE'S YARD")],
         signs: &[("TANGLEMERE", Dir::Right)],
@@ -215,6 +220,7 @@ const REGIONS: [Region; 4] = [
     },
     Region {
         map: include_str!("../data/wilderness.map"),
+        province: "",
         at: (50, 0),
         supplies: &[],
         workers: &[],
@@ -224,6 +230,7 @@ const REGIONS: [Region; 4] = [
     },
     Region {
         map: include_str!("../data/tanglemere.map"),
+        province: "",
         at: (125, 0),
         labels: &[((34, 2), "CLOTH HALL")],
         signs: &[("PINEWATER", Dir::Left)],
@@ -233,12 +240,25 @@ const REGIONS: [Region; 4] = [
     },
     Region {
         map: include_str!("../data/temple_town.map"),
+        province: "",
         at: (75, 32),
         labels: &[((12, 22), "TEMPLE")],
         signs: &[],
         boards: &[("OLD SOOT'S ORDER", "coal", 6, Project::Order), ("THE TEMPLE BELL", "temple_bell", 1, Project::Bell)],
         supplies: &[],
         workers: &[OLD_SOOT],
+    },
+    // The way east out of Temple Town into the hills: barren country, a gate across it, and the
+    // hills' first screen beyond, still to be built.
+    Region {
+        map: include_str!("../data/high_pass.map"),
+        province: "THE HILLS",
+        at: (125, 32),
+        labels: &[],
+        signs: &[("THE HILLS", Dir::Right)],
+        boards: &[("THE PASS TO THE HILLS", "fabric", 20, Project::Gate)],
+        supplies: &[],
+        workers: &[],
     },
 ];
 
@@ -289,7 +309,7 @@ pub const SUPPLY_TICKS: u32 = 60;
 
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it.
-const AREAS: [(i32, i32, &str); 6] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN")];
+const AREAS: [(i32, i32, &str); 7] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 const WORLD_ROWS: i32 = 64;
@@ -368,11 +388,14 @@ pub enum Tile {
     /// A rope footbridge over the river, once its project is done: monsters cross it and push
     /// goods over it, but wagons don't fit.
     Footbridge,
+    /// A gate into a closed province, shut: nobody, no good and no wagon gets past. Opened, it's
+    /// road.
+    Gate,
 }
 
 impl Tile {
     pub fn walkable(self) -> bool {
-        !matches!(self, Tile::Hedge | Tile::Wall | Tile::Bin | Tile::Water | Tile::Tree | Tile::Sign)
+        !matches!(self, Tile::Hedge | Tile::Wall | Tile::Bin | Tile::Water | Tile::Tree | Tile::Sign | Tile::Gate)
     }
 
     /// Items slide over anything a monster can walk on except a work spot.
@@ -555,6 +578,21 @@ pub enum Project {
     /// The Temple Bell hangs in its frame and rings for everyone. After a rest, a new bell can
     /// replace it.
     Bell,
+    /// A province's gate: it opens for good once enough of what the board wants came in within
+    /// the last hour (`GATE_WINDOW_TICKS`).
+    Gate,
+}
+
+/// The stretch a gate's board counts over: an hour of play.
+pub const GATE_WINDOW_TICKS: u32 = 15 * 60 * 60;
+
+/// A gate into a province past the first: its tiles, the board whose goal opens it, and the
+/// province it lets you into.
+#[derive(Clone, Debug)]
+pub struct Gate {
+    pub tiles: Vec<(i32, i32)>,
+    pub board: usize,
+    pub province: &'static str,
 }
 
 /// A town project: push the goods it wants into the board. Each one pays renown like a
@@ -572,6 +610,10 @@ pub struct Board {
     /// Ticks until it takes another (the bell frame, after a bell is hung).
     #[serde(default)]
     pub rest: u32,
+    /// A gate's board: the frame each of its goods came in, over the last hour. What counts is
+    /// how many came in that recently, a rate, not a total.
+    #[serde(default)]
+    pub log: Vec<u32>,
 }
 
 impl Board {
@@ -755,6 +797,10 @@ pub struct World {
     pub workers: Vec<Worker>,
     pub supplies: Vec<Supply>,
     pub props: Vec<((i32, i32), Prop)>,
+    /// Gates into the provinces past the first.
+    pub gates: Vec<Gate>,
+    /// Each region's box (x, y, width, height) and the province it's in.
+    pub provinces: Vec<((i32, i32, i32, i32), &'static str)>,
     /// Every bell hung in the temple, first first.
     pub bells: Vec<Hung>,
     /// The last id given to an item.
@@ -800,8 +846,11 @@ impl World {
         let (mut workers, mut supplies, mut props) = (Vec::new(), Vec::new(), Vec::new());
         let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
+        let (mut gates, mut provinces) = (Vec::new(), Vec::new());
         for (ox, oy, region, rows) in placed {
             let rw = rows[0].len() as i32;
+            provinces.push(((ox, oy, rw, rows.len() as i32), region.province));
+            let (first_board, mut gate_tiles) = (boards.len(), Vec::new());
             let (mut sign_texts, mut board_specs) = (region.signs.iter(), region.boards.iter());
             let (mut supply_specs, mut worker_specs) = (region.supplies.iter(), region.workers.iter());
             let at = |(x, y): (i32, i32)| (x + ox, y + oy);
@@ -828,6 +877,7 @@ impl World {
                         'C' | 'T' | 'b' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
+                        '0' => Tile::Gate,
                         's' => Tile::Sign,
                         '1' | '2' if street_next => Tile::Path,
                         _ => Tile::Grass,
@@ -858,7 +908,7 @@ impl World {
                         'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None }),
                         'b' => {
                             let &(title, wants, need, project) = board_specs.next().expect("a project for every board");
-                            boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0, rest: 0 });
+                            boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0, rest: 0, log: Vec::new() });
                         }
                         's' => {
                             let &(text, dir) = sign_texts.next().expect("a text for every signpost");
@@ -890,12 +940,17 @@ impl World {
                             workers.push(Worker { name: w.name, title: w.title, skin: w.skin, holds: w.holds, about: w.about, says: w.says, skills: w.skills, at: (x, y), tasks });
                         }
                         'm' => mouths.push((x, y)),
+                        '0' => gate_tiles.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
                         '1' | '2' => _ = starts[(ch as u8 - b'1') as usize].get_or_insert((x, y)),
                         _ => {}
                     }
                     tiles[(y * w + x) as usize] = tile;
                 }
+            }
+            if !gate_tiles.is_empty() {
+                let board = (first_board..boards.len()).find(|&b| boards[b].project == Project::Gate).expect("a board for the gate");
+                gates.push(Gate { tiles: gate_tiles, board, province: region.province });
             }
         }
         // The first copy's, in a made-up world.
@@ -943,7 +998,7 @@ impl World {
                 material: String::new(),
             })
             .collect();
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, gates, provinces, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`
@@ -1014,6 +1069,29 @@ impl World {
         for &(x, y) in &self.footbridge {
             self.tiles[(y * self.w + x) as usize] = Tile::Footbridge;
         }
+    }
+
+    /// Gate `g` opens: its tiles are road from now on.
+    pub fn open_gate(&mut self, g: usize) {
+        for &(x, y) in &self.gates[g].tiles {
+            self.tiles[(y * self.w + x) as usize] = Tile::Path;
+        }
+    }
+
+    pub fn gate_open(&self, g: usize) -> bool {
+        self.boards[self.gates[g].board].done()
+    }
+
+    /// The gate whose tile this is, if any.
+    pub fn gate_at(&self, x: i32, y: i32) -> Option<usize> {
+        self.gates.iter().position(|g| g.tiles.contains(&(x, y)))
+    }
+
+    /// Is `(x, y)` in a province still closed off, every gate into it shut? What grows or is
+    /// made there doesn't count as made in the world yet.
+    pub fn closed_at(&self, x: i32, y: i32) -> bool {
+        let Some(&(_, province)) = self.provinces.iter().find(|&&((rx, ry, rw, rh), _)| (rx..rx + rw).contains(&x) && (ry..ry + rh).contains(&y)) else { return false };
+        !province.is_empty() && !(0..self.gates.len()).any(|g| self.gates[g].province == province && self.gate_open(g))
     }
 
     pub fn footbridge_built(&self) -> bool {

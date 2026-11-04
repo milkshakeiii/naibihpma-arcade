@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 18;
+pub const VERSION: u32 = 19;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -142,6 +142,11 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     }
     if g.world.boards.iter().any(|b| b.project == Project::Bridge && b.done()) {
         g.world.build_bridge();
+    }
+    for k in 0..g.world.gates.len() {
+        if g.world.gate_open(k) {
+            g.world.open_gate(k);
+        }
     }
     g.monsters = d.monsters;
     g.communes = d.communes;
