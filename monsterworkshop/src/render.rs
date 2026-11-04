@@ -74,6 +74,7 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     }
     draw_flags(g, sp, fb, &v);
     draw_bodies(g, sp, fb, &v);
+    draw_overhead(g, fb, &v);
     draw_particles(g, fb, &v);
     draw_markers(g, sp, fb, &v);
     draw_edge_markers(g, fb, &v);
@@ -114,6 +115,7 @@ pub fn draw_place(g: &Game, sp: &Sprites, fb: &mut Framebuffer, (tx, ty): (i32, 
     let v = View { tx, ty, k: 0, c: g.communes[0].controlled };
     draw_ground(g, sp, fb, &v);
     draw_bodies(g, sp, fb, &v);
+    draw_overhead(g, fb, &v);
 }
 
 /// The ground of `v`'s screen and what stands on it: tiles, trees, buildings' names, plants,
@@ -309,9 +311,15 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
     let (x0, y0) = v.px(tx, ty);
     let (wx, wy) = (tx * TS, ty * TS);
     let tile = g.world.tile(tx, ty);
+    // What's under something standing here: a building's floor indoors, otherwise grass, or
+    // under a bin what it stands in (a path).
+    let under = || if indoors(g, tx, ty) { Tile::Floor } else { Tile::Grass };
     let ground = match tile {
-        Tile::Bin => g.world.tile(tx, ty + 1),
-        Tile::Tree | Tile::Sign => Tile::Grass,
+        Tile::Bin => match g.world.tile(tx, ty + 1) {
+            Tile::Wall | Tile::Door | Tile::Sign | Tile::Tree | Tile::Bin => under(),
+            t => t,
+        },
+        Tile::Tree | Tile::Sign => under(),
         t => t,
     };
     for y in 0..TS {
@@ -485,10 +493,19 @@ fn grass(h: u32) -> u8 {
     }
 }
 
-/// Inside a building: walls or doors in all four directions within a few tiles. Mats there
-/// sit on planks; outdoor mats sit on grass.
+/// Inside a building: a wall or door each way across its floor, however wide the room, before
+/// any grass, path or water. Mats and scenery there sit on planks; outdoors, on grass.
 fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
-    let bounded = |dx: i32, dy: i32| (1..10).any(|k| matches!(g.world.tile(tx + dx * k, ty + dy * k), Tile::Wall | Tile::Door));
+    let bounded = |dx: i32, dy: i32| {
+        for k in 1..SCREEN_W {
+            match g.world.tile(tx + dx * k, ty + dy * k) {
+                Tile::Wall | Tile::Door => return true,
+                Tile::Floor | Tile::Pad | Tile::Peg | Tile::OutMat | Tile::Spot | Tile::Sign | Tile::Bin => {}
+                _ => return false,
+            }
+        }
+        false
+    };
     bounded(-1, 0) && bounded(1, 0) && bounded(0, -1) && bounded(0, 1)
 }
 
@@ -888,41 +905,7 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
         }
     }
     for &((px, py), prop) in g.world.props.iter().filter(|((x, y), _)| v.sees(*x, *y)) {
-        let (x, y) = v.px(px, py);
-        match prop {
-            Prop::Wheels => fb.blit(&sp.wagon_wheel, x, y + TS - sp.wagon_wheel.h, false),
-            Prop::Cart => fb.blit(&sp.cart_frame, x, y + TS - sp.cart_frame.h, false),
-            Prop::Barrel | Prop::ChoppingBlock | Prop::Sawhorse | Prop::Lumber => {
-                let s = match prop {
-                    Prop::Barrel => &sp.barrel,
-                    Prop::ChoppingBlock => &sp.chopping_block,
-                    Prop::Sawhorse => &sp.sawhorse,
-                    _ => &sp.lumber,
-                };
-                fb.rect_checker(x + 3, y + TS - 2, 10, 2, SHADOW);
-                fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
-            }
-            Prop::Fence => {
-                // A post, with rails to the fence on either side.
-                let fence = |dx: i32, dy: i32| g.world.props.iter().any(|&(at, p)| p == Prop::Fence && at == (px + dx, py + dy));
-                fb.rect_fill(x + 6, y + 3, 4, 12, WOOD + 2);
-                fb.rect_fill(x + 6, y + 3, 4, 1, WOOD + 3);
-                for (dx, rx) in [(-1, 0), (1, 10)] {
-                    if fence(dx, 0) {
-                        fb.rect_fill(x + rx, y + 6, 6, 2, WOOD + 1);
-                        fb.rect_fill(x + rx, y + 11, 6, 2, WOOD + 1);
-                    }
-                }
-                // Up and down, a rail joins the posts.
-                if fence(0, -1) {
-                    fb.rect_fill(x + 7, y, 2, 3, WOOD + 1);
-                }
-                // A rail down to the next post south, which the next row's post overlaps.
-                if fence(0, 1) {
-                    fb.rect_fill(x + 7, y + 15, 2, 4, WOOD + 1);
-                }
-            }
-        }
+        draw_prop(g, sp, fb, v, (px, py), prop);
     }
     for &(px, py) in g.world.plaques.iter().filter(|&&(x, y)| v.sees(x, y)) {
         let (x, y) = v.px(px, py);
@@ -945,6 +928,165 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
         for (k, h) in [5, 3, 1].iter().enumerate() {
             let col = ax + if dir > 0 { k as i32 } else { 2 - k as i32 };
             fb.rect_fill(col, y - 8 + 3 - h / 2, 1, *h, SPARK + 2);
+        }
+    }
+}
+
+/// A piece of scenery: whole on its tiles, or joined to its neighbors of the same kind.
+fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (i32, i32), prop: Prop) {
+    let k = prop.kind();
+    let (x, y) = v.px(px, py);
+    let joins = |id: &str, dx: i32, dy: i32| g.world.prop_at(px + dx, py + dy).is_some_and(|(_, p)| p.0 == id || (id == "rails" && p.0 == "mine_cart"));
+    match k.id {
+        "fence" => {
+            // A post, with rails to the fence on either side.
+            fb.rect_fill(x + 6, y + 3, 4, 12, WOOD + 2);
+            fb.rect_fill(x + 6, y + 3, 4, 1, WOOD + 3);
+            for (dx, rx) in [(-1, 0), (1, 10)] {
+                if joins("fence", dx, 0) {
+                    fb.rect_fill(x + rx, y + 6, 6, 2, WOOD + 1);
+                    fb.rect_fill(x + rx, y + 11, 6, 2, WOOD + 1);
+                }
+            }
+            // Up and down, a rail joins the posts.
+            if joins("fence", 0, -1) {
+                fb.rect_fill(x + 7, y, 2, 3, WOOD + 1);
+            }
+            // A rail down to the next post south, which the next row's post overlaps.
+            if joins("fence", 0, 1) {
+                fb.rect_fill(x + 7, y + 15, 2, 4, WOOD + 1);
+            }
+        }
+        "stone_wall" => {
+            // A low wall of dressed stone: a block here, and courses out to each neighbor.
+            let (l, r, u, d) = (joins("stone_wall", -1, 0), joins("stone_wall", 1, 0), joins("stone_wall", 0, -1), joins("stone_wall", 0, 1));
+            if u || d {
+                let (a, b) = (if u { 0 } else { 4 }, if d { 16 } else { 13 });
+                fb.rect_fill(x + 4, y + a, 8, b - a, OUTLINE);
+                fb.rect_fill(x + 5, y + a, 6, b - a, HUD_HI);
+                fb.rect_fill(x + 9, y + a, 2, b - a, HUD_MID);
+                for jy in (a..b).filter(|jy| (jy + py * TS) % 6 == 0) {
+                    fb.rect_fill(x + 5, y + jy, 6, 1, HUD_FILL);
+                }
+            }
+            if l || r || !(u || d) {
+                let (a, b) = (if l { 0 } else { 3 }, if r { 16 } else { 13 });
+                fb.rect_fill(x + a, y + 4, b - a, 9, OUTLINE);
+                fb.rect_fill(x + a, y + 5, b - a, 3, HUD_HI);
+                fb.rect_fill(x + a, y + 8, b - a, 4, HUD_MID);
+                for jx in (a..b).filter(|jx| (jx + px * TS) % 6 == 0) {
+                    fb.rect_fill(x + jx, y + 8, 1, 4, HUD_FILL);
+                }
+            }
+        }
+        "rails" | "mine_cart" => {
+            // Two iron rails on wooden sleepers, with a stop block where they end.
+            let (l, r) = (joins("rails", -1, 0), joins("rails", 1, 0));
+            let (a, b) = (if l { 0 } else { 2 }, if r { 16 } else { 14 });
+            for sx in (a..b).filter(|sx| sx % 4 == 1) {
+                fb.rect_fill(x + sx, y + 6, 2, 8, WOOD + 1);
+            }
+            for ry in [7, 12] {
+                fb.rect_fill(x + a, y + ry, b - a, 1, HUD_HI);
+                fb.rect_fill(x + a, y + ry + 1, b - a, 1, HUD_FILL);
+            }
+            for (end, bx) in [(l, 0), (r, 13)] {
+                if !end {
+                    fb.rect_fill(x + bx, y + 6, 3, 9, OUTLINE);
+                    fb.rect_fill(x + bx + 1, y + 7, 1, 7, WOOD + 2);
+                }
+            }
+            if k.id == "mine_cart" {
+                if let Some(s) = sp.prop(k.id, 0) {
+                    fb.blit(s, x + (TS - s.w) / 2, y + TS - 2 - s.h, false);
+                }
+            }
+        }
+        "washing_line" => {
+            // A post at each end, the line between, and laundry pegged along it.
+            let (l, r) = (joins("washing_line", -1, 0), joins("washing_line", 1, 0));
+            for (end, ex) in [(l, 2), (r, 12)] {
+                if !end {
+                    fb.rect_fill(x + ex - 1, y + 1, 4, 15, OUTLINE);
+                    fb.rect_fill(x + ex, y + 2, 2, 13, WOOD + 2);
+                }
+            }
+            let (a, b) = (if l { 0 } else { 4 }, if r { 16 } else { 12 });
+            fb.rect_fill(x + a, y + 3, b - a, 1, TEXT_DIM);
+            if l || r {
+                let (cx, cy) = (x + if l && r { 5 } else if r { 6 } else { 4 }, y + 4);
+                match hash(px, py) % 3 {
+                    0 => {
+                        // A shirt.
+                        fb.rect_fill(cx - 1, cy - 1, 8, 8, OUTLINE);
+                        fb.rect_fill(cx, cy, 6, 6, COTTON + 2);
+                        fb.rect_fill(cx, cy, 6, 1, COTTON + 1);
+                    }
+                    1 => {
+                        // Trousers.
+                        fb.rect_fill(cx - 1, cy - 1, 8, 10, OUTLINE);
+                        fb.rect_fill(cx, cy, 6, 3, WATER + 1);
+                        fb.rect_fill(cx, cy + 3, 2, 5, WATER + 1);
+                        fb.rect_fill(cx + 4, cy + 3, 2, 5, WATER + 1);
+                    }
+                    _ => {
+                        // A dyed cloth.
+                        fb.rect_fill(cx - 1, cy - 1, 7, 9, OUTLINE);
+                        fb.rect_fill(cx, cy, 5, 7, THREAD + 2);
+                        fb.rect_fill(cx, cy, 1, 7, COTTON + 2);
+                    }
+                }
+            }
+        }
+        "gate_post" => {
+            // A lacquered red post on a stone foot; the beam over the gate is overhead.
+            fb.rect_fill(x + 4, y, 8, 16, OUTLINE);
+            fb.rect_fill(x + 5, y, 6, 13, THREAD + 1);
+            fb.rect_fill(x + 5, y, 1, 13, THREAD + 2);
+            fb.rect_fill(x + 10, y, 1, 13, THREAD);
+            fb.rect_fill(x + 4, y + 12, 8, 4, HUD_MID);
+            fb.rect_fill(x + 4, y + 12, 8, 1, HUD_HI);
+        }
+        _ => {
+            let Some(s) = sp.prop(k.id, hash(px, py)) else { return };
+            let (fw, fh) = (k.size.0 * TS, k.size.1 * TS);
+            if !k.on_wall && k.size == (1, 1) && s.h < TS {
+                fb.rect_checker(x + 3, y + TS - 2, 10, 2, SHADOW);
+            }
+            fb.blit(s, x + (fw - s.w) / 2, y + fh + k.drop - s.h, false);
+        }
+    }
+}
+
+/// What hangs over everyone's heads: a gate's beam and roof between its two posts, two tiles
+/// apart, so whoever walks through the gate walks under it.
+fn draw_overhead(g: &Game, fb: &mut Framebuffer, v: &View) {
+    for &((px, py), prop) in g.world.props.iter().filter(|((x, y), p)| p.0 == "gate_post" && v.sees(*x, *y)) {
+        if g.world.prop_at(px + 2, py).is_none_or(|(_, p)| p != prop) {
+            continue;
+        }
+        let (x, y) = v.px(px, py);
+        // The tie beam between the posts, the lintel above with a gold plaque, and a tiled roof
+        // whose eaves turn up at the ends.
+        fb.rect_fill(x + 10, y + 1, 28, 4, OUTLINE);
+        fb.rect_fill(x + 10, y + 2, 28, 2, THREAD + 1);
+        fb.rect_fill(x - 2, y - 8, 52, 7, OUTLINE);
+        fb.rect_fill(x - 1, y - 7, 50, 5, THREAD + 1);
+        fb.rect_fill(x - 1, y - 7, 50, 1, THREAD + 2);
+        fb.rect_fill(x + 19, y - 9, 10, 9, OUTLINE);
+        fb.rect_fill(x + 20, y - 8, 8, 7, SPARK + 1);
+        fb.rect_fill(x + 21, y - 6, 6, 1, SPARK);
+        fb.rect_fill(x + 21, y - 4, 6, 1, SPARK);
+        fb.rect_fill(x - 4, y - 15, 56, 7, OUTLINE);
+        fb.rect_fill(x - 3, y - 14, 54, 5, HUD_FILL);
+        fb.rect_fill(x - 3, y - 14, 54, 1, HUD_MID);
+        for tx in (0..54).step_by(4) {
+            fb.rect_fill(x - 3 + tx, y - 12, 1, 3, HUD_SHADOW);
+        }
+        for (ex, dir) in [(x - 4, -1), (x + 51, 1)] {
+            fb.rect_fill(ex, y - 18, 1, 4, OUTLINE);
+            fb.rect_fill(ex + dir, y - 19, 1, 3, OUTLINE);
+            fb.pset(ex, y - 17, HUD_MID);
         }
     }
 }
@@ -1142,17 +1284,22 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 let (ox, oy) = Slide::offset(m.slide);
                 let (tx, ty) = v.px(m.x, m.y);
                 fb.rect_checker(tx + ox + 3, ty + TS + oy - 2, 10, 2, SHADOW);
-                if m.worker.is_some() {
-                    // A working townsperson: weathered, in leather tones.
-                    blit_tinted(fb, s, x, y, flip, ramp_named("mat").map(|to| Tint { from: (GOBLIN, 3), to }));
+                if let Some(w) = m.worker.and_then(|n| g.world.workers.get(n)) {
+                    // A working townsperson: weathered, in their trade's own tones (leather, soot).
+                    blit_tinted(fb, s, x, y, flip, Some(Tint { from: (GOBLIN, 3), to: w.skin }));
                 } else {
                     fb.blit(s, x, y, flip);
                 }
-                // What it holds, a tool in each hand that's full: a handle and its head.
+                // What it holds, a tool in each hand that's full: a handle and its head, a
+                // shovel's blade at the bottom.
                 for (h, held) in m.hands.iter().enumerate() {
-                    if held.is_some() {
-                        let hx = if (h == 0) != flip { x + s.w - 3 } else { x + 2 };
-                        fb.rect_fill(hx, y + s.h - 9, 1, 6, WOOD + 2);
+                    let Some(held) = held else { continue };
+                    let hx = if (h == 0) != flip { x + s.w - 3 } else { x + 2 };
+                    fb.rect_fill(hx, y + s.h - 9, 1, 6, WOOD + 2);
+                    if g.data.try_good(&held.good).is_some_and(|t| t.type_tags.iter().any(|t| t == "shovel")) {
+                        fb.rect_fill(hx - 1, y + s.h - 4, 3, 2, TEXT_DIM);
+                        fb.pset(hx - 1, y + s.h - 4, HUD_HI);
+                    } else {
                         fb.rect_fill(hx - 1, y + s.h - 10, 3, 1, TEXT_DIM);
                     }
                 }

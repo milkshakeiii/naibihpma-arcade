@@ -6222,6 +6222,7 @@
       "name": "Pick",
       "primary_applied_skill": "blacksmithing",
       "production_time": 300,
+      "raw_material_density": 150,
       "relevant_ability_score": 0,
       "requires_workshop": true,
       "secondary_applied_skills": [
@@ -7891,7 +7892,7 @@
       "primary_applied_skill": "blacksmithing",
       "production_time": 600,
       "quantity": 1,
-      "raw_material_density": 300,
+      "raw_material_density": 130,
       "relevant_ability_score": 0,
       "requires_workshop": true,
       "secondary_applied_skills": [

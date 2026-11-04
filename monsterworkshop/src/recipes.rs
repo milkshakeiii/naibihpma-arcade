@@ -24,6 +24,15 @@ pub(crate) fn one(name: &str) -> String {
     }
 }
 
+/// "A PICK AND A SHOVEL", "OIL, MORTAR AND BEESWAX": a list as it's said.
+pub(crate) fn and_list(parts: &[String]) -> String {
+    match parts.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} AND {last}", rest.join(", ")),
+    }
+}
+
 /// "2 LOGS", "2 PLANKS", "3 ARROW BAMBOO": several of a name.
 fn several(n: usize, name: &str) -> String {
     let last = name.rsplit(' ').next().unwrap_or(name);
@@ -173,12 +182,22 @@ impl Game {
 
     /// What craftsman `t` says to commune `k`'s player now: a thoughtful "HMM..." when someone
     /// works near his door, and the idea it's their turn for.
-    /// What a working townsperson says, facing them: what their bench makes from what (so
-    /// watching them teaches it), then their own words, one at a time; Space asks for the next.
+    /// What a working townsperson says, facing them: what their bench makes from what, and what
+    /// gathering from their plants takes in hand (so watching them teaches it), then their own
+    /// words, one at a time; Space asks for the next.
     pub(crate) fn worker_says(&self, j: usize, k: usize) -> Vec<String> {
         let Some(w) = self.monsters[j].worker.and_then(|n| self.world.workers.get(n)) else { return Vec::new() };
-        let bench = self.world.shops.iter().position(|s| s.owner == Some(self.monsters[j].id));
+        let id = Some(self.monsters[j].id);
+        let bench = self.world.shops.iter().position(|s| s.owner == id);
         let mut lines: Vec<String> = bench.map(|s| self.offers(s)).unwrap_or_default().iter().map(|r| format!("{} TAKES {}.", one(&self.good_name(r)), self.inputs_text(self.data.good(r)))).collect();
+        let mut gathers: Vec<&str> = self.world.plants.iter().filter(|p| p.owner == id).map(|p| p.good.as_str()).collect();
+        gathers.dedup();
+        for good in gathers {
+            let tools: Vec<String> = self.data.good(good).tools_required_tags.iter().filter(|t| !t.is_empty()).map(|t| one(&self.describe_type(t))).collect();
+            if !tools.is_empty() {
+                lines.push(format!("{} TAKES {} IN HAND.", crate::inspect::plant_name(&self.data, good), and_list(&tools)));
+            }
+        }
         lines.extend(w.says.iter().map(|s| s.to_string()));
         let n = self.communes[k].idea_turn % lines.len().max(1);
         lines.into_iter().nth(n).into_iter().collect()
@@ -189,10 +208,10 @@ impl Game {
         let tf = &self.world.townsfolk[t];
         let stall = (0..self.world.shops.len()).filter(|&s| self.world.shops[s].kind.trades()).min_by_key(|&s| (self.world.shops[s].spot.0 - tf.x).abs() + (self.world.shops[s].spot.1 - tf.y).abs());
         let names: Vec<String> = stall.map(|s| self.offers(s)).unwrap_or_default().iter().map(|r| self.good_name(self.data.good(r).output())).collect();
-        let Some((last, rest)) = names.split_last() else {
+        if names.is_empty() {
             return vec!["YOU MAKE EVERYTHING I'VE GOT NOW. I'LL BE HEADING HOME.".into()];
-        };
-        let list = if rest.is_empty() { last.clone() } else { format!("{} AND {last}", rest.join(", ")) };
+        }
+        let list = and_list(&names);
         vec![format!("I'VE GOT {list} FROM THE HILLS, FOR YOUR CLOTH, THREAD AND ROPE. PUT THEM ON MY COUNTER.")]
     }
 

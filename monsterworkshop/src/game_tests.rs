@@ -1313,7 +1313,7 @@ fn a_monster_takes_gathering_tools_in_hand_and_needs_them_to_gather() {
     let c = g.communes[0].controlled;
     // Oyster lime wants a hammer and a chisel to knock it loose.
     let regrow = 10;
-    g.world.plants.push(Plant { x: 20, y: 13, good: "oyster_lime".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
+    g.world.plants.push(Plant { x: 20, y: 13, good: "oyster_lime".into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0, owner: None });
     (g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (20, 13, Dir::Down);
     g.script("u");
     assert!(said(&g, c).contains("MISSING A TOOL"), "{}", said(&g, c));
@@ -1327,7 +1327,11 @@ fn a_monster_takes_gathering_tools_in_hand_and_needs_them_to_gather() {
     assert!(said(&g, c).contains("TAKES THE METAL CHISEL"), "{}", said(&g, c));
     g.world.items.push(Item::new(26, 13, tool(&g, "stone_hammer")));
     g.script("u");
-    assert!(said(&g, c).contains("MY HANDS ARE FULL") && g.world.item_at(26, 13).is_some());
+    assert!(said(&g, c).contains("I'VE GOT A STONE HAMMER ALREADY") && g.world.item_at(26, 13).is_some(), "{}", said(&g, c));
+    g.world.items.retain(|it| (it.x, it.y) != (26, 13));
+    g.world.items.push(Item::new(26, 13, tool(&g, "shovel")));
+    g.script("u");
+    assert!(said(&g, c).contains("MY HANDS ARE FULL") && g.world.item_at(26, 13).is_some(), "{}", said(&g, c));
     g.world.items.retain(|it| (it.x, it.y) != (26, 13));
     // A log is no tool: Space leaves it be.
     g.world.items.push(Item::new(26, 13, ItemData { good: "oak_log".into(), ..tool(&g, "oak_log") }));
@@ -1579,6 +1583,133 @@ fn a_bell_cast_from_traded_goods_hangs_rings_for_everyone_and_is_remembered() {
     assert!(!g.world.boards[frame].done(), "it takes a new bell");
 }
 
+/// A good as plainly made as a test needs, carrying no variety.
+fn plain_good(g: &Game, id: &str) -> ItemData {
+    ItemData { good: id.into(), carried_tags: Vec::new(), ..tool(g, id) }
+}
+
+/// Monster `c` trades what's on the stall's pads, then takes what it gives off the mat into a
+/// free hand, standing beside the mat.
+fn trade_and_take(g: &mut Game, stall: usize, gives: &[&str], recipe: &str) {
+    let c = g.communes[0].controlled;
+    let (spot, pads, out) = (g.world.shops[stall].spot, g.world.shops[stall].pads.clone(), g.world.shops[stall].outs[0]);
+    for (&id, &(x, y)) in gives.iter().zip(&pads) {
+        g.world.items.push(Item::new(x, y, plain_good(g, id)));
+    }
+    assert_eq!(g.aim(stall, &|_| true).recipe, recipe, "{gives:?}");
+    stand(g, spot, Dir::Up);
+    g.script("u");
+    g.run_ticks(60);
+    let made = g.data.good(recipe).output().to_string();
+    assert!(g.world.item_at(out.0, out.1).is_some_and(|it| g.world.items[it].good() == made), "the {made} on the mat: {}", said(g, c));
+    let beside = DIRS.iter().copied().find(|d| {
+        let (dx, dy) = d.delta();
+        let at = (out.0 - dx, out.1 - dy);
+        g.world.walkable(at.0, at.1) && g.world.shop_at_spot(at.0, at.1).is_none() && g.world.item_at(at.0, at.1).is_none()
+    });
+    let d = beside.expect("room beside the mat");
+    stand(g, (out.0 - d.delta().0, out.1 - d.delta().1), d);
+    g.script("u");
+    assert!(g.monsters[c].hands.iter().flatten().any(|h| h.good == made), "{made} in hand: {}", said(g, c));
+}
+
+/// Harvests the plant monster `c` stands on, facing down, and waits for it.
+fn dig(g: &mut Game, p: usize) -> String {
+    let c = g.communes[0].controlled;
+    let (x, y) = (g.world.plants[p].x, g.world.plants[p].y);
+    g.world.items.retain(|it| (it.x, it.y) != (x, y + 1));
+    (g.world.plants[p].growth, g.world.plants[p].stock) = (g.world.plants[p].regrow, Vec::new());
+    stand(g, (x, y), Dir::Down);
+    g.script("u");
+    let said_then = said(g, c);
+    for _ in 0..2000 {
+        if g.world.plants[p].harvest.is_none() {
+            break;
+        }
+        g.run_ticks(1);
+    }
+    format!("{said_then} / {}", said(g, c))
+}
+
+#[test]
+fn coal_is_dug_with_a_traded_pick_and_shovel_in_hand_which_wear_and_break() {
+    let mut g = Game::new();
+    let c = g.communes[0].controlled;
+    let stall = g.world.shops.iter().position(|s| s.kind.trades()).expect("the trader's stall");
+    let offers = g.offers(stall);
+    assert!(offers.contains(&"trade_pick") && offers.contains(&"trade_shovel"), "nobody makes them yet: {offers:?}");
+    assert!(!offers.iter().any(|r| g.data.good(r).output() == "coke"), "the kiln makes coke, from coal");
+    let seam = g.world.plants.iter().position(|p| p.good == "coal" && p.owner.is_none()).expect("a seam for anyone");
+    assert_eq!(crate::world::area_name(g.world.plants[seam].x, g.world.plants[seam].y), "TEMPLE TOWN");
+    // Without tools, nothing, and its card says what it takes.
+    assert!(dig(&mut g, seam).contains("MISSING A TOOL: PICK."), "{}", said(&g, c));
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "MISSING A TOOL: PICK.") && has_line(&card, "IT TAKES A PICK AND A SHOVEL IN HAND."), "{:?}", card.lines().map(|l| l.text.clone()).collect::<Vec<_>>());
+    // Two rope for a pick, a rope and a thread for a shovel, each taken in hand off the mat.
+    trade_and_take(&mut g, stall, &["rope", "rope"], "trade_pick");
+    trade_and_take(&mut g, stall, &["rope", "thread"], "trade_shovel");
+    let at = (g.world.plants[seam].x, g.world.plants[seam].y);
+    stand(&mut g, at, Dir::Down);
+    assert!(!has_line(&crate::inspect::card(&g, 0), "MISSING A TOOL"), "both in hand");
+    // With both, it digs coal, and each wears by its weight.
+    dig(&mut g, seam);
+    assert!(g.communes[0].made.contains("coal"), "dug: {}", said(&g, c));
+    assert!(g.monsters[c].hands.iter().flatten().all(|t| t.wear == 3), "a pick and a shovel each wear 3 a dig");
+    // Worn through, the pick breaks, and the seam waits for another.
+    for t in g.monsters[c].hands.iter_mut().flatten().filter(|t| t.good == "pick") {
+        t.wear = crate::econ::TOOL_DURABILITY - 1;
+    }
+    let got = dig(&mut g, seam);
+    assert!(got.contains("MY PICK BROKE"), "{got}");
+    assert!(g.monsters[c].hands.iter().flatten().all(|t| t.good == "shovel"), "only the shovel left");
+    assert!(dig(&mut g, seam).contains("MISSING A TOOL: PICK."), "{}", said(&g, c));
+}
+
+#[test]
+fn the_kiln_bakes_coal_into_coke_even_with_a_log_for_fuel() {
+    let mut g = Game::new();
+    let kiln = g.world.shops.iter().position(|s| s.kind.label() == "KILN").expect("Tanglemere's kiln");
+    let pads = g.world.shops[kiln].pads.clone();
+    for (id, &(x, y)) in ["coal", "oak_log"].iter().zip(&pads) {
+        g.world.items.push(Item::new(x, y, plain_good(&g, id)));
+    }
+    assert_eq!(g.aim(kiln, &|_| true).recipe, "coke", "brought coal means coke, not charcoal from the log");
+}
+
+/// Old Soot, the collier, and his order board.
+fn old_soot(g: &Game) -> (usize, usize) {
+    let soot = g.monsters.iter().position(|m| m.name == "OLD SOOT").expect("Old Soot");
+    (soot, g.world.boards.iter().position(|b| b.wants == "coal").expect("his order board"))
+}
+
+#[test]
+fn old_soot_digs_his_own_end_of_the_seam_and_his_tools_never_wear() {
+    let mut g = Game::new();
+    let (soot, order) = old_soot(&g);
+    let id = Some(g.monsters[soot].id);
+    let his: Vec<usize> = (0..g.world.plants.len()).filter(|&p| g.world.plants[p].owner == id).collect();
+    assert_eq!(his.len(), 2, "two seams of his own");
+    assert!(g.world.plants.iter().filter(|p| p.good == "coal" && p.owner.is_none()).count() >= 3, "and more for anyone");
+    let says = (0..4).flat_map(|k| { g.communes[0].idea_turn = k; g.worker_says(soot, 0) }).collect::<Vec<_>>().join(" ");
+    assert!(says.contains("COAL SEAM TAKES A PICK AND A SHOVEL IN HAND."), "{says}");
+    let mut filled = false;
+    for _ in 0..6000 {
+        g.run_ticks(1);
+        filled |= g.world.boards[order].done();
+    }
+    assert!(filled, "six coal filled his order: at goal {}, {:?}", g.monsters[soot].pc, g.monsters[soot].wait_reason);
+    assert!(g.monsters[soot].hands.iter().all(|h| h.as_ref().is_some_and(|t| t.wear == 0)), "a pick and a shovel, unworn");
+    // His seam is his.
+    g.monsters[soot].playing = false;
+    let c = g.communes[0].controlled;
+    let p = his[0];
+    let at = (g.world.plants[p].x, g.world.plants[p].y);
+    stand(&mut g, at, Dir::Down);
+    g.monsters[c].hands = [Some(tool(&g, "pick")), Some(tool(&g, "shovel"))];
+    g.script("u");
+    assert!(said(&g, c).contains("THAT'S OLD SOOT'S OWN COAL SEAM"), "{}", said(&g, c));
+}
+
 /// Old Spoke, and his order board.
 fn old_spoke(g: &Game) -> (usize, usize) {
     (g.monsters.iter().position(|m| m.worker.is_some()).expect("Old Spoke"), g.world.boards.iter().position(|b| b.project == Project::Order).expect("his order board"))
@@ -1719,23 +1850,176 @@ fn every_pad_peg_and_mat_is_nearer_its_own_bench_than_any_other() {
 }
 
 /// And every working townsperson's loop is short and stays in their yard: their first good
-/// delivered within forty seconds of a new world, never more than six tiles from their bench.
+/// delivered to their order board within forty seconds of a new world, never more than six
+/// tiles from their bench (or, gathering, their first plant).
 #[test]
 fn a_working_townsperson_delivers_soon_and_stays_by_their_bench() {
     let mut g = Game::new();
     let workers: Vec<usize> = (0..g.monsters.len()).filter(|&i| g.monsters[i].worker.is_some()).collect();
-    assert!(!workers.is_empty());
-    let benches: Vec<(i32, i32)> = workers.iter().map(|&i| g.world.shops.iter().find(|s| s.owner == Some(g.monsters[i].id)).expect("their bench").spot).collect();
-    let mut first = None;
+    assert!(workers.len() >= 2, "Old Spoke and Old Soot");
+    let home = |g: &Game, i: usize| {
+        let id = Some(g.monsters[i].id);
+        let bench = g.world.shops.iter().find(|s| s.owner == id).map(|s| s.spot);
+        bench.or_else(|| g.world.plants.iter().find(|p| p.owner == id).map(|p| (p.x, p.y))).expect("their bench or plant")
+    };
+    let homes: Vec<(i32, i32)> = workers.iter().map(|&i| home(&g, i)).collect();
+    let boards: Vec<usize> = workers
+        .iter()
+        .map(|&i| {
+            let goals = &g.monsters[i].routine.as_ref().expect("their loop").goals;
+            let to = goals.iter().rev().find_map(|gl| if let Goal::Move { to, .. } = gl { Some(*to) } else { None }).expect("a delivery");
+            g.world.board_at(to.0, to.1).expect("their order board")
+        })
+        .collect();
+    let mut first = vec![None; workers.len()];
     for t in 1..=600 {
         g.run_ticks(1);
-        for (&i, &(bx, by)) in workers.iter().zip(&benches) {
-            let m = &g.monsters[i];
-            assert!((m.x - bx).abs().max((m.y - by).abs()) <= 6, "{} is at {:?}, far from their bench at {:?}", m.name, (m.x, m.y), (bx, by));
-        }
-        if first.is_none() && g.world.boards.iter().any(|b| b.project == Project::Order && b.have > 0) {
-            first = Some(t);
+        for (n, &i) in workers.iter().enumerate() {
+            let (m, (hx, hy)) = (&g.monsters[i], homes[n]);
+            assert!((m.x - hx).abs().max((m.y - hy).abs()) <= 6, "{} is at {:?}, far from home at {:?}", m.name, (m.x, m.y), (hx, hy));
+            if first[n].is_none() && g.world.boards[boards[n]].have > 0 {
+                first[n] = Some(t);
+            }
         }
     }
-    assert!(first.is_some(), "a first wheel within forty seconds");
+    for (n, &i) in workers.iter().enumerate() {
+        assert!(first[n].is_some(), "{}'s first good within forty seconds", g.monsters[i].name);
+    }
+}
+
+/// Temple Town's layout (rebuilt 2026-11-03 from the image model's variants): a bell cast at the
+/// foundry can be pushed out of its door, along the road, through the temple's gate and its door,
+/// and into its frame, by a loop as by a player.
+#[test]
+fn a_bell_from_the_foundry_can_be_pushed_through_the_gate_into_the_temples_frame() {
+    let mut g = Game::new();
+    let foundry = g.world.shops.iter().position(|s| s.kind.label() == "FOUNDRY").expect("the foundry");
+    let out = g.world.shops[foundry].outs[0];
+    let frame = g.world.boards.iter().find(|b| b.project == Project::Bell).map(|b| (b.x, b.y)).expect("the bell frame");
+    let bell = crate::econ::plain(&g.data, "temple_bell", "copper_ingot");
+    g.world.items.push(Item::new(out.0, out.1, bell));
+    let below = (out.0, out.1 + 1);
+    start_loop(&mut g, 0, Routine { flag: below, goals: vec![Goal::Move { good: "temple_bell".into(), from: out, to: frame }] }, below);
+    let mut ticks = 0;
+    while g.world.bells.is_empty() && ticks < 15 * 240 {
+        g.run_ticks(1);
+        ticks += 1;
+    }
+    assert_eq!(g.world.bells.len(), 1, "hung: {} at {:?}, {:?}", g.monsters[0].name, (g.monsters[0].x, g.monsters[0].y), g.monsters[0].wait_reason);
+    assert!(ticks > 15 * 20, "it was pushed the whole way, which takes a while: {ticks} ticks");
+}
+
+#[test]
+fn taking_a_tool_while_recording_is_part_of_the_routine() {
+    let mut g = Game::new();
+    stand(&mut g, (25, 13), Dir::Right);
+    g.world.items.push(Item::new(26, 13, tool(&g, "pick")));
+    g.script("ru");
+    let goals = &g.monsters[0].rec.as_ref().expect("recording").goals;
+    assert_eq!(goals, &vec![Goal::Take { good: "pick".into(), from: (26, 13) }]);
+    assert!(crate::inspect::goal_text(&g, &goals[0]).starts_with("TAKE A PICK FROM"), "{}", crate::inspect::goal_text(&g, &goals[0]));
+}
+
+/// A digger's loop re-arms itself: its pick breaks, it takes the spare it was shown, and digs
+/// on. Its shovel still has wear, so the spare shovel stays where it lies.
+#[test]
+fn a_loop_takes_a_spare_tool_when_its_own_breaks_and_leaves_spares_be_otherwise() {
+    let mut g = Game::new();
+    let seam = g.world.plants.iter().position(|p| p.good == "coal" && p.owner.is_none()).expect("a seam for anyone");
+    let (sx, sy) = (g.world.plants[seam].x, g.world.plants[seam].y);
+    let (pick_at, shovel_at) = ((sx, sy + 3), (sx + 1, sy + 3));
+    g.world.items.push(Item::new(pick_at.0, pick_at.1, tool(&g, "pick")));
+    g.world.items.push(Item::new(shovel_at.0, shovel_at.1, tool(&g, "shovel")));
+    let mut worn = tool(&g, "pick");
+    worn.wear = crate::econ::TOOL_DURABILITY - 3;
+    g.monsters[0].hands = [Some(worn), Some(tool(&g, "shovel"))];
+    let goals = vec![
+        Goal::Take { good: "pick".into(), from: pick_at },
+        Goal::Take { good: "shovel".into(), from: shovel_at },
+        Goal::Activate(Thing::Plant { at: (sx, sy), facing: Dir::Down }),
+    ];
+    start_loop(&mut g, 0, Routine { flag: (sx, sy + 2), goals }, (sx, sy + 2));
+    let (mut digs, mut digging) = (0, false);
+    for _ in 0..15 * 120 {
+        g.run_ticks(1);
+        // Clear the coal away and let the rock fill back in at once.
+        g.world.items.retain(|it| it.good() != "coal");
+        let plant = &mut g.world.plants[seam];
+        if plant.stock.is_empty() && plant.harvest.is_none() {
+            plant.growth = plant.regrow;
+        }
+        if plant.harvest.is_some() && !digging {
+            digs += 1;
+        }
+        digging = plant.harvest.is_some();
+        if digs >= 2 && !digging {
+            break;
+        }
+    }
+    assert!(digs >= 2, "dug {digs} times: {:?}", g.monsters[0].wait_reason);
+    assert!(g.world.item_at(pick_at.0, pick_at.1).is_none(), "the spare pick taken");
+    assert!(g.monsters[0].hands.iter().flatten().any(|t| t.good == "pick" && t.wear == 3), "the new pick, one dig worn: {:?}", g.monsters[0].hands);
+    assert!(g.world.item_at(shovel_at.0, shovel_at.1).is_some(), "the spare shovel left be");
+}
+
+/// Space beside tools turns to one: one not yet in hand before one that is, and a second of
+/// the same is refused. Between the test world's two tool bins, Space twice arms a digger.
+#[test]
+fn space_beside_tools_takes_one_not_yet_in_hand() {
+    let mut g = crate::temple_test_game();
+    let c = g.communes[0].controlled;
+    let chute = |g: &Game, tool: &str| g.world.bins.iter().find(|b| b.accepts == [tool]).and_then(|b| b.mouth).expect("a tool bin");
+    g.run_ticks(10);
+    let (p, s) = (chute(&g, "pick"), chute(&g, "shovel"));
+    assert_eq!((p.1, s.0 - p.0), (s.1, 2), "the chutes, a tile apart");
+    stand(&mut g, (p.0 + 1, p.1), Dir::Up);
+    let held = |g: &Game| g.monsters[c].hands.iter().flatten().map(|t| t.good.clone()).collect::<Vec<_>>();
+    g.script("u");
+    g.run_ticks(10);
+    g.script("u");
+    let mut got = held(&g);
+    got.sort();
+    assert_eq!(got, ["pick", "shovel"], "{}", said(&g, c));
+    g.run_ticks(10);
+    g.script("u");
+    assert!(said(&g, c).contains("ALREADY"), "a second is no use: {}", said(&g, c));
+}
+
+/// Whatever a plant in play asks for in hand, a goblin and a cyclops can hold together, made
+/// of anything (a pick from copper weighed more than a goblin can carry, 2026-11-03).
+#[test]
+fn the_tools_a_plant_asks_for_fit_together_in_a_goblins_and_a_cyclopss_hands() {
+    let g = Game::new();
+    for p in &g.world.plants {
+        let groups = &g.data.good(&p.good).tools_required_tags;
+        let weight: f64 = groups
+            .iter()
+            .filter(|t| !t.is_empty())
+            .map(|t| {
+                let tool = g.data.goods.iter().find(|x| crate::data::matches(&x.type_tags, t)).expect("a good for the tool");
+                ["copper_ingot", "oak_log", "limestone"].iter().map(|from| crate::econ::weight(tool, &crate::econ::plain(&g.data, &tool.id, from))).fold(0.0, f64::max)
+            })
+            .sum();
+        for kind in ["goblin", "cyclops"] {
+            let cap = g.data.monster_types[kind].body_cap as f64;
+            assert!(weight <= cap, "a {kind} can't hold what the {} asks for: {weight} of {cap}", p.good);
+        }
+    }
+}
+
+/// A loop delivering to an order that's filled and resting waits, saying so plainly, rather than
+/// trying to push it in and giving up ("I CAN'T GET THE COAL THERE", Henry, 2026-11-03).
+#[test]
+fn a_loop_delivering_to_a_filled_order_waits_saying_so() {
+    let mut g = Game::new();
+    let (_, order) = old_soot(&g);
+    let (bx, by) = (g.world.boards[order].x, g.world.boards[order].y);
+    let board = &mut g.world.boards[order];
+    (board.have, board.rest) = (board.need, 15 * 600);
+    let from = (bx + 3, by);
+    g.world.items.push(Item::new(from.0, from.1, plain_good(&g, "coal")));
+    start_loop(&mut g, 0, Routine { flag: (bx + 4, by), goals: vec![Goal::Move { good: "coal".into(), from, to: (bx, by) }] }, (bx + 4, by));
+    g.run_ticks(60);
+    assert!(g.monsters[0].wait_reason.contains("OLD SOOT'S ORDER IS FILLED. A NEW ONE SOON."), "{}", g.monsters[0].wait_reason);
+    assert_eq!(g.world.item_at(from.0, from.1).map(|k| g.world.items[k].good().to_string()), Some("coal".into()), "the coal left where it lies");
 }

@@ -25,18 +25,18 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // `F` where the footbridge starts, at the west bank  `s` signpost  `b` project board
 // `X` water where the bridge will go  `U` the town wagon  `P` its pumpkin
 // `Z` the builders' bench's work spot (`B` an ordinary bench's)
-// Scenery props: `Q` spare wheels  `x` fence  `y` half-built cart  `i` barrel  `t` chopping
-// block  `z` sawhorse  `d` lumber stacked to season
+// Scenery: each kind's own character, in `PROPS` below (`Q` spare wheels, `x` fence, `^` the
+// hillside...)
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
-// `q` ramie  `n` indigofera  `l` limestone outcrop
+// `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam
 // Work spots are marked by their kind's `map_char` in `data/workshops.json` (`B` workbench,
 // `S` spinnery, `L` loom house...). Each `p` pad, `g` tool peg and `o` output mat belongs to the
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNQxyitzd";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -57,11 +57,16 @@ struct Region {
 }
 
 /// A working townsperson as a region's data gives them: a monster of the town's on a loop at a
-/// bench of their own (see `Game::found_town`).
+/// bench or plants of their own (see `Game::found_town`).
 pub struct WorkerSpec {
     pub name: &'static str,
     /// What they are: "WAGONWRIGHT".
     pub title: &'static str,
+    /// The ramp their skin is drawn in instead of their kind's: leather, soot.
+    pub skin: (u8, u8),
+    /// The tools in their hands, each plainly made from a raw material (good, from). Their own
+    /// tools never wear, as a town's workshops never do.
+    pub holds: &'static [(&'static str, &'static str)],
     /// Their card's lines, and what they say, one at a time (after what their bench makes).
     pub about: &'static [&'static str],
     pub says: &'static [&'static str],
@@ -77,6 +82,8 @@ pub enum Task {
     Move(&'static str, (i32, i32), (i32, i32)),
     /// Work the bench whose spot this is.
     Work((i32, i32)),
+    /// Gather from the plant here, facing this way (where its harvest is set out).
+    Gather((i32, i32), Dir),
 }
 
 /// A working townsperson in the world: their spec, where they start, and their loop in world
@@ -85,6 +92,8 @@ pub enum Task {
 pub struct Worker {
     pub name: &'static str,
     pub title: &'static str,
+    pub skin: (u8, u8),
+    pub holds: &'static [(&'static str, &'static str)],
     pub about: &'static [&'static str],
     pub says: &'static [&'static str],
     pub skills: &'static [(&'static str, f64)],
@@ -104,17 +113,93 @@ pub struct Supply {
     pub timer: u32,
 }
 
-/// Scenery in a yard: you walk round it, and examining it says what it is.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Prop {
-    Wheels,
-    Cart,
-    Fence,
-    Barrel,
-    ChoppingBlock,
-    Sawhorse,
-    Lumber,
+/// Scenery: you walk round it, and examining it says what it is. Its kind's id (`PROPS`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Prop(pub &'static str);
+
+impl Prop {
+    pub fn kind(self) -> &'static PropKind {
+        PROPS.iter().find(|k| k.id == self.0).unwrap_or_else(|| panic!("no prop kind {}", self.0))
+    }
 }
+
+/// A kind of scenery: what it's called and says, and how much of the map it takes.
+pub struct PropKind {
+    pub id: &'static str,
+    /// Its map character, on every tile it covers: a bench is `--`.
+    pub ch: char,
+    pub name: &'static str,
+    pub about: &'static str,
+    /// A good its card tells how to make, the real thing it stands for (spare wheels: a wheel).
+    pub shows: Option<&'static str>,
+    /// Tiles across and down.
+    pub size: (i32, i32),
+    /// Hung on a building's wall, which stays a wall under it.
+    pub on_wall: bool,
+    /// How far its art reaches below its tiles, in pixels: a chain hanging from a wall into the
+    /// room. Art taller than its tiles reaches up instead (a chimney over the roof).
+    pub drop: i32,
+}
+
+const fn prop(id: &'static str, ch: char, name: &'static str, about: &'static str, size: (i32, i32)) -> PropKind {
+    PropKind { id, ch, name, about, shows: None, size, on_wall: false, drop: 0 }
+}
+
+const fn wall_prop(id: &'static str, ch: char, name: &'static str, about: &'static str, drop: i32) -> PropKind {
+    PropKind { id, ch, name, about, shows: None, size: (1, 1), on_wall: true, drop }
+}
+
+/// Every kind of scenery. Fences, stone walls, rails, washing lines, gate posts and the hillside
+/// join their neighbors of the same kind; the rest is drawn whole on its tiles.
+pub const PROPS: [PropKind; 42] = [
+    PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
+    PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
+    prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
+    prop("barrel", 'i', "A BARREL", "RAINWATER, KEPT FOR WHATEVER NEEDS SOAKING OR COOLING.", (1, 1)),
+    prop("chopping_block", 't', "A CHOPPING BLOCK", "AN AXE LEFT IN IT. GOOD SPOKES ARE SPLIT ALONG THE GRAIN, NOT SAWN.", (1, 1)),
+    prop("sawhorse", 'z', "A SAWHORSE", "IT HOLDS A PLANK STEADY WHILE IT'S SAWN.", (1, 1)),
+    prop("lumber", 'd', "STACKED PLANKS", "SEASONING IN THE AIR. GREEN WOOD WARPS, SO A WHEEL WANTS IT DRY.", (1, 1)),
+    // Temple Town's (2026-11-03): the seam and the trader.
+    prop("rock_face", '^', "THE HILLSIDE", "SOLID ROCK. THE COAL SEAM RUNS ALONG ITS FOOT.", (1, 1)),
+    prop("mine_mouth", 'A', "AN OLD DRIFT", "A TUNNEL INTO THE HILL, SHORED UP WITH TIMBER. NOBODY DIGS IN THERE NOW.", (2, 2)),
+    prop("rails", '=', "RAILS", "FOR THE MINE CART, OUT OF THE OLD DRIFT.", (1, 1)),
+    prop("mine_cart", '&', "A MINE CART", "EMPTY. IT CARRIED COAL OUT OF THE DRIFT, WHEN THERE WAS COAL IN THERE.", (1, 1)),
+    prop("lantern_post", '!', "A LANTERN POST", "IT LIGHTS THE WAY HOME AFTER DARK.", (1, 1)),
+    prop("wheelbarrow", '%', "A WHEELBARROW", "FOR RUBBLE. COAL GETS PUSHED BY HAND, LIKE EVERYTHING HERE.", (1, 1)),
+    prop("tool_shed", '$', "THE COLLIER'S SHED", "SPARE HANDLES, A LAMP, AND A KETTLE FOR HIS TEA.", (2, 3)),
+    prop("crates", '[', "CRATES", "PACKED FOR THE ROAD, OR JUST UNPACKED.", (1, 1)),
+    prop("awning", '~', "THE TRADER'S AWNING", "STRIPED, SO YOU CAN SEE HIS STALL FROM THE ROAD.", (3, 1)),
+    prop("flowers", '*', "A FLOWER BED", "SOMEBODY TENDS IT EVERY MORNING.", (1, 1)),
+    prop("boulder", '@', "A BOULDER", "IT ROLLED DOWN FROM THE HILLS A LONG TIME AGO.", (1, 1)),
+    prop("big_tree", '(', "A GREAT TREE", "OLDER THAN THE TOWN. ITS SHADE IS FOR EVERYONE.", (3, 3)),
+    prop("shade_tree", 'E', "A SHADE TREE", "PLANTED FOR ITS SHADE, NOT ITS WOOD.", (2, 2)),
+    prop("bench", '-', "A BENCH", "FOR SITTING A WHILE.", (2, 1)),
+    // The foundry's.
+    prop("firewood", '+', "FIREWOOD", "SPLIT AND STACKED TO DRY, FOR SOMEBODY'S HEARTH.", (1, 1)),
+    prop("trough", ':', "A WATER TROUGH", "HOT METAL IS QUENCHED IN IT.", (2, 1)),
+    prop("anvil", ';', "AN ANVIL", "ON A STUMP, FOR TRIMMING CASTINGS. A SMITHY WOULD WANT ONE.", (1, 1)),
+    prop("hand_cart", '<', "A HAND CART", "FOR WHEELING MOULDS TO THE FURNACE.", (2, 1)),
+    wall_prop("chimney", '|', "THE FURNACE CHIMNEY", "IT DRAWS THE FURNACE HOT ENOUGH TO MELT BRONZE.", 0),
+    wall_prop("hoist", '{', "A CHAIN HOIST", "FOR LIFTING A BELL OUT OF ITS MOULD.", 8),
+    wall_prop("wall_lantern", '}', "A LANTERN", "IT LIGHTS THE WORK.", 0),
+    prop("moulds", '?', "BELL MOULDS", "CLAY, BUILT ROUND A CORE AND BAKED. EACH IS BROKEN TO FREE ITS BELL.", (1, 1)),
+    // The temple's garden.
+    prop("stone_wall", '/', "A STONE WALL", "AROUND THE TEMPLE'S GARDEN. WALK IN BY ITS GATES.", (1, 1)),
+    prop("gate_post", '"', "THE TEMPLE GATE", "IT MARKS WHERE THE TOWN ENDS AND THE TEMPLE'S GROUND BEGINS.", (1, 1)),
+    prop("stone_lantern", '8', "A STONE LANTERN", "LIT FOR EVERYONE WHO COMES TO HEAR THE BELL.", (1, 1)),
+    prop("incense_burner", '9', "AN INCENSE BURNER", "BRONZE, CAST IN THE FOUNDRY ACROSS THE ROAD.", (1, 1)),
+    prop("pond", ')', "A LILY POND", "STILL WATER AND LILIES. THE BELL'S RINGING CARRIES ACROSS IT.", (3, 3)),
+    prop("cherry_tree", '`', "A CHERRY TREE", "IN THE TEMPLE'S GARDEN IT BLOSSOMS ALL YEAR.", (2, 2)),
+    wall_prop("banner", '7', "A BANNER", "FOR THE BELLS THAT HAVE HUNG HERE.", 10),
+    prop("cushion", '3', "A CUSHION", "FOR SITTING AND LISTENING.", (1, 1)),
+    prop("candle", '4', "A CANDLE STAND", "KEPT LIT.", (1, 1)),
+    prop("drum", '5', "A DRUM", "IT ANSWERS THE BELL.", (1, 1)),
+    prop("altar", '6', "A SMALL ALTAR", "FLOWERS AND A BOWL OF WATER, CHANGED EACH DAY.", (1, 1)),
+    // The houses'.
+    prop("well", '>', "THE WELL", "COLD WATER, FOR ANYONE.", (2, 2)),
+    prop("washing_line", ']', "A WASHING LINE", "SOMEBODY'S LAUNDRY, DRYING IN THE SUN.", (1, 1)),
+];
+
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
@@ -149,11 +234,11 @@ const REGIONS: [Region; 4] = [
     Region {
         map: include_str!("../data/temple_town.map"),
         at: (75, 32),
-        labels: &[((12, 18), "TEMPLE")],
+        labels: &[((12, 22), "TEMPLE")],
         signs: &[],
-        boards: &[("THE TEMPLE BELL", "temple_bell", 1, Project::Bell)],
+        boards: &[("OLD SOOT'S ORDER", "coal", 6, Project::Order), ("THE TEMPLE BELL", "temple_bell", 1, Project::Bell)],
         supplies: &[],
-        workers: &[],
+        workers: &[OLD_SOOT],
     },
 ];
 
@@ -162,6 +247,8 @@ const REGIONS: [Region; 4] = [
 const OLD_SPOKE: WorkerSpec = WorkerSpec {
     name: "OLD SPOKE",
     title: "WAGONWRIGHT",
+    skin: (crate::palette::MAT, 3),
+    holds: &[("stone_hammer", "limestone")],
     about: &["HE MAKES WAGON WHEELS AT HIS OWN BENCH, FROM HIS OWN WOOD. WATCH HOW HE DOES IT.", "THE BENCH BY THE GATHERING HALL IS FOR ANYONE. HIS ORDER BOARD TAKES ANYONE'S WHEELS, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
     says: &["OAK MAKES THE STRONGEST SPOKES. NOTHING ELSE WILL DO FOR A WHEEL.", "TWO WHEELS, PLANKS, AN OAK LOG AND A PUMPKIN TO PULL IT: THAT'S A WAGON. THE BENCH BY THE HALL MAKES THOSE TOO.", "MY ORDERS TAKE ANYONE'S WHEELS. THERE'S ALWAYS A CART WANTING ONE."],
     skills: &[("wagon_wright", 0.8), ("carpentry", 0.6), ("hauling", 0.4)],
@@ -173,6 +260,26 @@ const OLD_SPOKE: WorkerSpec = WorkerSpec {
         Task::Move("elder_sticks", (19, 22), (18, 26)),
         Task::Work((19, 25)),
         Task::Move("wagon_wheel", (20, 25), (22, 25)),
+    ],
+};
+
+/// Temple Town's collier: he digs coal at his own end of the seam, a pick and a shovel in hand,
+/// and takes it to his order board for the foundry.
+const OLD_SOOT: WorkerSpec = WorkerSpec {
+    name: "OLD SOOT",
+    title: "COLLIER",
+    skin: (crate::palette::HUD_FILL, 3),
+    holds: &[("pick", "copper_ingot"), ("shovel", "copper_ingot")],
+    about: &["HE DIGS COAL AT HIS OWN END OF THE SEAM, A PICK AND A SHOVEL IN HAND. WATCH HOW HE DOES IT.", "THE REST OF THE SEAM IS FOR ANYONE WITH THE TOOLS. HIS ORDER BOARD TAKES ANYONE'S COAL, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
+    says: &["THE TRADER HAS PICKS AND SHOVELS. TAKE ONE IN EACH HAND, THEN STAND ON THE SEAM AND DIG.", "TOOLS WEAR DOWN AS YOU DIG. TAKE YOURS FROM A PILE OF SPARES WHILE YOU RECORD, AND THE LOOP FETCHES A NEW ONE THERE WHEN IT BREAKS.", "COAL BURNS HOTTER THAN WOOD. THE KILN BAKES IT INTO COKE, FOR CASTING."],
+    skills: &[("prospecting", 0.8), ("gathering", 0.6), ("hauling", 0.4)],
+    tasks: &[
+        Task::Gather((3, 2), Dir::Down),
+        Task::Move("coal", (3, 3), (3, 5)),
+        Task::Move("coal", (3, 3), (3, 5)),
+        Task::Gather((4, 2), Dir::Down),
+        Task::Move("coal", (4, 3), (3, 5)),
+        Task::Move("coal", (4, 3), (3, 5)),
     ],
 };
 
@@ -204,6 +311,7 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'n' => "indigofera_leaves",
         'l' => "limestone",
         'v' => "pumpkin",
+        'M' => "coal",
         _ => return None,
     })
 }
@@ -343,6 +451,10 @@ pub struct Plant {
     /// Where the goods come out: the tile the harvester faced, and that direction.
     pub drop: Option<((i32, i32), Dir)>,
     pub timer: u8,
+    /// The working townsperson whose it is (a monster's id): only they gather it, and what it
+    /// gives is theirs.
+    #[serde(default)]
+    pub owner: Option<u32>,
 }
 
 impl Plant {
@@ -700,8 +812,11 @@ impl World {
                     let (x, y) = (lx as i32 + ox, y as i32 + oy);
                     let street_next = row.as_bytes().get(lx + 1) == Some(&b',') || (lx > 0 && row.as_bytes()[lx - 1] == b',');
                     let shop_kind = ShopKind::by_map_char(ch);
+                    let prop_kind = PROPS.iter().find(|k| k.ch == ch);
                     let tile = match ch {
                         _ if shop_kind.is_some() => Tile::Spot,
+                        _ if prop_kind.is_some_and(|k| k.on_wall) => Tile::Wall,
+                        _ if prop_kind.is_some() => Tile::Sign,
                         '#' => Tile::Hedge,
                         ',' | 'm' => Tile::Path,
                         'W' | 'H' => Tile::Wall,
@@ -713,13 +828,27 @@ impl World {
                         'C' | 'T' | 'b' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
-                        's' | 'Q' | 'x' | 'y' | 'i' | 't' | 'z' | 'd' => Tile::Sign,
+                        's' => Tile::Sign,
                         '1' | '2' if street_next => Tile::Path,
                         _ => Tile::Grass,
                     };
                     if let Some(good) = plant_good(ch) {
                         let regrow = data.good(good).production_time;
-                        plants.push(Plant { x, y, good: good.into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0 });
+                        plants.push(Plant { x, y, good: good.into(), growth: regrow, regrow, stock: Vec::new(), harvest: None, drop: None, timer: 0, owner: None });
+                    }
+                    // A prop several tiles big is marked on each: it starts where its run of marks
+                    // (across, and down) starts, or a whole one's width or height further on.
+                    if let Some(k) = prop_kind {
+                        let run = |dx: i32, dy: i32| {
+                            let mut n = 0;
+                            while rows.get((y - oy + dy * (n + 1)) as usize).and_then(|r| r.chars().nth((lx as i32 + dx * (n + 1)) as usize)) == Some(ch) && lx as i32 + dx * (n + 1) >= 0 && y - oy + dy * (n + 1) >= 0 {
+                                n += 1;
+                            }
+                            n
+                        };
+                        if run(-1, 0) % k.size.0 == 0 && run(0, -1) % k.size.1 == 0 {
+                            props.push(((x, y), Prop(k.id)));
+                        }
                     }
                     if let Some(kind) = shop_kind {
                         shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None, aimed: None, owner: None });
@@ -755,17 +884,11 @@ impl World {
                                 .map(|t| match *t {
                                     Task::Move(good, from, to) => Task::Move(good, at(from), at(to)),
                                     Task::Work(spot) => Task::Work(at(spot)),
+                                    Task::Gather(spot, facing) => Task::Gather(at(spot), facing),
                                 })
                                 .collect();
-                            workers.push(Worker { name: w.name, title: w.title, about: w.about, says: w.says, skills: w.skills, at: (x, y), tasks });
+                            workers.push(Worker { name: w.name, title: w.title, skin: w.skin, holds: w.holds, about: w.about, says: w.says, skills: w.skills, at: (x, y), tasks });
                         }
-                        'Q' => props.push(((x, y), Prop::Wheels)),
-                        'x' => props.push(((x, y), Prop::Fence)),
-                        'y' => props.push(((x, y), Prop::Cart)),
-                        'i' => props.push(((x, y), Prop::Barrel)),
-                        't' => props.push(((x, y), Prop::ChoppingBlock)),
-                        'z' => props.push(((x, y), Prop::Sawhorse)),
-                        'd' => props.push(((x, y), Prop::Lumber)),
                         'm' => mouths.push((x, y)),
                         'p' | 'g' | 'o' => parts.push((ch, x, y)),
                         '1' | '2' => _ = starts[(ch as u8 - b'1') as usize].get_or_insert((x, y)),
@@ -903,6 +1026,14 @@ impl World {
 
     pub fn board_at(&self, x: i32, y: i32) -> Option<usize> {
         self.boards.iter().position(|b| b.x == x && b.y == y)
+    }
+
+    /// The prop covering tile `(x, y)`, and the tile it starts at.
+    pub fn prop_at(&self, x: i32, y: i32) -> Option<((i32, i32), Prop)> {
+        self.props.iter().copied().find(|&((px, py), p)| {
+            let (w, h) = p.kind().size;
+            (px..px + w).contains(&x) && (py..py + h).contains(&y)
+        })
     }
 
     pub fn sign_at(&self, x: i32, y: i32) -> Option<&Sign> {

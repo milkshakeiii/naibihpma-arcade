@@ -1,0 +1,16 @@
+temple_town_100_32
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is one quarter of TEMPLE TOWN, a quiet hill town where a great bronze bell is cast and hung in its temple. Recompose the screen into a charming, cozy, lived-in corner of the town, the way a fine level designer and pixel artist would: think about composition, framing, clusters and open space, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Use the pieces already in the picture, and add decorations generously but tastefully, scattered about the streets and open ground as well as by the buildings. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground or like crops, since those are things players pick up and harvest.
+- Keep the dark hedge border where it is, and keep the road and paths where they cross the edges of the screen, since they join this screen to the ones around it. In between, paths may bend, and new dirt paths may be laid.
+- Leave walking room: everything below must be reachable on foot from the road over open ground, one tile wide at least.
+
+What is here, and what must stay true:
+- THE FOUNDRY, the big wooden building where the temple's bell is cast. Inside are eleven square mats in two rows, for the bell's materials; its furnace (the domed kiln with a fire in it), with the mat below it where a cast bell comes out; and two tool pegs to its right, holding a chisel and a shovel. Keep the building's size and everything inside it in place, and its door at the bottom with a path down to the road.
+- The road comes in from the north along the screen's left edge, and runs along the bottom; keep where both cross the screen's edges.
+
+Decorations that would suit it: outside the foundry, stacked firewood, barrels, a water trough, an anvil on a stump, a cart for hauling, a chimney on the roof; inside, along the walls and away from the mats, a few things a bell foundry would have, such as moulds or a hanging chain hoist; anywhere, trees, rocks, flowers and a bench.
+
+Return only the image.

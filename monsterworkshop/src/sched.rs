@@ -1,8 +1,9 @@
 //! The loop scheduler: which goal of its loop a monster works on next.
 //!
 //! A loop is its goals, in the order you showed them: activate a thing (harvest a plant, work a
-//! workshop, open or shut a wagon's tailgate), move a good from one tile to another, or lead a
-//! wagon somewhere. They're linked by what they make and take: a harvest or a workshop's work
+//! workshop, open or shut a wagon's tailgate), move a good from one tile to another, lead a
+//! wagon somewhere, or take a tool from where spares lie, which is only wanted while none like
+//! it in hand has wear left. They're linked by what they make and take: a harvest or a workshop's work
 //! puts goods on a tile, a move takes a good from a tile, a workshop takes what's on its pads.
 //! Whenever a monster is free it works on the first goal of its loop that is both wanted and
 //! possible right now. A goal is wanted unless where it puts things is already full of what it
@@ -101,7 +102,7 @@ impl Game {
     /// What a goal takes, and from where (no good named: whatever lies on a workshop's pads).
     fn takes(&self, g: &Goal) -> Vec<(Option<String>, (i32, i32))> {
         match g {
-            Goal::Move { good, from, .. } => vec![(Some(good.clone()), *from)],
+            Goal::Move { good, from, .. } | Goal::Take { good, from } => vec![(Some(good.clone()), *from)],
             Goal::Activate(Thing::Shop(s)) => self.world.shops[*s].pads.iter().map(|&pad| (None, pad)).collect(),
             _ => Vec::new(),
         }
@@ -151,11 +152,12 @@ impl Game {
     /// goes (one being worked there doesn't count: the next is brought up ready beside it). A
     /// workshop's output holds more (see `output_full`). Nor is leading a wagon already parked
     /// there wanted, nor a tailgate already as it should be. Deliveries always are.
-    fn wanted(&self, goals: &[Goal]) -> Vec<bool> {
+    fn wanted(&self, i: usize, goals: &[Goal]) -> Vec<bool> {
         let lying = |(g, t): &(String, (i32, i32))| self.world.item_at(t.0, t.1).is_some_and(|k| self.world.items[k].good() == g && !self.world.items[k].locked);
         goals
             .iter()
             .map(|g| match g {
+                Goal::Take { good, .. } => !self.holds_working(i, good),
                 Goal::Lead { wagon, bed, pumpkin } => self.world.wagons.get(*wagon).is_some_and(|w| (w.at, w.pumpkin) != (*bed, *pumpkin)),
                 Goal::Activate(Thing::Tailgate { wagon, open }) => self.world.wagons.get(*wagon).is_some_and(|w| w.open != *open),
                 Goal::Activate(Thing::Shop(s)) => !self.output_full(*s),
@@ -200,6 +202,11 @@ impl Game {
                 }
                 if let Some(m) = (it.id != 0).then(|| self.holder(i, Hold::Item(it.id))).flatten() {
                     return Err(Why { msg: format!("{} IS TAKING THE {} {}.", self.monsters[m].name, name(good), self.place_name(*from)), on: Some(m) });
+                }
+                // Where it goes won't take it now (an order filled and resting, a full bin): say
+                // so, and do something else meanwhile.
+                if let Some(msg) = self.wont_take(*to, good) {
+                    return Err(Why::world(msg));
                 }
                 let mut wants = vec![Want::Item(k)];
                 if !self.takes_into(*to, good) {
@@ -265,6 +272,27 @@ impl Game {
                 wants.extend(inputs.into_iter().map(Want::Item));
                 Ok(wants)
             }
+            Goal::Take { good, from } => {
+                // Still armed: nothing to take (a journey goes through it anyway).
+                if self.holds_working(i, good) {
+                    return Ok(Vec::new());
+                }
+                if self.monsters[i].hands.iter().all(|h| h.is_some()) {
+                    return Err(Why::world("MY HANDS ARE FULL."));
+                }
+                let waiting = || Why::world(format!("WAITING FOR {} {}.", crate::recipes::one(&name(good)), self.place_name(*from)));
+                let Some(k) = self.world.item_at(from.0, from.1).filter(|&k| self.world.items[k].good() == good) else {
+                    return Err(waiting());
+                };
+                let it = &self.world.items[k];
+                if let Some(m) = (it.id != 0).then(|| self.holder(i, Hold::Item(it.id))).flatten() {
+                    return Err(Why { msg: format!("{} IS TAKING THE {} {}.", self.monsters[m].name, name(good), self.place_name(*from)), on: Some(m) });
+                }
+                if it.locked || self.owned_by_other(i, k).is_some() {
+                    return Err(waiting());
+                }
+                Ok(vec![Want::Item(k)])
+            }
             &Goal::Activate(Thing::Tailgate { wagon, .. }) => {
                 let w = self.wagon_free(i, wagon)?;
                 if w.leader.is_some() {
@@ -302,7 +330,7 @@ impl Game {
         match *g {
             Goal::Activate(Thing::Plant { at, .. }) => Some(at),
             Goal::Activate(Thing::Shop(s)) => Some(self.world.shops[s].spot),
-            Goal::Move { from, .. } => Some(from),
+            Goal::Move { from, .. } | Goal::Take { from, .. } => Some(from),
             _ => None,
         }
     }
@@ -318,7 +346,7 @@ impl Game {
             .filter_map(|k| since(k).filter(|&s| s < mine || (s == mine && k < i)).map(|s| (s, k)))
             .filter(|&(_, k)| {
                 let goals = self.goals(k);
-                let want = self.wanted(goals);
+                let want = self.wanted(k, goals);
                 let resting = |n: usize| self.monsters[k].cooldown.iter().any(|&(c, _)| c == n);
                 goals.iter().zip(want).enumerate().any(|(n, (g, w))| w && !resting(n) && self.turn_tile(g) == Some(tile) && self.possible(k, g).is_ok())
             })
@@ -343,7 +371,7 @@ impl Game {
         }
         let n = goals.len();
         let start = self.monsters[i].pc.min(n - 1);
-        let (order, want): (Vec<usize>, Vec<bool>) = if self.in_order(i) { (vec![start], vec![true; n]) } else { ((0..n).map(|d| (start + d) % n).collect(), self.wanted(&goals)) };
+        let (order, want): (Vec<usize>, Vec<bool>) = if self.in_order(i) { (vec![start], vec![true; n]) } else { ((0..n).map(|d| (start + d) % n).collect(), self.wanted(i, &goals)) };
         // If nothing can be done, the wait worth telling is at the start of the chain of
         // needs: a wanted goal that no wanted goal of the loop is making things for.
         let puts: Vec<_> = goals.iter().map(|g| self.puts(g)).collect();
@@ -559,6 +587,7 @@ impl Game {
                     None => Outcome::GiveUp(String::new()),
                 }
             }
+            Goal::Take { good, from } => self.take_spare(i, &good, from, sfx),
             // A journey: anything in the way is waited out.
             Goal::Lead { wagon, bed, pumpkin } => match self.lead_toward(i, wagon, bed, pumpkin, sfx) {
                 Going::Arrived => Outcome::Done,
@@ -587,6 +616,38 @@ impl Game {
                     UseRes::Wait(msg) | UseRes::Full(msg) | UseRes::Missing(msg) => Outcome::GiveUp(msg),
                 }
             }
+        }
+    }
+
+    /// One tick of taking a spare tool: walk beside where it lies, facing it, and take it in hand.
+    fn take_spare(&mut self, i: usize, good: &str, from: (i32, i32), sfx: &mut Vec<Sfx>) -> Outcome {
+        if self.holds_working(i, good) {
+            return Outcome::Done;
+        }
+        let id = self.monsters[i].holds.iter().find_map(|h| match h {
+            Hold::Item(id) => Some(*id),
+            _ => None,
+        });
+        let Some(k) = id.and_then(|id| self.world.find_item(id)).filter(|&k| (self.world.items[k].x, self.world.items[k].y) == from) else {
+            return Outcome::GiveUp(String::new());
+        };
+        // The nearest open side of it.
+        let here = (self.monsters[i].x, self.monsters[i].y);
+        let open = |t: (i32, i32)| t == here || (self.open(t.0, t.1) && self.monster_at(t.0, t.1).is_none() && self.world.shop_at_spot(t.0, t.1).is_none());
+        let sides = crate::world::DIRS.iter().copied().map(|d| ((from.0 - d.delta().0, from.1 - d.delta().1), d));
+        let Some((spot, facing)) = sides.filter(|&(t, _)| open(t)).min_by_key(|&(t, _)| (t.0 - here.0).abs() + (t.1 - here.1).abs()) else {
+            return Outcome::Waiting(format!("NO ROOM BESIDE THE {}.", self.good_name(good)));
+        };
+        match self.go_toward(i, spot, Some(facing), sfx) {
+            Going::Arrived => {}
+            Going::Moving => return Outcome::Moving,
+            Going::Waiting(msg) => return Outcome::Waiting(msg),
+            Going::Stuck(msg) => return self.shove_or_give_up(i, spot, msg),
+        }
+        match self.take_tool(i, k, sfx) {
+            UseRes::Done => Outcome::Done,
+            UseRes::Wait(msg) | UseRes::Full(msg) | UseRes::Missing(msg) => Outcome::GiveUp(msg),
+            UseRes::Nothing => Outcome::GiveUp(String::new()),
         }
     }
 

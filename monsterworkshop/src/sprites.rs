@@ -11,7 +11,7 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    fn blank(w: i32, h: i32) -> Self {
+    pub(crate) fn blank(w: i32, h: i32) -> Self {
         Self { w, h, px: vec![0; (w * h) as usize] }
     }
 
@@ -26,14 +26,14 @@ impl Sprite {
         Self { w, h, px }
     }
 
-    fn set(&mut self, x: i32, y: i32, c: u8) {
+    pub(crate) fn set(&mut self, x: i32, y: i32, c: u8) {
         if x >= 0 && y >= 0 && x < self.w && y < self.h {
             self.px[(y * self.w + x) as usize] = c;
         }
     }
 
     /// Adds a 1px dark hull (index 1) around every colored pixel.
-    fn outline(mut self) -> Self {
+    pub(crate) fn outline(mut self) -> Self {
         let src = self.px.clone();
         let (w, h) = (self.w, self.h);
         let body = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && src[(y * w + x) as usize] > 1;
@@ -131,7 +131,7 @@ fn monster_frames(art: &[&str; 16], legs_b: &[&str; 2]) -> [Sprite; 4] {
     [idle.clone().outline(), breath.outline(), idle.outline(), walk_b.outline()]
 }
 
-fn circle_fill(s: &mut Sprite, cx: i32, cy: i32, r: i32, ramp: [u8; 3]) {
+pub(crate) fn circle_fill(s: &mut Sprite, cx: i32, cy: i32, r: i32, ramp: [u8; 3]) {
     for y in cy - r..=cy + r {
         for x in cx - r..=cx + r {
             let (dx, dy) = (x - cx, y - cy);
@@ -941,6 +941,13 @@ fn make_tool_icon(id: &str) -> Sprite {
             circle_fill(&mut s, 2, 5, 2, [HUD_SHADOW, HUD_FILL, HUD_MID]);
             circle_fill(&mut s, 5, 4, 2, [HUD_SHADOW, HUD_FILL, HUD_MID]);
         }
+        // Black lumps with a glint.
+        "coal" => {
+            circle_fill(&mut s, 2, 5, 2, COAL);
+            circle_fill(&mut s, 5, 4, 2, COAL);
+            s.set(1, 4, TEXT_DIM);
+            s.set(4, 3, TEXT_DIM);
+        }
         // Porous grey lumps.
         "coke" => {
             circle_fill(&mut s, 2, 4, 2, [HUD_MID, HUD_HI, TEXT_DIM]);
@@ -994,6 +1001,18 @@ fn make_tool_icon(id: &str) -> Sprite {
             for y in 4..=7 {
                 s.set(3, y, WOOD + 2);
             }
+        }
+        // An iron head, curved to its points, on a wooden handle.
+        "pick" => {
+            for x in 2..=5 {
+                s.set(x, 1, TEXT_DIM);
+            }
+            s.set(1, 2, HUD_HI);
+            s.set(6, 2, HUD_HI);
+            for y in 2..=7 {
+                s.set(4, y, WOOD + 2);
+            }
+            s.set(4, 1, HUD_HI);
         }
         // A wooden handle and an iron blade.
         "shovel" => {
@@ -1127,6 +1146,8 @@ enum Look {
     Cotton,
     /// A vine that ripens into a draft creature: a pumpkin patch.
     Gourd,
+    /// A rock ledge with coal in it: a seam.
+    Seam,
 }
 
 impl Look {
@@ -1136,6 +1157,7 @@ impl Look {
             _ if has("log") && has("softwood") => Look::Conifer,
             _ if has("log") => Look::Broadleaf,
             _ if has("bamboo") => Look::Bamboo,
+            _ if has("coal") => Look::Seam,
             _ if has("stone") => Look::Rocks,
             _ if has("stalks") => Look::Stalks,
             _ if has("leaves") => Look::Leafy,
@@ -1147,7 +1169,7 @@ impl Look {
 }
 
 /// Every look, for plants with no art of their own.
-const LOOKS: [Look; 8] = [Look::Conifer, Look::Broadleaf, Look::Bamboo, Look::Rocks, Look::Stalks, Look::Leafy, Look::Bush, Look::Gourd];
+const LOOKS: [Look; 9] = [Look::Conifer, Look::Broadleaf, Look::Bamboo, Look::Rocks, Look::Stalks, Look::Leafy, Look::Bush, Look::Gourd, Look::Seam];
 
 /// A wild plant of `look`, at growth stage 0 (regrowing), 1 (half grown) or 2 (ready to
 /// gather), with its blossoms if it has any.
@@ -1183,6 +1205,7 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
             }
         }
         (Look::Stalks, _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
+        (Look::Seam, _) => seam(&mut s, stage),
         (_, 0) => {
             for y in 12..=15 {
                 s.set(8, y, LEAF);
@@ -1207,6 +1230,43 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
         }
     }
     s.outline()
+}
+
+/// A grey rock face with a band of coal through it: black and glinting when it's ready, half
+/// dug out halfway, and a dark hollow just after it's dug.
+fn seam(s: &mut Sprite, stage: u8) {
+    let tops = [8, 7, 6, 6, 5, 5, 5, 6, 5, 5, 6, 6, 7, 8];
+    for (k, &top) in tops.iter().enumerate() {
+        let x = k as i32 + 1;
+        for y in top..=15 {
+            s.set(x, y, if y == top { STONE[2] } else if y < 12 { STONE[1] } else { STONE[0] });
+        }
+    }
+    // The band, from x 2 to 13: coal up to `coal`, the hollow it was dug from after.
+    let coal = [1, 7, 13][stage as usize];
+    for x in 2..=13 {
+        if x <= coal {
+            s.set(x, 9, COAL[1]);
+            s.set(x, 10, COAL[0]);
+            s.set(x, 11, COAL[0]);
+        } else {
+            s.set(x, 9, HUD_FILL);
+            s.set(x, 10, STONE[0]);
+            s.set(x, 11, STONE[0]);
+        }
+    }
+    for (x, y) in [(4, 10), (8, 9), (11, 10), (6, 11)] {
+        if x <= coal {
+            s.set(x, y, TEXT_DIM);
+        }
+    }
+    // A few lumps fallen at its foot while it's ready.
+    if stage == 2 {
+        for (x, y) in [(3, 14), (4, 14), (10, 14), (11, 14), (10, 13)] {
+            s.set(x, y, COAL[0]);
+        }
+        s.set(10, 13, COAL[1]);
+    }
 }
 
 /// A decorative tree that is not for gathering: darker than the wild trees that are.
@@ -1558,7 +1618,10 @@ fn make_board() -> Sprite {
 }
 
 /// Grey limestone, dark to light.
-const STONE: [u8; 3] = [HUD_MID, HUD_HI, TEXT_DIM];
+pub(crate) const STONE: [u8; 3] = [HUD_MID, HUD_HI, TEXT_DIM];
+
+/// Coal, dark to light: nearly black, with a purple sheen.
+const COAL: [u8; 3] = [HUD_SHADOW, HUD_FILL, HUD_MID];
 
 /// A clay kiln: a dome with a fire mouth; `frame` flickers the fire while it burns.
 fn make_kiln(frame: u8) -> Sprite {
@@ -1634,6 +1697,22 @@ fn make_jar() -> Sprite {
     }
     for x in 3..=7 {
         s.set(x, 12, PATH);
+    }
+    s.outline()
+}
+
+/// Coal: a heap of black lumps, each with a glint, as coal catches the light where charcoal
+/// doesn't.
+fn make_coal() -> Sprite {
+    let mut s = Sprite::blank(14, 10);
+    for (cx, cy, r) in [(4, 6, 3), (9, 6, 3), (7, 4, 2)] {
+        circle_fill(&mut s, cx, cy, r, COAL);
+    }
+    for x in 2..=11 {
+        s.set(x, 9, COAL[0]);
+    }
+    for (x, y) in [(3, 5), (8, 5), (6, 3)] {
+        s.set(x, y, TEXT_DIM);
     }
     s.outline()
 }
@@ -1783,6 +1862,8 @@ const WILD: [(&str, Look, Option<(u8, u8)>); 8] = [
 ];
 
 pub struct Sprites {
+    /// Scenery's art by kind, each kind's variants (`scenery.rs`).
+    props: Vec<(&'static str, Vec<Sprite>)>,
     pub goblin: [Sprite; 4],
     pub cyclops: [Sprite; 4],
     pub cotton: Sprite,
@@ -1839,6 +1920,7 @@ pub struct Sprites {
     pub dye_vat: Sprite,
     pub jar: Sprite,
     pub limestone: Sprite,
+    pub coal: Sprite,
     pub quicklime: Sprite,
     pub indigo: Sprite,
     pub tub: Sprite,
@@ -1855,6 +1937,7 @@ pub struct Sprites {
 impl Sprites {
     pub fn new() -> Self {
         Self {
+            props: crate::world::PROPS.iter().map(|k| (k.id, crate::scenery::variants(k.id))).filter(|(_, v)| !v.is_empty()).collect(),
             goblin: monster_frames(&GOBLIN_ART, &GOBLIN_LEGS_B),
             cyclops: monster_frames(&CYCLOPS_ART, &CYCLOPS_LEGS_B),
             cotton: make_cotton(),
@@ -1882,7 +1965,7 @@ impl Sprites {
             trader: [make_trader(0), make_trader(1)],
             copper_ingot: make_ingot(SPARK + 1, SPARK, WOOD + 2),
             tin_ingot: make_ingot(COTTON + 2, COTTON + 1, COTTON),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             typed_icons: crate::data::Data::load().goods.iter().filter_map(|gt| Some((gt.id.clone(), type_of(gt)?))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
@@ -1910,6 +1993,7 @@ impl Sprites {
             dye_vat: make_vat(true),
             jar: make_jar(),
             limestone: make_lumps(STONE),
+            coal: make_coal(),
             quicklime: make_lumps([TEXT_DIM, COTTON + 1, COTTON + 2]),
             indigo: make_indigo(),
             tub: make_tub(),
@@ -1990,6 +2074,23 @@ impl Sprites {
         typed.unwrap_or_else(|| (self.icon(good).unwrap_or(&self.crate_), None))
     }
 
+    /// A kind of scenery's art: variant `n` (modulo how many it has), or the yard props that
+    /// had art before scenery was a table. None for kinds drawn by joining their neighbors.
+    pub fn prop(&self, id: &str, n: u32) -> Option<&Sprite> {
+        Some(match id {
+            "wheels" => &self.wagon_wheel,
+            "cart" => &self.cart_frame,
+            "barrel" => &self.barrel,
+            "chopping_block" => &self.chopping_block,
+            "sawhorse" => &self.sawhorse,
+            "lumber" => &self.lumber,
+            _ => {
+                let v = &self.props.iter().find(|(k, _)| *k == id)?.1;
+                &v[n as usize % v.len()]
+            }
+        })
+    }
+
     /// The art a good has of its own, if any.
     fn own_item(&self, good: &str) -> Option<&Sprite> {
         Some(match good {
@@ -2007,6 +2108,7 @@ impl Sprites {
             "rope" => &self.rope,
             "lye" => &self.jar,
             "limestone" => &self.limestone,
+            "coal" => &self.coal,
             "quicklime" => &self.quicklime,
             "indigo" => &self.indigo,
             "wooden_tub" => &self.tub,
@@ -2076,8 +2178,8 @@ mod tests {
     #[test]
     fn grounded_sprites_have_feet_on_bottom_row_and_fit_a_tile() {
         let sp = Sprites::new();
-        let wild = sp.wild.iter().flat_map(|(_, f)| f.iter());
-        let goods = [&sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit, &sp.planks, &sp.wagon_wheel, &sp.pumpkin_asleep, &sp.bell, &sp.bell_frame, &sp.trader[0], &sp.trader[1], &sp.copper_ingot, &sp.tin_ingot, &sp.wagon_bench, &sp.cart_frame, &sp.barrel, &sp.chopping_block, &sp.sawhorse, &sp.lumber];
+        let wild = sp.wild.iter().flat_map(|(_, f)| f.iter()).chain(sp.looks.iter().flat_map(|(_, f)| f.iter()));
+        let goods = [&sp.coal, &sp.hemlock_log, &sp.oak_log, &sp.sticks, &sp.bamboo, &sp.stalk_bundle, &sp.leaves, &sp.rope, &sp.signpost, &sp.board, &sp.kiln[0], &sp.kiln[1], &sp.indigo_vat, &sp.dye_vat, &sp.jar, &sp.limestone, &sp.quicklime, &sp.indigo, &sp.tub, &sp.pumpkin[0], &sp.pumpkin[1], &sp.wagon[0], &sp.wagon[1], &sp.gin, &sp.bow, &sp.wheel_tool, &sp.waist_loom, &sp.bench_kit, &sp.kiln_kit, &sp.planks, &sp.wagon_wheel, &sp.pumpkin_asleep, &sp.bell, &sp.bell_frame, &sp.trader[0], &sp.trader[1], &sp.copper_ingot, &sp.tin_ingot, &sp.wagon_bench, &sp.cart_frame, &sp.barrel, &sp.chopping_block, &sp.sawhorse, &sp.lumber];
         let grounded = sp.goblin.iter().chain(&sp.cyclops).chain(&sp.plant).chain(&sp.wheel).chain(wild).chain(&sp.trees).chain(goods).chain([&sp.cotton, &sp.spool, &sp.slivers, &sp.thread, &sp.fabric, &sp.bench, &sp.loom, &sp.crate_]);
         for s in grounded {
             assert!(bottom_row_used(s), "floating sprite {}x{}", s.w, s.h);

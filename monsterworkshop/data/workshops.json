@@ -75,11 +75,11 @@
     {
       "id": "kiln",
       "label": "KILN",
-      "about": "Burns ash into lye, limestone into quicklime, or wood into charcoal.",
+      "about": "Burns ash into lye, limestone into quicklime, wood into charcoal, or coal into coke.",
       "map_char": "K",
       "look": "kiln",
       "building": true,
-      "recipes": ["lye", "quicklime", "charcoal"],
+      "recipes": ["lye", "quicklime", "coke", "charcoal"],
       "kit": {
         "good": "kiln_kit",
         "plain_worth": 22,
@@ -133,7 +133,7 @@
     {
       "id": "trader_stall",
       "label": "TRADER'S STALL",
-      "about": "A temporary trader from the hills, for testing: Cloth Reaches goods for what the bell needs from provinces not open yet. Each trade wants a different mix, since the pads choose. It offers only what nothing in the world makes or grows.",
+      "about": "A temporary trader from the hills, for testing: Cloth Reaches goods for what the bell needs from provinces not open yet, and a pick and a shovel for the coal seam until somebody can make them. Each trade wants a different mix, since the pads choose. It offers only what nothing in the world makes or grows.",
       "map_char": "R",
       "look": "bench",
       "building": false,
@@ -143,8 +143,9 @@
         { "id": "trade_beeswax", "makes": "beeswax", "wants": [["fabric"]] },
         { "id": "trade_oil", "makes": "oil", "wants": [["thread"], ["thread"]] },
         { "id": "trade_mortar", "makes": "mortar", "wants": [["thread"]] },
-        { "id": "trade_coke", "makes": "coke", "wants": [["rope"], ["rope"]] },
-        { "id": "trade_red_clay", "makes": "red_clay", "wants": [["rope"]] }
+        { "id": "trade_red_clay", "makes": "red_clay", "wants": [["rope"]] },
+        { "id": "trade_pick", "makes": "pick", "wants": [["rope"], ["rope"]] },
+        { "id": "trade_shovel", "makes": "shovel", "wants": [["rope"], ["thread"]] }
       ]
     }
   ],

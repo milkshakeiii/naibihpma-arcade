@@ -170,7 +170,7 @@ pub fn card(g: &Game, k: usize) -> Card {
             Folk::Trader => {
                 let lines = vec![
                     line("A HUMAN FROM THE HILLS. HUMANS BARTER; MONSTERS SHARE.", TEXT),
-                    line("HE BRINGS WHAT THE BELL NEEDS FROM PLACES NOT OPEN YET, AND GOES HOME ONCE YOU MAKE IT ALL HERE.", TEXT_DIM),
+                    line("HE BRINGS WHAT THE BELL AND THE COAL SEAM NEED FROM PLACES NOT OPEN YET, AND GOES HOME ONCE YOU MAKE IT ALL HERE.", TEXT_DIM),
                     line("TRADE AT HIS STALL: GOODS ON ITS PADS, THEN SPACE AT ITS SPOT.", TEXT_DIM),
                 ];
                 Card::one(tf.name.clone(), lines, (tf.x, tf.y))
@@ -194,7 +194,7 @@ pub fn card(g: &Game, k: usize) -> Card {
             None => monster_card(g, o),
         };
     }
-    if let Some(&(_, prop)) = g.world.props.iter().find(|(at, _)| *at == (fx, fy)) {
+    if let Some((_, prop)) = g.world.prop_at(fx, fy) {
         return prop_card(g, prop, (fx, fy));
     }
     if let Some(w) = g.world.pumpkin_at(fx, fy) {
@@ -263,18 +263,14 @@ fn worker_card(g: &Game, j: usize, n: usize) -> Card {
     Card::one(format!("{} THE {}", m.name, w.title), lines, (m.x, m.y))
 }
 
-/// Scenery: what it is, and what goes into the real thing.
+/// Scenery: what it is, and what goes into the real thing it stands for.
 fn prop_card(g: &Game, prop: Prop, at: (i32, i32)) -> Card {
-    let made = |good: &str| line(format!("{}: {}.", g.good_name(good), g.inputs_text(g.data.good(good))), TEXT_DIM).icon(Icon::Good(good.into()));
-    match prop {
-        Prop::Wheels => Card::one("SPARE WAGON WHEELS", vec![line("FINISHED, WAITING FOR A CART.", TEXT), made("wagon_wheel")], at),
-        Prop::Cart => Card::one("A CART, HALF BUILT", vec![line("IT'S WAITING FOR ITS WHEELS.", TEXT), made("wagon_kit")], at),
-        Prop::Fence => Card::one("A FENCE", vec![line("AROUND A YARD. WALK IN BY ITS GATE.", TEXT_DIM)], at),
-        Prop::Barrel => Card::one("A BARREL", vec![line("RAINWATER, FOR SOAKING WOOD THAT'S TO BE BENT.", TEXT_DIM)], at),
-        Prop::ChoppingBlock => Card::one("A CHOPPING BLOCK", vec![line("AN AXE LEFT IN IT. GOOD SPOKES ARE SPLIT ALONG THE GRAIN, NOT SAWN.", TEXT_DIM)], at),
-        Prop::Sawhorse => Card::one("A SAWHORSE", vec![line("IT HOLDS A PLANK STEADY WHILE IT'S SAWN.", TEXT_DIM)], at),
-        Prop::Lumber => Card::one("STACKED PLANKS", vec![line("SEASONING IN THE AIR. GREEN WOOD WARPS, SO A WHEEL WANTS IT DRY.", TEXT_DIM)], at),
+    let k = prop.kind();
+    let mut lines = vec![line(k.about, if k.shows.is_some() { TEXT } else { TEXT_DIM })];
+    if let Some(good) = k.shows {
+        lines.push(line(format!("{}: {}.", g.good_name(good), g.inputs_text(g.data.good(good))), TEXT_DIM).icon(Icon::Good(good.into())));
     }
+    Card::one(k.name, lines, at)
 }
 
 /// The temple's plaque: every bell hung there, the newest first.
@@ -475,6 +471,7 @@ pub(crate) fn goal_text(g: &Game, goal: &crate::game::Goal) -> String {
         Goal::Activate(Thing::Tailgate { open: true, .. }) => "OPEN THE WAGON'S TAILGATE".into(),
         Goal::Activate(Thing::Tailgate { open: false, .. }) => "SHUT THE WAGON'S TAILGATE".into(),
         Goal::Lead { bed, .. } => format!("LEAD THE WAGON TO {}", place(*bed)),
+        Goal::Take { good, from } => format!("TAKE {} FROM {} WHEN MINE WEARS OUT", crate::recipes::one(&g.good_name(good)), place(*from)),
     }
 }
 
@@ -519,12 +516,27 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
         line(format!("GROWING: {}%", plant.growth * 100 / plant.regrow.max(1)), TEXT_DIM)
     };
     let mut first = vec![state];
-    // What a harvest would give the monster you control: gathering is a craft with no
-    // inputs or tools.
+    let mut details = Vec::new();
+    // A working townsperson's own: what's here is for them.
+    if let Some(name) = plant.owner.filter(|&o| o != g.monsters[c].id).and_then(|o| g.monsters.iter().find(|m| m.id == o)).map(|m| m.name.as_str()) {
+        first.insert(0, line(format!("{name}'S OWN. ANOTHER NEARBY IS FOR ANYONE."), TEXT_WARN).icon(Icon::Warn));
+    }
+    // What a harvest would give the monster you control: gathering is a craft with no inputs,
+    // using the tools it asks for in hand.
     let m = &g.monsters[c];
     let recipe = g.data.good(&plant.good);
-    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills }, inputs: Vec::new(), tools: Vec::new(), workshop: None };
-    let mut details = Vec::new();
+    let needs: Vec<String> = recipe.tools_required_tags.iter().filter(|t| !t.is_empty()).map(|t| crate::recipes::one(&g.describe_type(t))).collect();
+    let tools: Vec<&crate::econ::ItemData> = match g.held_tools(c, recipe) {
+        Ok(hands) => hands.iter().filter_map(|&h| m.hands[h].as_ref()).collect(),
+        Err(missing) => {
+            first.push(line(missing, TEXT_WARN).icon(Icon::Warn));
+            Vec::new()
+        }
+    };
+    if !needs.is_empty() {
+        details.push(line(format!("IT TAKES {} IN HAND. FACE ONE ON THE GROUND AND PRESS SPACE TO TAKE IT.", crate::recipes::and_list(&needs)), TEXT_DIM));
+    }
+    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &m.stats, skills: &m.skills }, inputs: Vec::new(), tools, workshop: None };
     if recipe.has_quality {
         let f = econ::forecast(&craft);
         let (lo, hi) = usual_range(&f, m);
@@ -554,6 +566,7 @@ pub(crate) fn plant_name(data: &crate::data::Data, good: &str) -> String {
         "ramie_stalks" => "RAMIE",
         "indigofera_leaves" => "INDIGOFERA",
         "limestone" => "LIMESTONE OUTCROP",
+        "coal" => "COAL SEAM",
         "cotton_bolls" => "COTTON PLANT",
         _ => "",
     };

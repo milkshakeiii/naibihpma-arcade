@@ -287,8 +287,9 @@ mod tests {
         let g = busy_world(Busy { copies: 3, players: 4, chains: 2, shuttlers: 10 });
         assert_eq!(g.communes.iter().filter(|c| !c.town).count(), 4, "and the town's own");
         assert_eq!(g.monsters.iter().filter(|m| m.worker.is_none()).count(), 4 * 2 + 3 * 2 + 10);
-        assert_eq!(g.monsters.iter().filter(|m| m.worker.is_some()).count(), 3, "a wagonwright in every copy");
-        let one = crate::world::World::new(&g.data).h;
+        let one = crate::world::World::new(&g.data);
+        assert_eq!(g.monsters.iter().filter(|m| m.worker.is_some()).count(), 3 * one.workers.len(), "the town's working folk in every copy");
+        let one = one.h;
         assert_eq!(g.world.h, 3 * one);
         for (p, c) in g.communes.iter().filter(|c| !c.town).enumerate() {
             assert_eq!(g.monsters[c.controlled].y / one, (p % 3) as i32, "player {p} lives in copy {}", p % 3);

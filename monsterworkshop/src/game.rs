@@ -157,6 +157,10 @@ pub enum Goal {
     /// Take this wagon's lead and park it with its bed at `bed` and its pumpkin at `pumpkin`
     /// (so its tailgate faces away from the pumpkin), then let go.
     Lead { wagon: usize, bed: (i32, i32), pumpkin: (i32, i32) },
+    /// Take a tool of this kind lying at `from` (a pile of spares, a bin's chute) into a free
+    /// hand, but only while none in hand has wear left: a loop re-arms itself when one breaks,
+    /// and otherwise leaves the spares be.
+    Take { good: String, from: (i32, i32) },
 }
 
 /// Something a monster activates with Space. Each says where it's activated from.
@@ -561,8 +565,9 @@ impl Game {
     }
 
     /// The town's working folk (`World::workers`): a commune of their own that no player
-    /// claims, each a monster on its loop at a bench of its own, fed by supplies of its own.
-    /// Whatever those set out and that bench makes is theirs.
+    /// claims, each a monster on its loop at a bench or plants of its own, fed by supplies of
+    /// its own, with its own tools in hand. Whatever those set out, that bench makes and those
+    /// plants give is theirs.
     fn found_town(&mut self) {
         if self.world.workers.is_empty() {
             return;
@@ -587,10 +592,17 @@ impl Game {
                         self.world.shops[s].owner = Some(id);
                         goals.push(Goal::Activate(Thing::Shop(s)));
                     }
+                    Task::Gather((x, y), facing) => {
+                        let p = self.world.plant_at(x, y).unwrap_or_else(|| panic!("{}'s plant at {x},{y}", w.name));
+                        self.world.plants[p].owner = Some(id);
+                        goals.push(Goal::Activate(Thing::Plant { at: (x, y), facing }));
+                    }
                 }
             }
             (m.routine, m.playing, m.worker) = (Some(Routine { flag: w.at, goals }), true, Some(n));
-            m.hands[0] = Some(crate::econ::plain(&self.data, "stone_hammer", "limestone"));
+            for (hand, &(good, from)) in m.hands.iter_mut().zip(w.holds) {
+                *hand = Some(crate::econ::plain(&self.data, good, from));
+            }
             self.monsters.push(m);
         }
         self.communes.push(Commune { controlled: first, town: true, examine_hinted: true, ..Commune::default() });
@@ -668,6 +680,9 @@ impl Game {
         self.world.items.retain(|it| it.owner.is_none());
         for s in self.world.shops.iter_mut() {
             s.owner = None;
+        }
+        for p in self.world.plants.iter_mut() {
+            p.owner = None;
         }
         self
     }
@@ -1214,6 +1229,8 @@ impl Game {
             self.communes[k].queued = None;
             self.face_something_usable(c);
             let (thing, led) = (self.thing_here(c), self.led_wagon(c));
+            // A tool it could take, and where it lies: taking it is part of a routine too.
+            let tool = self.tool_ahead(c).map(|it| (self.world.items[it].good().to_string(), (self.world.items[it].x, self.world.items[it].y)));
             match self.try_use(c, sfx) {
                 UseRes::Done => match (led, thing) {
                     (Some(w), _) => {
@@ -1222,7 +1239,11 @@ impl Game {
                         self.record_goal(c, Goal::Lead { wagon: w, bed, pumpkin });
                     }
                     (None, Some(t)) => self.record_goal(c, Goal::Activate(t)),
-                    (None, None) => {}
+                    (None, None) => {
+                        if let Some((good, from)) = tool.filter(|(good, _)| self.monsters[c].hands.iter().flatten().any(|h| h.good == *good)) {
+                            self.record_goal(c, Goal::Take { good, from });
+                        }
+                    }
                 },
                 UseRes::Wait(msg) | UseRes::Missing(msg) => {
                     // Space on a plant is always part of a routine, ripe or not: on replay the
@@ -1392,18 +1413,10 @@ impl Game {
             }
             let (bx, by) = (tx + dx, ty + dy);
             ticks = self.push_ticks(i, &self.world.items[it].data).max(pull);
+            if let Some(msg) = self.wont_take((bx, by), &good) {
+                return StepRes::Blocked(msg);
+            }
             if let Some(b) = self.world.board_at(bx, by) {
-                let board = &self.world.boards[b];
-                if board.done() {
-                    return StepRes::Blocked(match board.project {
-                        Project::Bell => format!("A BELL HANGS HERE. A NEW ONE CAN REPLACE IT IN {} MINUTES.", board.rest.div_ceil(15 * 60)),
-                        Project::Order => "THAT ORDER'S ON ITS WAY. A NEW ONE SOON.".into(),
-                        _ => "THAT PROJECT IS DONE.".into(),
-                    });
-                }
-                if !self.board_takes(b, &good) {
-                    return StepRes::Blocked(format!("THE BOARD WANTS {}.", self.good_name(&board.wants)));
-                }
                 let mut item = self.world.items.remove(it);
                 item.data.hauled_by(id);
                 crate::econ::pay_haul(&mut item.data);
@@ -1411,9 +1424,6 @@ impl Game {
                 self.event(i, Ev::Delivered(good.clone()));
                 sfx.push(Sfx::Deposit);
             } else if let Some(b) = self.world.bin_at(bx, by) {
-                if let Err(msg) = self.bin_takes(b, &good) {
-                    return StepRes::Blocked(msg);
-                }
                 let mut item = self.world.items.remove(it);
                 item.data.hauled_by(id);
                 if self.world.bins[b].scores {
@@ -1539,6 +1549,11 @@ impl Game {
         UseRes::Nothing
     }
 
+    /// Does monster `i` hold a `good` with wear left?
+    pub(crate) fn holds_working(&self, i: usize, good: &str) -> bool {
+        self.monsters[i].hands.iter().flatten().any(|h| h.good == good && h.durability_left() > 0)
+    }
+
     /// A tool on the ground just ahead of monster `i` that it could hold in a hand.
     fn tool_ahead(&self, i: usize) -> Option<usize> {
         let m = &self.monsters[i];
@@ -1553,7 +1568,13 @@ impl Game {
 
     /// Monster `i` takes tool `it` from the ground into a free hand, if it has one and can
     /// carry it with what it holds already.
-    fn take_tool(&mut self, i: usize, it: usize, sfx: &mut Vec<Sfx>) -> UseRes {
+    pub(crate) fn take_tool(&mut self, i: usize, it: usize, sfx: &mut Vec<Sfx>) -> UseRes {
+        // A second of the same is no use: gathering takes one of each.
+        let good = self.world.items[it].good().to_string();
+        if self.holds_working(i, &good) {
+            sfx.push(Sfx::Deny);
+            return UseRes::Wait(format!("I'VE GOT {} ALREADY.", crate::recipes::one(&self.good_name(&good))));
+        }
         let Some(hand) = self.monsters[i].hands.iter().position(|h| h.is_none()) else {
             sfx.push(Sfx::Deny);
             return UseRes::Wait("MY HANDS ARE FULL.".into());

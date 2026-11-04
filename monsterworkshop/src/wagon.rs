@@ -100,24 +100,36 @@ impl Game {
     }
 
     /// Space with nothing usable in front turns toward a neighbor that is: a pumpkin, a wagon's
-    /// tailgate, or an applicant. Standing on a work spot or a plant, Space uses that instead.
+    /// tailgate, an applicant, a kit, or a tool it could take in hand (one it hasn't got before
+    /// one it has). Standing on a work spot or a plant, Space uses that instead.
     pub(crate) fn face_something_usable(&mut self, i: usize) {
         let m = &self.monsters[i];
         let here = (m.x, m.y);
         if self.world.shop_at_spot(here.0, here.1).is_some() || self.world.plant_at(here.0, here.1).is_some() {
             return;
         }
-        let usable = |(x, y): (i32, i32)| {
-            self.world.pumpkin_at(x, y).is_some()
+        // How worth turning to: 2 for something to use, 1 for a tool like one already in hand.
+        let usable = |(x, y): (i32, i32)| -> u8 {
+            let item = self.world.item_at(x, y);
+            if self.world.pumpkin_at(x, y).is_some()
                 || self.world.wagon_at(x, y).is_some_and(|w| self.world.wagons[w].behind() == here)
                 || self.applicant_at(x, y)
-                || self.world.item_at(x, y).is_some_and(|k| crate::frontier::kit_kind(self.world.items[k].good()).is_some())
+                || item.is_some_and(|k| crate::frontier::kit_kind(self.world.items[k].good()).is_some())
+            {
+                return 2;
+            }
+            match item.filter(|&k| !self.monsters[i].playing && self.owned_by_other(i, k).is_none() && self.data.try_good(self.world.items[k].good()).is_some_and(|g| self.data.holdable(g))) {
+                Some(k) if self.holds_working(i, self.world.items[k].good()) => 1,
+                Some(_) => 2,
+                None => 0,
+            }
         };
         let ahead = |d: Dir| (here.0 + d.delta().0, here.1 + d.delta().1);
-        if usable(ahead(m.facing)) {
+        let best = DIRS.iter().rev().copied().max_by_key(|&d| (usable(ahead(d)), d == m.facing)).filter(|&d| usable(ahead(d)) > 0);
+        if best.is_none_or(|d| d == m.facing) {
             return;
         }
-        if let Some(d) = DIRS.iter().copied().find(|&d| usable(ahead(d))) {
+        if let Some(d) = best {
             let m = &mut self.monsters[i];
             m.facing = d;
             if matches!(d, Dir::Left | Dir::Right) {

@@ -27,6 +27,24 @@ pub(crate) type CarryStep = (Dir, bool);
 
 impl Game {
     /// Is this tile where the good is meant to end up a bin, board or wagon that takes it?
+    /// Why the board or bin at `(x, y)` won't take `good` now, if it won't: an order filled
+    /// and resting, a bell hanging, the wrong kind, a full bin. Said the same to a player pushing
+    /// one in and by a loop waiting to.
+    pub(crate) fn wont_take(&self, (x, y): (i32, i32), good: &str) -> Option<String> {
+        if let Some(b) = self.world.board_at(x, y) {
+            let board = &self.world.boards[b];
+            if board.done() {
+                return Some(match board.project {
+                    crate::world::Project::Bell => format!("A BELL HANGS IN THE FRAME. A NEW ONE CAN REPLACE IT IN {} MINUTES.", board.rest.div_ceil(15 * 60)),
+                    crate::world::Project::Order => format!("{} IS FILLED. A NEW ONE SOON.", board.title),
+                    _ => "THAT PROJECT IS DONE.".into(),
+                });
+            }
+            return (!self.board_takes(b, good)).then(|| format!("THE BOARD WANTS {}.", self.good_name(&board.wants)));
+        }
+        self.world.bin_at(x, y).and_then(|b| self.bin_takes(b, good).err())
+    }
+
     pub(crate) fn takes_into(&self, (x, y): (i32, i32), good: &str) -> bool {
         self.world.bin_at(x, y).is_some_and(|b| self.bin_takes(b, good).is_ok())
             || self.world.board_at(x, y).is_some_and(|b| !self.world.boards[b].done() && self.board_takes(b, good))

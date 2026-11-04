@@ -67,6 +67,10 @@ impl Game {
     /// out on its own, so Space there just succeeds.
     pub(crate) fn use_plant(&mut self, i: usize, p: usize, _sfx: &mut Vec<Sfx>) -> UseRes {
         let plant = &self.world.plants[p];
+        if let Some(name) = plant.owner.filter(|&o| o != self.monsters[i].id).and_then(|o| self.monsters.iter().find(|m| m.id == o)).map(|m| m.name.clone()) {
+            let what = crate::inspect::plant_name(&self.data, &plant.good);
+            return UseRes::Wait(format!("THAT'S {name}'S OWN {what}. ANOTHER NEARBY IS FOR ANYONE."));
+        }
         if !plant.stock.is_empty() {
             return UseRes::Done;
         }
@@ -118,9 +122,9 @@ impl Game {
         if plant.stock.is_empty() {
             plant.growth = 0;
         }
-        let (px, py) = (plant.x, plant.y);
+        let (px, py, owner) = (plant.x, plant.y, plant.owner);
         let slide = Some(Slide { dir, left: crate::game::PUSH_TICKS, total: crate::game::PUSH_TICKS });
-        self.world.items.push(Item { slide, hop: 6, ..Item::new(x, y, data) });
+        self.world.items.push(Item { slide, hop: 6, owner, ..Item::new(x, y, data) });
         self.world.burst(px, py, PKind::Leaf, 4);
         self.sound((x, y), Sfx::Pop);
     }
@@ -375,8 +379,10 @@ impl Game {
         let hands = self.held_tools(m, &recipe).unwrap_or_default();
         let tools: Vec<ItemData> = hands.iter().filter_map(|&h| self.monsters[m].hands[h].clone()).collect();
         let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills }, tools.iter().collect(), &self.data, &mut self.rng);
-        // And they wear by their weight, and may break.
-        for (k, &h) in hands.iter().enumerate() {
+        // And they wear by their weight, and may break: but a working townsperson's own tools
+        // never wear, as a town's workshops never do.
+        let worn = if self.monsters[m].worker.is_some() { &[][..] } else { &hands[..] };
+        for (k, &h) in worn.iter().enumerate() {
             let Some(tool) = self.monsters[m].hands[h].as_mut() else { continue };
             tool.wear += recipe.tool_weight(k);
             if tool.durability_left() == 0 {

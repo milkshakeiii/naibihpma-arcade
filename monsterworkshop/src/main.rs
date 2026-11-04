@@ -20,6 +20,7 @@ mod palette;
 mod recipes;
 mod render;
 mod save;
+mod scenery;
 mod sched;
 mod server;
 mod sprites;
@@ -56,7 +57,7 @@ fn temple_test_world() {
     }
 }
 
-fn temple_test_game() -> Game {
+pub(crate) fn temple_test_game() -> Game {
     let mut g = Game::new();
     for board in g.world.boards.iter_mut().filter(|b| matches!(b.project, world::Project::Footbridge | world::Project::Bridge)) {
         board.have = board.need;
@@ -124,11 +125,25 @@ fn temple_test_game() -> Game {
     let (bx, by) = (g.world.boards[frame].x, g.world.boards[frame].y);
     let bell = plain(&g, "temple_bell", &["bronze"], 3, &["copper_ingot", "tin_ingot", "limestone", "red_clay", "mortar", "beeswax", "oil"]);
     g.world.items.push(world::Item::new(bx, by - 3, bell));
-    // By Tanglemere's kiln, two logs and two sticks: charcoal twice.
+    // By Tanglemere's kiln, two logs and two sticks: charcoal twice; and two coal, for coke.
     let kiln = g.world.shops.iter().position(|s| s.kind.label() == "KILN" && s.frontier.is_none()).expect("Tanglemere's kiln");
     let (kx, ky) = g.world.shops[kiln].spot;
-    let wood = ["hemlock_log", "hemlock_log", "elder_sticks", "elder_sticks"].iter().map(|&id| plain(&g, id, &[], 0, &[id])).collect();
+    let wood = ["hemlock_log", "hemlock_log", "elder_sticks", "elder_sticks", "coal", "coal"].iter().map(|&id| plain(&g, id, &[], 0, &[id])).collect();
     lay(&mut g, wood, kx - 3..=kx + 3, ky + 1..=ky + 3, world::Tile::Floor);
+    // Below the free end of the seam, two bins of spare tools, twelve picks and twelve
+    // shovels, their chutes toward it with a tile between them, where Space reaches either:
+    // record a digger taking its tools from the chutes, and its loop takes new ones there when
+    // they wear out, with no trading.
+    let seam: Vec<(i32, i32)> = g.world.plants.iter().filter(|p| p.good == "coal" && p.owner.is_none()).map(|p| (p.x, p.y)).collect();
+    let east = *seam.iter().max().expect("a seam for anyone");
+    for (k, tool) in ["pick", "shovel"].into_iter().enumerate() {
+        let (x, y) = (east.0 + 2 * k as i32, east.1 + 4);
+        let stock = (0..12).map(|_| plain(&g, tool, &[], 1, &["copper_ingot"])).collect();
+        let frontier = world::FrontierBin { kit: "bin_kit".into(), material: "HEMLOCK".into(), room: 12.0, idle: 0, held: 12 };
+        g.world.bins.push(world::Bin { x, y, accepts: vec![tool.into()], stock, mouth: Some((x, y - 1)), timer: 0, bounce: 0, scores: false, frontier: Some(frontier) });
+        let w = g.world.w;
+        g.world.tiles[(y * w + x) as usize] = world::Tile::Bin;
+    }
     g
 }
 
@@ -141,13 +156,20 @@ fn the_temple_test_world_has_whats_new_ready_to_try() {
     assert!(g.monsters.iter().filter(|m| m.commune == 0).all(|m| (m.x - sx).abs() <= 2 && m.y == sy + 2), "Mogg and Bruna stand at the stall");
     assert!(g.world.footbridge_built(), "the river can be crossed");
     let lying = |group: &Vec<String>| (0..g.world.items.len()).filter(|&i| g.world.item_matches(&g.data, i, group)).count();
-    for r in g.offers(stall).into_iter().chain(["temple_bell", "charcoal"]) {
+    for r in g.offers(stall).into_iter().chain(["temple_bell", "charcoal", "coke"]) {
         for (_, group) in g.data.good(r).input_groups() {
             assert!(lying(group) >= 2 || r == "temple_bell", "{r} wants {group:?}: {} lie about", lying(group));
             assert!(lying(group) >= 1, "{r} wants {group:?}");
         }
     }
     assert!(g.world.items.iter().any(|it| it.good() == "temple_bell"), "a bell to hang");
+    for tool in ["pick", "shovel"] {
+        let bin = g.world.bins.iter().find(|b| b.accepts == [tool]).unwrap_or_else(|| panic!("a bin of {tool}s"));
+        assert_eq!(bin.stock.len(), 12, "twelve spare {tool}s");
+        let (mx, my) = bin.mouth.expect("a chute");
+        assert!(g.world.item_floor(mx, my) && g.world.item_at(mx, my).is_none(), "its chute is clear for the first {tool}");
+        assert!(world::DIRS.iter().any(|d| g.world.walkable(mx + d.delta().0, my + d.delta().1) && (mx + d.delta().0, my + d.delta().1) != (bin.x, bin.y)), "a {tool} on the chute can be reached");
+    }
     let loaded = save::from_json(&save::to_json(&g)).expect("it saves and loads");
     assert_eq!(loaded.world.items.len(), g.world.items.len());
 }
