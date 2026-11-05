@@ -98,6 +98,10 @@ pub struct Knack {
     pub quality: f64,
     /// How much further the quantity roll goes where nothing has a quality roll (a secret: 1.1).
     pub quantity: f64,
+    /// Hauling: a led wagon's room, the weight pulled and the weight pushed at full speed.
+    pub room: f64,
+    pub pull: f64,
+    pub push: f64,
     pub time: f64,
     pub learning: f64,
     pub forgetting: f64,
@@ -111,7 +115,7 @@ pub struct Knack {
 }
 
 /// No pieces: nothing changes.
-pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, quantity: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talent: None };
+pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, quantity: 1.0, room: 1.0, pull: 1.0, push: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talent: None };
 
 impl Default for Knack {
     fn default() -> Self {
@@ -126,6 +130,9 @@ impl Knack {
         self.more += does.more;
         self.quality *= pct(does.quality);
         self.quantity *= pct(does.quantity);
+        self.room *= pct(does.room);
+        self.pull *= pct(does.pull);
+        self.push *= pct(does.push);
         self.time *= pct(does.time);
         self.learning *= pct(does.learning);
         self.forgetting *= pct(does.forgetting);

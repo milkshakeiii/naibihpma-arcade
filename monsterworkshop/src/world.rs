@@ -173,7 +173,7 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 /// awning over a shop's door and the hillside join their neighbors of the same kind; the rest is
 /// drawn whole on its tiles. The map marks newer kinds with characters past plain ASCII, which ran
 /// out (2026-11-04).
-pub const PROPS: [PropKind; 62] = [
+pub const PROPS: [PropKind; 64] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -241,6 +241,8 @@ pub const PROPS: [PropKind; 62] = [
     prop("scarecrow", 'ŝ', "A SCARECROW", "IN AN INDIGO SHIRT, OF COURSE.", (1, 1)),
     prop("field_trough", '≈', "A WATER TROUGH", "FOR RINSING THE LEAVES BEFORE THEY GO TO THE VATS.", (2, 1)),
     prop("shrub", 'ŏ', "A BOX SHRUB", "CLIPPED ROUND. NOTHING ON IT TO PICK.", (1, 1)),
+    prop("baskets", 'ŭ', "A PAIR OF BASKETS", "FOR THE ENDS OF A SHOULDER POLE. NOTHING IN THEM.", (1, 1)),
+    prop("sacks", 'ş', "EMPTY SACKS", "FOLDED, FOR WHOEVER'S CARRYING SOMETHING HOME.", (1, 1)),
 ];
 
 
@@ -276,7 +278,8 @@ const REGIONS: [Region; 5] = [
         province: "",
         at: (125, 0),
         // The outfitter's: the plain pieces along the back wall, given for renown, and Old Thimble
-        // between them; by the door, things to work with.
+        // between them; by the door, things to work with; outside, along the path, things for
+        // hauling.
         racks: &[
             ((40, 14), "rope_belt"),
             ((41, 14), "cloth_gloves"),
@@ -287,6 +290,10 @@ const REGIONS: [Region; 5] = [
             ((40, 11), "towel"),
             ((40, 12), "whetstone"),
             ((42, 11), "hasty_apron"),
+            // Outside its west wall, along the path south: things for hauling.
+            ((37, 11), "backpack"),
+            ((37, 12), "feathered_cap"),
+            ((37, 13), "shoulder_pole"),
         ],
         folk: &[((43, 13), Folk::Outfitter)],
         labels: &[((39, 2), "CLOTH HALL"), ((46, 10), "OUTFITTER")],

@@ -136,7 +136,8 @@ pub(crate) fn dressed_frames(goblin: bool, look: &[(&str, u8)]) -> [Sprite; 4] {
     [idle.clone().outline(), breath.outline(), idle.outline(), walk_b.outline()]
 }
 
-/// Draws a piece of kind `kind` onto a monster's raw art (before its outline), in color `c`.
+/// Draws a piece that looks like `kind` onto a monster's raw art (before its outline), in color
+/// `c`.
 fn wear(s: &mut Sprite, goblin: bool, kind: &str, c: u8) {
     let body = |s: &Sprite, x: i32, y: i32| x >= 0 && y >= 0 && x < s.w && y < s.h && s.px[(y * s.w + x) as usize] > 1;
     // Recolors the body's own pixels in a row from x0 to x1.
@@ -181,6 +182,43 @@ fn wear(s: &mut Sprite, goblin: bool, kind: &str, c: u8) {
         ("apron", false) => {
             for y in 12..=14 {
                 band(s, y, 6, 10);
+            }
+        }
+        // A pack on the back, behind the body (it faces right), its bottom in shadow, and a
+        // strap over the chest.
+        ("backpack", goblin) => {
+            let ((x0, x1, y0, y1), strap) = if goblin { ((2, 4, 10, 13), [(5, 11), (5, 12)]) } else { ((1, 3, 9, 12), [(6, 12), (6, 13)]) };
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    if !body(s, x, y) {
+                        s.set(x, y, if y == y1 { shift(c, -1) } else { c });
+                    }
+                }
+            }
+            for (x, y) in strap {
+                s.set(x, y, shift(c, -1));
+            }
+        }
+        // A cap over the brow, its band in shadow, a red feather up and back from its crown.
+        // A cyclops's horn shows through.
+        ("cap", goblin) => {
+            let (crown, band_row, feather): (&[(i32, i32, i32)], (i32, i32, i32), [(i32, i32); 3]) =
+                if goblin { (&[(4, 6, 9), (5, 5, 10)], (6, 4, 12), [(5, 3), (4, 2), (3, 1)]) } else { (&[(2, 5, 10), (3, 5, 10)], (4, 4, 11), [(4, 1), (3, 0), (4, 0)]) };
+            for &(y, x0, x1) in crown {
+                for x in x0..=x1 {
+                    if s.px[(y * s.w + x) as usize] != TOOTH {
+                        s.set(x, y, c);
+                    }
+                }
+            }
+            let (y, x0, x1) = band_row;
+            for x in x0..=x1 {
+                if body(s, x, y) {
+                    s.set(x, y, shift(c, -1));
+                }
+            }
+            for (x, y) in feather {
+                s.set(x, y, THREAD + 1);
             }
         }
         _ => {}

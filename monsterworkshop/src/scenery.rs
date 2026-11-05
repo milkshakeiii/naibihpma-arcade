@@ -74,6 +74,8 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "scarecrow" => vec![scarecrow()],
         "field_trough" => vec![field_trough()],
         "shrub" => vec![shrub()],
+        "baskets" => vec![baskets()],
+        "sacks" => vec![sacks()],
         _ => Vec::new(),
     }
 }
@@ -961,5 +963,38 @@ fn shrub() -> Sprite {
     for &(x, y) in &[(5, 4), (9, 3), (11, 7), (6, 9)] {
         s.set(x, y, HEDGE + 2);
     }
+    s.outline()
+}
+
+/// A pair of woven baskets, the back one higher: each a lit rim round its dark open top, then
+/// the weave, narrowing a little to its foot.
+fn baskets() -> Sprite {
+    let mut s = Sprite::blank(16, 13);
+    for &(x0, y0, x1) in &[(8, 2, 14), (1, 4, 7)] {
+        rect(&mut s, x0, y0, x1, y0, MAT + 2);
+        rect(&mut s, x0, y0 + 1, x1, y0 + 1, MAT + 2);
+        rect(&mut s, x0 + 1, y0 + 1, x1 - 1, y0 + 1, WOOD);
+        rect(&mut s, x0, y0 + 2, x1, y0 + 2, MAT + 2);
+        for y in y0 + 3..=12 {
+            let inset = if y == 12 { 1 } else { 0 };
+            for x in x0 + inset..=x1 - inset {
+                s.set(x, y, if (x + y) % 2 == 0 { MAT + 1 } else { MAT });
+            }
+        }
+    }
+    s.outline()
+}
+
+/// Empty sacks folded flat and piled, a tie round the top one: burlap, not a sack of anything.
+fn sacks() -> Sprite {
+    let mut s = Sprite::blank(16, 12);
+    for &(x0, y0, x1, y1) in &[(1, 8, 14, 11), (2, 5, 13, 8), (3, 2, 12, 5)] {
+        rect(&mut s, x0, y0, x1, y1, MAT + 1);
+        rect(&mut s, x0, y0, x1, y0, MAT + 2);
+        rect(&mut s, x0, y1, x1, y1, MAT);
+        // A fold line down the middle.
+        s.set((x0 + x1) / 2, y0 + 1, MAT);
+    }
+    rect(&mut s, 7, 2, 8, 5, WOOD + 2);
     s.outline()
 }

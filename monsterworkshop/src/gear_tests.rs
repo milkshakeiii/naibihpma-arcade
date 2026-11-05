@@ -648,3 +648,119 @@ fn the_coal_seam_lists_only_what_helps_there() {
     assert!(has_line(&card, "SECRET OF PROSPECTING: +10% YIELD"), "{lines:?}");
     assert!(!has_line(&card, "MAGNIFYING GLASS") && !has_line(&card, "LUCKY CHARM"), "{lines:?}");
 }
+
+/// Coal pushed into wagon `w` by Mogg until it's full: how many went in.
+fn fill_with_coal(g: &mut Game, w: usize) -> usize {
+    let id = g.monsters[0].id;
+    g.world.wagons[w].stock.clear();
+    for n in 0.. {
+        g.world.items.push(crate::world::Item::new(0, 0, tool("coal")));
+        if g.load_wagon(w, g.world.items.len() - 1, id).is_err() {
+            g.world.items.pop();
+            return n;
+        }
+    }
+    unreachable!()
+}
+
+#[test]
+fn a_backpack_carries_more_a_feathered_cap_pulls_harder_and_a_shoulder_pole_pushes_heavier() {
+    let mut g = Game::new();
+    let (w, start) = (0, (g.monsters[0].x, g.monsters[0].y));
+    // A backpack: the wagon its wearer leads, or led last and parked, holds half again as much.
+    g.world.wagons[w].last_leader = Some(g.monsters[0].id);
+    let plain = fill_with_coal(&mut g, w);
+    g.monsters[0].gear = vec!["backpack".into()];
+    assert_eq!(fill_with_coal(&mut g, w), plain * 3 / 2, "the town's wagon, {plain} coal without");
+    let (bx, by) = g.world.wagons[w].at;
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (bx, by - 1, Dir::Down);
+    let card = crate::inspect::card(&g, 0);
+    let lines: Vec<&String> = card.lines().map(|l| &l.text).collect();
+    assert!(has_line(&card, &format!("OF {:.1}", g.world.wagons[w].room * 1.5)) && has_line(&card, "MOGG'S BACKPACK: +50% WAGON ROOM"), "{lines:?}");
+    g.monsters[0].gear.clear();
+    // A feathered cap: a load that slowed its leader goes at full speed.
+    let cap = g.pull_capacity(0, w);
+    let logs = (cap * 1.3 / 100.0).ceil() as usize;
+    g.world.wagons[w].stock = vec![(tool("oak_log"), String::new()); logs];
+    assert!(g.wagon_ticks(0, w) > crate::game::PUSH_TICKS, "{logs} logs slow a plain leader");
+    g.monsters[0].gear = vec!["feathered_cap".into()];
+    assert!((g.pull_capacity(0, w) / cap - 1.5).abs() < 1e-9);
+    assert_eq!(g.wagon_ticks(0, w), crate::game::PUSH_TICKS, "and not one in a feathered cap");
+    g.monsters[0].gear.clear();
+    // A shoulder pole: a good that slowed its pusher goes at full speed; it takes a hand.
+    let push = g.push_capacity(0);
+    let heavy = g.data.goods.iter().filter(|r| r.raw_material_density.is_some()).map(|r| tool(&r.id)).find(|d| {
+        let wt = crate::econ::weight(g.data.good(&d.good), d);
+        wt > push && wt <= push * 1.5
+    });
+    let heavy = heavy.expect("a good a little too heavy for Mogg");
+    assert!(g.push_ticks(0, &heavy) > crate::game::PUSH_TICKS, "{} slows Mogg", heavy.good);
+    g.monsters[0].hands[0] = Some(Held::Piece("shoulder_pole".into()));
+    assert_eq!(g.push_ticks(0, &heavy), crate::game::PUSH_TICKS, "but not with a shoulder pole");
+    // A good's card says what the one looking pushes at full speed, and what helps.
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (start.0, start.1, Dir::Right);
+    g.world.items.push(crate::world::Item::new(start.0 + 1, start.1, heavy));
+    let card = crate::inspect::card(&g, 0);
+    let lines: Vec<&String> = card.lines().map(|l| &l.text).collect();
+    assert!(has_line(&card, &format!("MOGG PUSHES {:.0} AT FULL SPEED.", push * 1.5)) && has_line(&card, "SHOULDER POLE: +50% PUSHING POWER"), "{lines:?}");
+    // A backpack goes on the back, in a cloak's place; a feathered cap on the head, in a
+    // headband's.
+    g.monsters[0].gear = vec!["cloak_of_charisma".into(), "headband".into()];
+    for (piece, old) in [("backpack", "cloak_of_charisma"), ("feathered_cap", "headband")] {
+        assert_eq!(g.replaces(0, g.data.piece(piece)).map(|p| p.id.as_str()), Some(old));
+    }
+    // Hauling isn't crafting: a forecast card leaves them out.
+    let (mut g, _) = at_spinnery();
+    g.monsters[1].gear = vec!["backpack".into(), "feathered_cap".into()];
+    g.monsters[1].hands[0] = Some(Held::Piece("shoulder_pole".into()));
+    let card = crate::inspect::card(&g, 0);
+    assert!(!has_line(&card, "BACKPACK") && !has_line(&card, "CAP") && !has_line(&card, "POLE"), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+}
+
+#[test]
+fn things_for_hauling_stand_outside_the_outfitter_along_the_path() {
+    let mut g = Game::new();
+    for piece in ["backpack", "feathered_cap", "shoulder_pole"] {
+        let r = g.world.racks.iter().position(|r| r.piece == piece).unwrap_or_else(|| panic!("a stand for the {piece}"));
+        let (x, y) = (g.world.racks[r].x, g.world.racks[r].y);
+        assert_eq!(crate::world::area_name(x, y), "TANGLEMERE");
+        // Faced from the path, with no other stand beside: Space there takes it, no guessing.
+        let front = (x - 1, y);
+        assert!(g.world.tile(front.0, front.1).walkable() && g.racks_beside_tile(front) == 1, "{piece} faced from {front:?}");
+        (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (front.0, front.1, Dir::Down);
+        g.communes[0].renown = 100.0;
+        g.script("u");
+        assert!(g.monsters[0].pieces().any(|p| p == piece), "{piece}: {}", said(&g, 0));
+    }
+}
+
+#[test]
+fn heavy_goods_slow_a_push_three_ticks_for_each_half_over_and_a_shoulder_pole_lifts_them() {
+    use crate::wagon::heavy_ticks;
+    // A goblin of STR 8 pushes 80 at full speed; with a shoulder pole, 120. Clay, an oak log,
+    // limestone, a pumpkin and a copper ingot:
+    for (weight, plain, pole) in [(75.0, 3, 3), (100.0, 5, 3), (125.0, 7, 4), (160.0, 9, 5), (178.0, 11, 6)] {
+        assert_eq!((heavy_ticks(weight, 80.0), heavy_ticks(weight, 120.0)), (plain, pole), "weight {weight}");
+    }
+    assert_eq!(heavy_ticks(10_000.0, 80.0), crate::game::PULL_TICKS, "no slower than a pull");
+    // The temple bell (491) is past that for a goblin, but not with a pole: 22 ticks a tile.
+    assert_eq!((heavy_ticks(491.0, 80.0), heavy_ticks(491.0, 120.0)), (crate::game::PULL_TICKS, 22));
+    // Pushing something clearly heavy says so; something a little slower doesn't.
+    let push = |good: &str| {
+        let mut g = Game::new();
+        let open = |g: &Game, x: i32, y: i32| g.world.tile(x, y) == crate::world::Tile::Grass && g.monster_at(x, y).is_none() && g.world.item_at(x, y).is_none();
+        let (x, y) = (1..30).flat_map(|y| (1..45).map(move |x| (x, y))).find(|&(x, y)| (0..3).all(|k| open(&g, x + k, y))).expect("open ground");
+        (g.monsters[0].x, g.monsters[0].y) = (x, y);
+        g.world.items.push(crate::world::Item::new(x + 1, y, tool(good)));
+        let mut right = Input::default();
+        (right.pressed[3], right.held[3]) = (true, true);
+        g.press(0, right);
+        let want = heavy_ticks(crate::econ::weight(g.data.good(good), &tool(good)), g.push_capacity(0));
+        assert_eq!(g.monsters[0].slide.map(|s| s.total), Some(want), "{good}");
+        (want, g.status(0).0)
+    };
+    let (ticks, said) = push("pumpkin");
+    assert!(ticks >= crate::game::HEAVY_GOING_TICKS && said.ends_with("PUSHING. HEAVY GOING"), "a pumpkin, {ticks} ticks: {said}");
+    let (ticks, said) = push("oak_log");
+    assert!(ticks > crate::game::PUSH_TICKS && !said.contains("HEAVY"), "an oak log, {ticks} ticks: {said}");
+}

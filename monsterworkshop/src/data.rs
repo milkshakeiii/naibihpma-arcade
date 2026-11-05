@@ -224,6 +224,10 @@ pub struct Piece {
     /// What sort of thing it is: one of a kind is worn at a time, and a new one replaces it
     /// (Gloves of Dexterity take the cloth gloves' place). Where it shows on the sprite.
     pub kind: String,
+    /// How it's drawn, where that isn't its kind: a backpack takes a cloak's place on the back
+    /// but doesn't look like one.
+    #[serde(default)]
+    pub look: Option<String>,
     /// What it costs of the monster's body and mind capacity.
     #[serde(default)]
     pub body: u32,
@@ -268,6 +272,12 @@ pub struct Does {
     pub value: i32,
     /// The wear on the tools the monster crafts with, in hand or on a peg.
     pub wear: i32,
+    /// Hauling, in percent: the room in a wagon the monster leads (a backpack), the weight it
+    /// pulls one at full speed (a feathered cap), and the weight it pushes a good at full
+    /// speed (a shoulder pole).
+    pub room: i32,
+    pub pull: i32,
+    pub push: i32,
     /// How much further a result above the forecast goes (a lucky charm's 50: half as far again).
     pub luck: i32,
     /// How much of the way back to the forecast a result below it comes (patience: halfway).
@@ -292,6 +302,8 @@ impl Does {
         if recipe.is_fixed_quantity {
             (d.more, d.quantity) = (0, 0);
         }
+        // Hauling isn't crafting.
+        (d.room, d.pull, d.push) = (0, 0, 0);
         d
     }
 
@@ -309,7 +321,7 @@ impl Does {
             (q, n) if q == n => out.push(format!("{q:+}% QUALITY OR YIELD")),
             (q, n) => out.extend([format!("{q:+}% QUALITY"), format!("{n:+}% YIELD")]),
         }
-        for (v, what) in [(self.time, "TIME"), (self.learning, "LEARNING"), (self.forgetting, "FORGETTING"), (self.value, "VALUE")] {
+        for (v, what) in [(self.time, "TIME"), (self.learning, "LEARNING"), (self.forgetting, "FORGETTING"), (self.value, "VALUE"), (self.room, "WAGON ROOM"), (self.pull, "PULLING POWER"), (self.push, "PUSHING POWER")] {
             if v != 0 {
                 out.push(format!("{v:+}% {what}"));
             }
@@ -341,6 +353,11 @@ impl Piece {
         let mut all: Vec<String> = (0..6).filter(|&a| self.bonus_to(a) != 0).map(|a| format!("{:+} {}", self.bonus_to(a), ABILITIES[a])).collect();
         all.extend(self.does.text());
         all.join(", ")
+    }
+
+    /// How it's drawn: its look, or else its kind.
+    pub fn look(&self) -> &str {
+        self.look.as_deref().unwrap_or(&self.kind)
     }
 
     /// What a monster does to have it: takes it in hand, puts it on, learns it, or its own verb.

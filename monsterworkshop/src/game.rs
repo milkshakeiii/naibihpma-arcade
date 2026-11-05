@@ -17,6 +17,9 @@ use std::collections::BTreeSet;
 
 pub const WALK_TICKS: u8 = 2;
 pub const PUSH_TICKS: u8 = 3;
+/// A push or a wagon this slow or slower is said to be heavy going: twice a push's time. A
+/// goblin's oak log, a little slower, doesn't say so (Henry: too early); its limestone does.
+pub const HEAVY_GOING_TICKS: u8 = 2 * PUSH_TICKS;
 /// Pulling is a way out of a stuck spot, not a way to haul: two seconds a tile.
 pub const PULL_TICKS: u8 = 30;
 const BUBBLE_TICKS: u16 = 45;
@@ -2022,10 +2025,14 @@ impl Game {
         let state = if m.busy {
             ("WORKING".to_string(), false)
         } else if let Some(w) = self.led_wagon(i).filter(|_| !m.playing) {
-            let slow = self.wagon_ticks(i, w) > PUSH_TICKS;
+            let slow = self.wagon_ticks(i, w) >= HEAVY_GOING_TICKS;
             (if slow { "LEADING THE WAGON. THE LOAD SLOWS IT".to_string() } else { "LEADING THE WAGON".to_string() }, false)
         } else if m.slide.is_some_and(|s| s.total == PULL_TICKS) {
             ("PULLING. HEAVY GOING".to_string(), false)
+        } else if !m.playing && m.slide.is_some_and(|s| s.total >= HEAVY_GOING_TICKS && s.total != PULL_TICKS) && self.led_wagon(i).is_none() {
+            // A good heavier than it pushes easily (a loop's pushes don't say, or its status
+            // would flicker with every step).
+            ("PUSHING. HEAVY GOING".to_string(), false)
         } else if let Some(r) = &m.rec {
             (format!("RECORDING ({} GOALS){}", r.goals.len(), if m.homing { ". HEADING BACK TO THE FLAG" } else { "" }), false)
         } else if m.playing && m.wait >= WAIT_BEFORE_SAYING {

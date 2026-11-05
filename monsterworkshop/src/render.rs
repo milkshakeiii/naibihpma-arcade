@@ -1544,7 +1544,15 @@ fn draw_carried(fb: &mut Framebuffer, p: &crate::data::Piece, hx: i32, top: i32)
         fb.rect_fill(x, y, w, h, c);
         fb.rect_fill(x, y + h - 1, w, 1, shift(c, -1));
     };
-    match p.kind.as_str() {
+    match p.look() {
+        // Upright like a staff, from above the head to the ground, a rope loop round its top.
+        "pole" => {
+            fb.rect_fill(hx - 1, top - 6, 3, 15, OUTLINE);
+            fb.rect_fill(hx, top - 5, 1, 13, c);
+            fb.rect_fill(hx - 2, top - 4, 5, 4, OUTLINE);
+            fb.rect_fill(hx - 1, top - 3, 3, 2, MAT + 2);
+            fb.pset(hx, top - 3, c);
+        }
         "towel" => {
             blob(fb, hx - 1, top + 3, 3, 5, c);
             fb.rect_fill(hx - 1, top + 5, 3, 1, THREAD + 1);
@@ -1594,7 +1602,7 @@ fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
         fb.rect_fill(x0 + x, y0 + y, w, h, c);
         fb.rect_fill(x0 + x, y0 + y + h - 1, w, 1, dark);
     };
-    match p.kind.as_str() {
+    match p.look() {
         "belt" => {
             outlined(fb, 3, 6, 10, 2);
             fb.rect_fill(x0 + 7, y0 + 6, 2, 2, SPARK + 1);
@@ -1616,7 +1624,7 @@ fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
             fb.rect_fill(x0 + 11, y0 + 5, 1, 5, c);
         }
         "charm" | "earrings" => {
-            let at: &[i32] = if p.kind == "charm" { &[7] } else { &[4, 11] };
+            let at: &[i32] = if p.look() == "charm" { &[7] } else { &[4, 11] };
             for &bx in at {
                 fb.rect_fill(x0 + bx, y0 + 5, 1, 3, TEXT_DIM);
                 outlined(fb, bx, 8, 2, 2);
@@ -1665,6 +1673,47 @@ fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
             fb.rect_fill(x0 + 11, y0 + 5, 1, 2, c);
             fb.rect_fill(x0 + 6, y0 + 9, 4, 1, shift(c, -1));
         }
+        "backpack" => {
+            // Hung by its straps, a flap over the top and a pocket on the front.
+            fb.rect_fill(x0 + 4, y0 + 2, 3, 4, OUTLINE);
+            fb.rect_fill(x0 + 9, y0 + 2, 3, 4, OUTLINE);
+            fb.rect_fill(x0 + 5, y0 + 3, 1, 2, shift(c, -1));
+            fb.rect_fill(x0 + 10, y0 + 3, 1, 2, shift(c, -1));
+            outlined(fb, 4, 5, 8, 7);
+            fb.rect_fill(x0 + 4, y0 + 5, 8, 2, shift(c, 1));
+            fb.pset(x0 + 7, y0 + 7, SPARK + 1);
+            fb.rect_fill(x0 + 5, y0 + 9, 6, 1, shift(c, -1));
+        }
+        "cap" => {
+            // Hung on the bar, its peak to the right, a red feather up and back from its crown.
+            for (fx, fy) in [(4, 5), (3, 4), (3, 3)] {
+                fb.rect_fill(x0 + fx - 1, y0 + fy - 1, 3, 3, OUTLINE);
+            }
+            for (fx, fy) in [(4, 5), (3, 4), (3, 3)] {
+                fb.pset(x0 + fx, y0 + fy, THREAD + 1);
+            }
+            outlined(fb, 5, 5, 6, 3);
+            fb.rect_fill(x0 + 4, y0 + 8, 10, 2, OUTLINE);
+            fb.rect_fill(x0 + 5, y0 + 8, 8, 1, shift(c, -1));
+            fb.rect_fill(x0 + 6, y0 + 5, 4, 1, shift(c, 1));
+        }
+        "pole" => {
+            // Leant across the stand corner to corner, a rope ring round each end.
+            let along = |k: i32| (x0 + 2 + k, y0 + 13 - k);
+            for k in 0..12 {
+                let (px, py) = along(k);
+                fb.rect_fill(px - 1, py - 1, 3, 3, OUTLINE);
+            }
+            for k in [1, 10] {
+                let (px, py) = along(k);
+                fb.rect_fill(px - 2, py - 2, 5, 5, OUTLINE);
+                fb.rect_fill(px - 1, py - 1, 3, 3, MAT + 2);
+            }
+            for k in 0..12 {
+                let (px, py) = along(k);
+                fb.pset(px, py, c);
+            }
+        }
         "notebook" => {
             outlined(fb, 5, 6, 6, 6);
             fb.rect_fill(x0 + 10, y0 + 6, 1, 6, COTTON + 2);
@@ -1691,7 +1740,7 @@ fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
 /// Monster `i`'s frames with what it has on drawn in, if it has anything on that shows.
 fn dressed(g: &Game, i: usize) -> Option<[Sprite; 4]> {
     let m = &g.monsters[i];
-    let look: Vec<(&str, u8)> = m.gear.iter().filter_map(|id| g.data.try_piece(id)).filter_map(|p| Some((p.kind.as_str(), p.color.as_ref().and_then(|(n, s)| color_named(n, *s))?))).collect();
+    let look: Vec<(&str, u8)> = m.gear.iter().filter_map(|id| g.data.try_piece(id)).filter_map(|p| Some((p.look(), p.color.as_ref().and_then(|(n, s)| color_named(n, *s))?))).collect();
     (!look.is_empty()).then(|| crate::sprites::dressed_frames(m.species == Species::Goblin, &look))
 }
 
@@ -2175,14 +2224,16 @@ fn draw_help(fb: &mut Framebuffer) {
 #[test]
 fn a_stand_sits_on_the_ground_around_it() {
     let g = Game::new();
-    // Planks in the outfitter's and the temple, grass in a yard or by the seam: as where you
-    // stand to face it.
+    // Planks in the outfitter's and the temple, where you stand on planks to face it; grass
+    // outdoors, in a yard, by the seam or beside a path.
     for r in &g.world.racks {
         let fronts: Vec<Tile> = crate::world::DIRS.iter().map(|d| (r.x + d.delta().0, r.y + d.delta().1)).filter(|&(x, y)| g.world.tile(x, y).walkable()).map(|(x, y)| ground(&g, x, y)).collect();
-        assert!(fronts.contains(&ground(&g, r.x, r.y)), "{} at ({}, {}) on {:?}, beside {fronts:?}", r.piece, r.x, r.y, ground(&g, r.x, r.y));
+        let on = ground(&g, r.x, r.y);
+        assert!(matches!(on, Tile::Floor | Tile::Grass) && (on == Tile::Floor) == fronts.contains(&Tile::Floor), "{} at ({}, {}) on {on:?}, beside {fronts:?}", r.piece, r.x, r.y);
     }
     let on = |piece: &str| g.world.racks.iter().find(|r| r.piece == piece).map(|r| ground(&g, r.x, r.y));
     assert_eq!(on("secret_wagon_wright"), Some(Tile::Grass));
+    assert_eq!(on("feathered_cap"), Some(Tile::Grass));
     assert_eq!(on("teaching_music"), Some(Tile::Floor));
     assert_eq!(on("rope_belt"), Some(Tile::Floor));
 }

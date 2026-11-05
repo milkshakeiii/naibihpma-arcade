@@ -268,14 +268,31 @@ fn wagon_card(g: &Game, w: usize, at: (i32, i32), c: usize) -> Card {
         None => line("EMPTY. PUSH GOODS INTO IT, ONE KIND AT A TIME.", TEXT_DIM),
     }];
     let used = econ::total(wagon.stock.iter().map(|(d, _)| g.data.good(&d.good).storage_volume));
-    first.push(line(format!("ROOM {used:.1} OF {:.1}", wagon.room), TEXT).bar(used / wagon.room));
+    let room = g.wagon_room(w);
+    first.push(line(format!("ROOM {used:.1} OF {room:.1}"), TEXT).bar(used / room));
     first.push(if wagon.open { line("TAILGATE OPEN: PARKED, IT UNLOADS BEHIND.", TEXT_GOOD) } else { line("TAILGATE SHUT. SPACE AT ITS BACK OPENS IT.", TEXT_DIM) });
-    let details = vec![
+    let mut details = vec![
         line(format!("LOAD WEIGHS {:.0}. {} PULLS {:.0} AT FULL SPEED.", g.load_weight(w), g.monsters[c].name, g.pull_capacity(c, w)), TEXT).icon(Icon::Weight),
         line("PULLING POWER: THE WAGON, ITS LEADER'S CHA AND WAGON DRIVING.", TEXT_DIM),
-        line("THE TOWN'S WAGON, ON LOAN.", TEXT_DIM),
     ];
+    // What its leader carries for it, and what helps the one looking pull.
+    if let Some(l) = g.wagon_leader(w) {
+        details.extend(hauling(g, l, |d| d.room, "WAGON ROOM", &format!("{}'S ", g.monsters[l].name)));
+    }
+    details.extend(hauling(g, c, |d| d.pull, "PULLING POWER", ""));
+    details.push(line("THE TOWN'S WAGON, ON LOAN.", TEXT_DIM));
     Card::two("WAGON", first, details, at)
+}
+
+/// Monster `i`'s pieces that help it haul in one way (`which` of what a piece does), a line
+/// each: "MOGG'S BACKPACK: +50% WAGON ROOM".
+fn hauling(g: &Game, i: usize, which: fn(&crate::data::Does) -> i32, what: &str, whose: &str) -> Vec<Line> {
+    g.monsters[i]
+        .pieces()
+        .filter_map(|id| g.data.try_piece(id))
+        .filter(|p| which(&p.does) != 0)
+        .map(|p| line(format!("{whose}{}: {:+}% {what}", p.name.to_uppercase(), which(&p.does)), TEXT_GOOD))
+        .collect()
 }
 
 /// A working townsperson: who they are, and their card's lines from the data.
@@ -416,6 +433,8 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         details.push(line("BURNS AS FUEL.", TEXT_DIM));
     }
     details.push(line(format!("WEIGHS {:.1}", econ::weight(gt, item)), TEXT).icon(Icon::Weight));
+    details.push(line(format!("{} PUSHES {:.0} AT FULL SPEED.", g.monsters[c].name, g.push_capacity(c)), TEXT_DIM));
+    details.extend(hauling(g, c, |d| d.push, "PUSHING POWER", ""));
     details.push(if item.depth == 0 {
         line("RAW MATERIAL", TEXT_DIM)
     } else {

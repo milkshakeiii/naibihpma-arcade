@@ -850,5 +850,22 @@ fn export_screenshots(dir: &Path) {
         wg.communes[0].idea_turn = (0..12).find(|&t| { wg.communes[0].idea_turn = t; wg.worker_says(j, 0).iter().any(|l| l.contains("SCROLL NEARBY")) }).expect("a word about the scroll");
         shot(&wg, &format!("{}_{}_card.png", 63 + 2 * n, w.name.to_lowercase().replace(' ', "_")));
     }
+    // Things for hauling, on stands outside the outfitter along the path; then a goblin and a
+    // cyclops with all three on, a pole in hand.
+    let mut hg = Game::new();
+    let hc = hg.communes[0].controlled;
+    hg.communes[0].renown = 150.0;
+    let pack = hg.world.racks.iter().find(|r| r.piece == "backpack").map(|r| (r.x, r.y)).expect("the backpack's stand");
+    (hg.monsters[hc].x, hg.monsters[hc].y, hg.monsters[hc].facing) = (pack.0 - 1, pack.1, game::Dir::Right);
+    hg.monsters[hc].bubble = None;
+    shot(&hg, "66_hauling_stands.png");
+    let cyclops = hg.monsters.iter().position(|m| m.species == game::Species::Cyclops && m.worker.is_none()).expect("a cyclops");
+    for (i, at) in [(hc, (pack.0 - 1, pack.1 + 3)), (cyclops, (pack.0 - 2, pack.1 + 3))] {
+        let m = &mut hg.monsters[i];
+        (m.x, m.y, m.facing, m.flip) = (at.0, at.1, game::Dir::Right, false);
+        m.gear = vec!["backpack".into(), "feathered_cap".into()];
+        m.hands[0] = Some(game::Held::Piece("shoulder_pole".into()));
+    }
+    shot(&hg, "67_hauling_worn.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

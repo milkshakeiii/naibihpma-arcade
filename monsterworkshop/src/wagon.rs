@@ -5,18 +5,22 @@
 //! goes depends on its load against the wagon's power, the leader's CHA and wagon driving.
 
 use crate::econ::{self, ItemData};
-use crate::game::{Ev, Game, Sfx, StepRes, UseRes, PUSH_TICKS, WALK_TICKS};
+use crate::game::{Ev, Game, Sfx, StepRes, UseRes, PULL_TICKS, PUSH_TICKS, WALK_TICKS};
 use crate::world::*;
 
-/// The most a heavy load or a heavy good can slow a move, in extra ticks per tile.
-const MAX_SLOWDOWN: u8 = 9;
+/// The most a heavy load or a heavy good can slow a move, in extra ticks per tile: as slow as a
+/// pull, two seconds a tile, and never slower. Any lower and the heaviest goods all go at it,
+/// pole or no pole (Henry: a goblin pushing the temple bell felt no difference).
+const MAX_SLOWDOWN: u8 = PULL_TICKS - PUSH_TICKS;
 
-/// `PUSH_TICKS` up to `cap`, then a tick slower for every half `cap` beyond it.
+/// `PUSH_TICKS` up to `cap`, then three ticks slower for every half `cap` beyond it (Henry:
+/// weight matters more). A goblin pushes clay at full speed, an oak log at 5 ticks a
+/// tile, limestone at 7 and a pumpkin at 9; a shoulder pole brings them to 3, 4 and 5.
 pub(crate) fn heavy_ticks(weight: f64, cap: f64) -> u8 {
     if weight <= cap || cap <= 0.0 {
         return PUSH_TICKS;
     }
-    PUSH_TICKS + (((weight - cap) / cap * 2.0).ceil() as u8).min(MAX_SLOWDOWN)
+    PUSH_TICKS + (((weight - cap) / cap * 6.0).ceil() as u8).min(MAX_SLOWDOWN)
 }
 
 fn dir_to(from: (i32, i32), to: (i32, i32)) -> Dir {
@@ -35,10 +39,30 @@ impl Game {
         self.world.wagons.iter().position(|w| w.leader == Some(id))
     }
 
-    /// How much weight a monster's wagon pulls at full speed.
+    /// How much weight a monster's wagon pulls at full speed: a feathered cap pulls more.
     pub(crate) fn pull_capacity(&self, i: usize, w: usize) -> f64 {
         let m = &self.monsters[i];
-        self.world.wagons[w].power * m.abilities(&self.data).cha as f64 * (1.0 + m.skills.applied("wagon_driving"))
+        self.world.wagons[w].power * m.abilities(&self.data).cha as f64 * (1.0 + m.skills.applied("wagon_driving")) * m.knack(&self.data, "wagon_driving").pull
+    }
+
+    /// How much weight monster `i` pushes a good at full speed: a shoulder pole pushes more.
+    pub(crate) fn push_capacity(&self, i: usize) -> f64 {
+        let m = &self.monsters[i];
+        10.0 * m.abilities(&self.data).str as f64 * (1.0 + m.skills.applied("hauling")) * m.knack(&self.data, "hauling").push
+    }
+
+    /// Whoever leads wagon `w`, or led it last (parked, it's theirs still).
+    pub(crate) fn wagon_leader(&self, w: usize) -> Option<usize> {
+        let wagon = &self.world.wagons[w];
+        let id = wagon.leader.or(wagon.last_leader)?;
+        self.monsters.iter().position(|m| m.id == id)
+    }
+
+    /// How much wagon `w`'s bed holds: more while its leader, or its last, wears a backpack and
+    /// carries part of the load.
+    pub(crate) fn wagon_room(&self, w: usize) -> f64 {
+        let lift = self.wagon_leader(w).map_or(1.0, |i| self.monsters[i].knack(&self.data, "wagon_driving").room);
+        self.world.wagons[w].room * lift
     }
 
     pub(crate) fn load_weight(&self, w: usize) -> f64 {
@@ -51,9 +75,7 @@ impl Game {
 
     /// Ticks to push a good: anything heavier than the monster moves easily goes slower.
     pub(crate) fn push_ticks(&self, i: usize, item: &ItemData) -> u8 {
-        let m = &self.monsters[i];
-        let cap = 10.0 * m.abilities(&self.data).str as f64 * (1.0 + m.skills.applied("hauling"));
-        heavy_ticks(econ::weight(self.data.good(&item.good), item), cap)
+        heavy_ticks(econ::weight(self.data.good(&item.good), item), self.push_capacity(i))
     }
 
     /// Practice at hauling or wagon driving: the move's own game time.
@@ -199,7 +221,7 @@ impl Game {
             return Err(format!("THE WAGON IS CARRYING {}.", self.good_name(have)));
         }
         let used = econ::total(wagon.stock.iter().map(|(d, _)| self.data.good(&d.good).storage_volume));
-        if used + self.data.good(&good).storage_volume > wagon.room + 1e-9 {
+        if used + self.data.good(&good).storage_volume > self.wagon_room(w) + 1e-9 {
             return Err("THE WAGON IS FULL.".into());
         }
         let mut item = self.world.items.remove(it);
