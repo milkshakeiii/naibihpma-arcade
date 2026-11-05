@@ -724,6 +724,10 @@ pub(crate) fn plant_name(data: &crate::data::Data, good: &str) -> String {
         "limestone" => "LIMESTONE OUTCROP",
         "coal" => "COAL SEAM",
         "cotton_bolls" => "COTTON PLANT",
+        "palm_stems" => "PALM TREE",
+        "tung_nuts" => "TUNG TREE",
+        "pine_resin" => "TAPPED PINE",
+        "willow_sticks" => "WILLOW",
         _ => "",
     };
     let Some(gt) = data.try_good(good).filter(|_| own.is_empty()) else { return own.to_string() };

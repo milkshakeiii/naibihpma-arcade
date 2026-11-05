@@ -470,9 +470,11 @@ fn a_tool_lasts_by_what_its_made_of_and_every_card_says_so() {
     assert_eq!(pick.durability(&g.data), 75, "an oak handle on a cast iron head is a cast iron pick");
     assert_eq!(made(&g, "pick", "pick").durability(&g.data), 100, "made of nothing known: the usual");
 
-    // What a workshop making a tool could make it of, longest-lasting first.
+    // What a workshop making a tool could make it of, among what the world has, longest-lasting
+    // first: the Cloth Reaches' sticks, and no hard metal yet (the hills aren't built).
     assert_eq!(g.durability_by_material(g.data.good("spool")).as_deref(), Some("DURABILITY BY WOOD: RHODODENDRON 100, ELDER 50."));
-    assert_eq!(g.durability_by_material(g.data.good("pick")).as_deref(), Some("DURABILITY BY METAL: STEEL 200, BRONZE 150, CAST IRON 75."));
+    assert_eq!(g.durability_by_material(g.data.good("pick")), None, "no hard metal to be had yet");
+    assert_eq!(g.durability_by_material(g.data.good("wooden_tub")).as_deref(), Some("DURABILITY BY WOOD: OAK 100, HEMLOCK 75."), "not the woods still to be planted");
     assert_eq!(g.durability_by_material(g.data.good("thread")), None, "thread isn't a tool");
     // Wearing out: something lasting longer that grows here, if anything does.
     assert_eq!(g.wore_out("THE", &made(&g, "spool", "elder_sticks")), "THE ELDER SPOOL WORE OUT. RHODODENDRON LASTS LONGER: DURABILITY 100, ELDER 50.");
@@ -987,4 +989,19 @@ fn each_monster_type_has_its_small_ability() {
     let p = g.world.plants.iter().position(|p| p.good == "coal" && p.owner.is_none()).expect("a seam");
     (g.monsters[0].x, g.monsters[0].y) = (g.world.plants[p].x, g.world.plants[p].y);
     assert!(has_line(&crate::inspect::card(&g, 0), "SCROUNGER: 1 GATHER IN 5 GIVES 1 MORE"));
+}
+
+/// The varieties batch (Henry, 2026-11-05): what's made of a new material says so, and oil says
+/// what it was pressed from.
+#[test]
+fn new_varieties_carry_their_names_into_what_is_made_of_them() {
+    let g = Game::new();
+    let made = |id: &str, from: &str| crate::econ::plain(&g.data, id, from);
+    let name = |item: &ItemData| crate::inspect::display_name(&g, item);
+    assert_eq!(name(&made("oil", "tung_nuts")), "TUNG OIL");
+    assert_eq!(name(&made("oil", "sesame_seeds")), "SESAME OIL");
+    assert_eq!(name(&made("planks", "jujube_log")), "JUJUBE PLANKS");
+    let willow = made("spool", "willow_sticks");
+    assert_eq!((name(&willow), willow.durability(&g.data)), ("WILLOW SPOOL".to_string(), 75));
+    assert_eq!(made("stone_anvil", "basalt").durability(&g.data), 125, "basalt is hard stone");
 }

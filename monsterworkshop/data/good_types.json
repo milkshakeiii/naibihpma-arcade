@@ -466,7 +466,8 @@
       "type_tags": [
         "cotton",
         "grain",
-        "oily"
+        "oily",
+        "seeds"
       ],
       "value_added_shares": 2,
       "variety": {
@@ -749,14 +750,8 @@
         1
       ],
       "storage_volume": 1,
-      "tools_required_tags": [
-        [
-          "trellis"
-        ]
-      ],
-      "tools_weights": [
-        4
-      ],
+      "tools_required_tags": [],
+      "tools_weights": [],
       "transferable_skills": [
         "handcrafts",
         "engineering",
@@ -1786,7 +1781,7 @@
       ],
       "input_goods_tags_required": [
         [
-          "idigo",
+          "indigo",
           "leaves"
         ],
         [
@@ -3392,7 +3387,7 @@
           "sugar"
         ],
         [
-          "soy beans"
+          "soybeans"
         ],
         [
           "fuel"
@@ -3528,6 +3523,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "color": "thread",
         "durability": 0.5,
         "name": "red clay",
         "of": [
@@ -3575,6 +3571,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "color": "mat",
         "durability": 0.5,
         "name": "yellow clay",
         "of": [
@@ -3622,6 +3619,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "color": "water",
         "durability": 0.5,
         "name": "blue clay",
         "of": [
@@ -3669,6 +3667,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "color": "cotton",
         "durability": 0.5,
         "name": "white clay",
         "of": [
@@ -3860,7 +3859,7 @@
       "input_goods_tags_required": [
         [
           "clay",
-          "yellow"
+          "yellow clay"
         ],
         [
           "pyrolusite"
@@ -3945,7 +3944,7 @@
       "input_goods_tags_required": [
         [
           "clay",
-          "yellow"
+          "yellow clay"
         ],
         [
           "pyrolusite"
@@ -4185,6 +4184,7 @@
       ],
       "value_added_shares": 5,
       "variety": {
+        "color": "cotton",
         "durability": 0.5,
         "name": "porcelain",
         "of": [
@@ -4450,8 +4450,7 @@
       "storage_volume": 0.4,
       "tools_required_tags": [
         [
-          "pot",
-          "mold"
+          "pot mold"
         ]
       ],
       "tools_weights": [
@@ -4522,7 +4521,7 @@
       ],
       "type_tags": [
         "earthenware",
-        "pot",
+        "pot mold",
         "mold"
       ],
       "value_added_shares": 7
@@ -7802,8 +7801,21 @@
       "difficulty_rating": 8,
       "has_quality": true,
       "id": "oil",
-      "input_goods_tags_carryover": [],
-      "input_goods_tags_required": [],
+      "input_goods_tags_carryover": [
+        [
+          "oil"
+        ],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "oily",
+          "seeds"
+        ],
+        [
+          "fuel"
+        ]
+      ],
       "is_fixed_quantity": false,
       "name": "Oil",
       "primary_applied_skill": "milling",
@@ -9259,6 +9271,1278 @@
         "metal"
       ],
       "value_added_shares": 4
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "pine_log",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Pine Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 3,
+      "raw_material_density": 85,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "softwood",
+        "pine",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "mat",
+        "durability": 0.75,
+        "name": "pine",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "paulownia_log",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Paulownia Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 5,
+      "raw_material_density": 30,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "paulownia",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "cotton",
+        "durability": 0.5,
+        "name": "paulownia",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "elm_log",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Elm Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 5,
+      "raw_material_density": 90,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "hardwood",
+        "elm",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "plank",
+        "name": "elm",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "jujube_log",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Jujube Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 8,
+      "raw_material_density": 110,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "hardwood",
+        "jujube",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "wood",
+        "durability": 1.25,
+        "name": "jujube",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "scholartree_log",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Scholartree Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 6,
+      "raw_material_density": 95,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "hardwood",
+        "scholartree",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "plank",
+        "name": "scholartree",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "camphor_log",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Camphor Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 7,
+      "raw_material_density": 80,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "hardwood",
+        "camphor",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "plank",
+        "name": "camphor",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "harvesting"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "sandalwood_log",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Sandalwood Log",
+      "primary_applied_skill": "gathering",
+      "production_time": 300,
+      "quantity": 1,
+      "raw_material_base_value": 20,
+      "raw_material_density": 105,
+      "raw_material_rarity": 12,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "hauling",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1.0,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "log",
+        "wood",
+        "hardwood",
+        "sandalwood",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "mat",
+        "durability": 1.25,
+        "name": "sandalwood",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "juniper_sticks",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Juniper Sticks",
+      "primary_applied_skill": "gathering",
+      "production_time": 120,
+      "quantity": 2,
+      "raw_material_base_value": 3,
+      "raw_material_density": 65,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "sticks",
+        "wood",
+        "softwood",
+        "juniper",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "thread",
+        "name": "juniper",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "willow_sticks",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Willow Switches",
+      "primary_applied_skill": "gathering",
+      "production_time": 120,
+      "quantity": 2,
+      "raw_material_base_value": 2,
+      "raw_material_density": 45,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "sticks",
+        "wood",
+        "willow",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "mat",
+        "durability": 0.75,
+        "name": "willow",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "mulberry_sticks",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Mulberry Sticks",
+      "primary_applied_skill": "gathering",
+      "production_time": 120,
+      "quantity": 2,
+      "raw_material_base_value": 3,
+      "raw_material_density": 75,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "sticks",
+        "wood",
+        "hardwood",
+        "mulberry",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "mat",
+        "name": "mulberry",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "palm_stems",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Palm Stems",
+      "primary_applied_skill": "gathering",
+      "production_time": 120,
+      "quantity": 2,
+      "raw_material_base_value": 2,
+      "raw_material_density": 50,
+      "raw_material_rarity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "sticks",
+        "wood",
+        "palm",
+        "fuel"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "color": "mat",
+        "durability": 0.5,
+        "name": "palm",
+        "of": [
+          "wood"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "carpentry"
+      ],
+      "difficulty_rating": 7,
+      "has_quality": true,
+      "id": "moso_bamboo",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Moso Bamboo",
+      "primary_applied_skill": "gathering",
+      "production_time": 180,
+      "quantity": 2,
+      "raw_material_base_value": 3,
+      "raw_material_density": 70,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.6,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "bamboo",
+        "moso bamboo"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "name": "moso bamboo",
+        "of": [
+          "bamboo"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "slate",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Slate",
+      "primary_applied_skill": "prospecting",
+      "production_time": 600,
+      "quantity": 2,
+      "raw_material_base_value": 3,
+      "raw_material_density": 270,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "stone",
+        "slate"
+      ],
+      "value_added_shares": 6,
+      "variety": {
+        "durability": 0.75,
+        "name": "slate",
+        "of": [
+          "stone"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "sandstone",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Red Sandstone",
+      "primary_applied_skill": "prospecting",
+      "production_time": 600,
+      "quantity": 2,
+      "raw_material_base_value": 3,
+      "raw_material_density": 230,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "stone",
+        "sandstone"
+      ],
+      "value_added_shares": 6,
+      "variety": {
+        "durability": 0.75,
+        "name": "sandstone",
+        "of": [
+          "stone"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "marble",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "White Marble",
+      "primary_applied_skill": "prospecting",
+      "production_time": 600,
+      "quantity": 2,
+      "raw_material_base_value": 10,
+      "raw_material_density": 270,
+      "raw_material_rarity": 8,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "stone",
+        "marble"
+      ],
+      "value_added_shares": 6,
+      "variety": {
+        "name": "marble",
+        "of": [
+          "stone"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "basalt",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Black Basalt",
+      "primary_applied_skill": "prospecting",
+      "production_time": 600,
+      "quantity": 2,
+      "raw_material_base_value": 4,
+      "raw_material_density": 290,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "stone",
+        "hard stone",
+        "basalt"
+      ],
+      "value_added_shares": 6,
+      "variety": {
+        "durability": 1.25,
+        "name": "basalt",
+        "of": [
+          "stone"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 7,
+      "has_quality": false,
+      "id": "purple_clay",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Purple Clay",
+      "primary_applied_skill": "prospecting",
+      "production_time": 900,
+      "quantity": 2,
+      "raw_material_base_value": 14,
+      "raw_material_density": 75,
+      "raw_material_rarity": 10,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "wagon_driving"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "athletics",
+        "outdoorsmonstership",
+        "visual_art"
+      ],
+      "type_tags": [
+        "clay",
+        "purple clay"
+      ],
+      "value_added_shares": 9,
+      "variety": {
+        "durability": 0.5,
+        "name": "purple clay",
+        "of": [
+          "clay"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "woad_leaves",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Woad leaves",
+      "primary_applied_skill": "gathering",
+      "production_time": 360,
+      "quantity": 2,
+      "raw_material_base_value": 8,
+      "raw_material_density": 10,
+      "raw_material_rarity": 6,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "dyeing",
+        "textiles",
+        "chemistry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "outdoorsmonstership",
+        "science"
+      ],
+      "type_tags": [
+        "indigo",
+        "woad",
+        "leaves"
+      ],
+      "value_added_shares": 6,
+      "variety": {
+        "name": "woad",
+        "of": [
+          "indigo plant"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "knotweed_indigo_leaves",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Knotweed indigo leaves",
+      "primary_applied_skill": "gathering",
+      "production_time": 360,
+      "quantity": 2,
+      "raw_material_base_value": 12,
+      "raw_material_density": 10,
+      "raw_material_rarity": 10,
+      "relevant_ability_score": 2,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "dyeing",
+        "textiles",
+        "chemistry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 1,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "outdoorsmonstership",
+        "science"
+      ],
+      "type_tags": [
+        "indigo",
+        "knotweed indigo",
+        "leaves"
+      ],
+      "value_added_shares": 6,
+      "variety": {
+        "name": "knotweed indigo",
+        "of": [
+          "indigo plant"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 11,
+      "has_quality": false,
+      "id": "rapeseed",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Rapeseed",
+      "primary_applied_skill": "harvesting",
+      "production_time": 660,
+      "quantity": 1,
+      "raw_material_base_value": 4,
+      "raw_material_density": 65,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "threshing"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [
+        [
+          "sickle"
+        ]
+      ],
+      "tools_weights": [
+        2
+      ],
+      "transferable_skills": [
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "rapeseed",
+        "seeds",
+        "oily"
+      ],
+      "value_added_shares": 7,
+      "variety": {
+        "name": "rapeseed",
+        "of": [
+          "oil"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 5,
+      "has_quality": false,
+      "id": "sesame_seeds",
+      "input_goods_tags_carryover": [
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "sesame",
+          "stalks"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Sesame Seeds",
+      "primary_applied_skill": "threshing",
+      "production_time": 120,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "milling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.1,
+      "tools_required_tags": [
+        [
+          "thresher"
+        ]
+      ],
+      "tools_weights": [
+        2
+      ],
+      "transferable_skills": [
+        "handcrafts",
+        "science",
+        "engineering"
+      ],
+      "type_tags": [
+        "sesame",
+        "seeds",
+        "oily"
+      ],
+      "value_added_shares": 2,
+      "variety": {
+        "name": "sesame",
+        "of": [
+          "oil"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 11,
+      "has_quality": false,
+      "id": "tung_nuts",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Tung Nuts",
+      "primary_applied_skill": "gathering",
+      "production_time": 660,
+      "quantity": 1,
+      "raw_material_base_value": 5,
+      "raw_material_density": 60,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "harvesting",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "tung",
+        "nuts",
+        "seeds",
+        "oily"
+      ],
+      "value_added_shares": 7,
+      "variety": {
+        "name": "tung",
+        "of": [
+          "oil"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 11,
+      "has_quality": false,
+      "id": "pine_resin",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Pine Resin",
+      "primary_applied_skill": "gathering",
+      "production_time": 660,
+      "quantity": 1,
+      "raw_material_base_value": 6,
+      "raw_material_density": 105,
+      "raw_material_rarity": 4,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "chemistry"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [
+        [
+          "knife"
+        ]
+      ],
+      "tools_weights": [
+        1
+      ],
+      "transferable_skills": [
+        "athletics",
+        "social"
+      ],
+      "type_tags": [
+        "resin",
+        "pine resin"
+      ],
+      "value_added_shares": 7
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "rosin",
+      "input_goods_tags_carryover": [
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "resin"
+        ],
+        [
+          "fuel"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Rosin",
+      "primary_applied_skill": "chemistry",
+      "production_time": 480,
+      "quantity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "firing",
+        "gathering"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [
+        [
+          "pot"
+        ]
+      ],
+      "tools_weights": [
+        2
+      ],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "rosin"
+      ],
+      "value_added_shares": 5
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "pitch",
+      "input_goods_tags_carryover": [
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "pine",
+          "log"
+        ],
+        [
+          "fuel"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Pitch",
+      "primary_applied_skill": "firing",
+      "production_time": 720,
+      "quantity": 1,
+      "relevant_ability_score": 2,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "chemistry",
+        "carpentry"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "pitch"
+      ],
+      "value_added_shares": 5
     }
   ]
 }

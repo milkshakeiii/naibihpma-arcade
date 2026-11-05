@@ -135,12 +135,13 @@ impl Game {
     }
 
     /// The materials that fit a tool recipe's material slot, longest-lasting first, each once:
-    /// a pick's hard metals, a spool's sticks. `local` keeps only goods to be had here.
-    fn materials_for(&self, recipe: &GoodType, local: bool) -> Vec<&crate::data::Variety> {
+    /// a pick's hard metals, a spool's sticks. Only those the world has (something grows them, or
+    /// a workshop or trader gives them): the data names many more woods than are planted yet.
+    fn materials_for(&self, recipe: &GoodType) -> Vec<&crate::data::Variety> {
         let Some((c, group)) = self.material_slot(recipe) else { return Vec::new() };
         let here = |id: &str| self.world.plants.iter().any(|p| p.good == id) || (0..self.world.shops.len()).any(|s| self.offers(s).iter().any(|r| self.data.good(r).output() == id));
         let mut out: Vec<&crate::data::Variety> = Vec::new();
-        for g in self.data.goods.iter().filter(|g| matches(&g.type_tags, group) && (!local || here(&g.id))) {
+        for g in self.data.goods.iter().filter(|g| matches(&g.type_tags, group) && here(&g.id)) {
             if let Some(v) = g.variety.as_ref().and_then(|v| self.data.variety(&v.name)).filter(|v| v.is(c)) {
                 if !out.iter().any(|o| o.tag == v.tag) {
                     out.push(v);
@@ -151,11 +152,11 @@ impl Game {
         out
     }
 
-    /// "DURABILITY BY METAL: STEEL 200, BRONZE 150, CAST IRON 75.": what a workshop making a
-    /// tool could make it of, for its card.
+    /// "DURABILITY BY WOOD: RHODODENDRON 100, ELDER 50.": what a workshop making a tool could
+    /// make it of, among what the world has, for its card.
     pub(crate) fn durability_by_material(&self, recipe: &GoodType) -> Option<String> {
         let (c, _) = self.material_slot(recipe)?;
-        let all = self.materials_for(recipe, false);
+        let all = self.materials_for(recipe);
         (!all.is_empty()).then(|| {
             let each: Vec<String> = all.iter().map(|v| format!("{} {}", v.tag.to_uppercase(), crate::econ::tool_durability(Some(v)))).collect();
             format!("DURABILITY BY {}: {}.", c.to_uppercase(), each.join(", "))
@@ -177,7 +178,7 @@ impl Game {
         let said = format!("{whose} {} WORE OUT.", crate::inspect::display_name(self, tool));
         let Some(made_of) = self.data.material(&tool.tags(&self.data)) else { return said };
         let had = crate::econ::tool_durability(Some(made_of));
-        match self.materials_for(self.data.good(&tool.good), true).into_iter().find(|v| crate::econ::tool_durability(Some(v)) > had) {
+        match self.materials_for(self.data.good(&tool.good)).into_iter().find(|v| crate::econ::tool_durability(Some(v)) > had) {
             Some(better) => format!("{said} {} LASTS LONGER: DURABILITY {}, {} {had}.", better.tag.to_uppercase(), crate::econ::tool_durability(Some(better)), made_of.tag.to_uppercase()),
             None => said,
         }

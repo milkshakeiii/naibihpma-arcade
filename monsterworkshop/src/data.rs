@@ -745,6 +745,46 @@ mod tests {
         assert_eq!(d.good("die").input_goods_tags_required[0], ["die", "mold"]);
     }
 
+    /// Fixes found while placing everything (PROVINCES.md, 2026-11-05): the misspellings, the
+    /// palace goods' yellow clay, and the pot mold, which isn't a pot.
+    #[test]
+    fn the_data_fixes_found_placing_everything_hold() {
+        let d = Data::load();
+        let fits = |group: &[&str]| -> Vec<&str> { d.goods.iter().filter(|p| group.iter().all(|t| p.type_tags.iter().any(|x| x == t))).map(|p| p.id.as_str()).collect() };
+        let asks = |t: &str| d.goods.iter().filter(|g| g.input_goods_tags_required.iter().flatten().any(|x| x == t)).count();
+        assert!(fits(&d.good("seeth_water").input_goods_tags_required[0].iter().map(String::as_str).collect::<Vec<_>>()).contains(&"indigofera_leaves"));
+        assert_eq!((asks("soy beans"), asks("soybeans")), (0, 2), "one spelling");
+        for id in ["clay_palace_bricks", "clay_palace_tiles"] {
+            assert_eq!(fits(&d.good(id).input_goods_tags_required[0].iter().map(String::as_str).collect::<Vec<_>>()), ["yellow_clay"]);
+        }
+        assert_eq!(fits(&["pot"]), ["metal_pot"], "malt, the glazes and porcelain paste want a real pot");
+        assert_eq!(fits(&["pot mold"]), ["ceramic_pot_mold"]);
+        assert_eq!(d.good("metal_pot").tools_required_tags, [["pot mold"]]);
+    }
+
+    /// The varieties batch (Henry, 2026-11-05: add them all; but 14 dye colors is right): every
+    /// kind comes in several, each with its tool durability, and the pine's goods feed the
+    /// palace goods and royal blue cloth.
+    #[test]
+    fn every_kind_comes_in_several() {
+        let d = Data::load();
+        let of = |c: &str| d.varieties.iter().filter(|v| v.is(c)).count();
+        for (c, at_least) in [("wood", 15), ("stone", 6), ("clay", 7), ("bamboo", 2), ("indigo plant", 4), ("oil", 5), ("metal", 7)] {
+            assert!(of(c) >= at_least, "{c}: {}", of(c));
+        }
+        assert_eq!(of("dye"), 14, "fourteen colors is right");
+        let durability = |t: &str| d.variety(t).and_then(|v| v.durability);
+        for (t, x) in [("paulownia", 0.5), ("jujube", 1.25), ("sandalwood", 1.25), ("willow", 0.75), ("palm", 0.5), ("slate", 0.75), ("sandstone", 0.75), ("basalt", 1.25), ("purple clay", 0.5)] {
+            assert_eq!(durability(t), Some(x), "{t}");
+        }
+        for t in ["elm", "scholartree", "camphor", "juniper", "mulberry", "marble", "moso bamboo"] {
+            assert_eq!(durability(t), None, "{t} is the usual");
+        }
+        let fits = |t: &str| -> Vec<&str> { d.goods.iter().filter(|p| p.type_tags.iter().any(|x| x == t)).map(|p| p.id.as_str()).collect() };
+        assert_eq!((fits("resin"), fits("rosin"), fits("pitch")), (vec!["pine_resin"], vec!["rosin"], vec!["pitch"]));
+        assert!(d.good("oil").input_goods_tags_carryover[0].iter().any(|t| t == "tung"), "oil carries its seed");
+    }
+
     /// A tag list written as a string splits into letters on loading ("trellis" became t, r,
     /// e, l, i, s, which no tool is): no tag is a single letter.
     #[test]
@@ -767,7 +807,7 @@ mod tests {
             assert!(declared.windows(2).all(|w| w[0] == w[1]), "{} is declared with different durabilities: {declared:?}", v.tag);
             assert!(v.durability.map_or(true, |u| u > 0.0 && v.material().is_some()), "{}'s durability needs a tool material", v.tag);
         }
-        let agreed = [("steel", 2.0), ("bronze", 1.5), ("wrought iron", 1.25), ("copper", 0.75), ("cast iron", 0.75), ("tin", 0.5), ("silver", 0.5), ("hemlock", 0.75), ("elder", 0.5), ("arrow bamboo", 0.75), ("red clay", 0.5)];
+        let agreed = [("steel", 2.0), ("bronze", 1.5), ("wrought iron", 1.25), ("copper", 0.75), ("cast iron", 0.75), ("tin", 0.5), ("silver", 0.5), ("hemlock", 0.75), ("pine", 0.75), ("elder", 0.5), ("arrow bamboo", 0.75), ("red clay", 0.5)];
         for (tag, factor) in agreed {
             assert_eq!(d.variety(tag).and_then(|v| v.durability), Some(factor), "{tag}");
         }

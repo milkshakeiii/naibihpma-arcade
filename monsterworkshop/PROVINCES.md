@@ -17,7 +17,7 @@ About 90 screens (`tools/world_map.py` draws it). The Cloth Reaches in the north
 - **Tasteful exceptions to strict compartments.** Each province has native industries, plus a secondary "expatriate" industry that supplements them.
 - **Common materials everywhere, in provincial varieties.** Sticks, logs and fiber can be had in every province, each its own variety with a slightly different weight, color and value. Henry's few tree species get provincial ones added.
 - **Many roads to every tag.** Recipes ask for tags several goods provide, so one output comes in flavors: light, cheap, expensive, heavy, and different colors.
-- **The book's boasts are true.** Its funny value judgments ("this place does this best") are kept, and they turn out to be right.
+- **Boasts are true.** Each province boasts in the book's manner, with the confident folk wisdom it jumps to about who does what where, and how well. The boasts are the game's own (Henry kept no list from the book; some may match it by chance), and in the game they turn out to be right.
 - **The bell:** its recipe stays exactly as Henry wrote it (intentionally complicated). While only the first province is open, a temporary vendor or the like supplies what it needs from elsewhere.
 - **Kits:** advanced to build, often from sawn planks; a province's workshops are built from its own goods, as a starting point with variations; one workshop of each kind, some humble and some hard to produce.
 
@@ -25,17 +25,39 @@ About 90 screens (`tools/world_map.py` draws it). The Cloth Reaches in the north
 
 | | Cloth Reaches | Ore Hills | Kiln Banks | Paddy Plains | Salt Coast |
 | :-- | :-- | :-- | :-- | :-- | :-- |
-| **Wood** (logs, sticks, fuel) | hemlock ✓, oak ✓, elder ✓, rhododendron ✓ | pine + (also rosin and pitch) | willow + | elm +, jujube + | camphor +, palm + |
+| **Wood** (logs, sticks, fuel) | hemlock ✓, oak ✓, elder ✓, rhododendron ✓ | pine A (and its resin, rosin and pitch A), juniper A | willow A, paulownia A | elm A, jujube A, scholartree A, mulberry A | camphor A, sandalwood A, palm A |
 | **Fiber** (to thread anywhere) | cotton ✓, ramie ✓ | hemp T | climbing hempvine T | velvetleaf T, silk T | kudzu T |
-| **Bamboo** | arrow bamboo ✓ | | | | a big coastal bamboo + |
+| **Bamboo** | arrow bamboo ✓ | | | | moso bamboo A |
+| **Stone** | limestone ✓ | granite A, slate A | red sandstone A | white marble A | black basalt A |
 | **Lime** | limestone ✓ | | | | oyster lime T |
-| **Clay** | | | all five colors T | red clay T (the common one) | |
+| **Clay** | | | all five colors T, purple clay A | red clay T (the common one) | |
+| **Indigo plants** | indigofera ✓, pigweed indigo T, woad A | | | knotweed indigo A | |
+| **Oil seeds** | cotton seeds T | | tung nuts A | rapeseed A, sesame seeds A | |
 
-The new species (+) are placeholders for a later batch, each for approval; a second, coastal bamboo is agreed in principle (2026-11-02), so bamboo has more than one source. If I remember the book's cart chapter right, it names the scholartree, jujube, sandalwood and elm as the woods for axles, which would tie these into wagons.
+The new species were approved as one batch on 2026-11-05 (below). If I remember the book's cart chapter right, it names the scholartree, jujube, sandalwood and elm as the woods for axles, which would tie these into wagons.
+
+### More varieties (agreed and added, 2026-11-05)
+Henry: don't be shy with varieties. A material's name and color carrying into what's made of it is one of his favorite features, so every kind of thing should come in several, a few in each province. He approved all of these at once, except more dyes (fourteen colors is right), and that's a good number for a while. They're in the data, marked A in the table above; each goes on the map with its province. Each is a gathered good on the model of those already there (a tree gives logs, a bush sticks, an outcrop stone, a bank clay); the numbers are durability as a tool's material, against the usual 100.
+
+| Kind (what carries it) | Had | Added, by province |
+| :-- | :-- | :-- |
+| **Logs** (planks, kits, tubs, wheels, tool handles) | oak, hemlock | **Ore Hills:** pine (×0.75). **Kiln Banks:** paulownia, the light wood (×0.5). **Paddy Plains:** elm (×1), jujube, dense and red-brown (×1.25), scholartree (×1): the book's axle woods. **Salt Coast:** camphor, fragrant (×1); sandalwood, rare and prized (×1.25), the fourth axle wood. |
+| **Sticks** (spools, gins, tongs, baskets, flails, handles) | elder, rhododendron | **Ore Hills:** juniper (×1). **Kiln Banks:** willow switches, for baskets (×0.75). **Paddy Plains:** mulberry, pruned on the silk farms (×1). **Salt Coast:** palm stems (×0.5). |
+| **Bamboo** (the cotton bow) | arrow bamboo | **Salt Coast:** moso, the big coastal bamboo (×1). |
+| **Stone** (the kiln, dye house and indigo house kits; hard stone for the stone anvil and hammer) | limestone, granite | **Ore Hills:** slate, from the Slag Slopes (×0.75). **Kiln Banks:** red sandstone, soft (×0.75). **Paddy Plains:** white marble, prized (×1). **Salt Coast:** black basalt, hard stone (×1.25). |
+| **Clay** (bricks, tiles, cups, molds, porcelain) | red, yellow, blue, white, black; porcelain | **Kiln Banks:** purple clay, the teapot clay (×0.5). |
+| **Indigo plants** (indigo) | indigofera, pigweed indigo | The book names five indigo plants. **Cloth Reaches:** woad. **Paddy Plains:** knotweed indigo. |
+| **Oil seeds** (oil) | cotton seeds, safflower seeds | **Paddy Plains:** rapeseed, and sesame seeds threshed from the sesame already grown. **Kiln Banks:** tung nuts, the oil for lacquer and waterproofing. Oil is pressed from any of them now (oily seeds and fuel, in a workshop) and carries their name: "TUNG OIL". The trader's oil is unchanged. |
+| **Dye colors** | 14 | None: fourteen is right. |
+| **Pine goods** (the palace bricks, tiles and glaze ask for rosin; royal blue fabric for pitch) | | **Pine resin**, tapped from pines in Charcoal Wood and the Kiln Banks with a knife in hand; **rosin**, resin and fuel boiled down in a pot; **pitch**, pine logs and fuel in the charcoal burner's mound. |
+
+**Colors.** Varieties color the wood in what's made of them, so the new woods each take the nearest of the palette's named ramps: pine, willow, mulberry, palm and sandalwood the straw, elm, scholartree and camphor the plank brown, jujube the dark wood, juniper the madder red, paulownia the cotton white. Elder and rhododendron keep the plain wood they're drawn in now. The clays have ramps too (red the madder red, yellow the straw, white and porcelain the cotton white, blue the water blue), ready for when bricks, cups and tiles are drawn in their clay's color; the art doesn't use them yet. Stones stay plain: a stone kit's workshop takes its color from its material, and a white kiln would be wrong.
+
+**The cards list only what the world has.** A workshop making a tool ranks the materials the world has (something grows them, or a workshop or trader gives them), not every one in the data: a tub lists oak and hemlock until more woods are planted.
 
 ## 1. The Cloth Reaches (today's Pinewater and Tanglemere: the first province)
 River lowland with cotton fields, meadows, pine and oak woods, a tangled lake. The book's chapters on clothing materials and dyes, plus lime.
-- **Grows:** cotton bolls ✓, ramie ✓, indigofera ✓, limestone ✓, the four woods ✓, arrow bamboo ✓; pigweed indigo T, scholartree buds T.
+- **Grows:** cotton bolls ✓, ramie ✓, indigofera ✓, limestone ✓, the four woods ✓, arrow bamboo ✓; pigweed indigo T, scholartree buds T, woad A.
 - **Cotton and bast:** cotton slivers ✓, thread ✓, fabric ✓, rope ✓; cotton seeds T (an oily byproduct of the gin), bast fiber T (needs a knife from the hills, a tub and a roller N).
 - **Indigo and greens:** lye ✓, indigo ✓, dyed fabric ✓; seeth water T, scholartree bud cakes T, dark green dye T (needs alum from the hills), light green dye T (needs green vitriol from the hills).
 - **Lime:** quicklime ✓.
@@ -46,7 +68,7 @@ River lowland with cotton fields, meadows, pine and oak woods, a tangled lake. T
 
 ## 2. The Ore Hills
 Rocky hills, mines and charcoal woods. The book's chapters on metals, hammer forging, and burning stones (coal).
-- **Mined or found:** copper ore T (first tree), tin ore N, iron ore N, silver ore N (the tree asks for silver, bronze and iron), coal T (needs a pick and a shovel), hard stone N, pyrite N, alum T, green vitriol (found) T, well salt T; hemp T and pine + grow here.
+- **Mined or found:** copper ore T (first tree), tin ore N, iron ore N, silver ore N (the tree asks for silver, bronze and iron), coal T (needs a pick and a shovel), hard stone N, pyrite N, alum T, green vitriol (found) T, well salt T, slate A; hemp T, pine A (and its resin A) and juniper A grow here; pitch A is made in the charcoal burner's mound.
 - **Fuel and smelting:** charcoal N, coke T, ingots T (first tree: the ore's metal carries over), bronze ingot N (copper with tin), solder N; the smelter T (first tree: a workshop that is itself a good, as our kits are).
 - **Smithing:** forceps N (the first tree's primitive tongs T may be the same thing), metal anvil T, stone anvil T, stone hammer T, metal hammer T, metal chisel T, saw T, file T, wire T, needle T, nail T, knife T, metal axe T, pick A, shovel N, sickle N, scythe N, billhook N.
 - **Small castings:** metal pot T, sycee T, die T (each in a mold from the kiln banks); green vitriol T (from pyrite and iron).
@@ -72,7 +94,7 @@ Fifteen screens east of the high pass, five across and three down (world screens
 **The goods, by mark** (approval follows the mark):
 - **T, needing only a yes on where:** copper ore (the first tree; the Copper Cut); alum and green vitriol, found (Alum Springs); green vitriol, made from pyrite and iron (Alum Springs); well salt (the brine well); hemp stalks (Hemp Hollow); the smelter and the ingots smelted in it (Bellows); the metal anvil, metal hammer, metal chisel, saw, file, wire, needle, nail, knife and metal axe (the smithy in Verdigris); the stone anvil and stone hammer (the stonemason's yard in Charcoal Wood, from the Stone Stair's quarry); the metal pot, sycee and die (the foundry, in molds from the kiln banks).
 - **N, recipes to propose from the book, as a batch:** tin ore, iron ore, silver ore, hard stone, pyrite, bronze ingot, solder, forceps, sickle, scythe, billhook, a real recipe for the shovel (the data's has no inputs), and hemp's fiber, coarse cloth and sacks. The metal ones are agreed, below; hemp's are the next batch.
-- **+, each needing your approval on its own:** the pine (its logs and sticks, and rosin and pitch).
+- **+, approved 2026-11-05:** the pine. Pine logs are in the data: pale (the mat ramp), and ×0.75 as tools, as hemlock. Its rosin and pitch are in the varieties proposal (Everywhere, in provincial varieties).
 - **Data fix, done 2026-11-05:** found green vitriol's cauldron was split into letters; it asks for a cauldron now, which is the metal pot.
 
 ### Metals, from ore to edge (agreed 2026-11-05)
@@ -141,7 +163,7 @@ Durability, not uses: each go wears every tool it uses by that recipe's weight f
 **Where players learn it** (Henry: it must be discoverable). Every surface gives the same numbers, as durability against the usual 100:
 - A material's card (an ingot, a log, sticks, bamboo, granite, clay), where some tool can be made of it: "TOOL DURABILITY 200 (MOST 100).", under the card's own name for the material. Built.
 - A tool's card: its durability left out of its own ("DURABILITY 143/200"), and why: "STEEL: 200 (MOST 100)." The character sheet says the same. Built.
-- A workshop's card while it's making a tool, at the moment of choosing what goes on the pad: what fits the material pad, by durability ("DURABILITY BY METAL: STEEL 200, BRONZE 150, WROUGHT IRON 125, COPPER 75..."), only what that recipe takes (a pick lists "STEEL 200, BRONZE 150, CAST IRON 75"). Built.
+- A workshop's card while it's making a tool, at the moment of choosing what goes on the pad: what fits the material pad, by durability, among what the world has ("DURABILITY BY WOOD: RHODODENDRON 100, ELDER 50."), only what that recipe takes (a pick will list "STEEL 200, BRONZE 150, CAST IRON 75" once the hills smelt them). Built.
 - A plant's card and a workshop's card: what one go takes off each tool that would wear there, your own gear counted ("WEARS PICK 3, SHOVEL 3.", 1.5 each with a whetstone). Nothing for a town workshop's own tools. Built.
 - When a tool wears out, the bubble names it and something that lasts longer that grows or is made here: "THE ELDER SPOOL WORE OUT. RHODODENDRON LASTS LONGER: DURABILITY 100, ELDER 50." Built.
 - The world says it too: the smith in Verdigris talks of steel holding an edge, and the assay office in Bellows, which takes ingots, ranks the metals on its card. With the hills.
@@ -152,7 +174,7 @@ Durability, not uses: each go wears every tool it uses by that recipe's weight f
 
 ## 3. The Kiln Banks
 A river valley with clay banks of five colors, reed beds and resinous pines. The book's chapter on ceramics.
-- **Dug or gathered:** red, yellow, blue, white and black clay T; sand N, rushes N, ochre N, rosin N; pyrolusite N (perhaps from the hills); climbing hempvine T and willow + grow here.
+- **Dug or gathered:** red, yellow, blue, white and black clay T; sand N, rushes N, ochre N; rosin A (from pine resin); pyrolusite N (perhaps from the hills); purple clay A and red sandstone A; climbing hempvine T, willow A, paulownia A, tung A and pine A grow here. The hempvine grows up trellises drawn into its patch: picking it takes nothing in hand (Henry, 2026-11-05; the tree's recipe asked for a trellis, which gathering would have made a tool to carry).
 - **Building:** bricks T, clay tiles T, mortar N; palace bricks T and palace tiles T (prestige goods: yellow clay with pyrolusite, palm leaves from the coast, ochre, rosin, rushes, fuel).
 - **Pottery and porcelain:** porcelain clay paste T, ceramic cup T, ash glaze T, palace glaze T, decorated ceramic T; tools: potter's wheel N, brick frames N, tile bow and cylinder N, brush N, earthenware funnel N.
 - **Molds for casting:** pot mold T, sycee mold T, sand mold T (which is the mirror and die molds: it takes its pattern's name); palace brick and tile molds N.
@@ -162,7 +184,7 @@ A river valley with clay banks of five colors, reed beds and resinous pines. The
 
 ## 4. The Paddy Plains
 Wet plains of paddies, wheat and millet fields, mulberry groves, orchards and lotus ponds. The book's chapters on grain, preparing grain, oils, yeasts and silk.
-- **Harvested:** rice, irrigated rice, hungry rice, wheat, barley, dark barley, sorghum, little millet, sesame T (all need sickles or scythes from the hills); soybeans N, mulberry leaves N, beeswax N, plums T, lotus blossoms T, safflower blossoms T; velvetleaf T, red clay T, elm + and jujube + grow here.
+- **Harvested:** rice, irrigated rice, hungry rice, wheat, barley, dark barley, sorghum, little millet, sesame T (all need sickles or scythes from the hills); soybeans N, mulberry leaves N, beeswax N, plums T, lotus blossoms T, safflower blossoms T; velvetleaf T, red clay T, white marble A; elm A, jujube A, scholartree A, mulberry A, rapeseed A and knotweed indigo A grow here, and sesame seeds A are threshed from the sesame.
 - **Grain:** flail T, whole grain T, hulled grain T, flour T (two ways), malt T; tools: barrel N, huller N, winnower N, miller N.
 - **Oil:** pressed oil N, from oily seeds: sesame, safflower seeds, and the cloth reaches' cotton seeds.
 - **Silk:** silkworm cocoons T (mulberry leaves, salt, charcoal, writing material N; baskets and braziers N), silk thread T.
@@ -173,7 +195,7 @@ Wet plains of paddies, wheat and millet fields, mulberry groves, orchards and lo
 
 ## 5. The Salt Coast
 A warm coast of salt flats, cane fields, palms and dye-wood forests. The book's chapters on salt and sugar.
-- **Gathered:** sea salt T (needs a strong pan N), white and brown sugar cane T (need billhooks from the hills), oyster lime T, gallnuts T; palm leaves N, sappanwood N, berberine wood N, smoke tree wood N, bayberry wood N; kudzu T, camphor + and palm + grow here.
+- **Gathered:** sea salt T (needs a strong pan N), white and brown sugar cane T (need billhooks from the hills), oyster lime T, gallnuts T; palm leaves N, sappanwood N, berberine wood N, smoke tree wood N, bayberry wood N; black basalt A; kudzu T, camphor A, sandalwood A, palm A and moso bamboo A grow here.
 - **Sugar:** sugar T (roll crusher, barrel, earthenware funnel), shaped candy T (with soybeans from the plains, in a candy mold N).
 - **Dye woods:** wood red, purple, canary yellow, golden yellow, bright green, deep sky blue, eggshell blue and black dyes T; royal blue dyed fabric T (deep sky blue fabric, soybeans, indigo, pitch N).
 - **Boast:** only this coast knows how to make sugar.
@@ -192,13 +214,12 @@ All three are cast at a foundry, and each needs most of the provinces. Their rec
 **The bell in 1.0:** the first province's third town, the temple's, sits where the cloth reaches meet the hills. Its expatriate works give copper, clay and beeswax; its oil can be pressed from cotton seeds. A temporary vendor covers the rest (tin above all: Tinless was named for this) until the hills open.
 
 ## Still open
-- **The boasts** are from my memory of the book; check them against Henry's notes.
-- **Expatriate picks** and **new species** above are first suggestions.
+- **Expatriate picks** are first suggestions.
 
 ## Data fixes found while placing everything
-- Seeth water asks for "idigo leaves" (should be indigo leaves).
-- Shaped candy asks for "soy beans" and royal blue fabric for "soybeans": one good, two spellings.
-- The palace bricks and tiles ask for clay tagged "yellow", but yellow clay is tagged "yellow clay", so nothing matches.
-- Two tools were split into letters (climbing hempvine's trellis, found green vitriol's cauldron). Fixed 2026-11-05, and a test keeps any tag from being one letter. Nothing makes a trellis yet: the hemp batch.
+- Seeth water asked for "idigo leaves". Fixed 2026-11-05: indigo leaves.
+- Shaped candy asked for "soy beans" and royal blue fabric for "soybeans". Fixed 2026-11-05: both "soybeans" (a Paddy Plains good, not in the data yet).
+- The palace bricks and tiles asked for clay tagged "yellow", but yellow clay is tagged "yellow clay". Fixed 2026-11-05: they ask for yellow clay.
+- Two tools were split into letters (climbing hempvine's trellis, found green vitriol's cauldron). Fixed 2026-11-05, and a test keeps any tag from being one letter. The trellis then went from the recipe: it's drawn into the vine's patch instead (see the Kiln Banks).
 - Wire and nails need a die to draw through, and the wooden die pattern is tagged "die" too, so a pattern would do. They should ask for a metal die. (Found in the tool pass, 2026-11-05; fixed with the metal batch. The die itself is cast in a sand mold made on the die pattern, which carries the pattern's name.)
-- Malt, both glazes and the porcelain paste need a pot, and the ceramic pot mold is tagged "pot" too, so a mold would do. The mold could be tagged "pot mold" instead, with the metal pot asking for that.
+- Malt, both glazes and the porcelain paste need a pot, and the ceramic pot mold was tagged "pot" too, so a mold would do. Fixed 2026-11-05: the mold is a "pot mold", and the metal pot is cast in one.

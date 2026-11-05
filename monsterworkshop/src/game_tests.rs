@@ -1403,7 +1403,7 @@ fn inputs_are_named_as_types_of_things() {
     assert_eq!(g.describe_type(&group(&["stalks", "bast"])), "BAST STALKS", "any bast plant's stalks, not rice's");
     assert_eq!(g.describe_type(&group(&["fiber"])), "FIBER");
     assert_eq!(g.describe_type(&group(&["ashy"])), "ASHY STALKS", "a note in brackets doesn't count");
-    assert_eq!(g.inputs_text(g.data.good("wagon_kit")), "2 WAGON WHEELS, AN OAK LOG, 2 PLANKS, A PUMPKIN");
+    assert_eq!(g.inputs_text(g.data.good("wagon_kit")), "2 WAGON WHEELS, A HARDWOOD LOG, 2 PLANKS, A PUMPKIN");
     assert_eq!(g.inputs_text(g.data.good("workbench_kit")), "2 LOGS, ROPE");
 }
 
@@ -1784,7 +1784,7 @@ fn the_wagonwrights_bench_hints_only_at_wagon_things_and_nobody_joins_the_town()
     let (sx, sy) = (g.monsters[spoke].x, g.monsters[spoke].y);
     stand(&mut g, (sx, sy + 1), Dir::Up);
     assert_eq!(g.faced_worker(c), Some(spoke));
-    assert_eq!(g.worker_says(spoke, 0), ["A WAGON WHEEL TAKES AN OAK LOG, 2 PLANKS, 2 STICKS."]);
+    assert_eq!(g.worker_says(spoke, 0), ["A WAGON WHEEL TAKES A HARDWOOD LOG, 2 PLANKS, 2 STICKS."]);
     // Players never get the town's commune.
     let (a, b) = (g.player("a"), g.player("b"));
     assert!(!g.communes[a].town && !g.communes[b].town && a != b);
@@ -1804,7 +1804,7 @@ fn old_spoke_takes_a_break_after_each_order_then_picks_up_where_he_left_off() {
         }
     }
     assert!(g.monsters[spoke].rest > 0 && !g.monsters[spoke].playing, "the last wheel of an order, then a break: {:?}", g.monsters[spoke].wait_reason);
-    assert_eq!(g.worker_says(spoke, 0), ["A WAGON WHEEL TAKES AN OAK LOG, 2 PLANKS, 2 STICKS."], "nothing said about it: he just talks as ever");
+    assert_eq!(g.worker_says(spoke, 0), ["A WAGON WHEEL TAKES A HARDWOOD LOG, 2 PLANKS, 2 STICKS."], "nothing said about it: he just talks as ever");
     let spot = g.monsters[spoke].routine.as_ref().map(|r| r.flag).expect("his loop");
     let mut rested_there = false;
     for _ in 0..(15 * 30 + 300) {
