@@ -273,7 +273,7 @@ fn wagon_card(g: &Game, w: usize, at: (i32, i32), c: usize) -> Card {
     first.push(if wagon.open { line("TAILGATE OPEN: PARKED, IT UNLOADS BEHIND.", TEXT_GOOD) } else { line("TAILGATE SHUT. SPACE AT ITS BACK OPENS IT.", TEXT_DIM) });
     let mut details = vec![
         line(format!("LOAD WEIGHS {:.0}. {} PULLS {:.0} AT FULL SPEED.", g.load_weight(w), g.monsters[c].name, g.pull_capacity(c, w)), TEXT).icon(Icon::Weight),
-        line("PULLING POWER: THE WAGON, ITS LEADER'S CHA AND WAGON DRIVING.", TEXT_DIM),
+        line(format!("PULLING POWER: THE WAGON, ITS LEADER'S {} AND WAGON DRIVING.", ABILITIES[g.monsters[c].leads_by(&g.data)]), TEXT_DIM),
     ];
     // What its leader carries for it, and what helps the one looking pull.
     if let Some(l) = g.wagon_leader(w) {
@@ -467,7 +467,7 @@ fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
     let affordable = renown >= p.renown as f64;
     let mut first = Vec::new();
     for a in (0..6).filter(|&a| p.bonus_to(a) != 0) {
-        first.push(line(format!("{:+} {}: {}", p.bonus_to(a), ABILITIES[a], ability_uses(g, a)), TEXT_GOOD));
+        first.push(line(format!("{:+} {}: {}", p.bonus_to(a), ABILITIES[a], ability_uses(g, a, m.leads_by(&g.data))), TEXT_GOOD));
     }
     // What it does, and where: a towel only where how many varies, a whetstone wherever the tools
     // are.
@@ -515,8 +515,12 @@ fn applicant_card(g: &Game, a: usize, k: usize) -> Card {
     let first = vec![
         line(format!("JOINS AT {} RENOWN. YOU HAVE {}.", a.cost, renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown),
         line(format!("TALENTS: {}", a.transferable.iter().map(|t| skill_name(t)).collect::<Vec<_>>().join(", ")), TEXT),
-        line(if affordable { "SPACE WELCOMES THEM." } else { "EARN MORE RENOWN TO WELCOME THEM." }, TEXT_DIM),
     ];
+    let mut first = first;
+    if let Some(ab) = g.data.monster_types.get(a.kind.as_str()).and_then(|t| t.ability.as_ref()) {
+        first.push(line(ab.line(), TEXT_GOOD));
+    }
+    first.push(line(if affordable { "SPACE WELCOMES THEM." } else { "EARN MORE RENOWN TO WELCOME THEM." }, TEXT_DIM));
     let details = vec![line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT)];
     Card::two(format!("{} THE {}", a.name, a.kind.to_uppercase()), first, details, stand)
 }
@@ -534,7 +538,7 @@ fn town_tool_card(g: &Game, at: (i32, i32)) -> Option<Card> {
 
 /// What an ability is for: what it does besides crafting (STR pushes, CHA leads wagons), then
 /// the applied skills whose recipes in play lean on it most, as many as fit.
-pub(crate) fn ability_uses(g: &Game, a: usize) -> String {
+pub(crate) fn ability_uses(g: &Game, a: usize, leads_by: usize) -> String {
     let in_play: std::collections::BTreeSet<&str> = crate::world::ShopKind::all().filter(|k| !k.trades()).flat_map(|k| k.recipes().iter().copied()).chain(g.world.plants.iter().map(|p| p.good.as_str())).collect();
     let mut count: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for gt in in_play.iter().filter_map(|id| g.data.try_good(id)).filter(|gt| gt.relevant_ability_score == a) {
@@ -542,11 +546,11 @@ pub(crate) fn ability_uses(g: &Game, a: usize) -> String {
     }
     let mut top: Vec<(&str, usize)> = count.into_iter().collect();
     top.sort_by_key(|&(skill, n)| (std::cmp::Reverse(n), skill));
-    let mut uses: Vec<String> = match a {
-        crate::data::STR => vec!["PUSHING".into()],
-        crate::data::CHA => vec!["LEADING WAGONS".into()],
-        _ => Vec::new(),
-    };
+    // Leading wagons goes by CHA, or by what the monster leads by (an orc's STR).
+    let mut uses: Vec<String> = if a == crate::data::STR { vec!["PUSHING".into()] } else { Vec::new() };
+    if a == leads_by {
+        uses.push("LEADING WAGONS".into());
+    }
     for (skill, _) in top {
         let more = skill_name(skill);
         if uses.iter().map(|u| u.len() + 2).sum::<usize>() + more.len() > 25 {
@@ -631,6 +635,9 @@ fn monster_card(g: &Game, i: usize) -> Card {
         line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT),
         line(format!("TALENTS: {}", talents.join(", ")), TEXT_DIM),
     ];
+    if let Some(ab) = m.ability(&g.data) {
+        details.push(line(ab.line(), TEXT_GOOD));
+    }
     if m.seasoned() > 0 {
         details.push(line(format!("SEASONED: +{} TO EVERY ABILITY", m.seasoned()), TEXT_GOOD));
     }
@@ -908,14 +915,16 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
 /// where quality's rolled, a secret's yield where it isn't.
 fn helping(g: &Game, recipe: &GoodType, i: usize) -> Vec<Line> {
     let m = &g.monsters[i];
-    let mut lines: Vec<Line> = m
+    // Its type's ability first, where it does something here (a goblin's scrounging, at a
+    // harvest).
+    let mut lines: Vec<Line> = m.ability(&g.data).filter(|ab| !ab.does.at_craft(recipe).text().is_empty()).map(|ab| line(format!("{}: {}", ab.name.to_uppercase(), ab.does.at_craft(recipe).text().join(", ")), TEXT_GOOD)).into_iter().collect();
+    lines.extend(m
         .helping(&g.data, &recipe.primary_applied_skill)
         .into_iter()
         .filter_map(|p| {
             let text = p.does.at_craft(recipe).text();
             (!text.is_empty()).then(|| line(format!("{}: {}", p.name.to_uppercase(), text.join(", ")), TEXT_GOOD))
-        })
-        .collect();
+        }));
     // Someone else's work song carrying here, while they work.
     if let Some((j, v)) = g.song_for(i).filter(|&(j, _)| j != i) {
         lines.push(line(format!("{}'S WORK SONG: -{v}% TIME", g.monsters[j].name), TEXT_GOOD));

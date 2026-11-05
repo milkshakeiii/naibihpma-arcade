@@ -39,10 +39,12 @@ impl Game {
         self.world.wagons.iter().position(|w| w.leader == Some(id))
     }
 
-    /// How much weight a monster's wagon pulls at full speed: a feathered cap pulls more.
+    /// How much weight a monster's wagon pulls at full speed: by its leader's CHA (an orc's
+    /// STR) and wagon driving; a feathered cap pulls more.
     pub(crate) fn pull_capacity(&self, i: usize, w: usize) -> f64 {
         let m = &self.monsters[i];
-        self.world.wagons[w].power * m.abilities(&self.data).cha as f64 * (1.0 + m.skills.applied("wagon_driving")) * m.knack(&self.data, "wagon_driving").pull
+        let by = m.abilities(&self.data).get(m.leads_by(&self.data)) as f64;
+        self.world.wagons[w].power * by * (1.0 + m.skills.applied("wagon_driving")) * m.knack(&self.data, "wagon_driving").pull
     }
 
     /// How much weight monster `i` pushes a good at full speed: a shoulder pole pushes more.

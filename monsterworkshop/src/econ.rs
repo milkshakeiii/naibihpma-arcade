@@ -101,6 +101,10 @@ pub struct Knack {
     pub room: f64,
     pub pull: f64,
     pub push: f64,
+    /// The chance a gather turns up one good more (a goblin's 0.2).
+    pub scrounge: f64,
+    /// The ability it leads a wagon by, if not CHA (an orc's STR).
+    pub lead_by: Option<usize>,
     pub time: f64,
     pub learning: f64,
     pub forgetting: f64,
@@ -114,7 +118,7 @@ pub struct Knack {
 }
 
 /// No pieces: nothing changes.
-pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, quantity: 1.0, room: 1.0, pull: 1.0, push: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talents: Vec::new() };
+pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, quantity: 1.0, room: 1.0, pull: 1.0, push: 1.0, scrounge: 0.0, lead_by: None, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talents: Vec::new() };
 
 /// The same, to borrow for as long as anything (a list of taught talents keeps the constant from
 /// being borrowed so).
@@ -136,6 +140,10 @@ impl Knack {
         self.room *= pct(does.room);
         self.pull *= pct(does.pull);
         self.push *= pct(does.push);
+        self.scrounge = self.scrounge.max(does.scrounge as f64 / 100.0);
+        if let Some(a) = &does.lead_by {
+            self.lead_by = crate::data::ABILITIES.iter().position(|n| n.eq_ignore_ascii_case(a));
+        }
         self.time *= pct(does.time);
         self.learning *= pct(does.learning);
         self.forgetting *= pct(does.forgetting);

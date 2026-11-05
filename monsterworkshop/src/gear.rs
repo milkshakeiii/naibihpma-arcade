@@ -70,10 +70,21 @@ impl Monster {
         self.hands.iter().flatten().count()
     }
 
-    /// What its pieces do to a craft whose main skill is `skill` (or to practice at it): a
-    /// craft's secret counts only at its own.
+    /// What its type's ability and its pieces do to a craft whose main skill is `skill` (or to
+    /// practice at it, or to hauling): a craft's secret counts only at its own.
     pub fn knack(&self, data: &Data, skill: &str) -> Knack {
-        self.helping(data, skill).iter().fold(crate::econ::PLAIN, |k, p| k.with(&p.does))
+        let base = self.ability(data).map_or(crate::econ::PLAIN, |a| crate::econ::PLAIN.with(&a.does));
+        self.helping(data, skill).iter().fold(base, |k, p| k.with(&p.does))
+    }
+
+    /// Its type's unique ability, if it has one.
+    pub fn ability<'a>(&self, data: &'a Data) -> Option<&'a crate::data::TypeAbility> {
+        data.monster_types.get(self.kind.as_str())?.ability.as_ref()
+    }
+
+    /// The ability it leads a wagon by: CHA, or an orc's STR.
+    pub fn leads_by(&self, data: &Data) -> usize {
+        self.knack(data, "wagon_driving").lead_by.unwrap_or(crate::data::CHA)
     }
 
     /// Its pieces that do something to a craft whose main skill is `skill`, for the forecast

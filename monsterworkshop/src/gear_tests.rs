@@ -326,7 +326,8 @@ fn each_crafting_piece_does_what_its_card_says() {
         g.monsters[0].gear = vec![id.to_string()];
         g.monsters[0].knack(&g.data, skill)
     };
-    let plain = crate::econ::PLAIN;
+    // Mogg with nothing on: what his type's ability does (a goblin scrounges), and no more.
+    let plain = knack("nothing", "weaving");
     assert_eq!(knack("towel", "spinning").more, 1);
     assert!((knack("magnifying_glass", "spinning").quality - 1.1).abs() < 1e-9);
     assert!((knack("wristwatch", "spinning").time - 0.9).abs() < 1e-9);
@@ -852,4 +853,59 @@ fn a_work_song_speeds_everyone_working_near_its_singer() {
         g.update(&[]);
     }
     assert!(notes(&g) > 0, "notes beside Mogg while Bruna works");
+}
+
+#[test]
+fn each_monster_type_has_its_small_ability() {
+    // A goblin scrounges: about one gather in five turns up one good more. The same monster as a
+    // troll, which has no ability, digs the same coal for comparison.
+    let dig = |kind: &str| {
+        let mut g = Game::new();
+        g.monsters[0].kind = kind.into();
+        let p = g.world.plants.iter().position(|p| p.good == "coal" && p.owner.is_none()).expect("a seam");
+        let skills = g.monsters[0].skills.clone();
+        let mut total = 0;
+        for _ in 0..2000 {
+            g.monsters[0].skills = skills.clone();
+            g.world.plants[p].stock.clear();
+            g.world.plants[p].harvest = Some(crate::world::Job { monster: 0, recipe: "coal".into(), t: 0, total: 1 });
+            g.finish_harvest(p);
+            total += g.world.plants[p].stock.len();
+        }
+        (total as f64 / 2000.0, said(&g, 0))
+    };
+    let ((scrounger, _), (plain, _)) = (dig("goblin"), dig("troll"));
+    assert!((scrounger - plain - 0.2).abs() < 0.05, "{plain:.3} coal a dig, {scrounger:.3} for a goblin");
+    // An elf forgets half as much; a cyclops pushes half again as heavy; an orc leads a wagon by
+    // its STR. The same monster as each type, its own abilities the same.
+    let mut g = Game::new();
+    let as_kind = |g: &mut Game, kind: &str| g.monsters[0].kind = kind.to_string();
+    as_kind(&mut g, "goblin");
+    let (forgets, pushes, pulls) = (g.monsters[0].knack(&g.data, "spinning").forgetting, g.push_capacity(0), g.pull_capacity(0, 0));
+    as_kind(&mut g, "elf");
+    assert!((g.monsters[0].knack(&g.data, "spinning").forgetting / forgets - 0.5).abs() < 1e-9);
+    as_kind(&mut g, "cyclops");
+    assert!((g.push_capacity(0) / pushes - 1.5).abs() < 1e-9);
+    as_kind(&mut g, "orc");
+    let st = g.monsters[0].abilities(&g.data);
+    assert!((g.pull_capacity(0, 0) / pulls - st.str as f64 / st.cha as f64).abs() < 1e-9);
+    assert_eq!(crate::inspect::ability_uses(&g, crate::data::STR, g.monsters[0].leads_by(&g.data)).split(", ").take(2).collect::<Vec<_>>(), vec!["PUSHING", "LEADING WAGONS"]);
+    assert!(!crate::inspect::ability_uses(&g, crate::data::CHA, g.monsters[0].leads_by(&g.data)).contains("WAGONS"));
+    // A monster's card and a newcomer's at the hall say what its type does; so does a seam's
+    // card, for a goblin.
+    as_kind(&mut g, "goblin");
+    let (mx, my) = (g.monsters[0].x, g.monsters[0].y);
+    (g.monsters[1].x, g.monsters[1].y, g.monsters[0].facing) = (mx + 1, my, Dir::Right);
+    let card = crate::inspect::card(&g, 0);
+    let ability = |kind: &str| g.data.monster_types[kind].ability.as_ref().map(|a| a.line());
+    let bruna = g.monsters[1].kind.clone();
+    assert!(has_line(&card, &ability(&bruna).expect("an ability")), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    let k = g.applicants.iter().position(|a| a.as_ref().is_some_and(|a| ability(&a.kind).is_some())).expect("a newcomer with an ability");
+    let (sx, sy) = g.world.stands[k];
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (sx, sy + 1, Dir::Up);
+    let kind = g.applicants[k].as_ref().map(|a| a.kind.clone()).unwrap_or_default();
+    assert!(has_line(&crate::inspect::card(&g, 0), &ability(&kind).unwrap_or_default()));
+    let p = g.world.plants.iter().position(|p| p.good == "coal" && p.owner.is_none()).expect("a seam");
+    (g.monsters[0].x, g.monsters[0].y) = (g.world.plants[p].x, g.world.plants[p].y);
+    assert!(has_line(&crate::inspect::card(&g, 0), "SCROUNGER: 1 GATHER IN 5 GIVES 1 MORE"));
 }

@@ -407,7 +407,7 @@ impl Game {
         self.tick_bins();
     }
 
-    fn finish_harvest(&mut self, p: usize) {
+    pub(crate) fn finish_harvest(&mut self, p: usize) {
         let Some(job) = self.world.plants[p].harvest.take() else { return };
         let m = job.monster;
         let recipe = self.data.good(&job.recipe).clone();
@@ -417,7 +417,19 @@ impl Game {
         // shares.
         let hands = self.held_tools(m, &recipe).unwrap_or_default();
         let tools: Vec<ItemData> = hands.iter().filter_map(|&h| self.monsters[m].tool(h).cloned()).collect();
-        let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills, knack: &knack }, tools.iter().collect(), &self.data, &mut self.rng);
+        let mut items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills, knack: &knack }, tools.iter().collect(), &self.data, &mut self.rng);
+        // A scrounger turns up one more now and then: a glint, and a word if it's gathering by
+        // hand (a loop's would chatter).
+        if knack.scrounge > 0.0 && self.rng.unit() < knack.scrounge {
+            if let Some(more) = items.last().cloned() {
+                items.push(more);
+                let (x, y) = (self.monsters[m].x, self.monsters[m].y);
+                self.world.burst(x, y, PKind::Spark, 4);
+                if !self.monsters[m].playing && self.monsters[m].worker.is_none() {
+                    self.say(m, "SCROUNGED ONE MORE!", false);
+                }
+            }
+        }
         // And they wear by their weight (less with a whetstone), and may break: but a working
         // townsperson's own tools never wear, as a town's workshops never do.
         let worn = if self.monsters[m].worker.is_some() { &[][..] } else { &hands[..] };

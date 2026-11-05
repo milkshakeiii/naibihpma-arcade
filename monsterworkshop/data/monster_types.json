@@ -6,7 +6,8 @@
       "stats": {"str": 18, "dex": 10, "con": 16, "int": 8, "wis": 10, "cha": 8},
       "body_cap": 100,
       "mind_cap": 100,
-      "slots": {"hands": 2, "worn": 2, "inside": 1}
+      "slots": {"hands": 2, "worn": 2, "inside": 1},
+      "ability": {"name": "Strong Back", "about": "HEAVY GOODS DON'T SLOW IT AS THEY SLOW OTHERS.", "does": {"push": 50}}
     },
     "elf": {
       "name": "Elf",
@@ -14,7 +15,8 @@
       "stats": {"str": 8, "dex": 16, "con": 10, "int": 18, "wis": 12, "cha": 10},
       "body_cap": 50,
       "mind_cap": 150,
-      "slots": {"hands": 2, "worn": 1, "inside": 3}
+      "slots": {"hands": 2, "worn": 1, "inside": 3},
+      "ability": {"name": "Long Memory", "about": "IT FORGETS HALF AS MUCH OF WHAT IT ISN'T PRACTISING.", "does": {"forgetting": -50}}
     },
     "goblin": {
       "name": "Goblin",
@@ -22,7 +24,8 @@
       "stats": {"str": 8, "dex": 18, "con": 10, "int": 10, "wis": 8, "cha": 16},
       "body_cap": 150,
       "mind_cap": 50,
-      "slots": {"hands": 2, "worn": 3, "inside": 1}
+      "slots": {"hands": 2, "worn": 3, "inside": 1},
+      "ability": {"name": "Scrounger", "about": "ONE GATHER IN FIVE TURNS UP ONE GOOD MORE.", "does": {"scrounge": 20}}
     },
     "orc": {
       "name": "Orc",
@@ -30,7 +33,8 @@
       "stats": {"str": 16, "dex": 10, "con": 18, "int": 8, "wis": 10, "cha": 8},
       "body_cap": 150,
       "mind_cap": 50,
-      "slots": {"hands": 3, "worn": 1, "inside": 1}
+      "slots": {"hands": 3, "worn": 1, "inside": 1},
+      "ability": {"name": "Shoulder to the Wagon", "about": "IT LEADS A WAGON BY ITS STR, NOT ITS CHA.", "does": {"lead_by": "str"}}
     },
     "troll": {
       "name": "Troll",

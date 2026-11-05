@@ -287,16 +287,27 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
         let y = 40 + a as i32 * 10;
         let v = st.get(a);
         t(fb, 200, y, &format!("{name} {v:>2}"), if v > m.stats.get(a) { TEXT_GOOD } else { TEXT });
-        t(fb, 242, y, &inspect::ability_uses(g, a), TEXT_DIM);
+        t(fb, 242, y, &inspect::ability_uses(g, a, m.leads_by(&g.data)), TEXT_DIM);
     }
-    t(fb, 200, 108, "SKILLS", SPARK + 1);
+    // Its type's ability, by name and what it does, then its skills below.
+    let skills_y = match m.ability(&g.data) {
+        Some(ab) => {
+            t(fb, 200, 100, &ab.name.to_uppercase(), SPARK + 1);
+            t(fb, 200, 110, &ab.does.text().join(", "), TEXT_GOOD);
+            124
+        }
+        None => 108,
+    };
+    t(fb, 200, skills_y, "SKILLS", SPARK + 1);
     let mut skills: Vec<(String, f64)> = m.skills.applied.keys().map(|k| (k.clone(), m.skills.applied(k))).filter(|(_, v)| *v > 0.0).collect();
     skills.sort_by(|a, b| b.1.total_cmp(&a.1));
     if skills.is_empty() {
-        t(fb, 200, 120, "NONE YET", TEXT_DIM);
+        t(fb, 200, skills_y + 12, "NONE YET", TEXT_DIM);
     }
-    for (n, (k, v)) in skills.into_iter().take(15).enumerate() {
-        let y = 120 + n as i32 * 10;
+    // As many as fit above the keys.
+    let fit = ((SHEET_KEYS_Y - 1 - 8 - (skills_y + 12)) / 10 + 1) as usize;
+    for (n, (k, v)) in skills.into_iter().take(fit).enumerate() {
+        let y = skills_y + 12 + n as i32 * 10;
         t(fb, 200, y, &k.replace('_', " ").to_uppercase(), TEXT);
         fb.rect_fill(330, y, 52, 6, OUTLINE);
         fb.rect_fill(331, y + 1, ((v.clamp(0.0, 1.0) * 50.0) as i32).max(1), 4, SPARK + 1);
@@ -748,6 +759,11 @@ fn applicant_pitch(g: &Game, v: &View) -> Option<BubbleBox> {
     let talents = a.transferable.iter().map(|t| t.replace('_', " ").to_uppercase()).collect::<Vec<_>>().join(", ");
     let mut lines = vec![format!("{} THE {}", a.name, a.kind.to_uppercase()), format!("JOINS AT {} RENOWN", a.cost)];
     lines.extend(wrap(&format!("TALENTS: {talents}"), 24));
+    // Its type's ability: its name, then what it does, whole.
+    if let Some(ab) = g.data.monster_types.get(a.kind.as_str()).and_then(|t| t.ability.as_ref()) {
+        lines.push(format!("{}:", ab.name.to_uppercase()));
+        lines.extend(wrap(&ab.does.text().join(", "), 30));
+    }
     let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
     let h = lines.len() as i32 * 9 + 4;
     let (px, py) = v.px(sx, sy);

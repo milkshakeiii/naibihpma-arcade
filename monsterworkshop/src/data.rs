@@ -166,6 +166,23 @@ impl Stats {
     }
 }
 
+/// A monster type's unique ability, the small version (DESIGN.md): its name, a line about it,
+/// and what it does, as a piece's effects are said.
+#[derive(Deserialize, Clone, Debug)]
+pub struct TypeAbility {
+    pub name: String,
+    pub about: String,
+    #[serde(default)]
+    pub does: Does,
+}
+
+impl TypeAbility {
+    /// Its name and what it does, for cards: "SCROUNGER: 1 GATHER IN 5 GIVES 1 MORE".
+    pub fn line(&self) -> String {
+        format!("{}: {}", self.name.to_uppercase(), self.does.text().join(", "))
+    }
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct MonsterType {
     pub name: String,
@@ -175,6 +192,9 @@ pub struct MonsterType {
     pub mind_cap: u32,
     /// How many of each kind of slot it has for equipment.
     pub slots: Slots,
+    /// Its unique ability, if it has one (a troll hasn't yet).
+    #[serde(default)]
+    pub ability: Option<TypeAbility>,
 }
 
 /// A monster type's slots: its hands (each holds a tool or a carried piece, as the original's
@@ -279,6 +299,10 @@ pub struct Does {
     /// Everyone working near its singer, of any commune, the singer too, works this many percent
     /// faster (the work song's 5); it sings whenever anyone near it works.
     pub song: i32,
+    /// The chance in a hundred that a gather turns up one good more (a goblin's 20).
+    pub scrounge: i32,
+    /// The ability it leads a wagon by, if not CHA ("str", an orc's).
+    pub lead_by: Option<String>,
     /// How much further a result above the forecast goes (a lucky charm's 50: half as far again).
     pub luck: i32,
     /// How much of the way back to the forecast a result below it comes (patience: halfway).
@@ -304,7 +328,11 @@ impl Does {
             (d.more, d.quantity) = (0, 0);
         }
         // Hauling isn't crafting, and a third hand doesn't help a craft (its tool does).
-        (d.room, d.pull, d.push, d.hands) = (0, 0, 0, 0);
+        (d.room, d.pull, d.push, d.hands, d.lead_by) = (0, 0, 0, 0, None);
+        // Scrounging is for gathering, which takes nothing in.
+        if !recipe.input_goods_tags_required.is_empty() {
+            d.scrounge = 0;
+        }
         d
     }
 
@@ -348,6 +376,12 @@ impl Does {
         }
         if self.song != 0 {
             out.push(format!("{:+}% TIME FOR ALL NEARBY", -self.song));
+        }
+        if self.scrounge > 0 {
+            out.push(format!("1 GATHER IN {} GIVES 1 MORE", 100 / self.scrounge));
+        }
+        if let Some(a) = &self.lead_by {
+            out.push(format!("LEADS WAGONS BY {}", a.to_uppercase()));
         }
         if let Some(t) = &self.talent {
             out.push(format!("TALENT: {}", t.replace('_', " ").to_uppercase()));
