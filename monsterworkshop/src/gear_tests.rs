@@ -37,14 +37,14 @@ fn the_outfitter_gives_a_piece_for_renown_and_it_raises_an_ability() {
     assert_eq!(card.title, "CLOTH GLOVES");
     assert!(has_line(&card, "+1 DEX") && has_line(&card, "(50 RENOWN) YOU HAVE 120.") && has_line(&card, "SPACE: MOGG PUTS IT ON, FOR GOOD."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
     let thread = g.data.good("thread").clone();
-    let (dex, before) = (g.monsters[0].stats.dex, crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data), &crate::econ::PLAIN));
+    let (dex, before) = (g.monsters[0].stats.dex, crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data), &crate::econ::PLAIN_KNACK));
     g.script("u");
     assert_eq!(g.monsters[0].gear, vec!["cloth_gloves".to_string()]);
     assert_eq!(g.communes[0].renown, 70.0, "given at 50 renown");
     assert!(said(&g, 0).contains("MOGG PUTS ON THE CLOTH GLOVES. +1 DEX!"), "{}", said(&g, 0));
     assert_eq!(g.monsters[0].abilities(&g.data).dex, dex + 1);
     assert_eq!(g.monsters[0].stats.dex, dex, "its own DEX is unchanged; the gloves add to it");
-    assert!(crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data), &crate::econ::PLAIN) < before, "nimbler fingers spin faster");
+    assert!(crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data), &crate::econ::PLAIN_KNACK) < before, "nimbler fingers spin faster");
     let card = crate::inspect::card(&g, 0);
     assert!(has_line(&card, "I HAVE THE CLOTH GLOVES ALREADY."));
     // Its own card says what it has on.
@@ -92,18 +92,21 @@ fn too_little_renown_a_full_slot_or_one_already_on_is_said_plainly() {
 }
 
 #[test]
-fn a_better_piece_of_a_kind_replaces_the_old_and_only_the_best_bonus_to_an_ability_counts() {
+fn a_piece_needs_a_free_slot_and_only_the_best_bonus_to_an_ability_counts() {
     let (mut g, r) = at_rack("cloth_gloves", 1000.0);
     let dex = g.monsters[0].stats.dex;
     g.monsters[0].gear = vec!["cloth_gloves".into(), "rope_belt".into(), "straw_sandals".into()];
-    // A finer pair, as a rack elsewhere will show: it takes the cloth gloves' place, though
-    // every worn slot is full.
+    // A finer pair, as a rack elsewhere will show: nothing takes another's place (Henry), so with
+    // every worn slot full it needs one freed.
     g.world.racks[r].piece = "gloves_of_dexterity";
-    assert!(has_line(&crate::inspect::card(&g, 0), "IN PLACE OF THE CLOTH GLOVES"));
+    assert!(has_line(&crate::inspect::card(&g, 0), "ALL 3 OF MY WORN SLOTS ARE FULL"));
     g.script("u");
-    assert_eq!(g.monsters[0].gear, vec!["rope_belt".to_string(), "straw_sandals".into(), "gloves_of_dexterity".into()]);
+    assert_eq!((g.monsters[0].gear.len(), g.communes[0].renown), (3, 1000.0), "{}", said(&g, 0));
+    // With one free, both pairs are worn, and the finer one's DEX is what counts.
+    g.monsters[0].gear.retain(|p| p != "straw_sandals");
+    g.script("u");
+    assert_eq!(g.monsters[0].gear, vec!["cloth_gloves".to_string(), "rope_belt".into(), "gloves_of_dexterity".into()]);
     assert_eq!(g.communes[0].renown, 200.0);
-    assert!(said(&g, 0).contains("IN PLACE OF THE CLOTH GLOVES"), "{}", said(&g, 0));
     assert_eq!(g.monsters[0].abilities(&g.data).get(DEX), dex + 3);
     // Spectacles and a headband both add INT: only the better counts.
     let int = g.monsters[0].stats.int;
@@ -353,7 +356,7 @@ fn each_crafting_piece_does_what_its_card_says() {
         assert!(p.does.at.as_ref().is_none_or(|a| g.data.skills.applied_skills.contains(a)), "{}'s skill", p.id);
         assert!(p.does.talent.as_ref().is_none_or(|t| g.data.skills.transferable_skills.contains(t)), "{}'s talent", p.id);
     }
-    assert_eq!(g.data.pieces.iter().filter(|p| p.kind == "teaching").count(), g.data.skills.transferable_skills.len(), "a teaching for every talent");
+    assert_eq!(g.data.pieces.iter().filter(|p| p.look == "teaching").count(), g.data.skills.transferable_skills.len(), "a teaching for every talent");
 }
 
 #[test]
@@ -385,7 +388,7 @@ fn a_towel_makes_one_more_where_how_many_varies() {
         let recipe = g.data.good(good);
         let craft = |knack| crate::econ::Craft { recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: Vec::new(), tools: Vec::new(), workshop: None };
         for seed in 1..50 {
-            let (a, b) = (crate::econ::roll_quantity(&craft(&crate::econ::PLAIN), &mut crate::econ::Rng::new(seed)), crate::econ::roll_quantity(&craft(&towel), &mut crate::econ::Rng::new(seed)));
+            let (a, b) = (crate::econ::roll_quantity(&craft(&crate::econ::PLAIN_KNACK), &mut crate::econ::Rng::new(seed)), crate::econ::roll_quantity(&craft(&towel), &mut crate::econ::Rng::new(seed)));
             assert_eq!(b, a + more, "{good}");
         }
     }
@@ -412,7 +415,7 @@ fn patience_and_a_lucky_charm_each_raise_the_average() {
             let mut rng = crate::econ::Rng::new(11);
             (0..4000).map(|_| crate::econ::roll_quality(&c, &mut rng)).collect()
         };
-        let (base, l, p) = (rolls(&crate::econ::PLAIN), rolls(&lucky), rolls(&patient));
+        let (base, l, p) = (rolls(&crate::econ::PLAIN_KNACK), rolls(&lucky), rolls(&patient));
         let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
         assert!(avg(&p) - avg(&base) > least && avg(&l) - avg(&base) > least, "spread {spread}: {} {} {}", avg(&base), avg(&l), avg(&p));
         // Roll by roll: patience only ever lifts a flop and keeps every masterwork; luck only ever
@@ -456,7 +459,7 @@ fn a_writing_brush_a_notebook_and_a_carved_seal() {
         let c = crate::econ::Craft { recipe: thread, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: vec![&fiber], tools: Vec::new(), workshop: None };
         crate::econ::produce(&c, &g.data, &mut crate::econ::Rng::new(5))[0].value
     };
-    assert!((made(&seal) / made(&crate::econ::PLAIN) - 1.1).abs() < 1e-9);
+    assert!((made(&seal) / made(&crate::econ::PLAIN_KNACK) - 1.1).abs() < 1e-9);
 }
 
 #[test]
@@ -469,7 +472,7 @@ fn a_teaching_counts_as_a_talent_the_monster_lacks() {
     let learned = |g: &Game| crate::econ::learn(&mut sk.clone(), &st, &g.monsters[1].knack(&g.data, "spinning"), &thread, &g.data, 300.0).primary;
     let slow = learned(&g);
     g.monsters[1].gear = vec![format!("teaching_{lacks}")];
-    assert_eq!(g.monsters[1].knack(&g.data, "spinning").talent.as_deref(), Some(lacks.as_str()));
+    assert_eq!(g.monsters[1].knack(&g.data, "spinning").talents, vec![lacks.clone()]);
     assert!(learned(&g) > slow * 1.1, "a talent the recipe wants speeds learning");
     let after = crate::inspect::forecast(&g, s, 1).expect("a forecast");
     assert!(after.secondary >= before.secondary && after.tool_quality >= before.tool_quality, "and skips the weakest helper");
@@ -477,9 +480,12 @@ fn a_teaching_counts_as_a_talent_the_monster_lacks() {
     // One it was born with can't be taught.
     let has = g.monsters[1].skills.transferable[0].clone();
     assert_eq!(g.piece_refusal(1, g.data.piece(&format!("teaching_{has}"))), Some(format!("I HAVE A TALENT FOR {} ALREADY.", has.replace('_', " ").to_uppercase())));
-    // A second teaching takes the first one's place.
+    // A second needs an inside slot of its own: Bruna, a cyclops, has one. Where there's room
+    // (an elf has three), each counts as a talent.
     let other = g.data.skills.transferable_skills.iter().find(|t| **t != lacks && !g.monsters[1].skills.transferable.contains(t)).expect("another").clone();
-    assert_eq!(g.replaces(1, g.data.piece(&format!("teaching_{other}"))).map(|p| p.id.clone()), Some(format!("teaching_{lacks}")));
+    assert!(g.piece_refusal(1, g.data.piece(&format!("teaching_{other}"))).is_some_and(|w| w.contains("SLOT IS FULL")));
+    g.monsters[1].gear.push(format!("teaching_{other}"));
+    assert_eq!(g.monsters[1].knack(&g.data, "spinning").talents, vec![lacks.clone(), other.clone()]);
 }
 
 #[test]
@@ -703,12 +709,11 @@ fn a_backpack_carries_more_a_feathered_cap_pulls_harder_and_a_shoulder_pole_push
     let card = crate::inspect::card(&g, 0);
     let lines: Vec<&String> = card.lines().map(|l| &l.text).collect();
     assert!(has_line(&card, &format!("MOGG PUSHES {:.0} AT FULL SPEED.", push * 1.5)) && has_line(&card, "SHOULDER POLE: +50% PUSHING POWER"), "{lines:?}");
-    // A backpack goes on the back, in a cloak's place; a feathered cap on the head, in a
-    // headband's.
+    // A backpack is worn beside a cloak, in a worn slot of its own; then all three are full.
     g.monsters[0].gear = vec!["cloak_of_charisma".into(), "headband".into()];
-    for (piece, old) in [("backpack", "cloak_of_charisma"), ("feathered_cap", "headband")] {
-        assert_eq!(g.replaces(0, g.data.piece(piece)).map(|p| p.id.as_str()), Some(old));
-    }
+    assert_eq!(g.piece_refusal(0, g.data.piece("backpack")), None);
+    g.monsters[0].gear.push("backpack".into());
+    assert!(g.piece_refusal(0, g.data.piece("feathered_cap")).is_some_and(|w| w.contains("SLOTS ARE FULL")));
     // Hauling isn't crafting: a forecast card leaves them out.
     let (mut g, _) = at_spinnery();
     g.monsters[1].gear = vec!["backpack".into(), "feathered_cap".into()];
@@ -720,7 +725,7 @@ fn a_backpack_carries_more_a_feathered_cap_pulls_harder_and_a_shoulder_pole_push
 #[test]
 fn things_for_hauling_stand_outside_the_outfitter_along_the_path() {
     let mut g = Game::new();
-    for piece in ["backpack", "feathered_cap", "shoulder_pole"] {
+    for piece in ["backpack", "feathered_cap", "shoulder_pole", "tool_belt"] {
         let r = g.world.racks.iter().position(|r| r.piece == piece).unwrap_or_else(|| panic!("a stand for the {piece}"));
         let (x, y) = (g.world.racks[r].x, g.world.racks[r].y);
         assert_eq!(crate::world::area_name(x, y), "TANGLEMERE");
@@ -763,4 +768,33 @@ fn heavy_goods_slow_a_push_three_ticks_for_each_half_over_and_a_shoulder_pole_li
     assert!(ticks >= crate::game::HEAVY_GOING_TICKS && said.ends_with("PUSHING. HEAVY GOING"), "a pumpkin, {ticks} ticks: {said}");
     let (ticks, said) = push("oak_log");
     assert!(ticks > crate::game::PUSH_TICKS && !said.contains("HEAVY"), "an oak log, {ticks} ticks: {said}");
+}
+
+#[test]
+fn a_tool_belt_is_a_third_hand_and_comes_off_only_with_somewhere_for_what_it_held() {
+    let mut g = Game::new();
+    let r = g.world.racks.iter().position(|r| r.piece == "tool_belt").expect("the tool belt's stand");
+    let (x, y) = (g.world.racks[r].x, g.world.racks[r].y);
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (x - 1, y, Dir::Right);
+    g.communes[0].renown = 100.0;
+    assert_eq!(g.monsters[0].hands.len(), 2);
+    g.script("u");
+    assert_eq!(g.monsters[0].gear, vec!["tool_belt".to_string()], "{}", said(&g, 0));
+    assert_eq!(g.monsters[0].hands.len(), 3, "a third hand");
+    assert_eq!(g.sheet_lines(0).iter().filter(|l| matches!(l, crate::gear::SheetLine::Hand(_))).count(), 3);
+    // A pick and a shovel to dig coal with, and a shoulder pole on the belt: all three at once.
+    g.monsters[0].hands = vec![Some(Held::Tool(tool("pick"))), Some(Held::Tool(tool("shovel"))), Some(Held::Piece("shoulder_pole".into()))];
+    assert_eq!(g.held_tools(0, g.data.good("coal")), Ok(vec![0, 1]));
+    assert!(g.monsters[0].knack(&g.data, "hauling").push > 1.4, "the pole helps from the belt");
+    // Three things held and two hands without it: the belt stays on, and says why. A belt of
+    // strength would go beside it, in a worn slot of its own.
+    g.take_off(0, "tool_belt", &mut Vec::new());
+    assert!(g.monsters[0].gear.contains(&"tool_belt".to_string()) && said(&g, 0) == crate::gear::TOO_FULL, "{}", said(&g, 0));
+    assert!(g.piece_refusal(0, g.data.piece("belt_of_strength")).is_none_or(|w| !w.contains("SLOT") && w != crate::gear::TOO_FULL));
+    // With a hand free, it comes off, and what it held goes to that hand.
+    g.monsters[0].hands[1] = None;
+    g.take_off(0, "tool_belt", &mut Vec::new());
+    assert!(g.monsters[0].gear.is_empty(), "{}", said(&g, 0));
+    assert_eq!(g.monsters[0].hands.len(), 2);
+    assert!(g.monsters[0].hands.iter().any(|h| matches!(h, Some(Held::Piece(p)) if p == "shoulder_pole")) && g.monsters[0].holding() == 2);
 }

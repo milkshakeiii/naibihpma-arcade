@@ -545,10 +545,13 @@ impl Game {
     }
 
     fn waiting(&mut self, i: usize, msg: String) {
+        let frame = self.frame;
         let m = &mut self.monsters[i];
         m.wait = m.wait.saturating_add(1);
         if m.wait >= WAIT_BEFORE_SAYING {
-            m.bubble = Some(crate::game::Bubble { text: msg.clone(), ttl: 3, warn: false, waiting: true });
+            // The same wait said again is no newer than when it was first said.
+            let born = m.bubble.as_ref().filter(|b| b.waiting && b.text == msg).map_or(frame, |b| b.born);
+            m.bubble = Some(crate::game::Bubble { text: msg.clone(), ttl: 3, born, warn: false, waiting: true });
         }
         m.wait_reason = msg;
     }

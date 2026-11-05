@@ -81,10 +81,9 @@ impl Skills {
         wanted.iter().filter(|s| self.transferable.contains(s)).count()
     }
 
-    /// Its talents among `wanted`, counting `taught` (a teaching's) as one more of its own.
-    pub fn matching_with(&self, wanted: &[String], taught: Option<&str>) -> usize {
-        let extra = taught.is_some_and(|t| wanted.iter().any(|w| w == t) && !self.transferable.iter().any(|s| s == t));
-        self.matching(wanted) + extra as usize
+    /// Its talents among `wanted`, counting each of `taught` (its teachings') it wasn't born with.
+    pub fn matching_with(&self, wanted: &[String], taught: &[String]) -> usize {
+        self.matching(wanted) + taught.iter().filter(|t| wanted.contains(t) && !self.transferable.contains(t)).count()
     }
 }
 
@@ -111,11 +110,15 @@ pub struct Knack {
     pub above: f64,
     /// A roll below the forecast lands this many times as far below it (patience: 0.5).
     pub below: f64,
-    pub talent: Option<String>,
+    pub talents: Vec<String>,
 }
 
 /// No pieces: nothing changes.
-pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, quantity: 1.0, room: 1.0, pull: 1.0, push: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talent: None };
+pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, quantity: 1.0, room: 1.0, pull: 1.0, push: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talents: Vec::new() };
+
+/// The same, to borrow for as long as anything (a list of taught talents keeps the constant from
+/// being borrowed so).
+pub static PLAIN_KNACK: Knack = PLAIN;
 
 impl Default for Knack {
     fn default() -> Self {
@@ -140,8 +143,8 @@ impl Knack {
         self.wear *= pct(does.wear);
         self.above *= pct(does.luck);
         self.below *= pct(-does.patience);
-        if does.talent.is_some() {
-            self.talent = does.talent.clone();
+        if let Some(t) = does.talent.as_ref().filter(|t| !self.talents.contains(t)) {
+            self.talents.push(t.clone());
         }
         self
     }
@@ -277,7 +280,7 @@ pub fn production_seconds(recipe: &GoodType, stats: &Stats, knack: &Knack) -> f6
 /// Weakest secondary skills are dropped, one per matching transferable skill. An empty list
 /// counts as perfect (the original rule; see DESIGN.md for the fallback if this misbehaves).
 fn secondary_average(c: &Craft) -> f64 {
-    let k = c.crafter.skills.matching_with(&c.recipe.transferable_skills, c.crafter.knack.talent.as_deref());
+    let k = c.crafter.skills.matching_with(&c.recipe.transferable_skills, &c.crafter.knack.talents);
     let mut v: Vec<f64> = c.recipe.secondary_applied_skills.iter().map(|s| c.crafter.skills.applied(s)).collect();
     v.sort_by(f64::total_cmp);
     let kept = &v[k.min(v.len())..];
@@ -299,7 +302,7 @@ fn tool_average(c: &Craft) -> f64 {
         units.extend(std::iter::repeat(w.quality).take(WORKSHOP_WEIGHT as usize));
     }
     units.sort_by(f64::total_cmp);
-    let k = c.crafter.skills.matching_with(&c.recipe.transferable_skills, c.crafter.knack.talent.as_deref()) * 2;
+    let k = c.crafter.skills.matching_with(&c.recipe.transferable_skills, &c.crafter.knack.talents) * 2;
     let kept = &units[k.min(units.len())..];
     if kept.is_empty() {
         1.0
@@ -480,7 +483,7 @@ pub fn practice(skills: &mut Skills, stats: &Stats, knack: &Knack, skill: &str, 
         return 0.0;
     }
     let ability_factor = (ability(stats, INT) * 0.8 + ability(stats, CON) * 0.2) / 20.0;
-    let talents = data.skills.relevant_transferable_skills.get(skill).map_or(0, |t| skills.matching_with(t, knack.talent.as_deref()));
+    let talents = data.skills.relevant_transferable_skills.get(skill).map_or(0, |t| skills.matching_with(t, &knack.talents));
     let gain = grow(skills.applied(skill), steps, LEARN_PRIMARY * ability_factor * (1.0 + talents as f64 / 4.0) * knack.learning);
     let floor = skills.forgotten;
     let total = skills.applied.get(skill).copied().unwrap_or(floor).max(floor);
@@ -624,7 +627,7 @@ pub fn learn(skills: &mut Skills, stats: &Stats, knack: &Knack, recipe: &GoodTyp
     let steps = (seconds / LEARN_STEP_SECONDS) as usize;
     // A writing brush: more of everything learned.
     let ability_factor = (ability(stats, INT) * 0.8 + ability(stats, CON) * 0.2) / 20.0 * knack.learning;
-    let transferable_factor = 1.0 + skills.matching_with(learning_transferables(recipe, data), knack.talent.as_deref()) as f64 / 4.0;
+    let transferable_factor = 1.0 + skills.matching_with(learning_transferables(recipe, data), &knack.talents) as f64 / 4.0;
     let primary = recipe.primary_applied_skill.clone();
     let primary_value = skills.applied(&primary);
     let floor = skills.forgotten;

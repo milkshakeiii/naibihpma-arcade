@@ -1,12 +1,16 @@
 //! Equipment given for renown, and the abilities it adds to (DESIGN.md: Equipment given for
 //! renown; Abilities that differ and grow). A monster's pieces are its own for good: nothing to
-//! wear out or restock. One of a kind at a time (a new one replaces it), only as many as its type
-//! has slots for, within its body's and mind's capacity, and the best bonus to each ability counts.
+//! wear out or restock. Only as many as its type has slots for, a free one for each (none takes
+//! another's place), within its body's and mind's capacity, and the best bonus to each ability
+//! counts.
 
 use crate::data::{Data, Piece, Slot, Stats};
 use crate::econ::Knack;
 use crate::game::{Game, Heard, Held, Monster, Sfx};
 use crate::world::PKind;
+
+/// Why a monster can't give up its tool belt: what it holds would have nowhere to go.
+pub(crate) const TOO_FULL: &str = "MY HANDS ARE TOO FULL FOR THAT. PUT SOMETHING DOWN ON MY SHEET (C).";
 
 /// Renown a monster has brought in to be seasoned: +1 to every ability at the first, +2 at the
 /// second.
@@ -45,7 +49,7 @@ impl Monster {
         let mut s = self.stats.clone();
         let seasoned = self.seasoned();
         for a in 0..6 {
-            s.set(a, s.get(a) + seasoned + self.best_bonus(data, a, None));
+            s.set(a, s.get(a) + seasoned + self.best_bonus(data, a));
         }
         s
     }
@@ -54,6 +58,16 @@ impl Monster {
     /// town made them, whatever their orders bring in.
     pub fn seasoned(&self) -> i32 {
         if self.worker.is_some() { 0 } else { seasoning(self.earned) }
+    }
+
+    /// How many hands it has: its type's, and one more for a tool belt.
+    pub fn hand_count(&self, data: &Data) -> usize {
+        data.monster_types[self.kind.as_str()].slots.hands as usize + self.gear.iter().filter_map(|id| data.try_piece(id)).map(|p| p.does.hands as usize).sum::<usize>()
+    }
+
+    /// How many of its hands hold something.
+    pub fn holding(&self) -> usize {
+        self.hands.iter().flatten().count()
     }
 
     /// What its pieces do to a craft whose main skill is `skill` (or to practice at it): a
@@ -73,10 +87,9 @@ impl Monster {
             .collect()
     }
 
-    /// The best bonus to ability `a` from what it has on, leaving out the piece of kind
-    /// `without` (one being replaced).
-    pub(crate) fn best_bonus(&self, data: &Data, a: usize, without: Option<&str>) -> i32 {
-        self.pieces().filter_map(|id| data.try_piece(id)).filter(|p| Some(p.kind.as_str()) != without).map(|p| p.bonus_to(a)).max().unwrap_or(0).max(0)
+    /// The best bonus to ability `a` from what it has on.
+    pub(crate) fn best_bonus(&self, data: &Data, a: usize) -> i32 {
+        self.pieces().filter_map(|id| data.try_piece(id)).map(|p| p.bonus_to(a)).max().unwrap_or(0).max(0)
     }
 }
 
@@ -141,11 +154,6 @@ impl Game {
         crate::world::DIRS.iter().filter(|d| self.rack_at(x + d.delta().0, y + d.delta().1).is_some()).count()
     }
 
-    /// The piece of the same kind monster `i` has on, which `piece` would replace.
-    pub(crate) fn replaces(&self, i: usize, piece: &Piece) -> Option<&Piece> {
-        self.monsters[i].pieces().filter_map(|id| self.data.try_piece(id)).find(|p| p.kind == piece.kind && p.slot == piece.slot)
-    }
-
     /// Why monster `i` couldn't have `piece` (renown aside), in its own words, if it couldn't.
     pub(crate) fn piece_refusal(&self, i: usize, piece: &Piece) -> Option<String> {
         let m = &self.monsters[i];
@@ -157,24 +165,22 @@ impl Game {
         if let Some(t) = piece.does.talent.as_ref().filter(|t| m.skills.transferable.contains(t)) {
             return Some(format!("I HAVE A TALENT FOR {} ALREADY.", t.replace('_', " ").to_uppercase()));
         }
-        let old = self.replaces(i, piece);
         let room = ty.slots.of(piece.slot) as usize;
         if room == 0 {
             return Some(format!("A {} HAS NO {} SLOTS.", m.kind.to_uppercase(), piece.slot.label()));
         }
         // Held, it takes a free hand, as a tool does.
-        if piece.slot == Slot::Hand && old.is_none() && m.hands.iter().all(Option::is_some) {
+        if piece.slot == Slot::Hand && m.hands.iter().all(Option::is_some) {
             return Some("MY HANDS ARE FULL. PUT SOMETHING DOWN ON MY SHEET (C).".into());
         }
-        if piece.slot != Slot::Hand && old.is_none() && self.gear_in(i, piece.slot).len() >= room {
+        if piece.slot != Slot::Hand && self.gear_in(i, piece.slot).len() >= room {
             let slots = if room == 1 { format!("MY {} SLOT IS", piece.slot.label()) } else { format!("ALL {room} OF MY {} SLOTS ARE", piece.slot.label()) };
             return Some(format!("{slots} FULL. TAKE SOMETHING OFF ON MY SHEET (C)."));
         }
-        let (old_body, old_mind) = old.map_or((0.0, 0), |p| (p.body as f64, p.mind));
-        if self.body_used(i) - old_body + piece.body as f64 > ty.body_cap as f64 {
+        if self.body_used(i) + piece.body as f64 > ty.body_cap as f64 {
             return Some("THAT'S MORE THAN MY BODY CAN TAKE.".into());
         }
-        if self.mind_used(i) - old_mind + piece.mind > ty.mind_cap {
+        if self.mind_used(i) + piece.mind > ty.mind_cap {
             return Some("THAT'S MORE THAN MY MIND CAN TAKE.".into());
         }
         None
@@ -184,18 +190,17 @@ impl Game {
     /// counts, so `piece` would add nothing there. The other piece's name and the ability.
     pub(crate) fn bettered(&self, i: usize, piece: &Piece) -> Option<(String, &'static str)> {
         let m = &self.monsters[i];
-        let old = self.replaces(i, piece).map(|p| p.kind.clone());
         (0..6).filter(|&a| piece.bonus_to(a) > 0).find_map(|a| {
-            let best = m.best_bonus(&self.data, a, old.as_deref());
+            let best = m.best_bonus(&self.data, a);
             (best >= piece.bonus_to(a)).then(|| {
-                let by = m.pieces().filter_map(|id| self.data.try_piece(id)).filter(|p| Some(&p.kind) != old.as_ref()).max_by_key(|p| p.bonus_to(a)).map_or(String::new(), |p| p.name.to_uppercase());
+                let by = m.pieces().filter_map(|id| self.data.try_piece(id)).max_by_key(|p| p.bonus_to(a)).map_or(String::new(), |p| p.name.to_uppercase());
                 (by, crate::data::ABILITIES[a])
             })
         })
     }
 
     /// Monster `c` is given the piece on rack `r`, if its commune's renown reaches it and it has
-    /// room. One of the same kind it has on gives way to it.
+    /// room.
     pub(crate) fn give_piece(&mut self, c: usize, r: usize, sfx: &mut Vec<Sfx>) {
         if self.monsters[c].rec.is_some() {
             self.say(c, "FINISH RECORDING FIRST (R).", true);
@@ -215,23 +220,16 @@ impl Game {
             return;
         }
         self.communes[k].renown -= piece.renown as f64;
-        let old = self.replaces(c, &piece).map(|p| p.id.clone());
         let m = &mut self.monsters[c];
         if piece.slot == Slot::Hand {
-            // Into the hand that held the one it replaces, or a free one.
-            let h = m.hands.iter().position(|h| matches!((h, &old), (Some(Held::Piece(p)), Some(o)) if p == o)).or_else(|| m.hands.iter().position(Option::is_none)).expect("a hand for it");
+            let h = m.hands.iter().position(Option::is_none).expect("a free hand for it");
             m.hands[h] = Some(Held::Piece(piece.id.clone()));
         } else {
-            if let Some(old) = &old {
-                m.gear.retain(|id| id != old);
-            }
             m.gear.push(piece.id.clone());
         }
-        let verb = piece.verb();
-        let text = match old {
-            Some(old) => format!("{} {verb} THE {} IN PLACE OF THE {}. {}!", m.name, piece.name.to_uppercase(), self.data.piece(&old).name.to_uppercase(), piece.effect_text()),
-            None => format!("{} {verb} THE {}. {}!", m.name, piece.name.to_uppercase(), piece.effect_text()),
-        };
+        self.fit_hands(c);
+        let m = &self.monsters[c];
+        let text = format!("{} {} THE {}. {}!", m.name, piece.verb(), piece.name.to_uppercase(), piece.effect_text());
         let (x, y) = (m.x, m.y);
         self.say(c, &text, false);
         self.world.burst(x, y, PKind::Spark, 6);
@@ -241,18 +239,43 @@ impl Game {
     /// Monster `i` takes off the piece `id` (or puts it down, if it's held), from its sheet. It's
     /// gone for good.
     pub(crate) fn take_off(&mut self, i: usize, id: &str, sfx: &mut Vec<Sfx>) {
-        let m = &mut self.monsters[i];
+        let m = &self.monsters[i];
         if !m.pieces().any(|g| g == id) {
             return;
         }
+        // A tool belt comes off only if what it holds has a free hand to go to.
+        let extra = self.data.piece(id).does.hands as usize;
+        if extra > 0 && m.holding() > m.hand_count(&self.data) - extra {
+            self.say(i, TOO_FULL, true);
+            sfx.push(Sfx::Deny);
+            return;
+        }
+        let m = &mut self.monsters[i];
         m.gear.retain(|g| g != id);
         for h in m.hands.iter_mut().filter(|h| matches!(h, Some(Held::Piece(p)) if p == id)) {
             *h = None;
         }
+        self.fit_hands(i);
+        let m = &self.monsters[i];
         let p = self.data.piece(id);
         let text = format!("{} {} THE {}.", m.name, p.off_verb(), p.name.to_uppercase());
         self.say(i, &text, false);
         sfx.push(Sfx::Plop);
+    }
+
+    /// Monster `i`'s hands, as many as it has now: a tool belt put on adds one; taken off, what
+    /// was in it goes to a free hand. Never fewer hands than it's holding things (a belt that
+    /// can't come off isn't let off).
+    pub(crate) fn fit_hands(&mut self, i: usize) {
+        let n = self.monsters[i].hand_count(&self.data);
+        let m = &mut self.monsters[i];
+        if m.hands.len() > n && m.holding() <= n {
+            let held: Vec<Held> = m.hands.drain(..).flatten().collect();
+            m.hands = held.into_iter().map(Some).collect();
+        }
+        if m.hands.len() < n {
+            m.hands.resize(n, None);
+        }
     }
 
     /// What the outfitter says to whoever faces them.

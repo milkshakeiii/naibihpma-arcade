@@ -184,6 +184,14 @@ fn wear(s: &mut Sprite, goblin: bool, kind: &str, c: u8) {
                 band(s, y, 6, 10);
             }
         }
+        // A belt at the waist with a pouch hanging from it.
+        ("tool_belt", goblin) => {
+            let (row, x0, x1, pouch) = if goblin { (12, 4, 11, [(9, 13), (10, 13)]) } else { (13, 4, 12, [(8, 14), (9, 14)]) };
+            band(s, row, x0, x1);
+            for (x, y) in pouch {
+                s.set(x, y, shift(c, -1));
+            }
+        }
         // A pack on the back, behind the body (it faces right), its bottom in shadow, and a
         // strap over the chest.
         ("backpack", goblin) => {

@@ -481,12 +481,11 @@ fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
         first.extend(does.text().into_iter().map(|t| line(t, TEXT_GOOD)));
     }
     first.push(line(format!("({} RENOWN) YOU HAVE {}.", p.renown, renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown));
-    match (g.piece_refusal(c, p), g.bettered(c, p), g.replaces(c, p)) {
-        (Some(why), _, _) => first.push(line(why, TEXT_WARN).icon(Icon::Warn)),
-        (None, Some((by, ability)), _) => first.push(line(format!("{}'S {by} {} AS MUCH {ability}: ONLY THE BEST COUNTS.", m.name, if by.ends_with('S') { "GIVE" } else { "GIVES" }), TEXT_WARN).icon(Icon::Warn)),
-        (None, None, Some(old)) => first.push(line(format!("SPACE: {} {} IN PLACE OF THE {}, FOR GOOD.", m.name, p.verb_it(), old.name.to_uppercase()), TEXT_DIM)),
-        (None, None, None) if affordable => first.push(line(format!("SPACE: {} {}, FOR GOOD.", m.name, p.verb_it()), TEXT_DIM)),
-        (None, None, None) => first.push(line("EARN MORE RENOWN TO HAVE IT.", TEXT_DIM)),
+    match (g.piece_refusal(c, p), g.bettered(c, p)) {
+        (Some(why), _) => first.push(line(why, TEXT_WARN).icon(Icon::Warn)),
+        (None, Some((by, ability))) => first.push(line(format!("{}'S {by} {} AS MUCH {ability}: ONLY THE BEST COUNTS.", m.name, if by.ends_with('S') { "GIVE" } else { "GIVES" }), TEXT_WARN).icon(Icon::Warn)),
+        (None, None) if affordable => first.push(line(format!("SPACE: {} {}, FOR GOOD.", m.name, p.verb_it()), TEXT_DIM)),
+        (None, None) => first.push(line("EARN MORE RENOWN TO HAVE IT.", TEXT_DIM)),
     }
     let ty = &g.data.monster_types[m.kind.as_str()];
     let cost = match (p.body, p.mind) {
@@ -627,7 +626,7 @@ fn monster_card(g: &Game, i: usize) -> Card {
         }
     }
     let mut talents: Vec<String> = m.skills.transferable.iter().map(|t| skill_name(t)).collect();
-    talents.extend(m.knack(&g.data, "").talent.map(|t| format!("{} (TAUGHT)", skill_name(&t))));
+    talents.extend(m.knack(&g.data, "").talents.iter().map(|t| format!("{} (TAUGHT)", skill_name(t))));
     let mut details = vec![
         line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT),
         line(format!("TALENTS: {}", talents.join(", ")), TEXT_DIM),

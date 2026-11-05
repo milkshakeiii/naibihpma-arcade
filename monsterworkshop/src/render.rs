@@ -79,15 +79,10 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
     draw_markers(g, sp, fb, &v);
     draw_edge_markers(g, fb, &v);
     draw_popups(g, fb, &v);
-    // Lowest priority first, so the controlled monster's bubble ends up on top.
-    for b in layout_bubbles(g, &v).iter().rev() {
-        draw_bubble(fb, sp, b);
-    }
     draw_progress(g, fb, &v);
-    draw_applicant_pitch(g, sp, fb, &v);
-    draw_rack_pitch(g, sp, fb, &v);
-    draw_townsfolk_talk(g, sp, fb, &v);
-    draw_worker_talk(g, sp, fb, &v);
+    for b in bubbles(g, &v) {
+        draw_bubble(fb, sp, &b);
+    }
     draw_floaters(g, fb, &v);
     draw_banner(me, fb);
     draw_announcement(g, fb);
@@ -174,7 +169,7 @@ fn draw_sheet(g: &Game, sp: &Sprites, fb: &mut Framebuffer, k: usize) {
         1 => sheet_loop(g, fb, me.controlled),
         _ => sheet_book(g, fb, k),
     }
-    fb.rect_fill(8, 282, 384, 1, HUD_SHADOW);
+    fb.rect_fill(8, SHEET_KEYS_Y, 384, 1, HUD_SHADOW);
     let keys = match me.sheet_page {
         0 => "UP/DOWN: CHOOSE  SPACE: PUT DOWN, TAKE OFF  TAB: LOOP  C: CLOSE",
         1 => "TAB: RECIPE BOOK   C: CLOSE",
@@ -182,6 +177,9 @@ fn draw_sheet(g: &Game, sp: &Sprites, fb: &mut Framebuffer, k: usize) {
     };
     fb.text_centered(keys, 200, 287, TEXT_DIM, Some(HUD_SHADOW), 1);
 }
+
+/// Where the sheet's keys begin, under a rule: nothing on a page may reach it.
+const SHEET_KEYS_Y: i32 = 282;
 
 /// Page 1: a big portrait, talents, hands, its slots and what's in them, its capacities, how
 /// seasoned it is, its abilities and what each is for, and its skills as bars.
@@ -203,12 +201,14 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
         }
     }
     t(fb, 76, 28, "TALENTS", SPARK + 1);
-    for (n, talent) in m.skills.transferable.iter().enumerate() {
-        t(fb, 76, 40 + n as i32 * 10, &talent.replace('_', " ").to_uppercase(), TEXT);
-    }
-    // A teaching's talent, after its own.
-    if let Some(taught) = m.knack(&g.data, "").talent {
-        t(fb, 76, 40 + m.skills.transferable.len() as i32 * 10, &format!("{}, TAUGHT", taught.replace('_', " ").to_uppercase()), TEXT_GOOD);
+    // Its own talents, then each one taught, closer together if there are many (an elf with
+    // three teachings) so they stay clear of its hands.
+    let own = m.skills.transferable.iter().map(|t| (t.replace('_', " ").to_uppercase(), TEXT));
+    let taught = m.knack(&g.data, "").talents.into_iter().map(|t| (format!("{}, TAUGHT", t.replace('_', " ").to_uppercase()), TEXT_GOOD));
+    let talents: Vec<(String, u8)> = own.chain(taught).collect();
+    let pitch = if talents.len() > 5 { 9 } else { 10 };
+    for (n, (name, col)) in talents.iter().enumerate() {
+        t(fb, 76, 40 + n as i32 * pitch, name, *col);
     }
     // A small arrow at the chosen line.
     let arrow = |fb: &mut Framebuffer, y: i32| {
@@ -248,20 +248,38 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
                     t(fb, 26, y + 9, &p.effect_text(), TEXT_GOOD);
                 }
             }
-            (None, None) => t(fb, 26, y, "EMPTY", TEXT_DIM),
+            // A tool belt's hand, empty, says whose it is.
+            (None, None) => match l {
+                crate::gear::SheetLine::Hand(h) if *h >= g.data.monster_types[m.kind.as_str()].slots.hands as usize => {
+                    let belt = m.gear.iter().filter_map(|id| g.data.try_piece(id)).find(|p| p.does.hands > 0).map_or("THE BELT".to_string(), |p| format!("THE {}", p.name.to_uppercase()));
+                    t(fb, 26, y, &format!("EMPTY: ON {belt}"), TEXT_DIM)
+                }
+                _ => t(fb, 26, y, "EMPTY", TEXT_DIM),
+            },
         }
-        y += 20;
+        // Two rows for what's there and its details, one for an empty slot: room for a tool
+        // belt's third hand and every slot full above the capacities.
+        y += if held.is_some() || piece.is_some() { 19 } else { 11 };
     }
+    // Its capacities, what it has earned and how seasoned it is, a line each, as many as fit
+    // above the keys: with every slot full and renown earned, how seasoned it is waits (Henry).
     let ty = &g.data.monster_types[m.kind.as_str()];
-    t(fb, 16, y + 2, &format!("BODY {:.0} OF {}   MIND {} OF {}", g.body_used(i), ty.body_cap, g.mind_used(i), ty.mind_cap), TEXT);
-    let seasoned = m.seasoned();
+    let mut below = vec![(format!("BODY {:.0} OF {}   MIND {} OF {}", g.body_used(i), ty.body_cap, g.mind_used(i), ty.mind_cap), TEXT)];
     if m.earned > 0.0 {
-        t(fb, 16, y + 14, &format!("EARNED {} RENOWN", m.earned.floor()), TEXT);
+        below.push((format!("EARNED {} RENOWN", m.earned.floor()), TEXT));
     }
+    let seasoned = m.seasoned();
     let next = crate::gear::SEASONED_AT.get(seasoned as usize).map_or(String::new(), |at| format!("{}AT {at}", if seasoned > 0 { "AGAIN " } else { "" }));
-    match seasoned {
-        0 => t(fb, 16, y + 24, &format!("SEASONED {next}"), TEXT_DIM),
-        n => t(fb, 16, y + 24, &format!("SEASONED: +{n} TO ALL{}", if next.is_empty() { String::new() } else { format!(", {next}") }), TEXT_GOOD),
+    below.push(match seasoned {
+        0 => (format!("SEASONED {next}"), TEXT_DIM),
+        n => (format!("SEASONED: +{n} TO ALL{}", if next.is_empty() { String::new() } else { format!(", {next}") }), TEXT_GOOD),
+    });
+    for (n, (text, col)) in below.iter().enumerate() {
+        let ly = y + 2 + n as i32 * 11;
+        if ly + 8 > SHEET_KEYS_Y - 1 {
+            break;
+        }
+        t(fb, 16, ly, text, *col);
     }
     t(fb, 200, 28, "ABILITIES", SPARK + 1);
     let st = m.abilities(&g.data);
@@ -637,13 +655,28 @@ fn peg_hint(g: &Game, tx: i32, ty: i32) -> Option<&'static str> {
     shop.kind.builtin_tools().get(k).copied()
 }
 
+/// Every bubble on screen, oldest first, so newer ones are drawn over older ones (Henry): what
+/// monsters say, and what the one you steer is facing shows (a rack, a townsperson, an
+/// applicant), which is as old as the facing. On the same frame, what's said goes on top, and
+/// of two said then, the steered monster's.
+fn bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
+    let mut all = layout_bubbles(g, v);
+    let faced = g.monsters[v.c].faced.1;
+    for mut b in [applicant_pitch(g, v), rack_pitch(g, v), townsfolk_talk(g, v), worker_talk(g, v)].into_iter().flatten() {
+        (b.born, b.rank) = (faced, 0);
+        all.push(b);
+    }
+    all.sort_by_key(|b| (b.born, b.rank));
+    all
+}
+
 /// Facing a townsperson: a craftsman says what he'd make from what's around, just for this
 /// player (Space asks him for another idea; his card says so); the trader, what he's got.
-fn draw_townsfolk_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
-    let Some(t) = g.faced_townsfolk(v.c) else { return };
+fn townsfolk_talk(g: &Game, v: &View) -> Option<BubbleBox> {
+    let t = g.faced_townsfolk(v.c)?;
     let tf = &g.world.townsfolk[t];
     if !v.sees(tf.x, tf.y) {
-        return;
+        return None;
     }
     let says = match tf.kind {
         crate::world::Folk::Craftsman => g.craftsman_says(t, v.k),
@@ -651,21 +684,21 @@ fn draw_townsfolk_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         crate::world::Folk::Outfitter => g.outfitter_says(v.c),
         crate::world::Folk::Keeper => g.keeper_says(v.c),
     };
-    talk_bubble(fb, sp, v, (tf.x, tf.y), says);
+    talk_bubble(v, (tf.x, tf.y), says)
 }
 
 /// Facing a working townsperson: what their bench makes from what, or their own words.
-fn draw_worker_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
-    let Some(j) = g.faced_worker(v.c) else { return };
+fn worker_talk(g: &Game, v: &View) -> Option<BubbleBox> {
+    let j = g.faced_worker(v.c)?;
     let m = &g.monsters[j];
     if !v.sees(m.x, m.y) || m.slide.is_some() {
-        return;
+        return None;
     }
-    talk_bubble(fb, sp, v, (m.x, m.y), g.worker_says(j, v.k));
+    talk_bubble(v, (m.x, m.y), g.worker_says(j, v.k))
 }
 
 /// A speech bubble over someone at `at`, saying `says`.
-fn talk_bubble(fb: &mut Framebuffer, sp: &Sprites, v: &View, at: (i32, i32), says: Vec<String>) {
+fn talk_bubble(v: &View, at: (i32, i32), says: Vec<String>) -> Option<BubbleBox> {
     let mut lines = Vec::new();
     for said in says {
         lines.extend(wrap(&said, 30));
@@ -673,21 +706,20 @@ fn talk_bubble(fb: &mut Framebuffer, sp: &Sprites, v: &View, at: (i32, i32), say
     let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
     let h = lines.len() as i32 * 9 + 4;
     if lines.is_empty() {
-        return;
+        return None;
     }
     let (px, py) = v.px(at.0, at.1);
     let cx = px + 8;
-    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn: false };
-    draw_bubble(fb, sp, &b);
+    Some(BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn: false, born: 0, rank: 0 })
 }
 
 /// Facing a rack: its piece, what it does and the renown it's given at. Below the rack if
 /// there's room, otherwise over whoever faces it.
-fn draw_rack_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
-    let Some(r) = g.faced_rack(v.c) else { return };
+fn rack_pitch(g: &Game, v: &View) -> Option<BubbleBox> {
+    let r = g.faced_rack(v.c)?;
     let rack = &g.world.racks[r];
     if !v.sees(rack.x, rack.y) {
-        return;
+        return None;
     }
     let p = g.data.piece(rack.piece);
     let lines = vec![p.name.to_uppercase(), p.effect_text(), format!("({} RENOWN)", p.renown)];
@@ -696,23 +728,22 @@ fn draw_rack_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
     let (px, py) = v.px(rack.x, rack.y);
     let cx = px + 8;
     let warn = g.communes[v.k].renown < p.renown as f64 || g.piece_refusal(v.c, p).is_some();
-    let b = if py + TS + 6 + h <= VIEW_H - 2 {
-        BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: py + TS + 6, w, h, cx, above: false, lines, icon: None, mark: None, warn }
+    Some(if py + TS + 6 + h <= VIEW_H - 2 {
+        BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: py + TS + 6, w, h, cx, above: false, lines, icon: None, mark: None, warn, born: 0, rank: 0 }
     } else {
         let m = &g.monsters[v.c];
         let my = v.px(m.x, m.y).1;
-        BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (my - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn }
-    };
-    draw_bubble(fb, sp, &b);
+        BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (my - h - 6).max(2), w, h, cx, above: true, lines, icon: None, mark: None, warn, born: 0, rank: 0 }
+    })
 }
 
 /// Facing an applicant: who they are, their talents and what they cost.
-fn draw_applicant_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
-    let Some(k) = g.faced_applicant(v.c) else { return };
-    let Some(a) = &g.applicants[k] else { return };
+fn applicant_pitch(g: &Game, v: &View) -> Option<BubbleBox> {
+    let k = g.faced_applicant(v.c)?;
+    let a = g.applicants[k].as_ref()?;
     let (sx, sy) = g.world.stands[k];
     if !v.sees(sx, sy) {
-        return;
+        return None;
     }
     let talents = a.transferable.iter().map(|t| t.replace('_', " ").to_uppercase()).collect::<Vec<_>>().join(", ");
     let mut lines = vec![format!("{} THE {}", a.name, a.kind.to_uppercase()), format!("JOINS AT {} RENOWN", a.cost)];
@@ -721,8 +752,7 @@ fn draw_applicant_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) 
     let h = lines.len() as i32 * 9 + 4;
     let (px, py) = v.px(sx, sy);
     let cx = px + 8;
-    let b = BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py + TS + 6).min(VIEW_H - h - 2), w, h, cx, above: false, lines, icon: None, mark: None, warn: g.communes[v.k].renown < a.cost as f64 };
-    draw_bubble(fb, sp, &b);
+    Some(BubbleBox { x: (cx - w / 2).clamp(2, 398 - w), y: (py + TS + 6).min(VIEW_H - h - 2), w, h, cx, above: false, lines, icon: None, mark: None, warn: g.communes[v.k].renown < a.cost as f64, born: 0, rank: 0 })
 }
 
 /// Renown rising from a drop-off, and credits flying to each contributor.
@@ -1508,22 +1538,30 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                     fb.blit(&s, x, y, flip);
                 }
                 // What it holds in each hand that's full: a tool's handle and its head (a
-                // shovel's blade at the bottom), or a carried piece.
-                for (h, held) in m.hands.iter().enumerate().take(2) {
-                    let hx = if (h == 0) != flip { x + s.w - 3 } else { x + 2 };
+                // shovel's blade at the bottom), or a carried piece. A hand past its type's is a
+                // tool belt's: what's in it hangs at the front of the waist, shorter.
+                let base = g.data.monster_types[m.kind.as_str()].slots.hands as usize;
+                for (h, held) in m.hands.iter().enumerate() {
+                    let belt = h >= base;
+                    let hx = match (belt, (h == 0) != flip) {
+                        (true, _) => x + if flip { s.w / 2 - 3 } else { s.w / 2 + 2 },
+                        (false, true) => x + s.w - 3,
+                        (false, false) => x + 2,
+                    };
+                    let (top, len) = if belt { (y + s.h - 6, 4) } else { (y + s.h - 9, 6) };
                     match held {
                         Some(crate::game::Held::Tool(held)) => {
-                            fb.rect_fill(hx, y + s.h - 9, 1, 6, WOOD + 2);
+                            fb.rect_fill(hx, top, 1, len, WOOD + 2);
                             if g.data.try_good(&held.good).is_some_and(|t| t.type_tags.iter().any(|t| t == "shovel")) {
-                                fb.rect_fill(hx - 1, y + s.h - 4, 3, 2, TEXT_DIM);
-                                fb.pset(hx - 1, y + s.h - 4, HUD_HI);
+                                fb.rect_fill(hx - 1, top + len - 1, 3, 2, TEXT_DIM);
+                                fb.pset(hx - 1, top + len - 1, HUD_HI);
                             } else {
-                                fb.rect_fill(hx - 1, y + s.h - 10, 3, 1, TEXT_DIM);
+                                fb.rect_fill(hx - 1, top - 1, 3, 1, TEXT_DIM);
                             }
                         }
                         Some(crate::game::Held::Piece(id)) => {
                             if let Some(p) = g.data.try_piece(id) {
-                                draw_carried(fb, p, hx, y + s.h - 9);
+                                draw_carried(fb, p, hx, top);
                             }
                         }
                         None => {}
@@ -1672,6 +1710,19 @@ fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
             fb.rect_fill(x0 + 4, y0 + 5, 1, 2, c);
             fb.rect_fill(x0 + 11, y0 + 5, 1, 2, c);
             fb.rect_fill(x0 + 6, y0 + 9, 4, 1, shift(c, -1));
+        }
+        "tool_belt" => {
+            // A belt with a buckle and two pouches, a hammer's handle up out of the first.
+            fb.rect_fill(x0 + 4, y0 + 1, 3, 7, OUTLINE);
+            fb.rect_fill(x0 + 3, y0 + 1, 5, 3, OUTLINE);
+            outlined(fb, 2, 6, 12, 2);
+            fb.rect_fill(x0 + 7, y0 + 6, 2, 2, SPARK + 1);
+            for (px, w, h) in [(3, 4, 4), (9, 4, 3)] {
+                outlined(fb, px, 8, w, h);
+                fb.rect_fill(x0 + px, y0 + 8, w, 1, shift(c, 1));
+            }
+            fb.rect_fill(x0 + 5, y0 + 2, 1, 6, WOOD + 2);
+            fb.rect_fill(x0 + 4, y0 + 2, 3, 1, TEXT_DIM);
         }
         "backpack" => {
             // Hung by its straps, a flap over the top and a pocket on the front.
@@ -1952,6 +2003,10 @@ struct BubbleBox {
     /// A card icon after the good's, such as the hourglass of a ready wait.
     mark: Option<Icon>,
     warn: bool,
+    /// The frame it appeared on, and on the same frame which goes on top: what's faced (0),
+    /// what's said (1), what the steered monster says (2).
+    born: u32,
+    rank: u8,
 }
 
 /// Places speech bubbles so they never cover each other: above the head if there is room,
@@ -2017,7 +2072,7 @@ fn layout_bubbles(g: &Game, v: &View) -> Vec<BubbleBox> {
                 y = y.max(2);
             }
         }
-        placed.push(BubbleBox { x, y, w, h, cx, above, lines, icon, mark, warn: b.warn });
+        placed.push(BubbleBox { x, y, w, h, cx, above, lines, icon, mark, warn: b.warn, born: b.born, rank: if i == v.c { 2 } else { 1 } });
     }
     placed
 }
@@ -2236,4 +2291,31 @@ fn a_stand_sits_on_the_ground_around_it() {
     assert_eq!(on("feathered_cap"), Some(Tile::Grass));
     assert_eq!(on("teaching_music"), Some(Tile::Floor));
     assert_eq!(on("rope_belt"), Some(Tile::Floor));
+}
+
+#[cfg(test)]
+#[test]
+fn newer_bubbles_are_drawn_over_older_ones() {
+    use crate::world::Dir;
+    let mut g = Game::new();
+    let r = g.world.racks.iter().position(|r| r.piece == "towel").expect("the towel's rack");
+    let (x, y) = (g.world.racks[r].x, g.world.racks[r].y);
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (x + 1, y, Dir::Left);
+    g.communes[0].renown = 0.0;
+    for _ in 0..5 {
+        g.update(&[]);
+    }
+    // Facing the towel's rack shows its bubble; Space there, too poor, says why: newer, on top.
+    g.script("u");
+    let top = |g: &Game| bubbles(g, &View::of(g, 0)).last().map(|b| b.lines.join(" ")).unwrap_or_default();
+    assert!(bubbles(&g, &View::of(&g, 0)).len() >= 2);
+    assert!(top(&g).contains("NOT ENOUGH RENOWN"), "{}", top(&g));
+    // Said first, then turning to face another rack: that rack's bubble is newer, on top.
+    g.say(0, "HELLO", false);
+    for _ in 0..3 {
+        g.update(&[]);
+    }
+    g.monsters[0].facing = Dir::Right;
+    g.update(&[]);
+    assert!(top(&g).contains("HASTY APRON"), "{}", top(&g));
 }

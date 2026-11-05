@@ -294,6 +294,7 @@ const REGIONS: [Region; 5] = [
             ((37, 11), "backpack"),
             ((37, 12), "feathered_cap"),
             ((37, 13), "shoulder_pole"),
+            ((37, 14), "tool_belt"),
         ],
         folk: &[((43, 13), Folk::Outfitter)],
         labels: &[((39, 2), "CLOTH HALL"), ((46, 10), "OUTFITTER")],

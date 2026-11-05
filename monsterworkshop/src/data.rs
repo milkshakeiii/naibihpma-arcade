@@ -221,13 +221,9 @@ pub struct Piece {
     pub id: String,
     pub name: String,
     pub slot: Slot,
-    /// What sort of thing it is: one of a kind is worn at a time, and a new one replaces it
-    /// (Gloves of Dexterity take the cloth gloves' place). Where it shows on the sprite.
-    pub kind: String,
-    /// How it's drawn, where that isn't its kind: a backpack takes a cloak's place on the back
-    /// but doesn't look like one.
-    #[serde(default)]
-    pub look: Option<String>,
+    /// How it's drawn, on a monster (gloves on the hands, a belt at the waist) and on its rack.
+    /// Pieces don't compete by what they are (Henry): any fits a free slot of its own.
+    pub look: String,
     /// What it costs of the monster's body and mind capacity.
     #[serde(default)]
     pub body: u32,
@@ -278,6 +274,8 @@ pub struct Does {
     pub room: i32,
     pub pull: i32,
     pub push: i32,
+    /// Hands more than its type has, for a tool or anything else held (a tool belt's one).
+    pub hands: u32,
     /// How much further a result above the forecast goes (a lucky charm's 50: half as far again).
     pub luck: i32,
     /// How much of the way back to the forecast a result below it comes (patience: halfway).
@@ -302,8 +300,8 @@ impl Does {
         if recipe.is_fixed_quantity {
             (d.more, d.quantity) = (0, 0);
         }
-        // Hauling isn't crafting.
-        (d.room, d.pull, d.push) = (0, 0, 0);
+        // Hauling isn't crafting, and a third hand doesn't help a craft (its tool does).
+        (d.room, d.pull, d.push, d.hands) = (0, 0, 0, 0);
         d
     }
 
@@ -312,6 +310,11 @@ impl Does {
         let mut out = Vec::new();
         if self.more > 0 {
             out.push(format!("+{} YIELD", self.more));
+        }
+        match self.hands {
+            0 => {}
+            1 => out.push("+1 HAND".into()),
+            n => out.push(format!("+{n} HANDS")),
         }
         // A secret's own name says which craft (Henry: "+10% QUALITY OR YIELD").
         match (self.quality, self.quantity) {
@@ -357,7 +360,7 @@ impl Piece {
 
     /// How it's drawn: its look, or else its kind.
     pub fn look(&self) -> &str {
-        self.look.as_deref().unwrap_or(&self.kind)
+        &self.look
     }
 
     /// What a monster does to have it: takes it in hand, puts it on, learns it, or its own verb.

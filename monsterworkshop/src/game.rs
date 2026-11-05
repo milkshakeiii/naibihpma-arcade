@@ -189,6 +189,8 @@ pub struct Routine {
 pub struct Bubble {
     pub text: String,
     pub ttl: u16,
+    /// The frame it appeared on: newer bubbles are drawn over older ones.
+    pub born: u32,
     pub warn: bool,
     pub waiting: bool, // a looping monster stuck on a step; drawn as a small icon when not controlled
 }
@@ -214,6 +216,10 @@ pub struct Monster {
     pub walk_frame: u8,
     #[serde(skip)]
     pub bubble: Option<Bubble>,
+    /// The tile it faces, and the frame it began to: when what it faces began to show its
+    /// bubble (a rack's, a townsperson's).
+    #[serde(skip)]
+    pub faced: ((i32, i32), u32),
     pub rec: Option<Routine>,
     pub routine: Option<Routine>,
     pub playing: bool,
@@ -373,6 +379,7 @@ impl Monster {
             busy: false,
             walk_frame: 0,
             bubble: None,
+            faced: ((x + 1, y), 0),
             rec: None,
             routine: None,
             playing: false,
@@ -797,7 +804,7 @@ impl Game {
             self.monsters.push(Monster::new(self.next_id, k, name, kind, &self.data, at, skills));
             self.next_id += 1;
         }
-        self.monsters[first].bubble = Some(Bubble { text: format!("HI, I'M {crafter}! LET'S MAKE SOME CLOTH."), ttl: 60, warn: false, waiting: false });
+        self.monsters[first].bubble = Some(Bubble { text: format!("HI, I'M {crafter}! LET'S MAKE SOME CLOTH."), ttl: 60, born: self.frame, warn: false, waiting: false });
         let m = &self.monsters[first];
         let area = { let (sx, sy) = crate::render::screen_of(m.x, m.y); area_name(sx, sy) };
         self.communes.push(Commune { controlled: first, area, ..Commune::default() });
@@ -918,7 +925,7 @@ impl Game {
         m.stats = a.stats.clone();
         self.next_id += 1;
         m.facing = Dir::Up;
-        m.bubble = Some(Bubble { text: format!("I'M {}! HAPPY TO JOIN.", a.name), ttl: BUBBLE_TICKS, warn: false, waiting: false });
+        m.bubble = Some(Bubble { text: format!("I'M {}! HAPPY TO JOIN.", a.name), ttl: BUBBLE_TICKS, born: self.frame, warn: false, waiting: false });
         self.monsters.push(m);
         sfx.push(Sfx::RecSave);
     }
@@ -1182,11 +1189,21 @@ impl Game {
                 }
             }
         }
+        // What each monster faces, and since when: a rack's or a townsperson's bubble is as new
+        // as that, for drawing newer bubbles over older ones.
+        let frame = self.frame;
+        for m in &mut self.monsters {
+            let (dx, dy) = m.facing.delta();
+            let ahead = (m.x + dx, m.y + dy);
+            if m.faced.0 != ahead {
+                m.faced = (ahead, frame);
+            }
+        }
         self.advance_tutorial();
     }
 
     pub(crate) fn say(&mut self, i: usize, text: &str, warn: bool) {
-        self.monsters[i].bubble = Some(Bubble { text: text.to_string(), ttl: BUBBLE_TICKS, warn, waiting: false });
+        self.monsters[i].bubble = Some(Bubble { text: text.to_string(), ttl: BUBBLE_TICKS, born: self.frame, warn, waiting: false });
     }
 
     pub fn monster_at(&self, x: i32, y: i32) -> Option<usize> {

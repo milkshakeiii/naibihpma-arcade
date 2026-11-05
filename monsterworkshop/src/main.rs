@@ -860,12 +860,30 @@ fn export_screenshots(dir: &Path) {
     hg.monsters[hc].bubble = None;
     shot(&hg, "66_hauling_stands.png");
     let cyclops = hg.monsters.iter().position(|m| m.species == game::Species::Cyclops && m.worker.is_none()).expect("a cyclops");
-    for (i, at) in [(hc, (pack.0 - 1, pack.1 + 3)), (cyclops, (pack.0 - 2, pack.1 + 3))] {
+    for (i, at) in [(hc, (pack.0 - 1, pack.1 + 4)), (cyclops, (pack.0 - 2, pack.1 + 4))] {
         let m = &mut hg.monsters[i];
         (m.x, m.y, m.facing, m.flip) = (at.0, at.1, game::Dir::Right, false);
-        m.gear = vec!["backpack".into(), "feathered_cap".into()];
+        m.gear = vec!["backpack".into(), "feathered_cap".into(), "tool_belt".into()];
+        hg.fit_hands(i);
+        let m = &mut hg.monsters[i];
         m.hands[0] = Some(game::Held::Piece("shoulder_pole".into()));
+        m.hands[2] = Some(game::Held::Tool(econ::plain(&hg.data, "pick", "copper_ingot")));
     }
     shot(&hg, "67_hauling_worn.png");
+    // The sheet of a monster with a tool belt: a pick and a shovel in hand, the belt's hand empty.
+    let mut bg = Game::new();
+    let bc = bg.communes[0].controlled;
+    bg.monsters[bc].gear = vec!["tool_belt".into()];
+    bg.fit_hands(bc);
+    bg.monsters[bc].hands[0] = Some(game::Held::Tool(econ::plain(&bg.data, "pick", "copper_ingot")));
+    bg.monsters[bc].hands[1] = Some(game::Held::Tool(econ::plain(&bg.data, "shovel", "copper_ingot")));
+    bg.script("c");
+    shot(&bg, "68_sheet_tool_belt.png");
+    // The fullest sheet: three hands and every slot full, renown earned. What fits above the
+    // keys is shown; how seasoned it is waits.
+    bg.monsters[bc].gear = vec!["tool_belt".into(), "feathered_cap".into(), "headband".into(), "secret_prospecting".into()];
+    bg.monsters[bc].hands[2] = Some(game::Held::Piece("shoulder_pole".into()));
+    bg.monsters[bc].earned = 400.0;
+    shot(&bg, "69_sheet_full.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }
