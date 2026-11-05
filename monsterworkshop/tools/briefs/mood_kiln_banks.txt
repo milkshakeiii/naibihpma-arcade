@@ -1,0 +1,13 @@
+tanglemere_150_0
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. It's a town in the game's first province, a green river lowland of cotton fields and dyers. The game's world has five provinces, each with a look of its own. Repaint this same screen as if the town stood in another province, described below, the way a fine pixel artist would design a region's distinct visual style for an old VGA game.
+
+Rules for the picture:
+- Keep exactly this pixel scale, top-down view and limited, old-VGA-style palette: flat colors in short ramps, crisp 1-pixel dark outlines on everything in the foreground, no gradients, blur, glow or anti-aliasing. Keep the grid lines drawn. Everything sits on the grid and keeps its size in tiles.
+- Keep the layout: the road across the screen and the path south where they are, the three buildings where they are and the same size, with their doors in the same places, and the little park, the well and the trees in the same places. Change what everything is made of and how it looks: the ground, the plants and trees, the buildings' walls, roofs and floors, the scenery, the colors.
+- Keep the monsters as they are (they look the same in every province), and keep the goods inside the buildings as they are.
+- Leave the words on the buildings off, or keep them as they are.
+
+The province:
+THE KILN BANKS: a river valley of potters and brickmakers, where the riverbanks are clay in five colors. Warm earth: ochre and terracotta ground, a cut bank striped red, yellow, blue-grey, white and black clay, reed beds and willows instead of pines. Buildings of fired brick under curved grey roof tiles, with brick-paved floors and a tall kiln chimney. Scenery: rows of pots and bowls drying on boards, stacks of bricks, a clay pit, firewood, water jars. Wisps of smoke from the kilns.
+
+Return only the image.

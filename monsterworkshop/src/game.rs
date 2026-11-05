@@ -582,6 +582,9 @@ pub struct Announcement {
 }
 
 pub struct Game {
+    /// Every screen drawn in this style, not its province's (for showing the provinces' looks
+    /// side by side); `None` in play.
+    pub style: Option<crate::palette::Style>,
     pub data: Data,
     pub world: World,
     pub monsters: Vec<Monster>,
@@ -627,6 +630,7 @@ impl Game {
             next_id: 1,
             floaters: Vec::new(),
             announcement: None,
+            style: None,
         };
         g.found_commune(["MOGG", "BRUNA"]);
         g.applicants = (0..stands).map(|k| Some(g.roll_applicant(k))).collect();

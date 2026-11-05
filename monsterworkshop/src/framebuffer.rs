@@ -3,12 +3,14 @@ use std::path::Path;
 
 pub const FB_W: usize = 400;
 pub const FB_H: usize = 300;
+/// Keeps a color index within the palette, the land bank included.
+const COLOR_MASK: u8 = (crate::palette::PALETTE_SIZE - 1) as u8;
 
 /// 4x4 ordered-dither thresholds (0..15) used for sky bands and palette crossfades.
 pub const BAYER4: [[u8; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
 
 pub struct Framebuffer {
-    pub px: Vec<u8>, // 400x300 palette indices (0..63)
+    pub px: Vec<u8>, // 400x300 palette indices (0..PALETTE_SIZE)
 }
 
 impl Framebuffer {
@@ -19,7 +21,7 @@ impl Framebuffer {
     #[inline]
     pub fn pset(&mut self, x: i32, y: i32, col: u8) {
         if x >= 0 && x < FB_W as i32 && y >= 0 && y < FB_H as i32 {
-            self.px[y as usize * FB_W + x as usize] = col & 63;
+            self.px[y as usize * FB_W + x as usize] = col & COLOR_MASK;
         }
     }
 
@@ -31,7 +33,7 @@ impl Framebuffer {
         for py in y0..y1 {
             let row = py as usize * FB_W;
             for px in x0..x1 {
-                self.px[row + px as usize] = col & 63;
+                self.px[row + px as usize] = col & COLOR_MASK;
             }
         }
     }
@@ -51,7 +53,7 @@ impl Framebuffer {
         for py in y.max(0)..(y + h).min(FB_H as i32) {
             for px in x.max(0)..(x + w).min(FB_W as i32) {
                 if (px + py) & 1 == 0 {
-                    self.px[py as usize * FB_W + px as usize] = col & 63;
+                    self.px[py as usize * FB_W + px as usize] = col & COLOR_MASK;
                 }
             }
         }
@@ -168,8 +170,8 @@ impl Framebuffer {
         &self,
         out: &mut Vec<u32>,
         scale: usize,
-        from: &[u32; 64],
-        to: &[u32; 64],
+        from: &crate::palette::Palette,
+        to: &crate::palette::Palette,
         mix: u8,
         scanlines: bool,
     ) -> (usize, usize) {
@@ -183,7 +185,7 @@ impl Framebuffer {
             let row0 = y * s * out_w;
             let bayer = &BAYER4[y & 3];
             for x in 0..FB_W {
-                let idx = (self.px[src_row + x] & 63) as usize;
+                let idx = (self.px[src_row + x] & COLOR_MASK) as usize;
                 let argb = if bayer[x & 3] < mix { to[idx] } else { from[idx] };
                 let d = row0 + x * s;
                 out[d..d + s].fill(argb);
@@ -207,7 +209,7 @@ impl Framebuffer {
     }
 
     /// Exports an exact 2x (800x600) PNG for verification.
-    pub fn save_png(&self, path: &Path, from: &[u32; 64], to: &[u32; 64], mix: u8) {
+    pub fn save_png(&self, path: &Path, from: &crate::palette::Palette, to: &crate::palette::Palette, mix: u8) {
         let mut buf = Vec::new();
         let (w, h) = self.present(&mut buf, 2, from, to, mix, true);
         save_argb_png(path, &buf, w, h);
@@ -306,7 +308,7 @@ mod tests {
 
     #[test]
     fn present_uses_exact_blocks_and_bottom_scanline() {
-        let mut from = [0xFF00_0000u32; 64];
+        let mut from = [0xFF00_0000u32; crate::palette::PALETTE_SIZE];
         from[5] = 0xFF80_8080;
         let mut fb = Framebuffer::new();
         fb.pset(10, 20, 5);
@@ -324,8 +326,8 @@ mod tests {
 
     #[test]
     fn full_mix_switches_every_pixel_to_target_palette() {
-        let from = [0xFF00_0000u32; 64];
-        let to = [0xFFFF_FFFFu32; 64];
+        let from = [0xFF00_0000u32; crate::palette::PALETTE_SIZE];
+        let to = [0xFFFF_FFFFu32; crate::palette::PALETTE_SIZE];
         let fb = Framebuffer::new();
         let mut out = Vec::new();
         fb.present(&mut out, 1, &from, &to, 16, false);

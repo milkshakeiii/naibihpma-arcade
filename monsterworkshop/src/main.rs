@@ -260,6 +260,10 @@ fn main() {
         export_places(&after("--export-places").map_or_else(|| PathBuf::from("places"), PathBuf::from));
         return;
     }
+    if args.iter().any(|a| a == "--export-styles") {
+        export_styles(&after("--export-styles").map_or_else(|| PathBuf::from("places/styles"), PathBuf::from));
+        return;
+    }
     if args.iter().any(|a| a == "--temple-test-world") {
         temple_test_world();
         return;
@@ -391,7 +395,7 @@ fn bots(n: &str, addr: Option<String>) {
 fn export_places(dir: &Path) {
     const SCALE: usize = 4;
     let _ = std::fs::create_dir_all(dir);
-    let (sprites, pal) = (Sprites::new(), palette::build());
+    let (sprites, pal) = (Sprites::new(), palette::build(palette::Style::Cloth));
     let mut fb = Framebuffer::new();
     let mut g = Game::new();
     g.run_ticks(450);
@@ -427,10 +431,33 @@ fn export_places(dir: &Path) {
     println!("exported {n} places to {}", dir.display());
 }
 
+/// The same screens in each province's look, to compare them: a town street and a lake shore
+/// of Tanglemere, three times their size, half a minute into a new world.
+fn export_styles(dir: &Path) {
+    const SCALE: usize = 3;
+    let _ = std::fs::create_dir_all(dir);
+    let sprites = Sprites::new();
+    let mut fb = Framebuffer::new();
+    let mut g = Game::new();
+    g.run_ticks(450);
+    let mut buf = Vec::new();
+    for (screen, at) in [("town", (150, 0)), ("shore", (125, 16))] {
+        for style in palette::Style::ALL {
+            g.style = Some(style);
+            render::draw_place(&g, &sprites, &mut fb, at);
+            let pal = palette::build(style);
+            let (w, _) = fb.present(&mut buf, SCALE, &pal, &pal, 0, false);
+            let h = render::VIEW_H as usize * SCALE;
+            framebuffer::save_argb_png(&dir.join(format!("{screen}_{}.png", style.name())), &buf[..w * h], w, h);
+        }
+    }
+    println!("exported {} styles to {}", palette::Style::ALL.len(), dir.display());
+}
+
 fn export_screenshots(dir: &Path) {
     let _ = std::fs::create_dir_all(dir);
     let sprites = Sprites::new();
-    let pal = palette::build();
+    let pal = palette::build(palette::Style::Cloth);
     let mut fb = Framebuffer::new();
     let mut g = Game::new();
     let mut save = |g: &Game, name: &str| {

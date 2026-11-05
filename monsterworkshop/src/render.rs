@@ -30,6 +30,8 @@ pub fn screen_of(x: i32, y: i32) -> (i32, i32) {
 struct View {
     tx: i32,
     ty: i32,
+    /// The look of the province it shows: its land's colors and its buildings' materials.
+    style: Style,
     /// Whose view: the commune, and the monster its player controls.
     k: usize,
     c: usize,
@@ -40,7 +42,7 @@ impl View {
         let c = g.communes[k].controlled;
         let m = &g.monsters[c];
         let (tx, ty) = screen_of(m.x, m.y);
-        Self { tx, ty, k, c }
+        Self { tx, ty, style: g.style.unwrap_or(Style::Cloth), k, c }
     }
 
     fn sees(&self, x: i32, y: i32) -> bool {
@@ -108,7 +110,7 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
 /// (DESIGN.md, Layout by image model): its ground, what stands on it and whoever is about, with
 /// nobody's flags, bubbles or HUD.
 pub fn draw_place(g: &Game, sp: &Sprites, fb: &mut Framebuffer, (tx, ty): (i32, i32)) {
-    let v = View { tx, ty, k: 0, c: g.communes[0].controlled };
+    let v = View { tx, ty, style: g.style.unwrap_or(Style::Cloth), k: 0, c: g.communes[0].controlled };
     draw_ground(g, sp, fb, &v);
     draw_bodies(g, sp, fb, &v);
     draw_overhead(g, fb, &v);
@@ -388,13 +390,13 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                     // Slow ripples drifting downstream; a lighter lip where the bank begins.
                     let drift = (y + (g.frame / 10) as i32) % TS;
                     if y == 0 && g.world.tile(tx, ty - 1) != Tile::Water {
-                        WATER + 2
+                        LAND_WATER + 2
                     } else if (x + drift * 5 + (h % 3) as i32) % 17 == 0 && drift % 4 == 1 {
-                        WATER + 2
+                        LAND_WATER + 2
                     } else if (x * 3 + drift * 7) % 31 == 0 {
-                        WATER
+                        LAND_WATER
                     } else {
-                        WATER + 1
+                        LAND_WATER + 1
                     }
                 }
                 Tile::Peg | Tile::Pad | Tile::OutMat | Tile::Spot if !indoors(g, tx, ty) => match h % 23 {
@@ -409,7 +411,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                     let off = if (y / 4) % 2 == 0 { 0 } else { 2 };
                     let (sx, sy) = ((x + off + tx * 16) % 4, y % 4);
                     if sx == 3 || sy == 3 {
-                        PATH + 1
+                        LAND_PATH + 1
                     } else if (sx == 0 && sy == 0) || (sx == 2 && sy == 2) {
                         if sx == 0 { TEXT_DIM } else { HUD_MID }
                     } else if h % 11 == 0 {
@@ -419,9 +421,9 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                     }
                 }
                 Tile::Path => match h % 17 {
-                    0 => PATH + 2,
-                    1 | 2 => PATH,
-                    _ => PATH + 1,
+                    0 => LAND_PATH + 2,
+                    1 | 2 => LAND_PATH,
+                    _ => LAND_PATH + 1,
                 },
                 Tile::Hedge => {
                     let lit = (x + y + (h % 3) as i32) % 5 == 0;
@@ -435,35 +437,15 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                         HEDGE
                     }
                 }
-                Tile::Wall => {
-                    if y == 0 {
-                        WOOD + 3
-                    } else if y == TS - 1 {
-                        WOOD
-                    } else if (x + if ty % 2 == 0 { 0 } else { 4 }) % 8 == 0 {
-                        WOOD
-                    } else {
-                        WOOD + 1 + (h % 9 == 0) as u8
-                    }
-                }
-                _ => {
-                    // Planks: a seam every 4 rows with staggered joints.
-                    let row = y / 4;
-                    if y % 4 == 3 || (x + row * 5 + tx * 3) % 16 == 0 {
-                        PLANK
-                    } else if y % 4 == 0 {
-                        PLANK + 2
-                    } else {
-                        PLANK + 1 + (h % 13 == 0) as u8
-                    }
-                }
+                Tile::Wall => wall_px(v.style.walls(), x, y, (tx, ty), g.world.tile(tx, ty + 1) != Tile::Wall, h),
+                _ => floor_px(v.style.floors(), x, y, tx, h),
             };
             fb.pset(x0 + x, y0 + y, c);
         }
     }
     if ground == Tile::Grass && tile == Tile::Grass && hash(tx, ty) % 7 == 0 && g.world.plant_at(tx, ty).is_none() {
         let (fx, fy) = (x0 + 3 + (hash(ty, tx) % 9) as i32, y0 + 4 + (hash(tx + 7, ty) % 8) as i32);
-        let col = FLOWER + (hash(tx, ty + 3) % 2) as u8;
+        let col = LAND_FLOWER + (hash(tx, ty + 3) % 2) as u8;
         for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
             fb.pset(fx + dx, fy + dy, col);
         }
@@ -592,6 +574,127 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
         if g.world.item_at(tx, ty).is_none() {
             if let Some(icon) = peg_hint(g, tx, ty).and_then(|id| sp.icon(id)) {
                 blit_ghost(fb, icon, x0 + 4, y0 + 5);
+            }
+        }
+    }
+}
+
+/// A pixel of a wall, at `(x, y)` in tile `(tx, ty)`, in its style's material: the lit top
+/// edge, the shaded foot and the seams the same in all of them. `foot`: the wall ends below
+/// this tile, where a plinth shows.
+fn wall_px(walls: Walls, x: i32, y: i32, (tx, ty): (i32, i32), foot: bool, h: u32) -> u8 {
+    if y == 0 {
+        return WALL + 3;
+    }
+    if y == TS - 1 {
+        return WALL;
+    }
+    match walls {
+        // Boards with staggered joints.
+        Walls::Planks => {
+            if (x + if ty % 2 == 0 { 0 } else { 4 }) % 8 == 0 {
+                WALL
+            } else {
+                WALL + 1 + (h % 9 == 0) as u8
+            }
+        }
+        // Courses of dry stone, each block lit along its top, the joints staggered.
+        Walls::Stone => {
+            let course = (y - 1) / 5;
+            let off = (course * 5 + tx * 3 + ty) % 7;
+            if (y - 1) % 5 == 4 || (x + off) % 7 == 0 {
+                WALL
+            } else if (y - 1) % 5 == 0 {
+                WALL + 2
+            } else {
+                WALL + 1 + (h % 11 == 0) as u8
+            }
+        }
+        // Small bricks in running bond, pale mortar between.
+        Walls::Brick => {
+            let course = (y - 1) / 3;
+            if (y - 1) % 3 == 2 || (x + course % 2 * 3) % 6 == 5 {
+                WALL + 3
+            } else if h % 7 == 0 {
+                WALL
+            } else {
+                WALL + 1 + ((y - 1) % 3 == 0) as u8
+            }
+        }
+        // Pale daub between dark timbers: a post in each tile, and a beam across the middle.
+        Walls::Daub => {
+            if (x + tx * 4) % 16 < 2 || (7..=8).contains(&y) {
+                WALL
+            } else if h % 13 == 0 {
+                WALL + 1
+            } else {
+                WALL + 2 + (h % 5 == 0) as u8
+            }
+        }
+        // Whitewash, over a dark stone plinth where the wall meets the ground.
+        Walls::Plaster => {
+            if foot && y >= TS - 4 {
+                if y == TS - 4 || (x + tx * 3) % 6 == 0 { WALL } else { WALL + 1 }
+            } else if h % 17 == 0 {
+                WALL + 2
+            } else {
+                WALL + 3
+            }
+        }
+    }
+}
+
+/// A pixel of a floor, in its style's material.
+fn floor_px(floors: Floors, x: i32, y: i32, tx: i32, h: u32) -> u8 {
+    match floors {
+        // Planks: a seam every 4 rows with staggered joints.
+        Floors::Planks => {
+            let row = y / 4;
+            if y % 4 == 3 || (x + row * 5 + tx * 3) % 16 == 0 {
+                FLOOR
+            } else if y % 4 == 0 {
+                FLOOR + 2
+            } else {
+                FLOOR + 1 + (h % 13 == 0) as u8
+            }
+        }
+        // Flagstones, staggered, each lit along its top.
+        Floors::Flags => {
+            let row = y / 8;
+            if y % 8 == 7 || (x + row * 4 + tx * 5) % 8 == 7 {
+                FLOOR
+            } else if y % 8 == 0 {
+                FLOOR + 2
+            } else {
+                FLOOR + 1 + (h % 13 == 0) as u8
+            }
+        }
+        // Square terracotta tiles in a grid, each lit at its top and left.
+        Floors::Terracotta => {
+            if x % 8 == 7 || y % 8 == 7 {
+                FLOOR
+            } else if x % 8 == 0 || y % 8 == 0 {
+                FLOOR + 2
+            } else {
+                FLOOR + 1 + (h % 17 == 0) as u8
+            }
+        }
+        // Beaten earth: flat, flecked.
+        Floors::Earth => match h % 29 {
+            0 | 1 => FLOOR,
+            2 => FLOOR + 3,
+            3..=5 => FLOOR + 2,
+            _ => FLOOR + 1,
+        },
+        // Pale tiles, offset in rows.
+        Floors::Tiles => {
+            let row = y / 8;
+            if y % 8 == 7 || (x + row * 4) % 8 == 7 {
+                FLOOR + 1
+            } else if (x + row * 4) % 8 == 0 || y % 8 == 0 {
+                FLOOR + 3
+            } else {
+                FLOOR + 2 + (h % 19 == 0) as u8
             }
         }
     }
@@ -1055,7 +1158,8 @@ fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
         }
         let (x, y) = v.px(span.0, wy);
         let w = (span.1 - span.0 + 1) * TS;
-        fb.text_centered(label, x + w / 2, y + 5, WOOD + 3, Some(OUTLINE), 1);
+        let (ink, shadow) = v.style.label();
+        fb.text_centered(label, x + w / 2, y + 5, ink, Some(shadow), 1);
     }
 }
 

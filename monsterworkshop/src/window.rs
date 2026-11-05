@@ -188,7 +188,7 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
 
-        let pal = palette::build();
+        let pal = palette::build(palette::Style::Cloth);
         let mut fb = Framebuffer::new();
         let mut scaled: Vec<u32> = Vec::new();
         let mut present = |fb: &Framebuffer, crt: bool| {

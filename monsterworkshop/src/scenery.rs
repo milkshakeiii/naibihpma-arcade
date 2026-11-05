@@ -21,7 +21,7 @@ const BRONZE: [u8; 3] = [WOOD + 2, SPARK, SPARK + 1];
 /// Fired clay, a dull brick red.
 const TERRACOTTA: [u8; 3] = [WOOD + 1, WOOD + 2, THREAD + 2];
 /// Cherry blossom.
-const BLOSSOM: [u8; 3] = [THREAD + 1, FLOWER, COTTON + 1];
+const BLOSSOM: [u8; 3] = [THREAD + 1, LAND_FLOWER, COTTON + 1];
 
 /// Every variant of a kind's art, or none if the kind is drawn by joining its neighbors.
 pub fn variants(id: &str) -> Vec<Sprite> {
@@ -34,7 +34,7 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "tool_shed" => vec![tool_shed()],
         "crates" => vec![crates()],
         "awning" => vec![awning()],
-        "flowers" => [(FLOWER, FLOWER + 1), (THREAD + 2, COTTON + 2), (WATER + 2, SPARK + 1)].into_iter().map(flowers).collect(),
+        "flowers" => [(LAND_FLOWER, LAND_FLOWER + 1), (THREAD + 2, COTTON + 2), (WATER + 2, SPARK + 1)].into_iter().map(flowers).collect(),
         "boulder" => (0..2).map(boulder).collect(),
         "big_tree" => vec![big_tree()],
         "shade_tree" => vec![shade_tree()],
@@ -322,7 +322,7 @@ fn cherry_tree() -> Sprite {
         s.set(x, y, COTTON + 2);
     }
     for (x, y) in [(4, 30), (9, 31), (24, 30), (27, 31)] {
-        s.set(x, y, FLOWER);
+        s.set(x, y, LAND_FLOWER);
     }
     s.outline()
 }
@@ -538,7 +538,7 @@ fn pond() -> Sprite {
         s.set(cx + 1, cy - 1, WATER + 1);
         s.set(cx + 2, cy - 1, WATER + 1);
     }
-    rect(&mut s, 14, 15, 15, 16, FLOWER);
+    rect(&mut s, 14, 15, 15, 16, LAND_FLOWER);
     rect(&mut s, 29, 25, 30, 26, COTTON + 2);
     for (x, y) in [(24, 20), (25, 20), (26, 21)] {
         s.set(x, y, SPARK + 1);
@@ -618,7 +618,7 @@ fn altar() -> Sprite {
     }
     rect(&mut s, 3, 4, 5, 7, COTTON + 1);
     for (x, y) in [(3, 2), (5, 1), (4, 3)] {
-        s.set(x, y, FLOWER);
+        s.set(x, y, LAND_FLOWER);
     }
     s.set(4, 1, LEAF + 1);
     rect(&mut s, 9, 5, 12, 7, BRONZE[1]);
@@ -710,7 +710,7 @@ fn cloth_shelf() -> Sprite {
     let mut s = Sprite::blank(16, 16);
     rect(&mut s, 1, 0, 14, 15, WOOD);
     rect(&mut s, 2, 1, 13, 14, WOOD + 1);
-    let colors = [[THREAD + 1, WATER + 1, COTTON + 2, LEAF + 1], [WATER, SPARK + 1, THREAD + 1, FLOWER], [COTTON + 2, LEAF + 1, WATER + 1, THREAD]];
+    let colors = [[THREAD + 1, WATER + 1, COTTON + 2, LEAF + 1], [WATER, SPARK + 1, THREAD + 1, LAND_FLOWER], [COTTON + 2, LEAF + 1, WATER + 1, THREAD]];
     for (row, cols) in colors.iter().enumerate() {
         let y = 2 + row as i32 * 4;
         for (k, &c) in cols.iter().enumerate() {
@@ -873,8 +873,8 @@ fn lily_pads(k: u8) -> Sprite {
         s.set(cx + 2, cy, WATER + 1);
     }
     let (fx, fy) = (pads[0].0, pads[0].1);
-    s.set(fx, fy - 1, FLOWER);
-    s.set(fx - 1, fy, FLOWER);
+    s.set(fx, fy - 1, LAND_FLOWER);
+    s.set(fx - 1, fy, LAND_FLOWER);
     s.set(fx, fy, SPARK + 2);
     s
 }
