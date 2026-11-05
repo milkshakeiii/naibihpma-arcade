@@ -131,7 +131,7 @@ impl Walkers {
 fn cotton_good(g: &Game, id: &str) -> ItemData {
     let boll = g.data.good("cotton_bolls");
     let raw = vec![RawMaterial { good: boll.id.clone(), base_value: boll.raw_material_base_value.unwrap(), density: boll.raw_material_density.unwrap(), spent: false }];
-    ItemData { good: id.into(), quality: 0.8, carried_tags: vec!["cotton".into()], raw, depth: 2, value: 2.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: id.into(), quality: 0.8, carried_tags: vec!["cotton".into()], raw, depth: 2, value: 2.0, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 /// The whole fabric chain as Henry recorded it in his world (see `loadtest::fabric_chain`).

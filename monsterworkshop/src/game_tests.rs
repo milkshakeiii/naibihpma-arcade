@@ -15,7 +15,7 @@ fn boll(data: &Data) -> ItemData {
         depth: 0,
         value: 0.0,
         shares: Vec::new(),
-        wear: 0,
+        wear: 0.0,
         haul: Vec::new(),
         carted: None,
     }
@@ -1290,7 +1290,7 @@ fn monsters_sharing_one_plant_all_get_to_harvest_it() {
 /// A tool as its makers left it, of oak.
 fn tool(g: &Game, id: &str) -> ItemData {
     let raw = vec![crate::econ::RawMaterial { good: "oak_log".into(), base_value: 6.0, density: 100.0, spent: false }];
-    ItemData { good: id.into(), quality: 0.6, carried_tags: vec!["oak".into()], raw, depth: 1, value: 6.0, shares: vec![crate::econ::Share { monster: 9, count: 1.0 }], wear: 0, haul: Vec::new(), carted: None }.tap(g)
+    ItemData { good: id.into(), quality: 0.6, carried_tags: vec!["oak".into()], raw, depth: 1, value: 6.0, shares: vec![crate::econ::Share { monster: 9, count: 1.0 }], wear: 0.0, haul: Vec::new(), carted: None }.tap(g)
 }
 
 trait Tap {
@@ -1349,7 +1349,7 @@ fn a_monster_takes_gathering_tools_in_hand_and_needs_them_to_gather() {
         g.run_ticks(1);
     }
     assert!(g.communes[0].made.contains("oyster_lime"), "gathered: {}", said(&g, c));
-    assert!(g.monsters[c].tools().all(|t| t.wear == 2), "each wears by its weight");
+    assert!(g.monsters[c].tools().all(|t| t.wear == 2.0), "each wears by its weight");
 }
 
 #[test]
@@ -1656,10 +1656,10 @@ fn coal_is_dug_with_a_traded_pick_and_shovel_in_hand_which_wear_and_break() {
     // With both, it digs coal, and each wears by its weight.
     dig(&mut g, seam);
     assert!(g.communes[0].made.contains("coal"), "dug: {}", said(&g, c));
-    assert!(g.monsters[c].tools().all(|t| t.wear == 3), "a pick and a shovel each wear 3 a dig");
+    assert!(g.monsters[c].tools().all(|t| t.wear == 3.0), "a pick and a shovel each wear 3 a dig");
     // Worn through, the pick breaks, and the seam waits for another.
     for t in g.monsters[c].hands.iter_mut().flatten().filter_map(Held::tool_mut).filter(|t| t.good == "pick") {
-        t.wear = crate::econ::TOOL_DURABILITY - 1;
+        t.wear = crate::econ::TOOL_DURABILITY as f64 - 1.0;
     }
     let got = dig(&mut g, seam);
     assert!(got.contains("MY PICK BROKE"), "{got}");
@@ -1700,7 +1700,7 @@ fn old_soot_digs_his_own_end_of_the_seam_and_his_tools_never_wear() {
         filled |= g.world.boards[order].done();
     }
     assert!(filled, "six coal filled his order: at goal {}, {:?}", g.monsters[soot].pc, g.monsters[soot].wait_reason);
-    assert!(g.monsters[soot].hands.iter().all(|h| h.as_ref().and_then(Held::tool).is_some_and(|t| t.wear == 0)), "a pick and a shovel, unworn");
+    assert!(g.monsters[soot].hands.iter().all(|h| h.as_ref().and_then(Held::tool).is_some_and(|t| t.wear == 0.0)), "a pick and a shovel, unworn");
     // His seam is his.
     g.monsters[soot].playing = false;
     let c = g.communes[0].controlled;
@@ -1933,7 +1933,7 @@ fn a_loop_takes_a_spare_tool_when_its_own_breaks_and_leaves_spares_be_otherwise(
     g.world.items.push(Item::new(pick_at.0, pick_at.1, tool(&g, "pick")));
     g.world.items.push(Item::new(shovel_at.0, shovel_at.1, tool(&g, "shovel")));
     let mut worn = tool(&g, "pick");
-    worn.wear = crate::econ::TOOL_DURABILITY - 3;
+    worn.wear = crate::econ::TOOL_DURABILITY as f64 - 3.0;
     g.monsters[0].hands = vec![Some(Held::Tool(worn)), Some(Held::Tool(tool(&g, "shovel")))];
     let goals = vec![
         Goal::Take { good: "pick".into(), from: pick_at },
@@ -1960,7 +1960,7 @@ fn a_loop_takes_a_spare_tool_when_its_own_breaks_and_leaves_spares_be_otherwise(
     }
     assert!(digs >= 2, "dug {digs} times: {:?}", g.monsters[0].wait_reason);
     assert!(g.world.item_at(pick_at.0, pick_at.1).is_none(), "the spare pick taken");
-    assert!(g.monsters[0].tools().any(|t| t.good == "pick" && t.wear == 3), "the new pick, one dig worn: {:?}", g.monsters[0].hands);
+    assert!(g.monsters[0].tools().any(|t| t.good == "pick" && t.wear == 3.0), "the new pick, one dig worn: {:?}", g.monsters[0].hands);
     assert!(g.world.item_at(shovel_at.0, shovel_at.1).is_some(), "the spare shovel left be");
 }
 

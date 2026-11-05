@@ -54,11 +54,24 @@ pub struct Tutorial {
 
 /// Splits text into lines of at most `max` characters on word boundaries.
 pub fn wrap(text: &str, max: usize) -> Vec<String> {
+    // A number goes with what it counts: "+1 YIELD!" never breaks after the "+1".
+    let number = |w: &str| {
+        let digits = w.trim_start_matches(['+', '-']).trim_end_matches('%');
+        !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+    };
     let mut lines = vec![String::new()];
     for word in text.split_whitespace() {
         let cur = lines.last_mut().expect("at least one line");
         if !cur.is_empty() && cur.len() + 1 + word.len() > max {
-            lines.push(word.to_string());
+            let next = match cur.rsplit_once(' ') {
+                Some((head, n)) if number(n) && n.len() + 1 + word.len() <= max => {
+                    let next = format!("{n} {word}");
+                    *cur = head.to_string();
+                    next
+                }
+                _ => word.to_string(),
+            };
+            lines.push(next);
         } else {
             if !cur.is_empty() {
                 cur.push(' ');

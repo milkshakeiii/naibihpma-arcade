@@ -172,6 +172,17 @@ fn wear(s: &mut Sprite, goblin: bool, kind: &str, c: u8) {
             band(s, 12, 3, 13);
             band(s, 13, 3, 13);
         }
+        // An apron down the front, below the chin.
+        ("apron", true) => {
+            for y in 11..=13 {
+                band(s, y, 6, 9);
+            }
+        }
+        ("apron", false) => {
+            for y in 12..=14 {
+                band(s, y, 6, 10);
+            }
+        }
         _ => {}
     }
 }

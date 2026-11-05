@@ -10,7 +10,7 @@ fn raw(g: &Game, id: &str) -> ItemData {
     let gt = g.data.good(id);
     let base = gt.raw_material_base_value.unwrap_or(1.0);
     let density = gt.raw_material_density.unwrap_or(1.0);
-    ItemData { good: id.into(), quality: 0.5, carried_tags: Vec::new(), raw: vec![RawMaterial { good: id.into(), base_value: base, density, spent: false }], depth: 0, value: base, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: id.into(), quality: 0.5, carried_tags: Vec::new(), raw: vec![RawMaterial { good: id.into(), base_value: base, density, spent: false }], depth: 0, value: base, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 /// A made good from raw materials, carrying `tags`.

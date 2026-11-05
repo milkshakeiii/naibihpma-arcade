@@ -177,6 +177,14 @@ pub fn card(g: &Game, k: usize) -> Card {
                 ];
                 Card::one(format!("{} THE OUTFITTER", tf.name), lines, (tf.x, tf.y))
             }
+            Folk::Keeper => {
+                let lines = vec![
+                    line("KEEPS THE TEMPLE'S TEACHINGS, AND ITS LUCKY COINS.", TEXT),
+                    line("EACH IS GIVEN AT SOME RENOWN, AND KEPT FOR GOOD.", TEXT_DIM).icon(Icon::Renown),
+                    line("FACE A STAND TO SEE WHAT IT GIVES. SPACE, AND IT'S YOURS.", TEXT_DIM),
+                ];
+                Card::one(format!("{} THE TEMPLE KEEPER", tf.name), lines, (tf.x, tf.y))
+            }
             Folk::Trader => {
                 let lines = vec![
                     line("A HUMAN FROM THE HILLS. HUMANS BARTER; MONSTERS SHARE.", TEXT),
@@ -438,12 +446,24 @@ fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
     for a in (0..6).filter(|&a| p.bonus_to(a) != 0) {
         first.push(line(format!("{:+} {}: {}", p.bonus_to(a), ABILITIES[a], ability_uses(g, a)), TEXT_GOOD));
     }
+    // What it does, and where: a towel only where how many varies, a whetstone wherever the tools
+    // are.
+    let mut does = p.does.clone();
+    if does.more > 0 {
+        first.push(line(format!("+{} YIELD, WHERE HOW MANY VARIES", does.more), TEXT_GOOD));
+        does.more = 0;
+    }
+    if does.wear != 0 && does.time == 0 {
+        first.push(line(format!("{}, IN HAND OR ON A PEG", does.text().join(", ")), TEXT_GOOD));
+    } else {
+        first.extend(does.text().into_iter().map(|t| line(t, TEXT_GOOD)));
+    }
     first.push(line(format!("GIVEN AT {} RENOWN. YOU HAVE {}.", p.renown, renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown));
     match (g.piece_refusal(c, p), g.bettered(c, p), g.replaces(c, p)) {
         (Some(why), _, _) => first.push(line(why, TEXT_WARN).icon(Icon::Warn)),
         (None, Some((by, ability)), _) => first.push(line(format!("{}'S {by} {} AS MUCH {ability}: ONLY THE BEST COUNTS.", m.name, if by.ends_with('S') { "GIVE" } else { "GIVES" }), TEXT_WARN).icon(Icon::Warn)),
-        (None, None, Some(old)) => first.push(line(format!("SPACE: {} PUTS IT ON IN PLACE OF THE {}, FOR GOOD.", m.name, old.name.to_uppercase()), TEXT_DIM)),
-        (None, None, None) if affordable => first.push(line(format!("SPACE: {} PUTS IT ON, FOR GOOD.", m.name), TEXT_DIM)),
+        (None, None, Some(old)) => first.push(line(format!("SPACE: {} {} IN PLACE OF THE {}, FOR GOOD.", m.name, p.verb_it(), old.name.to_uppercase()), TEXT_DIM)),
+        (None, None, None) if affordable => first.push(line(format!("SPACE: {} {}, FOR GOOD.", m.name, p.verb_it()), TEXT_DIM)),
         (None, None, None) => first.push(line("EARN MORE RENOWN TO HAVE IT.", TEXT_DIM)),
     }
     let ty = &g.data.monster_types[m.kind.as_str()];
@@ -538,6 +558,17 @@ pub(crate) fn goal_text(g: &Game, goal: &crate::game::Goal) -> String {
     }
 }
 
+/// A piece a monster has inside, as said of it: "THE WAY OF PATIENCE", "THE SECRET OF SPINNING",
+/// "A NOTEBOOK".
+pub(crate) fn inside_name(p: &crate::data::Piece) -> String {
+    let name = p.name.to_uppercase();
+    match () {
+        _ if name.starts_with("THE ") => name,
+        _ if p.verb.is_none() => format!("THE {name}"),
+        _ => crate::recipes::one(&name),
+    }
+}
+
 fn monster_card(g: &Game, i: usize) -> Card {
     let m = &g.monsters[i];
     let s = &m.abilities(&g.data);
@@ -556,13 +587,24 @@ fn monster_card(g: &Game, i: usize) -> Card {
     if !held.is_empty() {
         first.push(line(format!("HOLDS {}", held.join(" AND ")), TEXT));
     }
-    let on: Vec<String> = m.gear.iter().filter_map(|id| g.data.try_piece(id)).map(|p| crate::recipes::one(&p.name.to_uppercase())).collect();
+    let gear: Vec<&crate::data::Piece> = m.gear.iter().filter_map(|id| g.data.try_piece(id)).collect();
+    let on: Vec<String> = gear.iter().filter(|p| p.slot == crate::data::Slot::Worn).map(|p| crate::recipes::one(&p.name.to_uppercase())).collect();
     if !on.is_empty() {
         first.push(line(format!("HAS ON {}", crate::recipes::and_list(&on)), TEXT));
     }
+    // What it has inside: what it knows ("KNOWS THE WAY OF PATIENCE"), or keeps ("KEEPS A
+    // NOTEBOOK").
+    for (verb, says) in [("LEARNS", "KNOWS"), ("KEEPS", "KEEPS")] {
+        let these: Vec<String> = gear.iter().filter(|p| p.slot == crate::data::Slot::Inside && p.verb() == verb).map(|p| inside_name(p)).collect();
+        if !these.is_empty() {
+            first.push(line(format!("{says} {}", crate::recipes::and_list(&these)), TEXT));
+        }
+    }
+    let mut talents: Vec<String> = m.skills.transferable.iter().map(|t| skill_name(t)).collect();
+    talents.extend(m.knack(&g.data, "").talent.map(|t| format!("{} (TAUGHT)", skill_name(&t))));
     let mut details = vec![
         line(format!("STR {} DEX {} CON {} INT {} WIS {} CHA {}", s.str, s.dex, s.con, s.int, s.wis, s.cha), TEXT),
-        line(format!("TALENTS: {}", m.skills.transferable.iter().map(|t| skill_name(t)).collect::<Vec<_>>().join(", ")), TEXT_DIM),
+        line(format!("TALENTS: {}", talents.join(", ")), TEXT_DIM),
     ];
     if m.seasoned() > 0 {
         details.push(line(format!("SEASONED: +{} TO EVERY ABILITY", m.seasoned()), TEXT_GOOD));
@@ -606,8 +648,8 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
     if !needs.is_empty() {
         details.push(line(format!("IT TAKES {} IN HAND. FACE ONE ON THE GROUND AND PRESS SPACE TO TAKE IT.", crate::recipes::and_list(&needs)), TEXT_DIM));
     }
-    let st = m.abilities(&g.data);
-    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills }, inputs: Vec::new(), tools, workshop: None };
+    let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, &recipe.primary_applied_skill));
+    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack }, inputs: Vec::new(), tools, workshop: None };
     if recipe.has_quality {
         let f = econ::forecast(&craft);
         let (lo, hi) = usual_range(&f, &st);
@@ -621,6 +663,7 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
     }
     let (learns, more) = learning(g, recipe, c, "HARVESTS");
     first.push(learns);
+    details.extend(helping(g, recipe, c));
     details.extend(more);
     Card::two(plant_name(&g.data, &plant.good), first, details, (plant.x, plant.y))
 }
@@ -691,10 +734,11 @@ pub fn forecast(g: &Game, s: usize, i: usize) -> Option<Forecast> {
     let pv = g.preview(s);
     let (Ok(inputs), Ok(tools)) = (&pv.inputs, &pv.tools) else { return None };
     let m = &g.monsters[i];
-    let st = m.abilities(&g.data);
+    let recipe = g.data.good(&pv.recipe);
+    let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, &recipe.primary_applied_skill));
     let craft = Craft {
-        recipe: g.data.good(&pv.recipe),
-        crafter: Crafter { id: m.id, stats: &st, skills: &m.skills },
+        recipe,
+        crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack },
         inputs: inputs.iter().collect(),
         tools: tools.iter().collect(),
         workshop: pv.workshop.as_ref(),
@@ -714,8 +758,9 @@ pub fn spot_preview(g: &Game, i: usize) -> Option<String> {
 }
 
 /// Two standard deviations either side: the range most rolls land in.
+/// Patience narrows it below the mean, a lucky charm widens it above.
 fn usual_range(f: &Forecast, st: &crate::data::Stats) -> (f64, f64) {
-    (econ::nudge((f.mean - 2.0 * f.sigma).max(0.0), st), f.mean + 2.0 * f.sigma)
+    (econ::nudge((f.mean - 2.0 * f.sigma * f.below).max(0.0), st), f.mean + 2.0 * f.sigma * f.above)
 }
 
 /// At a trader's stall: the trade its pads are working toward, and the others it offers. No
@@ -762,8 +807,8 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
         (Err(need), _, _) => first.push(line(need.clone(), TEXT_WARN).icon(Icon::Warn)),
         (_, Err(tool), _) => first.push(line(format!("FOR {}: {tool} ON A PEG.", g.good_name(&pv.recipe)), TEXT_WARN).icon(Icon::Warn)),
         (Ok(inputs), Ok(tools), Some(f)) => {
-            let st = m.abilities(&g.data);
-            let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: pv.workshop.as_ref() };
+            let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, &recipe.primary_applied_skill));
+            let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: pv.workshop.as_ref() };
             let (qlo, qhi, avg) = econ::quantity_range(&craft);
             (lo, hi) = (qlo, qhi);
             if qlo != qhi {
@@ -795,6 +840,7 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     first.extend(held);
     let (learns, more) = learning(g, recipe, i, "CRAFTS");
     first.push(learns);
+    details.extend(helping(g, recipe, i));
     details.extend(more);
     if let Some(fr) = &shop.frontier {
         if g.worn_out(s) {
@@ -832,6 +878,23 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     card
 }
 
+/// What monster `i` has on or in hand that helps at `recipe`, a line each: "MAGNIFYING GLASS:
+/// +10% QUALITY". A towel says so only where how many it makes varies.
+fn helping(g: &Game, recipe: &GoodType, i: usize) -> Vec<Line> {
+    let m = &g.monsters[i];
+    m.helping(&g.data, &recipe.primary_applied_skill)
+        .into_iter()
+        .filter_map(|p| {
+            let mut does = p.does.clone();
+            if recipe.is_fixed_quantity {
+                does.more = 0;
+            }
+            let text = does.text();
+            (!text.is_empty()).then(|| line(format!("{}: {}", p.name.to_uppercase(), text.join(", ")), TEXT_GOOD))
+        })
+        .collect()
+}
+
 /// "[time] 5.5S  [rope] 1 ROPE": how long a job takes this monster and what comes out.
 fn time_line(g: &Game, recipe: &GoodType, i: usize, lo: u32, hi: u32) -> Line {
     let secs = g.job_ticks(&recipe.id, i) as f64 / 15.0;
@@ -845,9 +908,9 @@ fn time_line(g: &Game, recipe: &GoodType, i: usize, lo: u32, hi: u32) -> Line {
 fn learning(g: &Game, recipe: &GoodType, i: usize, jobs: &str) -> (Line, Vec<Line>) {
     let m = &g.monsters[i];
     let mut sk = m.skills.clone();
-    let st = m.abilities(&g.data);
-    let job_secs = econ::production_seconds(recipe, &st);
-    let l = econ::learn(&mut sk, &st, recipe, &g.data, job_secs);
+    let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, &recipe.primary_applied_skill));
+    let job_secs = econ::production_seconds(recipe, &st, &knack);
+    let l = econ::learn(&mut sk, &st, &knack, recipe, &g.data, job_secs);
     let primary = skill_name(&recipe.primary_applied_skill);
     let main = line(format!("{primary} +{}  PRACTICE +{}", points(l.primary), points(l.specific)), TEXT_GOOD).icon(Icon::Learn);
     let mut more = Vec::new();
@@ -866,10 +929,10 @@ fn level_off(g: &Game, i: usize, recipe: &GoodType, secs: f64) -> (f64, u32) {
     let m = &g.monsters[i];
     let mut sk = m.skills.clone();
     let skill = &recipe.primary_applied_skill;
-    let st = m.abilities(&g.data);
+    let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, skill));
     for n in 0..3000 {
         let before = sk.applied(skill);
-        econ::learn(&mut sk, &st, recipe, &g.data, secs);
+        econ::learn(&mut sk, &st, &knack, recipe, &g.data, secs);
         if sk.applied(skill) - before < 0.0005 {
             return (sk.applied(skill), n);
         }

@@ -21,7 +21,7 @@ enum ToolSource {
 
 /// A town workshop's built-in tool, used when nothing better hangs on its peg.
 fn builtin_tool(id: &str) -> ItemData {
-    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: id.to_string(), quality: BUILTIN_TOOL_QUALITY, carried_tags: Vec::new(), raw: Vec::new(), depth: 1, value: 0.0, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 /// What a workshop's pads are working toward (see `Game::aim`).
@@ -48,7 +48,8 @@ impl Game {
         if self.data.good(recipe).is_trade() {
             return TRADE_TICKS;
         }
-        let secs = econ::production_seconds(self.data.good(recipe), &self.monsters[monster].abilities(&self.data));
+        let (r, m) = (self.data.good(recipe), &self.monsters[monster]);
+        let secs = econ::production_seconds(r, &m.abilities(&self.data), &m.knack(&self.data, &r.primary_applied_skill));
         ((secs / GAME_SECONDS_PER_TICK).round() as u32).max(1)
     }
 
@@ -377,17 +378,18 @@ impl Game {
         let m = job.monster;
         let recipe = self.data.good(&job.recipe).clone();
         let (stats, skills, id) = (self.monsters[m].abilities(&self.data), self.monsters[m].skills.clone(), self.monsters[m].id);
+        let knack = self.monsters[m].knack(&self.data, &recipe.primary_applied_skill);
         // The tools in hand count as tools on pegs do: in the quality roll, and their makers'
         // shares.
         let hands = self.held_tools(m, &recipe).unwrap_or_default();
         let tools: Vec<ItemData> = hands.iter().filter_map(|&h| self.monsters[m].tool(h).cloned()).collect();
-        let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills }, tools.iter().collect(), &self.data, &mut self.rng);
-        // And they wear by their weight, and may break: but a working townsperson's own tools
-        // never wear, as a town's workshops never do.
+        let items = econ::gather(&recipe, Crafter { id, stats: &stats, skills: &skills, knack: &knack }, tools.iter().collect(), &self.data, &mut self.rng);
+        // And they wear by their weight (less with a whetstone), and may break: but a working
+        // townsperson's own tools never wear, as a town's workshops never do.
         let worn = if self.monsters[m].worker.is_some() { &[][..] } else { &hands[..] };
         for (k, &h) in worn.iter().enumerate() {
             let Some(tool) = self.monsters[m].hands[h].as_mut().and_then(crate::game::Held::tool_mut) else { continue };
-            tool.wear += recipe.tool_weight(k);
+            tool.wear += knack.wear_of(recipe.tool_weight(k));
             if tool.durability_left() == 0 {
                 let good = tool.good.clone();
                 let name = self.good_name(&good);
@@ -395,8 +397,8 @@ impl Game {
                 self.say(m, &format!("MY {name} BROKE."), true);
             }
         }
-        let secs = econ::production_seconds(&recipe, &stats);
-        let learned = econ::learn(&mut self.monsters[m].skills, &stats, &recipe, &self.data, secs);
+        let secs = econ::production_seconds(&recipe, &stats, &knack);
+        let learned = econ::learn(&mut self.monsters[m].skills, &stats, &knack, &recipe, &self.data, secs);
         self.monsters[m].learned = Some((recipe.id.clone(), learned, LEARNED_POPUP_TICKS));
         self.monsters[m].busy = false;
         let plant = &mut self.world.plants[p];
@@ -434,23 +436,25 @@ impl Game {
         let shares = shop.frontier.as_ref().map_or_else(Vec::new, |f| f.shares.clone());
         let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares });
         let (stats, skills, id) = (self.monsters[m].abilities(&self.data), self.monsters[m].skills.clone(), self.monsters[m].id);
+        let knack = self.monsters[m].knack(&self.data, &recipe.primary_applied_skill);
         // A trade teaches nothing: the trader does the work.
         let (produced, learned) = if recipe.is_trade() {
             (vec![econ::trade(&recipe, &inputs.iter().collect::<Vec<_>>(), &self.data)], None)
         } else {
-            let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: workshop.as_ref() };
+            let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills, knack: &knack }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: workshop.as_ref() };
             let produced = econ::produce(&craft, &self.data, &mut self.rng);
-            let secs = econ::production_seconds(&recipe, &stats);
-            (produced, Some(econ::learn(&mut self.monsters[m].skills, &stats, &recipe, &self.data, secs)))
+            let secs = econ::production_seconds(&recipe, &stats, &knack);
+            (produced, Some(econ::learn(&mut self.monsters[m].skills, &stats, &knack, &recipe, &self.data, secs)))
         };
 
-        // Inputs are used up; tools on pegs wear by their weight and may break.
+        // Inputs are used up; tools on pegs wear by their weight (less with a whetstone, more in a
+        // hasty apron) and may break.
         let mut gone: Vec<(i32, i32)> = inputs_idx.iter().map(|&i| (self.world.items[i].x, self.world.items[i].y)).collect();
         let mut broke = false;
         for (k, t) in tool_src.iter().enumerate() {
             if let ToolSource::Peg(i) = t {
                 let it = &mut self.world.items[*i];
-                it.data.wear += recipe.tool_weight(k);
+                it.data.wear += knack.wear_of(recipe.tool_weight(k));
                 if it.data.durability_left() == 0 {
                     gone.push((it.x, it.y));
                     broke = true;

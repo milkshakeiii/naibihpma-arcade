@@ -206,6 +206,10 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
     for (n, talent) in m.skills.transferable.iter().enumerate() {
         t(fb, 76, 40 + n as i32 * 10, &talent.replace('_', " ").to_uppercase(), TEXT);
     }
+    // A teaching's talent, after its own.
+    if let Some(taught) = m.knack(&g.data, "").talent {
+        t(fb, 76, 40 + m.skills.transferable.len() as i32 * 10, &format!("{}, TAUGHT", taught.replace('_', " ").to_uppercase()), TEXT_GOOD);
+    }
     // A small arrow at the chosen line.
     let arrow = |fb: &mut Framebuffer, y: i32| {
         for (dx, dy) in [(0, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (0, 4)] {
@@ -241,7 +245,7 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
                 if confirm == Some(n) {
                     t(fb, 26, y + 9, "SPACE AGAIN: GONE FOR GOOD", TEXT_WARN);
                 } else {
-                    t(fb, 26, y + 9, &p.bonus_text(), TEXT_GOOD);
+                    t(fb, 26, y + 9, &p.effect_text(), TEXT_GOOD);
                 }
             }
             (None, None) => t(fb, 26, y, "EMPTY", TEXT_DIM),
@@ -642,6 +646,7 @@ fn draw_townsfolk_talk(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         crate::world::Folk::Craftsman => g.craftsman_says(t, v.k),
         crate::world::Folk::Trader => g.trader_says(t),
         crate::world::Folk::Outfitter => g.outfitter_says(v.c),
+        crate::world::Folk::Keeper => g.keeper_says(v.c),
     };
     talk_bubble(fb, sp, v, (tf.x, tf.y), says);
 }
@@ -682,7 +687,7 @@ fn draw_rack_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         return;
     }
     let p = g.data.piece(rack.piece);
-    let lines = vec![p.name.to_uppercase(), p.bonus_text(), format!("GIVEN AT {} RENOWN", p.renown)];
+    let lines = vec![p.name.to_uppercase(), p.effect_text(), format!("GIVEN AT {} RENOWN", p.renown)];
     let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
     let h = lines.len() as i32 * 9 + 4;
     let (px, py) = v.px(rack.x, rack.y);
@@ -1432,6 +1437,16 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                         fb.rect_fill(x + 5, y + 12, 1, 2, SPARK + 1);
                         fb.pset(x + 10, y + 12, SPARK + 1);
                     }
+                    crate::world::Folk::Keeper => {
+                        // A cyclops in saffron, as quiet as the temple, prayer beads at the neck.
+                        let s = &sp.cyclops[(g.frame / 16) as usize % 2];
+                        let (x, y) = (tx + (TS - s.w) / 2, ty + TS - s.h);
+                        blit_tinted(fb, s, x, y, true, Some(Tint { from: (CYCLOPS, 3), to: (SPARK, 3) }));
+                        for bx in [5, 7, 9, 11] {
+                            fb.pset(x + bx, y + 11, THREAD);
+                        }
+                        fb.pset(x + 8, y + 12, THREAD);
+                    }
                     crate::world::Folk::Trader => {
                         // Now and then he lifts a hand to passers-by.
                         let s = &sp.trader[((g.frame / 20) % 6 == 5) as usize];
@@ -1489,21 +1504,72 @@ fn draw_bodies(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
                 } else {
                     fb.blit(&s, x, y, flip);
                 }
-                // What it holds, a tool in each hand that's full: a handle and its head, a
-                // shovel's blade at the bottom.
+                // What it holds in each hand that's full: a tool's handle and its head (a
+                // shovel's blade at the bottom), or a carried piece.
                 for (h, held) in m.hands.iter().enumerate().take(2) {
-                    let Some(held) = held.as_ref().and_then(crate::game::Held::tool) else { continue };
                     let hx = if (h == 0) != flip { x + s.w - 3 } else { x + 2 };
-                    fb.rect_fill(hx, y + s.h - 9, 1, 6, WOOD + 2);
-                    if g.data.try_good(&held.good).is_some_and(|t| t.type_tags.iter().any(|t| t == "shovel")) {
-                        fb.rect_fill(hx - 1, y + s.h - 4, 3, 2, TEXT_DIM);
-                        fb.pset(hx - 1, y + s.h - 4, HUD_HI);
-                    } else {
-                        fb.rect_fill(hx - 1, y + s.h - 10, 3, 1, TEXT_DIM);
+                    match held {
+                        Some(crate::game::Held::Tool(held)) => {
+                            fb.rect_fill(hx, y + s.h - 9, 1, 6, WOOD + 2);
+                            if g.data.try_good(&held.good).is_some_and(|t| t.type_tags.iter().any(|t| t == "shovel")) {
+                                fb.rect_fill(hx - 1, y + s.h - 4, 3, 2, TEXT_DIM);
+                                fb.pset(hx - 1, y + s.h - 4, HUD_HI);
+                            } else {
+                                fb.rect_fill(hx - 1, y + s.h - 10, 3, 1, TEXT_DIM);
+                            }
+                        }
+                        Some(crate::game::Held::Piece(id)) => {
+                            if let Some(p) = g.data.try_piece(id) {
+                                draw_carried(fb, p, hx, y + s.h - 9);
+                            }
+                        }
+                        None => {}
                     }
                 }
             }
         }
+    }
+}
+
+/// A piece carried in a hand, beside a monster at `hx`, from row `top` down to the hand: a towel
+/// hanging from it, a whetstone, a magnifying glass, a watch on the wrist, a brush, a lucky coin on
+/// its string. Outlined, as everything in the foreground is.
+fn draw_carried(fb: &mut Framebuffer, p: &crate::data::Piece, hx: i32, top: i32) {
+    let c = p.color.as_ref().and_then(|(n, s)| color_named(n, *s)).unwrap_or(TEXT);
+    let blob = |fb: &mut Framebuffer, x: i32, y: i32, w: i32, h: i32, c: u8| {
+        fb.rect_fill(x - 1, y - 1, w + 2, h + 2, OUTLINE);
+        fb.rect_fill(x, y, w, h, c);
+        fb.rect_fill(x, y + h - 1, w, 1, shift(c, -1));
+    };
+    match p.kind.as_str() {
+        "towel" => {
+            blob(fb, hx - 1, top + 3, 3, 5, c);
+            fb.rect_fill(hx - 1, top + 5, 3, 1, THREAD + 1);
+        }
+        "whetstone" => blob(fb, hx - 1, top + 5, 3, 2, c),
+        "magnifier" => {
+            fb.rect_fill(hx - 1, top + 4, 3, 4, OUTLINE);
+            fb.rect_fill(hx, top + 5, 1, 2, WOOD + 1);
+            fb.rect_fill(hx - 2, top, 5, 5, OUTLINE);
+            fb.rect_fill(hx - 1, top + 1, 3, 3, SPARK + 1);
+            fb.pset(hx, top + 2, c);
+        }
+        "watch" => {
+            fb.rect_fill(hx - 2, top + 4, 5, 3, OUTLINE);
+            fb.rect_fill(hx - 1, top + 5, 3, 1, c);
+            fb.pset(hx, top + 5, COTTON + 2);
+        }
+        "pen" => {
+            fb.rect_fill(hx - 1, top - 1, 3, 8, OUTLINE);
+            fb.rect_fill(hx, top + 1, 1, 5, c);
+            fb.pset(hx, top, INK);
+        }
+        "lucky_charm" => {
+            fb.rect_fill(hx - 1, top + 3, 3, 2, OUTLINE);
+            fb.pset(hx, top + 4, THREAD + 1);
+            blob(fb, hx, top + 5, 2, 2, c);
+        }
+        _ => blob(fb, hx - 1, top + 4, 3, 3, c),
     }
 }
 
@@ -1553,6 +1619,67 @@ fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
                 outlined(fb, bx, 8, 2, 2);
                 fb.pset(x0 + bx, y0 + 8, shift(c, 1));
             }
+        }
+        "towel" => {
+            // Folded over the bar, a red stripe near its hem.
+            outlined(fb, 4, 4, 8, 7);
+            fb.rect_fill(x0 + 4, y0 + 8, 8, 1, THREAD + 1);
+            fb.rect_fill(x0 + 4, y0 + 4, 8, 1, shift(c, 1));
+        }
+        "whetstone" => {
+            // On the stand's foot, a little water on it.
+            outlined(fb, 4, 10, 8, 2);
+            fb.rect_fill(x0 + 5, y0 + 10, 3, 1, WATER + 2);
+        }
+        "magnifier" => {
+            fb.rect_fill(x0 + 7, y0 + 5, 2, 1, WOOD + 1);
+            fb.rect_fill(x0 + 4, y0 + 5, 8, 7, OUTLINE);
+            fb.rect_fill(x0 + 5, y0 + 6, 6, 5, SPARK + 1);
+            fb.rect_fill(x0 + 6, y0 + 7, 4, 3, c);
+            fb.pset(x0 + 6, y0 + 7, COTTON + 2);
+        }
+        "watch" => {
+            // Hung by its strap, its face in the middle.
+            fb.rect_fill(x0 + 6, y0 + 5, 4, 8, OUTLINE);
+            fb.rect_fill(x0 + 7, y0 + 5, 2, 7, WOOD + 1);
+            outlined(fb, 6, 7, 4, 3);
+            fb.rect_fill(x0 + 7, y0 + 8, 2, 1, COTTON + 2);
+        }
+        "pen" => {
+            fb.rect_fill(x0 + 7, y0 + 4, 3, 9, OUTLINE);
+            fb.rect_fill(x0 + 8, y0 + 5, 1, 6, c);
+            fb.pset(x0 + 8, y0 + 11, INK);
+        }
+        "lucky_charm" => {
+            fb.rect_fill(x0 + 7, y0 + 5, 1, 3, THREAD + 1);
+            outlined(fb, 6, 8, 3, 3);
+            fb.pset(x0 + 7, y0 + 9, shift(c, -1));
+        }
+        "apron" => {
+            // Its ties over the bar, a pocket across the front.
+            outlined(fb, 5, 5, 6, 7);
+            fb.rect_fill(x0 + 4, y0 + 5, 1, 2, c);
+            fb.rect_fill(x0 + 11, y0 + 5, 1, 2, c);
+            fb.rect_fill(x0 + 6, y0 + 9, 4, 1, shift(c, -1));
+        }
+        "notebook" => {
+            outlined(fb, 5, 6, 6, 6);
+            fb.rect_fill(x0 + 10, y0 + 6, 1, 6, COTTON + 2);
+        }
+        "seal" => {
+            // A stone seal on the stand's foot, its red mark beside it.
+            outlined(fb, 6, 8, 3, 4);
+            fb.rect_fill(x0 + 10, y0 + 11, 2, 1, THREAD + 1);
+        }
+        k if k == "teaching" || k == "patience" || k.starts_with("secret_") => {
+            // A scroll hung from the bar: rolled top and bottom, its paper between.
+            fb.rect_fill(x0 + 4, y0 + 5, 8, 8, OUTLINE);
+            fb.rect_fill(x0 + 5, y0 + 6, 6, 6, COTTON + 2);
+            for (row, w) in [(7, 4), (9, 3)] {
+                fb.rect_fill(x0 + 6, y0 + row, w, 1, INK);
+            }
+            fb.rect_fill(x0 + 4, y0 + 5, 8, 1, c);
+            fb.rect_fill(x0 + 4, y0 + 12, 8, 1, shift(c, -1));
         }
         _ => outlined(fb, 4, 5, 8, 6),
     }
@@ -1952,7 +2079,7 @@ fn a_benchs_mats_show_what_its_pads_are_working_toward() {
     (g.monsters[c].x, g.monsters[c].y) = g.world.shops[bench].spot;
     g.frame = 30;
     assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("kiln_kit"), "still");
-    let cloth = crate::econ::ItemData { good: "fabric".into(), quality: 0.5, carried_tags: Vec::new(), raw: Vec::new(), depth: 0, value: 1.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None };
+    let cloth = crate::econ::ItemData { good: "fabric".into(), quality: 0.5, carried_tags: Vec::new(), raw: Vec::new(), depth: 0, value: 1.0, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None };
     g.world.items.push(crate::world::Item::new(pads[0].0, pads[0].1, cloth));
     assert_eq!(hint(&g, out, Tile::OutMat).as_deref(), Some("loom_house_kit"), "cloth goes into a loom house kit");
     assert_eq!(hint(&g, pads[0], Tile::Pad), None, "a pad with something on it has no ghost");

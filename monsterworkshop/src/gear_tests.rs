@@ -27,7 +27,7 @@ fn has_line(card: &crate::inspect::Card, needle: &str) -> bool {
 /// A tool in hand, plainly made.
 fn tool(id: &str) -> ItemData {
     let raw = vec![crate::econ::RawMaterial { good: "copper_ingot".into(), base_value: 6.0, density: 100.0, spent: false }];
-    ItemData { good: id.into(), quality: 1.0, carried_tags: vec!["copper".into()], raw, depth: 1, value: 6.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: id.into(), quality: 1.0, carried_tags: vec!["copper".into()], raw, depth: 1, value: 6.0, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 #[test]
@@ -37,14 +37,14 @@ fn the_outfitter_gives_a_piece_for_renown_and_it_raises_an_ability() {
     assert_eq!(card.title, "CLOTH GLOVES");
     assert!(has_line(&card, "+1 DEX") && has_line(&card, "GIVEN AT 50 RENOWN. YOU HAVE 120.") && has_line(&card, "SPACE: MOGG PUTS IT ON, FOR GOOD."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
     let thread = g.data.good("thread").clone();
-    let (dex, before) = (g.monsters[0].stats.dex, crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data)));
+    let (dex, before) = (g.monsters[0].stats.dex, crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data), &crate::econ::PLAIN));
     g.script("u");
     assert_eq!(g.monsters[0].gear, vec!["cloth_gloves".to_string()]);
     assert_eq!(g.communes[0].renown, 70.0, "given at 50 renown");
     assert!(said(&g, 0).contains("MOGG PUTS ON THE CLOTH GLOVES. +1 DEX!"), "{}", said(&g, 0));
     assert_eq!(g.monsters[0].abilities(&g.data).dex, dex + 1);
     assert_eq!(g.monsters[0].stats.dex, dex, "its own DEX is unchanged; the gloves add to it");
-    assert!(crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data)) < before, "nimbler fingers spin faster");
+    assert!(crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data), &crate::econ::PLAIN) < before, "nimbler fingers spin faster");
     let card = crate::inspect::card(&g, 0);
     assert!(has_line(&card, "I HAVE THE CLOTH GLOVES ALREADY."));
     // Its own card says what it has on.
@@ -54,10 +54,10 @@ fn the_outfitter_gives_a_piece_for_renown_and_it_raises_an_ability() {
 
 #[test]
 fn space_beside_a_rack_turns_to_it_and_the_outfitter_just_talks() {
-    let (mut g, _) = at_rack("rope_belt", 60.0);
+    let (mut g, _) = at_rack("cloth_gloves", 60.0);
     g.monsters[0].facing = Dir::Left;
     g.script("u");
-    assert_eq!(g.monsters[0].gear, vec!["rope_belt".to_string()], "Space turned Mogg to the rack");
+    assert_eq!(g.monsters[0].gear, vec!["cloth_gloves".to_string()], "Space turned Mogg to the rack");
     // Old Thimble stands between the racks; Space only talks, adding nothing to the book.
     let t = g.world.townsfolk.iter().position(|t| t.kind == Folk::Outfitter).expect("the outfitter");
     let (tx, ty) = (g.world.townsfolk[t].x, g.world.townsfolk[t].y);
@@ -67,6 +67,13 @@ fn space_beside_a_rack_turns_to_it_and_the_outfitter_just_talks() {
     assert_eq!(g.communes[0].heard, heard);
     assert!(g.outfitter_says(0)[0].contains("YOURS HAS 10."), "{:?}", g.outfitter_says(0));
     assert_eq!(crate::inspect::card(&g, 0).title, "OLD THIMBLE THE OUTFITTER");
+    // Beside two racks, it doesn't guess: what's given is for good.
+    let (mut g, _) = at_rack("rope_belt", 60.0);
+    g.monsters[0].facing = Dir::Left;
+    assert!(g.racks_beside(0) == 2, "the rope belt's rack and the whetstone's above it");
+    g.script("u");
+    assert!(g.monsters[0].gear.is_empty() && g.monsters[0].hands.iter().all(Option::is_none) && g.communes[0].renown == 60.0);
+    assert_eq!((said(&g, 0), g.monsters[0].facing), ("WHICH ONE? FACE IT FIRST.".to_string(), Dir::Left));
 }
 
 #[test]
@@ -157,11 +164,8 @@ fn taking_a_piece_off_on_the_sheet_asks_first_then_frees_its_slot() {
 
 #[test]
 fn a_carried_piece_is_held_in_a_hand_as_a_tool_is() {
-    // A towel, as the crafting pieces will be: held, not worn.
+    // A towel: held, not worn.
     let (mut g, r) = at_rack("cloth_gloves", 1000.0);
-    let mut towel = g.data.piece("cloth_gloves").clone();
-    (towel.id, towel.name, towel.slot, towel.kind) = ("towel".into(), "Towel".into(), crate::data::Slot::Hand, "towel".into());
-    g.data.pieces.push(towel);
     g.world.racks[r].piece = "towel";
     g.monsters[0].hands = vec![Some(Held::Tool(tool("pick"))), Some(Held::Tool(tool("shovel")))];
     g.script("u");
@@ -170,7 +174,7 @@ fn a_carried_piece_is_held_in_a_hand_as_a_tool_is() {
     g.script("u");
     assert!(matches!(&g.monsters[0].hands[1], Some(Held::Piece(id)) if id == "towel"), "{:?}", g.monsters[0].hands);
     assert!(said(&g, 0).starts_with("MOGG TAKES THE TOWEL."), "{}", said(&g, 0));
-    assert_eq!(g.monsters[0].abilities(&g.data).dex, g.monsters[0].stats.dex + 1, "a held piece counts as a worn one does");
+    assert_eq!(g.monsters[0].knack(&g.data, "textiles").more, 1, "a held piece counts as a worn one does");
     // With the towel in one hand, a second tool doesn't fit.
     let (x, y) = (g.monsters[0].x - 1, g.monsters[0].y);
     g.world.items.retain(|it| (it.x, it.y) != (x, y));
@@ -184,6 +188,7 @@ fn a_carried_piece_is_held_in_a_hand_as_a_tool_is() {
     g.script("cD");
     g.script("uu");
     assert!(g.monsters[0].hands[1].is_none() && g.monsters[0].tool(0).is_some(), "{:?}", g.monsters[0].hands);
+    assert!(said(&g, 0).contains("MOGG GIVES UP THE TOWEL."), "{}", said(&g, 0));
     // Orcs have three hands; everyone else two.
     assert_eq!(g.data.monster_types["orc"].slots.hands, 3);
     assert!(["goblin", "cyclops", "elf"].iter().all(|k| g.data.monster_types[*k].slots.hands == 2));
@@ -265,4 +270,265 @@ fn what_a_monster_has_on_shows_on_its_sprite() {
     }
     let shod = crate::sprites::dressed_frames(false, &[("shoes", c)]);
     assert!((0..16).any(|x| shod[3].px[(15 * 16 + x) as usize] == c), "a cyclops's sandals show mid-stride too");
+}
+
+// --- The crafting pieces (stage 2): what each does to a craft, and that the cards say so. ---
+
+/// Mogg on a coal seam anyone may dig, a pick and a shovel in hand, `third` in a third hand (as an
+/// orc has) and `gear` on: one dig, and how worn the pick is after.
+fn dig_once(third: Option<&str>, gear: &[&str]) -> f64 {
+    let mut g = Game::new();
+    let seam = g.world.plants.iter().position(|p| p.good == "coal" && p.owner.is_none()).expect("a seam for anyone");
+    let p = &mut g.world.plants[seam];
+    p.growth = p.regrow;
+    let (x, y) = (p.x, p.y);
+    let m = &mut g.monsters[0];
+    (m.x, m.y, m.facing) = (x, y, Dir::Down);
+    m.hands = vec![Some(Held::Tool(tool("pick"))), Some(Held::Tool(tool("shovel")))];
+    m.hands.extend(third.map(|p| Some(Held::Piece(p.into()))));
+    m.gear = gear.iter().map(|s| s.to_string()).collect();
+    g.script("u");
+    for _ in 0..5000 {
+        if g.communes[0].made.contains("coal") {
+            break;
+        }
+        g.run_ticks(1);
+    }
+    assert!(g.communes[0].made.contains("coal"), "dug: {}", said(&g, 0));
+    g.monsters[0].tool(0).expect("the pick").wear
+}
+
+/// Bruna at the spinnery with fiber on its pad, steered, as the forecast card is seen.
+fn at_spinnery() -> (Game, usize) {
+    let mut g = Game::new();
+    let mut slivers = tool("cotton_slivers");
+    (slivers.carried_tags, slivers.quality) = (vec!["cotton".into()], 0.6);
+    g.world.items.push(crate::world::Item::new(30, 9, slivers));
+    g.communes[0].controlled = 1;
+    (g.monsters[1].x, g.monsters[1].y) = (30, 8);
+    // Some way into spinning, so there's a forecast to lift.
+    let sk = &mut g.monsters[1].skills;
+    for k in ["spinning", "textiles", "weaving"] {
+        sk.applied.insert(k.into(), 0.4);
+    }
+    sk.specific.insert("thread".into(), 0.4);
+    let s = g.world.shop_at_spot(30, 8).expect("the spinnery");
+    (g, s)
+}
+
+#[test]
+fn each_crafting_piece_does_what_its_card_says() {
+    let mut g = Game::new();
+    let mut knack = |id: &str, skill: &str| {
+        g.monsters[0].gear = vec![id.to_string()];
+        g.monsters[0].knack(&g.data, skill)
+    };
+    let plain = crate::econ::PLAIN;
+    assert_eq!(knack("towel", "spinning").more, 1);
+    assert!((knack("magnifying_glass", "spinning").quality - 1.1).abs() < 1e-9);
+    assert!((knack("wristwatch", "spinning").time - 0.9).abs() < 1e-9);
+    assert!((knack("writing_brush", "hauling").learning - 1.1).abs() < 1e-9, "everything learned, practice too");
+    assert!((knack("whetstone", "spinning").wear - 0.5).abs() < 1e-9);
+    let apron = knack("hasty_apron", "spinning");
+    assert!((apron.time - 0.8).abs() < 1e-9 && (apron.wear - 2.0).abs() < 1e-9);
+    assert!((knack("notebook", "spinning").forgetting - 0.8).abs() < 1e-9);
+    assert!((knack("carved_seal", "spinning").value - 1.1).abs() < 1e-9);
+    assert!((knack("lucky_charm", "spinning").above - 1.5).abs() < 1e-9);
+    assert!((knack("patience", "spinning").below - 0.5).abs() < 1e-9);
+    // A craft's secret counts only at its own craft.
+    assert!((knack("secret_spinning", "spinning").quality - 1.1).abs() < 1e-9);
+    assert_eq!(knack("secret_spinning", "weaving"), plain);
+    // Together they multiply: a whetstone makes up for a hasty apron's wear.
+    let m = &mut g.monsters[0];
+    m.gear = vec!["hasty_apron".into(), "secret_spinning".into()];
+    m.hands = vec![Some(Held::Piece("whetstone".into())), Some(Held::Piece("magnifying_glass".into()))];
+    let k = g.monsters[0].knack(&g.data, "spinning");
+    assert!((k.wear - 1.0).abs() < 1e-9 && (k.quality - 1.21).abs() < 1e-9, "{k:?}");
+    // What each says, as the sheet and the racks say it, fits the sheet's line.
+    for p in &g.data.pieces {
+        for text in [p.name.to_uppercase(), p.effect_text()] {
+            assert!(!text.is_empty() && text.chars().count() <= 28, "{}: {text:?} doesn't fit the sheet", p.id);
+        }
+        assert!(p.color.as_ref().is_some_and(|(n, s)| crate::palette::color_named(n, *s).is_some()), "{} has a color to be drawn in", p.id);
+        assert!(p.does.at.as_ref().is_none_or(|a| g.data.skills.applied_skills.contains(a)), "{}'s skill", p.id);
+        assert!(p.does.talent.as_ref().is_none_or(|t| g.data.skills.transferable_skills.contains(t)), "{}'s talent", p.id);
+    }
+    assert_eq!(g.data.pieces.iter().filter(|p| p.kind == "teaching").count(), g.data.skills.transferable_skills.len(), "a teaching for every talent");
+}
+
+#[test]
+fn the_forecast_card_says_what_helps_and_a_magnifying_glass_lifts_it() {
+    let (mut g, s) = at_spinnery();
+    let before = crate::inspect::forecast(&g, s, 1).expect("a forecast").mean;
+    g.monsters[1].hands = vec![Some(Held::Piece("magnifying_glass".into())), Some(Held::Piece("towel".into()))];
+    g.monsters[1].gear = vec!["secret_weaving".into()];
+    let after = crate::inspect::forecast(&g, s, 1).expect("a forecast").mean;
+    assert!((after / before - 1.1).abs() < 0.01, "+10% quality: {before} to {after}");
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "MAGNIFYING GLASS: +10% QUALITY"), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    assert!(!has_line(&card, "TOWEL"), "thread's yield doesn't vary: a towel adds nothing there");
+    assert!(!has_line(&card, "SECRET OF WEAVING"), "weaving's secret is for weaving");
+    // A wristwatch and a hasty apron shorten the job.
+    let plain = g.job_ticks("thread", 1);
+    g.monsters[1].hands = vec![Some(Held::Piece("wristwatch".into())), None];
+    g.monsters[1].gear = vec!["hasty_apron".into()];
+    let quick = g.job_ticks("thread", 1);
+    assert!((quick as f64 / plain as f64 - 0.72).abs() < 0.02, "{plain} ticks to {quick}");
+}
+
+#[test]
+fn a_towel_makes_one_more_where_how_many_varies() {
+    let g = Game::new();
+    let (st, sk) = (g.monsters[0].abilities(&g.data), g.monsters[0].skills.clone());
+    let towel = crate::econ::PLAIN.with(&g.data.piece("towel").does);
+    for (good, more) in [("cotton_bolls", 1), ("thread", 0)] {
+        let recipe = g.data.good(good);
+        let craft = |knack| crate::econ::Craft { recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: Vec::new(), tools: Vec::new(), workshop: None };
+        for seed in 1..50 {
+            let (a, b) = (crate::econ::roll_quantity(&craft(&crate::econ::PLAIN), &mut crate::econ::Rng::new(seed)), crate::econ::roll_quantity(&craft(&towel), &mut crate::econ::Rng::new(seed)));
+            assert_eq!(b, a + more, "{good}");
+        }
+    }
+}
+
+#[test]
+fn patience_and_a_lucky_charm_each_raise_the_average() {
+    let g = Game::new();
+    let st = g.monsters[0].abilities(&g.data);
+    let lucky = crate::econ::PLAIN.with(&g.data.piece("lucky_charm").does);
+    let patient = crate::econ::PLAIN.with(&g.data.piece("patience").does);
+    // Thread with a destabilizer mastered spreads its results 0.4 either way; without, 0.1.
+    for (spread, least) in [(1.0, 0.04), (0.0, 0.01)] {
+        let mut recipe = g.data.good("thread").clone();
+        recipe.destabilizer_skills = vec!["dyeing".into()];
+        let mut sk = crate::econ::Skills::default();
+        for (k, v) in [("spinning", 0.6), ("textiles", 0.6), ("weaving", 0.6), ("dyeing", spread)] {
+            sk.applied.insert(k.into(), v);
+        }
+        sk.specific.insert("thread".into(), 0.6);
+        let fiber = tool("cotton_slivers");
+        let rolls = |knack: &crate::econ::Knack| -> Vec<f64> {
+            let c = crate::econ::Craft { recipe: &recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: vec![&fiber], tools: Vec::new(), workshop: None };
+            let mut rng = crate::econ::Rng::new(11);
+            (0..4000).map(|_| crate::econ::roll_quality(&c, &mut rng)).collect()
+        };
+        let (base, l, p) = (rolls(&crate::econ::PLAIN), rolls(&lucky), rolls(&patient));
+        let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        assert!(avg(&p) - avg(&base) > least && avg(&l) - avg(&base) > least, "spread {spread}: {} {} {}", avg(&base), avg(&l), avg(&p));
+        // Roll by roll: patience only ever lifts a flop and keeps every masterwork; luck only ever
+        // lifts a good result and leaves the flops.
+        for k in 0..base.len() {
+            assert!(p[k] >= base[k] - 1e-12 && l[k] >= base[k] - 1e-12);
+            assert!((p[k] - base[k]).abs() < 1e-12 || (l[k] - base[k]).abs() < 1e-12, "never both at once");
+        }
+        assert!(p.iter().cloned().fold(0.0, f64::max) == base.iter().cloned().fold(0.0, f64::max), "patience keeps the best");
+    }
+}
+
+#[test]
+fn a_whetstone_halves_the_wear_on_tools_and_a_hasty_apron_doubles_it() {
+    assert_eq!(dig_once(None, &[]), 3.0, "a pick wears 3 a dig");
+    assert_eq!(dig_once(Some("whetstone"), &[]), 1.5);
+    assert_eq!(dig_once(None, &["hasty_apron"]), 6.0);
+    assert_eq!(dig_once(Some("whetstone"), &["hasty_apron"]), 3.0);
+    let mut pick = tool("pick");
+    pick.wear = 99.5;
+    assert_eq!(pick.durability_left(), 1, "half a use left is still a use");
+}
+
+#[test]
+fn a_writing_brush_a_notebook_and_a_carved_seal() {
+    let g = Game::new();
+    let (st, thread) = (g.monsters[0].abilities(&g.data), g.data.good("thread"));
+    let mut sk = crate::econ::Skills::default();
+    sk.applied.insert("spinning".into(), 0.3);
+    let learn = |id: &str| {
+        let knack = crate::econ::PLAIN.with(&g.data.piece(id).does);
+        crate::econ::learn(&mut sk.clone(), &st, &knack, thread, &g.data, 300.0)
+    };
+    let (plain, brush, notebook) = (learn("towel"), learn("writing_brush"), learn("notebook"));
+    assert!((brush.primary / plain.primary - 1.1).abs() < 0.01, "+10% learned: {} {}", plain.primary, brush.primary);
+    assert!((notebook.forgotten / plain.forgotten - 0.8).abs() < 1e-9, "-20% forgotten");
+    // A seal: what's made is worth 10% more.
+    let fiber = tool("cotton_slivers");
+    let seal = crate::econ::PLAIN.with(&g.data.piece("carved_seal").does);
+    let made = |knack| {
+        let c = crate::econ::Craft { recipe: thread, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: vec![&fiber], tools: Vec::new(), workshop: None };
+        crate::econ::produce(&c, &g.data, &mut crate::econ::Rng::new(5))[0].value
+    };
+    assert!((made(&seal) / made(&crate::econ::PLAIN) - 1.1).abs() < 1e-9);
+}
+
+#[test]
+fn a_teaching_counts_as_a_talent_the_monster_lacks() {
+    let (mut g, s) = at_spinnery();
+    let thread = g.data.good("thread").clone();
+    let lacks = thread.transferable_skills.iter().find(|t| !g.monsters[1].skills.transferable.contains(t)).expect("a talent thread wants that Bruna lacks").clone();
+    let before = crate::inspect::forecast(&g, s, 1).expect("a forecast");
+    let (sk, st) = (g.monsters[1].skills.clone(), g.monsters[1].abilities(&g.data));
+    let learned = |g: &Game| crate::econ::learn(&mut sk.clone(), &st, &g.monsters[1].knack(&g.data, "spinning"), &thread, &g.data, 300.0).primary;
+    let slow = learned(&g);
+    g.monsters[1].gear = vec![format!("teaching_{lacks}")];
+    assert_eq!(g.monsters[1].knack(&g.data, "spinning").talent.as_deref(), Some(lacks.as_str()));
+    assert!(learned(&g) > slow * 1.1, "a talent the recipe wants speeds learning");
+    let after = crate::inspect::forecast(&g, s, 1).expect("a forecast");
+    assert!(after.secondary >= before.secondary && after.tool_quality >= before.tool_quality, "and skips the weakest helper");
+    assert!(has_line(&crate::inspect::card(&g, 0), &format!("TALENT: {}", lacks.replace('_', " ").to_uppercase())));
+    // One it was born with can't be taught.
+    let has = g.monsters[1].skills.transferable[0].clone();
+    assert_eq!(g.piece_refusal(1, g.data.piece(&format!("teaching_{has}"))), Some(format!("I HAVE A TALENT FOR {} ALREADY.", has.replace('_', " ").to_uppercase())));
+    // A second teaching takes the first one's place.
+    let other = g.data.skills.transferable_skills.iter().find(|t| **t != lacks && !g.monsters[1].skills.transferable.contains(t)).expect("another").clone();
+    assert_eq!(g.replaces(1, g.data.piece(&format!("teaching_{other}"))).map(|p| p.id.clone()), Some(format!("teaching_{lacks}")));
+}
+
+#[test]
+fn the_outfitter_has_things_to_work_with_by_the_door() {
+    let g = Game::new();
+    for piece in ["towel", "whetstone", "hasty_apron"] {
+        let r = g.world.racks.iter().find(|r| r.piece == piece).unwrap_or_else(|| panic!("a rack shows the {piece}"));
+        assert_eq!(crate::world::area_name(r.x, r.y), "TANGLEMERE");
+    }
+    // Every piece on a rack is one that's given in an open place, so for now none from overseas or
+    // made of paper.
+    for r in &g.world.racks {
+        assert!(!["magnifying_glass", "wristwatch", "writing_brush", "notebook", "carved_seal"].contains(&r.piece), "{} isn't to be had yet", r.piece);
+    }
+}
+
+#[test]
+fn the_temple_keeps_a_teaching_for_every_talent_and_nothing_hangs_over_a_stand() {
+    let mut g = Game::new();
+    let in_temple_town = |g: &Game, piece: &str| g.world.racks.iter().any(|r| r.piece == piece && crate::world::area_name(r.x, r.y) == "TEMPLE TOWN");
+    for t in &g.data.skills.transferable_skills {
+        assert!(in_temple_town(&g, &format!("teaching_{t}")), "a scroll for {t}");
+    }
+    assert!(in_temple_town(&g, "patience") && in_temple_town(&g, "lucky_charm"));
+    let k = g.world.townsfolk.iter().position(|t| t.kind == Folk::Keeper).expect("the temple keeper");
+    let (kx, ky) = (g.world.townsfolk[k].x, g.world.townsfolk[k].y);
+    assert_eq!(crate::world::area_name(kx, ky), "TEMPLE TOWN");
+    // Facing the keeper, a word about the teachings; Space only talks.
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (kx, ky - 1, Dir::Down);
+    g.communes[0].renown = 300.0;
+    g.script("u");
+    assert!(g.monsters[0].gear.is_empty() && g.communes[0].renown == 300.0);
+    assert!(g.keeper_says(0)[0].contains("YOURS HAS 300."));
+    assert_eq!(crate::inspect::card(&g, 0).title, "OLD QUIET THE TEMPLE KEEPER");
+    // A teaching, learned at a scroll: given at 200 renown.
+    let lacks = g.data.skills.transferable_skills.iter().find(|t| !g.monsters[0].skills.transferable.contains(t)).expect("a talent Mogg lacks").clone();
+    let r = g.world.racks.iter().find(|r| r.piece == format!("teaching_{lacks}")).expect("its scroll");
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (r.x, r.y + 1, Dir::Up);
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "SPACE: MOGG LEARNS IT, FOR GOOD."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    g.script("u");
+    assert_eq!(g.monsters[0].gear, vec![format!("teaching_{lacks}")]);
+    assert_eq!(g.communes[0].renown, 100.0);
+    assert!(said(&g, 0).starts_with(&format!("MOGG LEARNS THE TEACHING OF")), "{}", said(&g, 0));
+    // Nothing hung on any wall hangs down over a stand or someone standing below it.
+    for &((x, y), prop) in &g.world.props {
+        if prop.kind().drop > 0 {
+            assert!(g.rack_at(x, y + 1).is_none(), "{} at ({x},{y}) hangs over a stand", prop.0);
+            assert!(!g.world.townsfolk.iter().any(|t| (t.x, t.y) == (x, y + 1)), "{} at ({x},{y}) hangs over someone", prop.0);
+        }
+    }
 }

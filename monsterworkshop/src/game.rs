@@ -1341,7 +1341,15 @@ impl Game {
         }
 
         if inp.use_pressed {
+            let (facing, flip) = (self.monsters[c].facing, self.monsters[c].flip);
             self.face_something_usable(c);
+            // What's given for good isn't guessed at: beside two racks, face the one you mean.
+            if self.monsters[c].facing != facing && self.faced_rack(c).is_some() && self.racks_beside(c) > 1 {
+                (self.monsters[c].facing, self.monsters[c].flip) = (facing, flip);
+                self.say(c, "WHICH ONE? FACE IT FIRST.", true);
+                sfx.push(Sfx::Deny);
+                return;
+            }
             if let Some(a) = self.faced_applicant(c) {
                 self.welcome(c, a, sfx);
                 return;

@@ -48,7 +48,8 @@ use std::sync::Arc;
 /// - by the foundry, everything a bell takes, and a wagon kit (to haul it) and a bin kit (which
 ///   won't set up in town);
 /// - in the temple, a bell ready to hang, so the one cast next finds the frame resting;
-/// - by Tanglemere's kiln, logs and sticks for charcoal.
+/// - by Tanglemere's kiln, logs and sticks for charcoal;
+/// - and 1500 renown, for the temple's teachings, patience and its lucky charm.
 fn temple_test_world() {
     save_test_world(&temple_test_game(), "temple-test.json");
 }
@@ -91,7 +92,7 @@ fn plain_work(g: &Game, owner: u32, id: &str, carried: &[&str], depth: u32, from
         })
         .collect();
     let value = econ::value(g.data.good(id), &raw, depth, 1.0, None);
-    econ::ItemData { good: id.into(), quality: 1.0, carried_tags: carried.iter().map(|t| t.to_string()).collect(), raw, depth, value, shares: vec![econ::Share { monster: owner, count: 1.0 }], wear: 0, haul: Vec::new(), carted: None }
+    econ::ItemData { good: id.into(), quality: 1.0, carried_tags: carried.iter().map(|t| t.to_string()).collect(), raw, depth, value, shares: vec![econ::Share { monster: owner, count: 1.0 }], wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 pub(crate) fn outfitter_test_game() -> Game {
@@ -106,6 +107,11 @@ pub(crate) fn outfitter_test_game() -> Game {
     g.communes[0].renown = 1500.0;
     let mogg = ours[0];
     g.monsters[mogg].earned = 990.0;
+    // Bruna has a magnifying glass and a lucky charm in hand, from overseas and the temple, to see
+    // what they do to a forecast: pieces not on any rack yet.
+    if let Some(&bruna) = ours.get(1) {
+        g.monsters[bruna].hands = vec![Some(game::Held::Piece("magnifying_glass".into())), Some(game::Held::Piece("lucky_charm".into()))];
+    }
     let store = g.world.bins.iter().find(|b| b.scores && b.x >= 125).map(|b| (b.x, b.y)).expect("Tanglemere's cloth store");
     let cloth = plain_work(&g, g.monsters[mogg].id, "fabric", &["cotton"], 3, &["cotton_bolls"]);
     g.world.items.push(world::Item::new(store.0, store.1 + 2, cloth));
@@ -193,6 +199,8 @@ pub(crate) fn temple_test_game() -> Game {
     board.have = board.log.len() as u32;
     let cloth = (0..3).map(|_| plain(&g, "fabric", &["cotton"], 3, cotton)).collect();
     lay(&mut g, cloth, 75 + 40..=75 + 46, 32 + 13..=32 + 13, world::Tile::Grass);
+    // Renown for the temple's teachings, its patience and its lucky charm.
+    g.communes[0].renown = 1500.0;
     g
 }
 
@@ -779,5 +787,50 @@ fn export_screenshots(dir: &Path) {
     g.communes[0].inspecting = true;
     shot(&g, "53_old_spoke_card.png");
     g.communes[0].inspecting = false;
+    // The outfitter's things to work with, by its door: facing the towel, its card, then in hand.
+    let mut og = outfitter_test_game();
+    let oc = og.communes[0].controlled;
+    let towel = og.world.racks.iter().find(|r| r.piece == "towel").map(|r| (r.x, r.y)).expect("the towel's rack");
+    (og.monsters[oc].x, og.monsters[oc].y, og.monsters[oc].facing) = (towel.0 + 1, towel.1, game::Dir::Left);
+    og.monsters[oc].bubble = None;
+    shot(&og, "54_outfitter_towel.png");
+    og.communes[0].inspecting = true;
+    shot(&og, "55_towel_card.png");
+    og.communes[0].inspecting = false;
+    og.script("u");
+    og.monsters[oc].facing = game::Dir::Down;
+    shot(&og, "56_towel_in_hand.png");
+    og.script("c");
+    shot(&og, "57_sheet_with_a_towel.png");
+    og.script("c");
+    // Bruna at the spinnery, a magnifying glass and a lucky charm in hand: what helps.
+    let bruna = og.monsters.iter().position(|m| m.commune == 0 && m.name == "BRUNA").expect("Bruna");
+    let mut sg = Game::new();
+    sg.monsters[1].hands = std::mem::take(&mut og.monsters[bruna].hands);
+    sg.monsters[1].skills.specific.insert("thread".into(), 0.3);
+    let mut slivers = plain_work(&sg, sg.monsters[1].id, "cotton_slivers", &["cotton"], 1, &["cotton_bolls"]);
+    slivers.quality = 0.7;
+    sg.world.items.push(world::Item::new(30, 9, slivers));
+    sg.communes[0].controlled = 1;
+    (sg.monsters[1].x, sg.monsters[1].y) = (30, 8);
+    for k in ["spinning", "textiles", "weaving"] {
+        sg.monsters[1].skills.applied.insert(k.into(), 0.4);
+    }
+    sg.communes[0].inspecting = true;
+    sg.communes[0].card_page = 1;
+    shot(&sg, "58_spinnery_what_helps.png");
+    sg.communes[0].inspecting = false;
+    sg.script("c");
+    shot(&sg, "59_sheet_bruna_pieces.png");
+    // The temple's teachings: facing a scroll, then the keeper beside patience.
+    let mut tg = temple_test_game();
+    let tc = tg.communes[0].controlled;
+    let scroll = tg.world.racks.iter().find(|r| r.piece == "teaching_music").map(|r| (r.x, r.y)).expect("music's scroll");
+    (tg.monsters[tc].x, tg.monsters[tc].y, tg.monsters[tc].facing) = (scroll.0, scroll.1 + 1, game::Dir::Up);
+    tg.monsters[tc].bubble = None;
+    shot(&tg, "60_temple_scroll.png");
+    let keeper = tg.world.townsfolk.iter().find(|t| t.kind == world::Folk::Keeper).map(|t| (t.x, t.y)).expect("the keeper");
+    (tg.monsters[tc].x, tg.monsters[tc].y, tg.monsters[tc].facing) = (keeper.0, keeper.1 - 1, game::Dir::Down);
+    shot(&tg, "61_temple_keeper.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

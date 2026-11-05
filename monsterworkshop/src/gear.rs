@@ -4,6 +4,7 @@
 //! has slots for, within its body's and mind's capacity, and the best bonus to each ability counts.
 
 use crate::data::{Data, Piece, Slot, Stats};
+use crate::econ::Knack;
 use crate::game::{Game, Heard, Held, Monster, Sfx};
 use crate::world::PKind;
 
@@ -53,6 +54,23 @@ impl Monster {
     /// town made them, whatever their orders bring in.
     pub fn seasoned(&self) -> i32 {
         if self.worker.is_some() { 0 } else { seasoning(self.earned) }
+    }
+
+    /// What its pieces do to a craft whose main skill is `skill` (or to practice at it): a
+    /// craft's secret counts only at its own.
+    pub fn knack(&self, data: &Data, skill: &str) -> Knack {
+        self.helping(data, skill).iter().fold(crate::econ::PLAIN, |k, p| k.with(&p.does))
+    }
+
+    /// Its pieces that do something to a craft whose main skill is `skill`, for the forecast
+    /// card ("MAGNIFYING GLASS: +10% QUALITY"). A teaching of a talent it has already does
+    /// nothing.
+    pub fn helping<'a>(&self, data: &'a Data, skill: &str) -> Vec<&'a Piece> {
+        self.pieces()
+            .filter_map(|id| data.try_piece(id))
+            .filter(|p| p.does.at.as_deref().is_none_or(|at| at == skill))
+            .filter(|p| !p.does.text().is_empty() && p.does.talent.as_ref().is_none_or(|t| !self.skills.transferable.contains(t)))
+            .collect()
     }
 
     /// The best bonus to ability `a` from what it has on, leaving out the piece of kind
@@ -112,6 +130,12 @@ impl Game {
         self.rack_at(m.x + dx, m.y + dy)
     }
 
+    /// How many racks stand beside monster `c`.
+    pub(crate) fn racks_beside(&self, c: usize) -> usize {
+        let m = &self.monsters[c];
+        crate::world::DIRS.iter().filter(|d| self.rack_at(m.x + d.delta().0, m.y + d.delta().1).is_some()).count()
+    }
+
     /// The piece of the same kind monster `i` has on, which `piece` would replace.
     pub(crate) fn replaces(&self, i: usize, piece: &Piece) -> Option<&Piece> {
         self.monsters[i].pieces().filter_map(|id| self.data.try_piece(id)).find(|p| p.kind == piece.kind && p.slot == piece.slot)
@@ -123,6 +147,10 @@ impl Game {
         let ty = &self.data.monster_types[m.kind.as_str()];
         if m.pieces().any(|p| p == piece.id) {
             return Some(format!("I HAVE THE {} ALREADY.", piece.name.to_uppercase()));
+        }
+        // A teaching counts as a talent: not one it was born with.
+        if let Some(t) = piece.does.talent.as_ref().filter(|t| m.skills.transferable.contains(t)) {
+            return Some(format!("I HAVE A TALENT FOR {} ALREADY.", t.replace('_', " ").to_uppercase()));
         }
         let old = self.replaces(i, piece);
         let room = ty.slots.of(piece.slot) as usize;
@@ -194,10 +222,10 @@ impl Game {
             }
             m.gear.push(piece.id.clone());
         }
-        let verb = if piece.slot == Slot::Hand { "TAKES" } else { "PUTS ON" };
+        let verb = piece.verb();
         let text = match old {
-            Some(old) => format!("{} {verb} THE {} IN PLACE OF THE {}. {}!", m.name, piece.name.to_uppercase(), self.data.piece(&old).name.to_uppercase(), piece.bonus_text()),
-            None => format!("{} {verb} THE {}. {}!", m.name, piece.name.to_uppercase(), piece.bonus_text()),
+            Some(old) => format!("{} {verb} THE {} IN PLACE OF THE {}. {}!", m.name, piece.name.to_uppercase(), self.data.piece(&old).name.to_uppercase(), piece.effect_text()),
+            None => format!("{} {verb} THE {}. {}!", m.name, piece.name.to_uppercase(), piece.effect_text()),
         };
         let (x, y) = (m.x, m.y);
         self.say(c, &text, false);
@@ -216,7 +244,8 @@ impl Game {
         for h in m.hands.iter_mut().filter(|h| matches!(h, Some(Held::Piece(p)) if p == id)) {
             *h = None;
         }
-        let text = format!("{} TAKES OFF THE {}.", m.name, self.data.piece(id).name.to_uppercase());
+        let p = self.data.piece(id);
+        let text = format!("{} {} THE {}.", m.name, p.off_verb(), p.name.to_uppercase());
         self.say(i, &text, false);
         sfx.push(Sfx::Plop);
     }
@@ -225,7 +254,14 @@ impl Game {
     pub(crate) fn outfitter_says(&self, c: usize) -> Vec<String> {
         let k = self.monsters[c].commune;
         let renown = self.communes[k].renown.floor();
-        vec![format!("THINGS TO WEAR, FOR MONSTERS OF SOME RENOWN. YOURS HAS {renown}. FACE A RACK TO SEE WHAT ITS PIECE DOES; SPACE, AND IT'S ON FOR GOOD.")]
+        vec![format!("THINGS TO WEAR AND TO WORK WITH, FOR MONSTERS OF SOME RENOWN. YOURS HAS {renown}. FACE A RACK TO SEE WHAT ITS PIECE DOES; SPACE, AND IT'S YOURS FOR GOOD.")]
+    }
+
+    /// What the temple keeper says to whoever faces them.
+    pub(crate) fn keeper_says(&self, c: usize) -> Vec<String> {
+        let k = self.monsters[c].commune;
+        let renown = self.communes[k].renown.floor();
+        vec![format!("THE TEMPLE'S TEACHINGS, FOR MONSTERS OF SOME RENOWN. YOURS HAS {renown}. A TEACHING IS A TALENT YOU WEREN'T BORN WITH. FACE A SCROLL TO SEE WHAT IT TEACHES; SPACE, AND IT'S LEARNED FOR GOOD.")]
     }
 
     /// Credit to monster `i` that may season it: once its renown brought in passes a step, every

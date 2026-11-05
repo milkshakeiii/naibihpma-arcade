@@ -152,7 +152,7 @@ fn log(data: &Data) -> ItemData {
     let gt = data.good("hemlock_log");
     let base = gt.raw_material_base_value.unwrap_or(1.0);
     let raw = vec![RawMaterial { good: gt.id.clone(), base_value: base, density: gt.raw_material_density.unwrap_or(1.0), spent: false }];
-    ItemData { good: gt.id.clone(), quality: 0.5, carried_tags: Vec::new(), raw, depth: 0, value: base, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: gt.id.clone(), quality: 0.5, carried_tags: Vec::new(), raw, depth: 0, value: base, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 /// A player played by a bot: it wanders, stopping now and then to use or examine what's in

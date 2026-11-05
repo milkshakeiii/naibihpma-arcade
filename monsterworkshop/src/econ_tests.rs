@@ -19,7 +19,7 @@ fn item(d: &Data, id: &str, quality: f64, carried: &[&str]) -> ItemData {
         Some(v) => (vec![RawMaterial { good: id.into(), base_value: v, density: g.raw_material_density.unwrap_or(0.0), spent: false }], 0),
         None => (Vec::new(), 1),
     };
-    ItemData { good: id.into(), quality, carried_tags: carried.iter().map(|s| s.to_string()).collect(), raw, depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: id.into(), quality, carried_tags: carried.iter().map(|s| s.to_string()).collect(), raw, depth, value: 0.0, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 /// Every skill the recipe uses at `level`, with the given transferable skills.
@@ -34,7 +34,7 @@ fn skilled(recipe: &GoodType, level: f64, transferable: &[&str]) -> Skills {
 }
 
 fn craft<'a>(recipe: &'a GoodType, st: &'a Stats, sk: &'a Skills, inputs: Vec<&'a ItemData>, tools: Vec<&'a ItemData>, workshop: Option<&'a Workshop>) -> Craft<'a> {
-    Craft { recipe, crafter: Crafter { id: 1, stats: st, skills: sk }, inputs, tools, workshop }
+    Craft { recipe, crafter: Crafter { id: 1, stats: st, skills: sk, knack: &PLAIN }, inputs, tools, workshop }
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn crafting_teaches_every_skill_and_secondaries_learn_slower() {
     let st = stats(&d, "goblin");
     let mut sk = skilled(thread, 0.3, &[]);
     let before = (sk.applied("spinning"), sk.specific("thread"), sk.applied("textiles"));
-    let l = learn(&mut sk, &st, thread, &d, production_seconds(thread, &st));
+    let l = learn(&mut sk, &st, &PLAIN, thread, &d, production_seconds(thread, &st, &PLAIN));
     assert!(sk.applied("spinning") > before.0 && sk.specific("thread") > before.1 && sk.applied("textiles") > before.2);
     assert!(l.secondary.iter().all(|(_, g)| *g < l.primary), "secondary {:?} vs primary {}", l.secondary, l.primary);
     assert!(l.forgotten > 0.0);
@@ -66,7 +66,7 @@ fn a_novice_learns_its_specific_skill_only_once_it_knows_the_craft() {
     let thread = d.good("thread");
     let st = stats(&d, "goblin");
     let mut sk = Skills::default();
-    let l = learn(&mut sk, &st, thread, &d, 300.0);
+    let l = learn(&mut sk, &st, &PLAIN, thread, &d, 300.0);
     assert_eq!(l.specific, 0.0, "specific learning scales with the primary skill");
     assert!(l.primary > 0.0);
 }
@@ -78,8 +78,8 @@ fn intelligence_speeds_learning_and_wisdom_slows_forgetting() {
     let dull = Stats { str: 10, dex: 10, con: 10, int: 8, wis: 8, cha: 10 };
     let bright = Stats { int: 18, wis: 18, ..dull.clone() };
     let (mut a, mut b) = (Skills::default(), Skills::default());
-    let la = learn(&mut a, &dull, thread, &d, 600.0);
-    let lb = learn(&mut b, &bright, thread, &d, 600.0);
+    let la = learn(&mut a, &dull, &PLAIN, thread, &d, 600.0);
+    let lb = learn(&mut b, &bright, &PLAIN, thread, &d, 600.0);
     assert!(lb.primary > la.primary);
     assert!(lb.forgotten < la.forgotten);
 }
@@ -92,7 +92,7 @@ fn forgetting_drains_skills_that_are_not_practiced() {
     let mut sk = skilled(thread, 0.5, &[]);
     sk.applied.insert("blacksmithing".into(), 0.8);
     for _ in 0..200 {
-        learn(&mut sk, &st, thread, &d, production_seconds(thread, &st));
+        learn(&mut sk, &st, &PLAIN, thread, &d, production_seconds(thread, &st, &PLAIN));
     }
     assert!(sk.applied("blacksmithing") < 0.6, "unused skill kept {}", sk.applied("blacksmithing"));
     assert!(sk.applied("spinning") > 0.5);
@@ -103,7 +103,7 @@ fn production_time_follows_dex_and_int() {
     let d = Data::load();
     let goblin = stats(&d, "goblin");
     let expected = 300.0 * 10.0 / goblin.dex as f64 * 30.0 / (20.0 + goblin.int as f64);
-    assert!(close(production_seconds(d.good("thread"), &goblin), expected));
+    assert!(close(production_seconds(d.good("thread"), &goblin, &PLAIN), expected));
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn value_and_weight_follow_the_raw_materials() {
     let make = |log: &str| {
         let l = item(&d, log, 1.0, &[]);
         let (raw, depth) = lineage(loom, &[&l, &l, &bamboo, &bamboo, &bamboo, &ramie]);
-        let it = ItemData { good: loom.id.clone(), quality: 1.0, carried_tags: Vec::new(), raw: raw.clone(), depth, value: 0.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None };
+        let it = ItemData { good: loom.id.clone(), quality: 1.0, carried_tags: Vec::new(), raw: raw.clone(), depth, value: 0.0, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None };
         (value(loom, &raw, depth, 1.0, None), weight(loom, &it))
     };
     let (oak_value, oak_weight) = make("oak_log");
@@ -286,7 +286,7 @@ fn gathering_starts_an_item_history() {
     let d = Data::load();
     let st = stats(&d, "cyclops");
     let sk = Skills::default();
-    let got = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &sk }, Vec::new(), &d, &mut Rng::new(7));
+    let got = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &sk, knack: &PLAIN }, Vec::new(), &d, &mut Rng::new(7));
     assert!(!got.is_empty());
     assert_eq!(got[0].depth, 0);
     assert_eq!(got[0].raw[0].good, "oak_log");
@@ -295,7 +295,7 @@ fn gathering_starts_an_item_history() {
 
 #[test]
 fn odds_of_exceptional_results_follow_the_spread() {
-    let f = |mean: f64, sigma: f64| Forecast { input_quality: 1.0, primary: 1.0, secondary: 1.0, tool_quality: 1.0, specific: 1.0, ability: 1.0, mean, sigma };
+    let f = |mean: f64, sigma: f64| Forecast { input_quality: 1.0, primary: 1.0, secondary: 1.0, tool_quality: 1.0, specific: 1.0, ability: 1.0, mean, sigma, above: 1.0, below: 1.0 };
     let p = chance_at_least(&f(0.97, 0.4), EXCEPTIONAL);
     assert!((p - 0.242).abs() < 0.01, "1 in 4ish, got {p}");
     assert!(chance_at_least(&f(0.97, 0.1), MASTERWORK) < 1e-6);
@@ -341,7 +341,7 @@ fn a_recipes_normal_yield_shares_its_inputs_and_extra_units_cost_nothing_per_uni
     let boll_value: f64 = boll.raw.iter().map(|r| r.base_value).sum();
     assert!(made.iter().all(|u| close(u.raw.iter().map(|r| r.base_value).sum(), boll_value)), "a high roll doesn't thin out each unit");
 
-    let oak = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &Skills::default() }, Vec::new(), &d, &mut Rng::new(7));
+    let oak = gather(d.good("oak_log"), Crafter { id: 3, stats: &st, skills: &Skills::default(), knack: &PLAIN }, Vec::new(), &d, &mut Rng::new(7));
     assert!(oak.iter().all(|u| close(u.raw[0].base_value, d.good("oak_log").raw_material_base_value.unwrap())), "each harvested unit is a whole raw material");
 }
 

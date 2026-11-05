@@ -272,6 +272,8 @@ fn glyph_8x8(ch: char) -> [u8; 8] {
         ')' => [0x60, 0x10, 0x10, 0x10, 0x10, 0x10, 0x60, 0x00],
         '=' => [0x00, 0x00, 0xF8, 0x00, 0xF8, 0x00, 0x00, 0x00],
         '\'' => [0x20, 0x20, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00],
+        ';' => [0x00, 0x30, 0x30, 0x00, 0x30, 0x30, 0x20, 0x40],
+        '%' => [0xC0, 0xC8, 0x10, 0x20, 0x40, 0x98, 0x18, 0x00],
         _ => [0x00; 8],
     }
 }
@@ -279,6 +281,20 @@ fn glyph_8x8(ch: char) -> [u8; 8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_character_the_game_says_has_a_glyph() {
+        // What cards, bubbles and the sheet say: letters, digits and their punctuation.
+        for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:;.,!?-+/()='%".chars() {
+            assert_ne!(glyph_8x8(ch), [0x00; 8], "no glyph for {ch:?}");
+        }
+        let data = crate::data::Data::load();
+        for p in &data.pieces {
+            for text in [p.name.to_uppercase(), p.effect_text(), p.about.clone()] {
+                assert!(text.chars().all(|ch| ch == ' ' || glyph_8x8(ch) != [0x00; 8]), "{}: {text:?} has a character with no glyph", p.id);
+            }
+        }
+    }
 
     #[test]
     fn integer_scale_matches_documented_table() {

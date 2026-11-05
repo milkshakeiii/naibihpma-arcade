@@ -270,8 +270,19 @@ const REGIONS: [Region; 5] = [
         map: include_str!("../data/tanglemere.map"),
         province: "",
         at: (125, 0),
-        // The outfitter's: the plain pieces, given for renown, and Old Thimble between them.
-        racks: &[((40, 14), "rope_belt"), ((41, 14), "cloth_gloves"), ((42, 14), "straw_sandals"), ((44, 14), "headband"), ((45, 14), "temple_charm"), ((46, 14), "bead_earrings")],
+        // The outfitter's: the plain pieces along the back wall, given for renown, and Old Thimble
+        // between them; by the door, things to work with.
+        racks: &[
+            ((40, 14), "rope_belt"),
+            ((41, 14), "cloth_gloves"),
+            ((42, 14), "straw_sandals"),
+            ((44, 14), "headband"),
+            ((45, 14), "temple_charm"),
+            ((46, 14), "bead_earrings"),
+            ((40, 11), "towel"),
+            ((40, 12), "whetstone"),
+            ((42, 11), "hasty_apron"),
+        ],
         folk: &[((43, 13), Folk::Outfitter)],
         labels: &[((39, 2), "CLOTH HALL"), ((46, 10), "OUTFITTER")],
         signs: &[("PINEWATER", Dir::Left)],
@@ -283,8 +294,23 @@ const REGIONS: [Region; 5] = [
         map: include_str!("../data/temple_town.map"),
         province: "",
         at: (75, 32),
-        racks: &[],
-        folk: &[],
+        // The temple's teachings, a scroll for each talent along its top wall; patience and the
+        // lucky charm by the drum and the altar candle, and Old Quiet who keeps them.
+        racks: &[
+            ((7, 23), "teaching_mathematics"),
+            ((8, 23), "teaching_science"),
+            ((9, 23), "teaching_engineering"),
+            ((10, 23), "teaching_writing"),
+            ((11, 23), "teaching_visual_art"),
+            ((13, 23), "teaching_music"),
+            ((14, 23), "teaching_handcrafts"),
+            ((15, 23), "teaching_athletics"),
+            ((16, 23), "teaching_outdoorsmonstership"),
+            ((17, 23), "teaching_social"),
+            ((8, 26), "lucky_charm"),
+            ((16, 26), "patience"),
+        ],
+        folk: &[((15, 26), Folk::Keeper)],
         labels: &[((12, 22), "TEMPLE")],
         signs: &[],
         boards: &[("OLD SOOT'S ORDER", "coal", 6, Project::Order), ("THE TEMPLE BELL", "temple_bell", 1, Project::Bell)],
@@ -555,6 +581,8 @@ pub const TRADER: &str = "THE TRADER";
 
 /// The outfitter a region's data places: Old Thimble, who keeps the town's things to wear.
 pub const OUTFITTER: &str = "OLD THIMBLE";
+/// The temple keeper's name, for now.
+pub const KEEPER: &str = "OLD QUIET";
 
 /// A rack of equipment: the piece it shows, given for renown to whoever faces it.
 #[derive(Clone, Debug)]
@@ -582,6 +610,8 @@ pub enum Folk {
     Trader,
     /// Keeps the racks of things to wear beside them.
     Outfitter,
+    /// Keeps the temple's teachings, and its lucky coins.
+    Keeper,
 }
 
 /// A bell hung in the temple: how well it was made, who cast it and how many others had a
@@ -1029,6 +1059,7 @@ impl World {
                     Folk::Craftsman => CRAFTSMAN,
                     Folk::Trader => TRADER,
                     Folk::Outfitter => OUTFITTER,
+                    Folk::Keeper => KEEPER,
                 };
                 townsfolk.push(Townsfolk { x, y, name: name.into(), kind });
             }

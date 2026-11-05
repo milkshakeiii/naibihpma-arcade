@@ -6,7 +6,7 @@ use crate::econ::{ItemData, Share};
 fn fabric(g: &Game) -> ItemData {
     let boll = g.data.good("cotton_bolls");
     let raw = crate::econ::RawMaterial { good: boll.id.clone(), base_value: boll.raw_material_base_value.unwrap(), density: boll.raw_material_density.unwrap(), spent: false };
-    ItemData { good: "fabric".into(), quality: 0.5, carried_tags: Vec::new(), raw: vec![raw], depth: 2, value: 2.0, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: "fabric".into(), quality: 0.5, carried_tags: Vec::new(), raw: vec![raw], depth: 2, value: 2.0, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 fn key(d: Dir) -> &'static str {

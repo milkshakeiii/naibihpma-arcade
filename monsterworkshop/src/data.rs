@@ -240,17 +240,116 @@ pub struct Piece {
     /// A line about it for its card.
     #[serde(default)]
     pub about: String,
+    /// What it does besides adding to abilities: to crafts, learning, tools.
+    #[serde(default)]
+    pub does: Does,
+    /// What a monster does to have it, if not what its slot says ("KEEPS" a notebook).
+    #[serde(default)]
+    pub verb: Option<String>,
+}
+
+/// What a piece does to the crafts a monster does (DESIGN.md: Equipment given for renown, the
+/// other pieces), each a change in percent unless said: a magnifying glass's quality +10, a
+/// wristwatch's time -10. Changes from several pieces multiply.
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct Does {
+    /// More of what a craft makes, in units, where how many varies (a towel's 1).
+    #[serde(rename = "yield")]
+    pub more: u32,
+    pub quality: i32,
+    pub time: i32,
+    pub learning: i32,
+    pub forgetting: i32,
+    pub value: i32,
+    /// The wear on the tools the monster crafts with, in hand or on a peg.
+    pub wear: i32,
+    /// How much further a result above the forecast goes (a lucky charm's 50: half as far again).
+    pub luck: i32,
+    /// How much of the way back to the forecast a result below it comes (patience: halfway).
+    pub patience: i32,
+    /// A talent it counts as, if the monster doesn't have it already (a teaching).
+    pub talent: Option<String>,
+    /// Only at crafts whose main skill is this one (a craft's secret).
+    pub at: Option<String>,
+}
+
+impl Does {
+    /// What it does, each as short as the character sheet's line: "+10% QUALITY".
+    pub fn text(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.more > 0 {
+            out.push(format!("+{} YIELD", self.more));
+        }
+        if self.quality != 0 {
+            match &self.at {
+                Some(skill) => out.push(format!("{:+}% {} QUALITY", self.quality, skill.replace('_', " ").to_uppercase())),
+                None => out.push(format!("{:+}% QUALITY", self.quality)),
+            }
+        }
+        for (v, what) in [(self.time, "TIME"), (self.learning, "LEARNING"), (self.forgetting, "FORGETTING"), (self.value, "VALUE")] {
+            if v != 0 {
+                out.push(format!("{v:+}% {what}"));
+            }
+        }
+        match self.wear {
+            0 => {}
+            -50 => out.push("HALF THE TOOL WEAR".into()),
+            100 => out.push("DOUBLE TOOL WEAR".into()),
+            w => out.push(format!("{w:+}% TOOL WEAR")),
+        }
+        if self.luck != 0 {
+            out.push(format!("GOOD ROLLS {}% BETTER", self.luck));
+        }
+        match self.patience {
+            0 => {}
+            50 => out.push("BAD ROLLS HALF AS BAD".into()),
+            p => out.push(format!("BAD ROLLS {p}% LESS BAD")),
+        }
+        if let Some(t) = &self.talent {
+            out.push(format!("TALENT: {}", t.replace('_', " ").to_uppercase()));
+        }
+        out
+    }
 }
 
 impl Piece {
+    /// Everything it adds, as a card or the character sheet says it: "+1 DEX", "+10% QUALITY".
+    pub fn effect_text(&self) -> String {
+        let mut all: Vec<String> = (0..6).filter(|&a| self.bonus_to(a) != 0).map(|a| format!("{:+} {}", self.bonus_to(a), ABILITIES[a])).collect();
+        all.extend(self.does.text());
+        all.join(", ")
+    }
+
+    /// What a monster does to have it: takes it in hand, puts it on, learns it, or its own verb.
+    pub fn verb(&self) -> &str {
+        self.verb.as_deref().unwrap_or(match self.slot {
+            Slot::Hand => "TAKES",
+            Slot::Worn => "PUTS ON",
+            Slot::Inside => "LEARNS",
+        })
+    }
+
+    /// The same, said of it: "PUTS IT ON", "TAKES IT".
+    pub fn verb_it(&self) -> String {
+        match self.verb().split_once(' ') {
+            Some((verb, on)) => format!("{verb} IT {on}"),
+            None => format!("{} IT", self.verb()),
+        }
+    }
+
+    /// What a monster does to be rid of it, from its sheet.
+    pub fn off_verb(&self) -> &str {
+        match (self.slot, self.verb.is_some()) {
+            (Slot::Hand, _) | (Slot::Inside, true) => "GIVES UP",
+            (Slot::Worn, _) => "TAKES OFF",
+            (Slot::Inside, false) => "FORGETS",
+        }
+    }
+
     /// What it adds to ability `index`.
     pub fn bonus_to(&self, index: usize) -> i32 {
         self.bonus.iter().filter(|(k, _)| ability_index(k) == Some(index)).map(|(_, v)| *v).sum()
-    }
-
-    /// Its bonuses as a card says them: "+1 DEX".
-    pub fn bonus_text(&self) -> String {
-        (0..6).filter(|&a| self.bonus_to(a) != 0).map(|a| format!("{:+} {}", self.bonus_to(a), ABILITIES[a])).collect::<Vec<_>>().join(", ")
     }
 }
 

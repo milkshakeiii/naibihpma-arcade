@@ -80,6 +80,66 @@ impl Skills {
     pub fn matching(&self, wanted: &[String]) -> usize {
         wanted.iter().filter(|s| self.transferable.contains(s)).count()
     }
+
+    /// Its talents among `wanted`, counting `taught` (a teaching's) as one more of its own.
+    pub fn matching_with(&self, wanted: &[String], taught: Option<&str>) -> usize {
+        let extra = taught.is_some_and(|t| wanted.iter().any(|w| w == t) && !self.transferable.iter().any(|s| s == t));
+        self.matching(wanted) + extra as usize
+    }
+}
+
+/// What a monster's pieces do to one craft or bout of practice (DESIGN.md: Equipment given for
+/// renown, the other pieces): factors on its time, its quality's mean, what it learns and forgets,
+/// what it makes is worth and how fast the tools it uses wear; more units where the yield varies;
+/// how far rolls land above and below the forecast; and a talent it counts as having.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Knack {
+    pub more: u32,
+    pub quality: f64,
+    pub time: f64,
+    pub learning: f64,
+    pub forgetting: f64,
+    pub value: f64,
+    pub wear: f64,
+    /// A roll above the forecast lands this many times as far above it (a lucky charm: 1.5).
+    pub above: f64,
+    /// A roll below the forecast lands this many times as far below it (patience: 0.5).
+    pub below: f64,
+    pub talent: Option<String>,
+}
+
+/// No pieces: nothing changes.
+pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talent: None };
+
+impl Default for Knack {
+    fn default() -> Self {
+        PLAIN
+    }
+}
+
+impl Knack {
+    /// A piece's effects added to these: percentages multiply, units add up.
+    pub fn with(mut self, does: &crate::data::Does) -> Self {
+        let pct = |v: i32| 1.0 + v as f64 / 100.0;
+        self.more += does.more;
+        self.quality *= pct(does.quality);
+        self.time *= pct(does.time);
+        self.learning *= pct(does.learning);
+        self.forgetting *= pct(does.forgetting);
+        self.value *= pct(does.value);
+        self.wear *= pct(does.wear);
+        self.above *= pct(does.luck);
+        self.below *= pct(-does.patience);
+        if does.talent.is_some() {
+            self.talent = does.talent.clone();
+        }
+        self
+    }
+
+    /// The wear one use puts on a tool of weight `weight`.
+    pub fn wear_of(&self, weight: u32) -> f64 {
+        weight as f64 * self.wear
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -112,8 +172,9 @@ pub struct ItemData {
     pub depth: u32,
     pub value: f64,
     pub shares: Vec<Share>,
-    /// Durability spent so far (tools and frontier workshops).
-    pub wear: u32,
+    /// Durability spent so far (tools and frontier workshops): in uses, a whetstone's halves
+    /// included.
+    pub wear: f64,
     /// Who has pushed or pulled it since it was made, and how many tiles each.
     #[serde(default)]
     pub haul: Vec<(u32, u32)>,
@@ -137,8 +198,9 @@ impl ItemData {
         t
     }
 
+    /// Whole uses left: a tool with half a use left still has one.
     pub fn durability_left(&self) -> u32 {
-        TOOL_DURABILITY.saturating_sub(self.wear)
+        (TOOL_DURABILITY as f64 - self.wear).ceil().max(0.0) as u32
     }
 }
 
@@ -153,6 +215,8 @@ pub struct Crafter<'a> {
     pub id: u32,
     pub stats: &'a Stats,
     pub skills: &'a Skills,
+    /// What its pieces do to this craft.
+    pub knack: &'a Knack,
 }
 
 /// Everything one craft depends on. `inputs` and `tools` follow the recipe's slot order.
@@ -175,6 +239,10 @@ pub struct Forecast {
     pub ability: f64,
     pub mean: f64,
     pub sigma: f64,
+    /// How far rolls land above and below the mean, as multiples of `sigma` (a lucky charm's
+    /// 1.5 above, patience's 0.5 below).
+    pub above: f64,
+    pub below: f64,
 }
 
 impl Forecast {
@@ -188,17 +256,18 @@ fn ability(stats: &Stats, index: usize) -> f64 {
     stats.get(index) as f64
 }
 
-/// Game seconds one craft takes for this monster: DEX speeds it up, INT a little.
-pub fn production_seconds(recipe: &GoodType, stats: &Stats) -> f64 {
+/// Game seconds one craft takes for this monster: DEX speeds it up, INT a little, and some
+/// pieces (a wristwatch, a hasty apron).
+pub fn production_seconds(recipe: &GoodType, stats: &Stats, knack: &Knack) -> f64 {
     let dex = ability(stats, crate::data::DEX).max(1.0);
     let int = ability(stats, INT);
-    (recipe.production_time as f64 * 10.0 / dex * 30.0 / (20.0 + int)).max(1.0)
+    (recipe.production_time as f64 * 10.0 / dex * 30.0 / (20.0 + int) * knack.time).max(1.0)
 }
 
 /// Weakest secondary skills are dropped, one per matching transferable skill. An empty list
 /// counts as perfect (the original rule; see DESIGN.md for the fallback if this misbehaves).
 fn secondary_average(c: &Craft) -> f64 {
-    let k = c.crafter.skills.matching(&c.recipe.transferable_skills);
+    let k = c.crafter.skills.matching_with(&c.recipe.transferable_skills, c.crafter.knack.talent.as_deref());
     let mut v: Vec<f64> = c.recipe.secondary_applied_skills.iter().map(|s| c.crafter.skills.applied(s)).collect();
     v.sort_by(f64::total_cmp);
     let kept = &v[k.min(v.len())..];
@@ -220,7 +289,7 @@ fn tool_average(c: &Craft) -> f64 {
         units.extend(std::iter::repeat(w.quality).take(WORKSHOP_WEIGHT as usize));
     }
     units.sort_by(f64::total_cmp);
-    let k = c.crafter.skills.matching(&c.recipe.transferable_skills) * 2;
+    let k = c.crafter.skills.matching_with(&c.recipe.transferable_skills, c.crafter.knack.talent.as_deref()) * 2;
     let kept = &units[k.min(units.len())..];
     if kept.is_empty() {
         1.0
@@ -267,12 +336,14 @@ pub fn forecast(c: &Craft) -> Forecast {
     let (mean, sigma) = if c.recipe.has_quality {
         let material = input_quality * primary * secondary;
         let tool = tool_quality * specific * ability_factor;
-        (soft_cap((material + tool) / 2.0), SIGMA_BASE + SIGMA_PER_DESTABILIZER * destab_avg)
+        // A magnifying glass or a craft's secret lifts the mean before the cap.
+        (soft_cap((material + tool) / 2.0 * c.crafter.knack.quality), SIGMA_BASE + SIGMA_PER_DESTABILIZER * destab_avg)
     } else {
         // Ungraded goods pass their inputs' quality through unchanged (raw ones count as 1).
         (input_quality, 0.0)
     };
-    Forecast { input_quality, primary, secondary, tool_quality, specific, ability: ability_factor, mean, sigma }
+    let k = c.crafter.knack;
+    Forecast { input_quality, primary, secondary, tool_quality, specific, ability: ability_factor, mean, sigma, above: k.above, below: k.below }
 }
 
 pub fn roll_quality(c: &Craft, rng: &mut Rng) -> f64 {
@@ -280,7 +351,10 @@ pub fn roll_quality(c: &Craft, rng: &mut Rng) -> f64 {
     if !c.recipe.has_quality {
         return f.mean;
     }
-    nudge((f.mean + f.sigma * rng.gauss()).max(0.0), c.crafter.stats)
+    // A lucky charm sends a roll above the mean further; patience brings one below it back.
+    let z = rng.gauss();
+    let z = z * if z > 0.0 { f.above } else { f.below };
+    nudge((f.mean + f.sigma * z).max(0.0), c.crafter.stats)
 }
 
 pub fn roll_quantity(c: &Craft, rng: &mut Rng) -> u32 {
@@ -293,7 +367,8 @@ pub fn roll_quantity(c: &Craft, rng: &mut Rng) -> u32 {
     let base = (rng.gauss() * sigma).abs() + mu;
     let st = c.crafter.stats;
     let q = base + (base * (ability(st, STR) - 10.0) / 10.0).round() + (base * (ability(st, crate::data::DEX) - 10.0) / 10.0 * 0.25).round();
-    q.round().max(1.0) as u32
+    // A towel: one more, where how many varies.
+    q.round().max(1.0) as u32 + c.crafter.knack.more
 }
 
 /// Tags that flow from each input slot into the output, per the recipe's carryover lists.
@@ -384,7 +459,7 @@ const WAGON_JOURNEY_SHARES: f64 = 2.0;
 
 /// Practice at a task that isn't a recipe (hauling, wagon driving): `seconds` of it. Practice
 /// adds up until it makes whole learning steps; forgetting works as it does for crafts.
-pub fn practice(skills: &mut Skills, stats: &Stats, skill: &str, data: &Data, seconds: f64) -> f64 {
+pub fn practice(skills: &mut Skills, stats: &Stats, knack: &Knack, skill: &str, data: &Data, seconds: f64) -> f64 {
     let total = skills.pending.get(skill).copied().unwrap_or(0.0) + seconds;
     let steps = (total / LEARN_STEP_SECONDS) as usize;
     skills.pending.insert(skill.to_string(), total - steps as f64 * LEARN_STEP_SECONDS);
@@ -392,12 +467,12 @@ pub fn practice(skills: &mut Skills, stats: &Stats, skill: &str, data: &Data, se
         return 0.0;
     }
     let ability_factor = (ability(stats, INT) * 0.8 + ability(stats, CON) * 0.2) / 20.0;
-    let talents = data.skills.relevant_transferable_skills.get(skill).map_or(0, |t| skills.matching(t));
-    let gain = grow(skills.applied(skill), steps, LEARN_PRIMARY * ability_factor * (1.0 + talents as f64 / 4.0));
+    let talents = data.skills.relevant_transferable_skills.get(skill).map_or(0, |t| skills.matching_with(t, knack.talent.as_deref()));
+    let gain = grow(skills.applied(skill), steps, LEARN_PRIMARY * ability_factor * (1.0 + talents as f64 / 4.0) * knack.learning);
     let floor = skills.forgotten;
     let total = skills.applied.get(skill).copied().unwrap_or(floor).max(floor);
     skills.applied.insert(skill.to_string(), total + gain);
-    skills.forgotten += steps as f64 * FORGET * (1.0 - ability(stats, WIS) / 20.0 * 0.25);
+    skills.forgotten += steps as f64 * FORGET * (1.0 - ability(stats, WIS) / 20.0 * 0.25) * knack.forgetting;
     let floor = skills.forgotten;
     skills.applied.values_mut().chain(skills.specific.values_mut()).for_each(|v| *v = v.max(floor));
     gain
@@ -463,8 +538,9 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
     (0..n)
         .map(|_| {
             let quality = roll_quality(c, rng);
-            let value = value(c.recipe, &raw, depth, quality, Some(c.crafter.stats));
-            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0, haul: Vec::new(), carted: None }
+            // A carved seal: worth more.
+            let value = value(c.recipe, &raw, depth, quality, Some(c.crafter.stats)) * c.crafter.knack.value;
+            ItemData { good: c.recipe.id.clone(), quality, carried_tags: carried.clone(), raw: raw.clone(), depth, value, shares: shares.clone(), wear: 0.0, haul: Vec::new(), carted: None }
         })
         .collect()
 }
@@ -478,7 +554,7 @@ pub fn plain(data: &Data, good: &str, from: &str) -> ItemData {
     let carry: Vec<&String> = gt.input_goods_tags_carryover.iter().flatten().collect();
     let carried_tags = src.variety.as_ref().map(|v| v.name.clone()).filter(|v| carry.contains(&v)).into_iter().collect();
     let value = value(gt, &raw, depth, 1.0, None);
-    ItemData { good: good.into(), quality: 1.0, carried_tags, raw, depth, value, shares: Vec::new(), wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: good.into(), quality: 1.0, carried_tags, raw, depth, value, shares: Vec::new(), wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 /// The quality of what a trader gives: plain, standard work. No skill goes into a trade, so a
@@ -498,7 +574,7 @@ pub fn trade(recipe: &GoodType, inputs: &[&ItemData], data: &Data) -> ItemData {
         add_share(&mut shares, s.monster, s.count);
     }
     let value = value(gives, &raw, 0, TRADE_QUALITY, None);
-    ItemData { good: gives.id.clone(), quality: TRADE_QUALITY, carried_tags: Vec::new(), raw, depth: 0, value, shares, wear: 0, haul: Vec::new(), carted: None }
+    ItemData { good: gives.id.clone(), quality: TRADE_QUALITY, carried_tags: Vec::new(), raw, depth: 0, value, shares, wear: 0.0, haul: Vec::new(), carted: None }
 }
 
 /// What one craft taught, for skill popups and the forecast card.
@@ -531,10 +607,11 @@ fn learning_transferables<'a>(recipe: &'a GoodType, data: &'a Data) -> &'a [Stri
 /// Learning and forgetting for one finished craft lasting `seconds` of game time: every 10
 /// seconds each skill closes part of its remaining distance to 1, and the monster forgets a
 /// little of everything. Skill totals never drop below the forgetting counter.
-pub fn learn(skills: &mut Skills, stats: &Stats, recipe: &GoodType, data: &Data, seconds: f64) -> Learned {
+pub fn learn(skills: &mut Skills, stats: &Stats, knack: &Knack, recipe: &GoodType, data: &Data, seconds: f64) -> Learned {
     let steps = (seconds / LEARN_STEP_SECONDS) as usize;
-    let ability_factor = (ability(stats, INT) * 0.8 + ability(stats, CON) * 0.2) / 20.0;
-    let transferable_factor = 1.0 + skills.matching(learning_transferables(recipe, data)) as f64 / 4.0;
+    // A writing brush: more of everything learned.
+    let ability_factor = (ability(stats, INT) * 0.8 + ability(stats, CON) * 0.2) / 20.0 * knack.learning;
+    let transferable_factor = 1.0 + skills.matching_with(learning_transferables(recipe, data), knack.talent.as_deref()) as f64 / 4.0;
     let primary = recipe.primary_applied_skill.clone();
     let primary_value = skills.applied(&primary);
     let floor = skills.forgotten;
@@ -546,7 +623,8 @@ pub fn learn(skills: &mut Skills, stats: &Stats, recipe: &GoodType, data: &Data,
         .iter()
         .map(|s| (s.clone(), grow(skills.applied(s), steps, LEARN_SECONDARY * ability_factor)))
         .collect();
-    let forgotten = steps as f64 * FORGET * (1.0 - ability(stats, WIS) / 20.0 * 0.25);
+    // A notebook: less forgotten.
+    let forgotten = steps as f64 * FORGET * (1.0 - ability(stats, WIS) / 20.0 * 0.25) * knack.forgetting;
 
     let bump = |m: &mut BTreeMap<String, f64>, key: &str, gain: f64| {
         let total = m.get(key).copied().unwrap_or(floor).max(floor);
@@ -622,7 +700,11 @@ pub fn chance_at_least(f: &Forecast, q: f64) -> f64 {
     if f.sigma <= 0.0 {
         return if f.mean >= q { 1.0 } else { 0.0 };
     }
-    upper_tail((q - f.mean) / f.sigma)
+    let spread = f.sigma * if q > f.mean { f.above } else { f.below };
+    if spread <= 0.0 {
+        return if f.mean >= q { 1.0 } else { 0.0 };
+    }
+    upper_tail((q - f.mean) / spread)
 }
 
 #[cfg(test)]

@@ -58,9 +58,9 @@ impl Game {
 
     /// Practice at hauling or wagon driving: the move's own game time.
     pub(crate) fn practice(&mut self, i: usize, skill: &str, ticks: u8) {
-        let st = self.monsters[i].abilities(&self.data);
+        let (st, knack) = (self.monsters[i].abilities(&self.data), self.monsters[i].knack(&self.data, skill));
         let m = &mut self.monsters[i];
-        econ::practice(&mut m.skills, &st, skill, &self.data, ticks as f64 * crate::work::GAME_SECONDS_PER_TICK);
+        econ::practice(&mut m.skills, &st, &knack, skill, &self.data, ticks as f64 * crate::work::GAME_SECONDS_PER_TICK);
     }
 
     /// Space facing a wagon's pumpkin takes its lead; facing a wagon from behind, opens or shuts

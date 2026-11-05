@@ -1,0 +1,18 @@
+temple_town_75_48
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is the temple of TEMPLE TOWN, a quiet hill town where a great bronze bell is cast and hung, in its walled garden. The temple now also teaches: it keeps ten teachings, one for each kind of talent, given to monsters who have earned some renown. Recompose the screen so the teachings have a fitting, peaceful home and the temple reads as a real, lived-in place of learning and quiet, the way a fine level designer and pixel artist would: think about composition, framing, clusters and open space.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Use the pieces already in the picture, and add decorations generously but tastefully, inside the buildings and about the garden. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground or like crops, since those are things players pick up and harvest.
+- Keep the dark hedge border, the stone wall round the garden and the red gateway where the path comes in at the top of the screen, since it joins this screen to the one above. Inside the walls, paths may bend, and new paths may be laid.
+- Leave walking room: everything below must be reachable on foot from the gateway over open ground, one tile wide at least, and nothing hung on a wall may hang over a stand.
+
+What is here, and what must stay true:
+- THE TEMPLE, the big wooden hall, with its door in the top wall where the path from the gateway meets it. Inside it, the bell frame, the dark wooden frame where a cast bell is hung, stands in the middle of the hall's lower part: keep it there, with open floor from the door straight down to the front of the frame, since a bell is pushed in from above. The grey plaque on the outside of its bottom wall lists the bells hung there; keep it on that wall.
+- THE TEN TEACHINGS: ten small wooden stands, each with a hanging scroll on it, its rods in a color of its own. Keep all ten together in a row or two, each with open floor in front of it, one tile at least, and no two stands side by side with only one floor tile between them and nothing else. They may stay along the temple's top wall, or move into a small hall of learning of their own inside the garden's walls, with its own door.
+- TWO MORE STANDS: one with a scroll (the way of patience) and one with a small gold coin on a red string (a lucky charm). Keep them near the teachings, each with open floor in front of it.
+- THE TEMPLE KEEPER, the saffron-yellow one-eyed monster with prayer beads, who keeps the teachings: keep them standing beside the stands, inside, with open floor around them.
+
+Decorations that would suit it: inside, low writing tables and cushions for study, shelves of rolled scrolls, an ink stone, candles, incense, banners (on walls where no stand is below), a drum; outside, stone lanterns along the paths, a pond, cherry trees, a bench under a tree, flower beds, an incense burner.
+
+Return only the image.
