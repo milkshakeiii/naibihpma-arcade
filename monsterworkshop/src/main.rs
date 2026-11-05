@@ -832,5 +832,23 @@ fn export_screenshots(dir: &Path) {
     let keeper = tg.world.townsfolk.iter().find(|t| t.kind == world::Folk::Keeper).map(|t| (t.x, t.y)).expect("the keeper");
     (tg.monsters[tc].x, tg.monsters[tc].y, tg.monsters[tc].facing) = (keeper.0, keeper.1 - 1, game::Dir::Down);
     shot(&tg, "61_temple_keeper.png");
+    // Each working townsperson's secret, on a stand by their work: facing it, then them.
+    let mut wg = Game::new();
+    let wc = wg.communes[0].controlled;
+    wg.communes[0].renown = 150.0;
+    for (n, w) in wg.world.workers.clone().iter().enumerate() {
+        let (sx, sy) = w.secret.0;
+        let open = |g: &Game, (x, y): (i32, i32)| g.world.walkable(x, y) && g.monster_at(x, y).is_none() && g.world.shop_at_spot(x, y).is_none();
+        let d = [game::Dir::Down, game::Dir::Left, game::Dir::Right, game::Dir::Up].into_iter().find(|d| open(&wg, (sx - d.delta().0, sy - d.delta().1))).expect("open ground by the stand");
+        (wg.monsters[wc].x, wg.monsters[wc].y, wg.monsters[wc].facing) = (sx - d.delta().0, sy - d.delta().1, d);
+        wg.monsters[wc].bubble = None;
+        shot(&wg, &format!("{}_{}_secret.png", 62 + 2 * n, w.name.to_lowercase().replace(' ', "_")));
+        let j = wg.monsters.iter().position(|m| m.worker == Some(n)).expect("their monster");
+        let (jx, jy) = (wg.monsters[j].x, wg.monsters[j].y);
+        let d = [game::Dir::Left, game::Dir::Right, game::Dir::Down, game::Dir::Up].into_iter().find(|d| open(&wg, (jx - d.delta().0, jy - d.delta().1))).expect("open ground by them");
+        (wg.monsters[wc].x, wg.monsters[wc].y, wg.monsters[wc].facing) = (jx - d.delta().0, jy - d.delta().1, d);
+        wg.communes[0].idea_turn = (0..12).find(|&t| { wg.communes[0].idea_turn = t; wg.worker_says(j, 0).iter().any(|l| l.contains("SCROLL NEARBY")) }).expect("a word about the scroll");
+        shot(&wg, &format!("{}_{}_card.png", 63 + 2 * n, w.name.to_lowercase().replace(' ', "_")));
+    }
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

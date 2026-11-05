@@ -258,6 +258,10 @@ pub struct Does {
     #[serde(rename = "yield")]
     pub more: u32,
     pub quality: i32,
+    /// How many a craft rolls, where nothing it makes has a quality roll: the roll goes this
+    /// many percent further before it's rounded (a craft's secret's 10 where its goods have no
+    /// quality).
+    pub quantity: i32,
     pub time: i32,
     pub learning: i32,
     pub forgetting: i32,
@@ -275,17 +279,35 @@ pub struct Does {
 }
 
 impl Does {
+    /// What it does at a craft making `recipe`: lifting quality only where the result has a
+    /// quality roll, how many only where that varies, and a craft's quantity only where nothing
+    /// has a quality roll (so a secret lifts one roll or the other, never both).
+    pub fn at_craft(&self, recipe: &GoodType) -> Does {
+        let mut d = self.clone();
+        if recipe.has_quality {
+            d.quantity = 0;
+        } else {
+            (d.quality, d.luck, d.patience) = (0, 0, 0);
+        }
+        if recipe.is_fixed_quantity {
+            (d.more, d.quantity) = (0, 0);
+        }
+        d
+    }
+
     /// What it does, each as short as the character sheet's line: "+10% QUALITY".
     pub fn text(&self) -> Vec<String> {
         let mut out = Vec::new();
         if self.more > 0 {
             out.push(format!("+{} YIELD", self.more));
         }
-        if self.quality != 0 {
-            match &self.at {
-                Some(skill) => out.push(format!("{:+}% {} QUALITY", self.quality, skill.replace('_', " ").to_uppercase())),
-                None => out.push(format!("{:+}% QUALITY", self.quality)),
-            }
+        // A secret's own name says which craft (Henry: "+10% QUALITY OR YIELD").
+        match (self.quality, self.quantity) {
+            (0, 0) => {}
+            (q, 0) => out.push(format!("{q:+}% QUALITY")),
+            (0, n) => out.push(format!("{n:+}% YIELD")),
+            (q, n) if q == n => out.push(format!("{q:+}% QUALITY OR YIELD")),
+            (q, n) => out.extend([format!("{q:+}% QUALITY"), format!("{n:+}% YIELD")]),
         }
         for (v, what) in [(self.time, "TIME"), (self.learning, "LEARNING"), (self.forgetting, "FORGETTING"), (self.value, "VALUE")] {
             if v != 0 {

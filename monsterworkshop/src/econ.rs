@@ -96,6 +96,8 @@ impl Skills {
 pub struct Knack {
     pub more: u32,
     pub quality: f64,
+    /// How much further the quantity roll goes where nothing has a quality roll (a secret: 1.1).
+    pub quantity: f64,
     pub time: f64,
     pub learning: f64,
     pub forgetting: f64,
@@ -109,7 +111,7 @@ pub struct Knack {
 }
 
 /// No pieces: nothing changes.
-pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talent: None };
+pub const PLAIN: Knack = Knack { more: 0, quality: 1.0, quantity: 1.0, time: 1.0, learning: 1.0, forgetting: 1.0, value: 1.0, wear: 1.0, above: 1.0, below: 1.0, talent: None };
 
 impl Default for Knack {
     fn default() -> Self {
@@ -123,6 +125,7 @@ impl Knack {
         let pct = |v: i32| 1.0 + v as f64 / 100.0;
         self.more += does.more;
         self.quality *= pct(does.quality);
+        self.quantity *= pct(does.quantity);
         self.time *= pct(does.time);
         self.learning *= pct(does.learning);
         self.forgetting *= pct(does.forgetting);
@@ -367,6 +370,9 @@ pub fn roll_quantity(c: &Craft, rng: &mut Rng) -> u32 {
     let base = (rng.gauss() * sigma).abs() + mu;
     let st = c.crafter.stats;
     let q = base + (base * (ability(st, STR) - 10.0) / 10.0).round() + (base * (ability(st, crate::data::DEX) - 10.0) / 10.0 * 0.25).round();
+    // A craft's secret, where nothing has a quality roll: the roll goes further before it's
+    // rounded, sometimes over into one more (more often the more skill spreads it).
+    let q = if c.recipe.has_quality { q } else { q * c.crafter.knack.quantity };
     // A towel: one more, where how many varies.
     q.round().max(1.0) as u32 + c.crafter.knack.more
 }

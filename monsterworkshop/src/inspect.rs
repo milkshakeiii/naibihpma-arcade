@@ -281,7 +281,11 @@ fn wagon_card(g: &Game, w: usize, at: (i32, i32), c: usize) -> Card {
 /// A working townsperson: who they are, and their card's lines from the data.
 fn worker_card(g: &Game, j: usize, n: usize) -> Card {
     let (m, w) = (&g.monsters[j], &g.world.workers[n]);
-    let lines = w.about.iter().enumerate().map(|(k, l)| line(*l, if k == 0 { TEXT } else { TEXT_DIM })).collect();
+    let mut lines: Vec<Line> = w.about.iter().enumerate().map(|(k, l)| line(*l, if k == 0 { TEXT } else { TEXT_DIM })).collect();
+    // Where their trade's secret is, before what Space does.
+    let secret = g.data.piece(w.secret.1);
+    let at = w.about.iter().position(|l| l.starts_with("SPACE:")).unwrap_or(lines.len());
+    lines.insert(at, line(format!("{}'S {} IS ON THE SCROLL NEARBY ({} RENOWN).", m.name, secret.name.to_uppercase(), secret.renown), TEXT_DIM));
     Card::one(format!("{} THE {}", m.name, w.title), lines, (m.x, m.y))
 }
 
@@ -452,13 +456,12 @@ fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
     if does.more > 0 {
         first.push(line(format!("+{} YIELD, WHERE HOW MANY VARIES", does.more), TEXT_GOOD));
         does.more = 0;
-    }
-    if does.wear != 0 && does.time == 0 {
+    }    if does.wear != 0 && does.time == 0 {
         first.push(line(format!("{}, IN HAND OR ON A PEG", does.text().join(", ")), TEXT_GOOD));
     } else {
         first.extend(does.text().into_iter().map(|t| line(t, TEXT_GOOD)));
     }
-    first.push(line(format!("GIVEN AT {} RENOWN. YOU HAVE {}.", p.renown, renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown));
+    first.push(line(format!("({} RENOWN) YOU HAVE {}.", p.renown, renown.floor()), if affordable { TEXT_GOOD } else { TEXT_WARN }).icon(Icon::Renown));
     match (g.piece_refusal(c, p), g.bettered(c, p), g.replaces(c, p)) {
         (Some(why), _, _) => first.push(line(why, TEXT_WARN).icon(Icon::Warn)),
         (None, Some((by, ability)), _) => first.push(line(format!("{}'S {by} {} AS MUCH {ability}: ONLY THE BEST COUNTS.", m.name, if by.ends_with('S') { "GIVE" } else { "GIVES" }), TEXT_WARN).icon(Icon::Warn)),
@@ -472,11 +475,15 @@ fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
         (body, 0) => format!("BODY {body}"),
         (body, mind) => format!("BODY {body}, MIND {mind}"),
     };
-    let details = vec![
-        line(p.about.clone(), TEXT),
+    let mut details = vec![line(p.about.clone(), TEXT)];
+    // A working townsperson's secret: whose it is.
+    if let Some(w) = g.world.workers.iter().find(|w| w.secret.0 == (rack.x, rack.y)) {
+        details.push(line(format!("WRITTEN DOWN BY {} THE {}.", w.name, w.title), TEXT_DIM));
+    }
+    details.extend([
         line(format!("{}. IT TAKES {cost} OF WHAT A MONSTER CAN HAVE ON.", p.slot.label()), TEXT_DIM),
         line(format!("{}: {} {} OF {} SLOTS, BODY {:.0} OF {}, MIND {} OF {}.", m.name, p.slot.label(), g.gear_in(c, p.slot).len(), ty.slots.of(p.slot), g.body_used(c), ty.body_cap, g.mind_used(c), ty.mind_cap), TEXT_DIM),
-    ];
+    ]);
     Card::two(p.name.to_uppercase(), first, details, (rack.x, rack.y))
 }
 
@@ -879,17 +886,14 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
 }
 
 /// What monster `i` has on or in hand that helps at `recipe`, a line each: "MAGNIFYING GLASS:
-/// +10% QUALITY". A towel says so only where how many it makes varies.
+/// +10% QUALITY". Only what it does there: a towel where how many varies, a magnifying glass
+/// where quality's rolled, a secret's yield where it isn't.
 fn helping(g: &Game, recipe: &GoodType, i: usize) -> Vec<Line> {
     let m = &g.monsters[i];
     m.helping(&g.data, &recipe.primary_applied_skill)
         .into_iter()
         .filter_map(|p| {
-            let mut does = p.does.clone();
-            if recipe.is_fixed_quantity {
-                does.more = 0;
-            }
-            let text = does.text();
+            let text = p.does.at_craft(recipe).text();
             (!text.is_empty()).then(|| line(format!("{}: {}", p.name.to_uppercase(), text.join(", ")), TEXT_GOOD))
         })
         .collect()

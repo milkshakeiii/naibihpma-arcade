@@ -349,19 +349,7 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
     let (x0, y0) = v.px(tx, ty);
     let (wx, wy) = (tx * TS, ty * TS);
     let tile = g.world.tile(tx, ty);
-    // What's under something standing here: a building's floor indoors, otherwise grass, or
-    // under a bin what it stands in (a path).
-    let under = || if indoors(g, tx, ty) { Tile::Floor } else { Tile::Grass };
-    let ground = match tile {
-        Tile::Bin => match g.world.tile(tx, ty + 1) {
-            Tile::Wall | Tile::Door | Tile::Sign | Tile::Tree | Tile::Bin => under(),
-            t => t,
-        },
-        Tile::Tree | Tile::Sign => under(),
-        Tile::Gate => Tile::Path,
-        Tile::Rack => Tile::Floor,
-        t => t,
-    };
+    let ground = ground(g, tx, ty);
     for y in 0..TS {
         for x in 0..TS {
             let h = hash(wx + x, wy + y);
@@ -589,6 +577,21 @@ fn grass(h: u32) -> u8 {
     }
 }
 
+/// The ground drawn on a tile, under whatever stands there: a building's floor indoors, otherwise
+/// grass, or under a bin what it stands in (a path). A stand for a piece too: outdoors, on grass.
+fn ground(g: &Game, tx: i32, ty: i32) -> Tile {
+    let under = || if indoors(g, tx, ty) { Tile::Floor } else { Tile::Grass };
+    match g.world.tile(tx, ty) {
+        Tile::Bin => match g.world.tile(tx, ty + 1) {
+            Tile::Wall | Tile::Door | Tile::Sign | Tile::Tree | Tile::Bin => under(),
+            t => t,
+        },
+        Tile::Tree | Tile::Sign | Tile::Rack => under(),
+        Tile::Gate => Tile::Path,
+        t => t,
+    }
+}
+
 /// Inside a building: a wall or door each way across its floor, however wide the room, before
 /// any grass, path or water. Mats and scenery there sit on planks; outdoors, on grass.
 fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
@@ -596,7 +599,7 @@ fn indoors(g: &Game, tx: i32, ty: i32) -> bool {
         for k in 1..SCREEN_W {
             match g.world.tile(tx + dx * k, ty + dy * k) {
                 Tile::Wall | Tile::Door => return true,
-                Tile::Floor | Tile::Pad | Tile::Peg | Tile::OutMat | Tile::Spot | Tile::Sign | Tile::Bin => {}
+                Tile::Floor | Tile::Pad | Tile::Peg | Tile::OutMat | Tile::Spot | Tile::Sign | Tile::Bin | Tile::Rack => {}
                 _ => return false,
             }
         }
@@ -687,7 +690,7 @@ fn draw_rack_pitch(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         return;
     }
     let p = g.data.piece(rack.piece);
-    let lines = vec![p.name.to_uppercase(), p.effect_text(), format!("GIVEN AT {} RENOWN", p.renown)];
+    let lines = vec![p.name.to_uppercase(), p.effect_text(), format!("({} RENOWN)", p.renown)];
     let w = lines.iter().map(|l| l.len() as i32).max().unwrap_or(0) * 6 + 6;
     let h = lines.len() as i32 * 9 + 4;
     let (px, py) = v.px(rack.x, rack.y);
@@ -2166,4 +2169,20 @@ fn draw_help(fb: &mut Framebuffer) {
         fb.text(line, x + 12, y + 20 + k as i32 * 11, TEXT, Some(HUD_SHADOW), 1);
     }
     fb.text_centered("F1 CLOSES", x + w / 2, y + h - 11, TEXT_DIM, Some(HUD_SHADOW), 1);
+}
+
+#[cfg(test)]
+#[test]
+fn a_stand_sits_on_the_ground_around_it() {
+    let g = Game::new();
+    // Planks in the outfitter's and the temple, grass in a yard or by the seam: as where you
+    // stand to face it.
+    for r in &g.world.racks {
+        let fronts: Vec<Tile> = crate::world::DIRS.iter().map(|d| (r.x + d.delta().0, r.y + d.delta().1)).filter(|&(x, y)| g.world.tile(x, y).walkable()).map(|(x, y)| ground(&g, x, y)).collect();
+        assert!(fronts.contains(&ground(&g, r.x, r.y)), "{} at ({}, {}) on {:?}, beside {fronts:?}", r.piece, r.x, r.y, ground(&g, r.x, r.y));
+    }
+    let on = |piece: &str| g.world.racks.iter().find(|r| r.piece == piece).map(|r| ground(&g, r.x, r.y));
+    assert_eq!(on("secret_wagon_wright"), Some(Tile::Grass));
+    assert_eq!(on("teaching_music"), Some(Tile::Floor));
+    assert_eq!(on("rope_belt"), Some(Tile::Floor));
 }

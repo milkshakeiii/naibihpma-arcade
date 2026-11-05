@@ -184,7 +184,7 @@ impl Game {
     /// works near his door, and the idea it's their turn for.
     /// What a working townsperson says, facing them: what their bench makes from what, and what
     /// gathering from their plants takes in hand (so watching them teaches it), then their own
-    /// words, one at a time; Space asks for the next.
+    /// words and where their trade's secret is, one at a time; Space asks for the next.
     pub(crate) fn worker_says(&self, j: usize, k: usize) -> Vec<String> {
         let Some(w) = self.monsters[j].worker.and_then(|n| self.world.workers.get(n)) else { return Vec::new() };
         let id = Some(self.monsters[j].id);
@@ -199,6 +199,8 @@ impl Game {
             }
         }
         lines.extend(w.says.iter().map(|s| s.to_string()));
+        let secret = self.data.piece(w.secret.1);
+        lines.push(format!("I'VE WRITTEN THE {} ON THE SCROLL NEARBY, FOR MONSTERS OF SOME RENOWN. FACE IT TO SEE WHAT IT DOES.", secret.name.to_uppercase()));
         let n = self.communes[k].idea_turn % lines.len().max(1);
         lines.into_iter().nth(n).into_iter().collect()
     }

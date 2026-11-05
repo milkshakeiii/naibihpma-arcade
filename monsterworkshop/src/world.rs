@@ -82,6 +82,9 @@ pub struct WorkerSpec {
     pub skills: &'static [(&'static str, f64)],
     /// Their loop, in region coordinates.
     pub tasks: &'static [Task],
+    /// Their trade's secret, written on a scroll on a stand by their work and given for renown
+    /// like any piece: where it stands (region coordinates), and the piece.
+    pub secret: ((i32, i32), &'static str),
 }
 
 /// One goal of a working townsperson's loop.
@@ -108,6 +111,8 @@ pub struct Worker {
     pub skills: &'static [(&'static str, f64)],
     pub at: (i32, i32),
     pub tasks: Vec<Task>,
+    /// Their trade's secret: where its stand is, in world coordinates, and the piece.
+    pub secret: ((i32, i32), &'static str),
 }
 
 /// Where a working townsperson's goods come from: a good set out on its tile whenever theirs has
@@ -352,6 +357,7 @@ const OLD_SPOKE: WorkerSpec = WorkerSpec {
         Task::Work((19, 25)),
         Task::Move("wagon_wheel", (20, 25), (22, 25)),
     ],
+    secret: ((21, 27), "secret_wagon_wright"),
 };
 
 /// Temple Town's collier: he digs coal at his own end of the seam, a pick and a shovel in hand,
@@ -372,6 +378,7 @@ const OLD_SOOT: WorkerSpec = WorkerSpec {
         Task::Move("coal", (4, 3), (3, 5)),
         Task::Move("coal", (4, 3), (3, 5)),
     ],
+    secret: ((6, 5), "secret_prospecting"),
 };
 
 /// How long a working townsperson's supply takes to set out a fresh good once theirs is taken:
@@ -1036,7 +1043,7 @@ impl World {
                                     Task::Gather(spot, facing) => Task::Gather(at(spot), facing),
                                 })
                                 .collect();
-                            workers.push(Worker { name: w.name, title: w.title, skin: w.skin, holds: w.holds, about: w.about, says: w.says, skills: w.skills, at: (x, y), tasks });
+                            workers.push(Worker { name: w.name, title: w.title, skin: w.skin, holds: w.holds, about: w.about, says: w.says, skills: w.skills, at: (x, y), tasks, secret: (at(w.secret.0), w.secret.1) });
                         }
                         'm' => mouths.push((x, y)),
                         '0' => gate_tiles.push((x, y)),
@@ -1047,7 +1054,7 @@ impl World {
                     tiles[(y * w + x) as usize] = tile;
                 }
             }
-            for &((x, y), piece) in region.racks {
+            for &((x, y), piece) in region.racks.iter().chain(region.workers.iter().map(|w| &w.secret)) {
                 let (x, y) = at((x, y));
                 assert!(data.try_piece(piece).is_some(), "a rack shows {piece}, which isn't a piece of equipment");
                 tiles[(y * w + x) as usize] = Tile::Rack;

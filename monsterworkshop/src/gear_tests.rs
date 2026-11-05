@@ -35,7 +35,7 @@ fn the_outfitter_gives_a_piece_for_renown_and_it_raises_an_ability() {
     let (mut g, _) = at_rack("cloth_gloves", 120.0);
     let card = crate::inspect::card(&g, 0);
     assert_eq!(card.title, "CLOTH GLOVES");
-    assert!(has_line(&card, "+1 DEX") && has_line(&card, "GIVEN AT 50 RENOWN. YOU HAVE 120.") && has_line(&card, "SPACE: MOGG PUTS IT ON, FOR GOOD."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    assert!(has_line(&card, "+1 DEX") && has_line(&card, "(50 RENOWN) YOU HAVE 120.") && has_line(&card, "SPACE: MOGG PUTS IT ON, FOR GOOD."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
     let thread = g.data.good("thread").clone();
     let (dex, before) = (g.monsters[0].stats.dex, crate::econ::production_seconds(&thread, &g.monsters[0].abilities(&g.data), &crate::econ::PLAIN));
     g.script("u");
@@ -81,7 +81,7 @@ fn too_little_renown_a_full_slot_or_one_already_on_is_said_plainly() {
     let (mut g, _) = at_rack("cloth_gloves", 30.0);
     g.script("u");
     assert!(g.monsters[0].gear.is_empty() && g.communes[0].renown == 30.0);
-    assert_eq!(said(&g, 0), "GIVEN AT 50 RENOWN.");
+    assert_eq!(said(&g, 0), "NOT ENOUGH RENOWN YET (50).");
     // A goblin has three worn slots.
     g.communes[0].renown = 1000.0;
     g.monsters[0].gear = vec!["rope_belt".into(), "straw_sandals".into(), "temple_charm".into()];
@@ -531,4 +531,120 @@ fn the_temple_keeps_a_teaching_for_every_talent_and_nothing_hangs_over_a_stand()
             assert!(!g.world.townsfolk.iter().any(|t| (t.x, t.y) == (x, y + 1)), "{} at ({x},{y}) hangs over someone", prop.0);
         }
     }
+}
+
+/// Mogg on open ground beside `at`, facing it, beside `racks` racks there.
+fn beside(g: &mut Game, at: (i32, i32), racks: usize) {
+    let d = crate::world::DIRS.iter().copied().find(|d| {
+        let (x, y) = (at.0 - d.delta().0, at.1 - d.delta().1);
+        g.world.walkable(x, y) && g.monster_at(x, y).is_none() && g.world.shop_at_spot(x, y).is_none() && g.racks_beside_tile((x, y)) == racks
+    });
+    let d = d.unwrap_or_else(|| panic!("open ground beside {at:?}"));
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (at.0 - d.delta().0, at.1 - d.delta().1, d);
+}
+
+#[test]
+fn each_working_townsperson_writes_down_their_trades_secret() {
+    let workers = Game::new().world.workers.clone();
+    assert!(!workers.is_empty());
+    for (n, w) in workers.iter().enumerate() {
+        let mut g = Game::new();
+        // Their trade is what they're best at, and its secret stands by their work.
+        let trade = w.skills.iter().max_by(|a, b| a.1.total_cmp(&b.1)).expect("a trade").0;
+        assert_eq!(w.secret.1, format!("secret_{trade}"), "{}'s secret is their trade's", w.name);
+        let r = g.rack_at(w.secret.0 .0, w.secret.0 .1).unwrap_or_else(|| panic!("a stand for {}'s secret", w.name));
+        assert_eq!(g.world.racks[r].piece, w.secret.1);
+        let near = |(x, y): (i32, i32)| (x - w.secret.0 .0).abs() + (y - w.secret.0 .1).abs() <= 4;
+        assert!(near(w.at) || g.world.boards.iter().any(|b| near((b.x, b.y)) && b.title.starts_with(w.name)), "{}'s stand is by their work", w.name);
+        // What they say, and their card, tell where it is.
+        let j = g.monsters.iter().position(|m| m.worker == Some(n)).expect("their monster");
+        let name = g.data.piece(w.secret.1).name.to_uppercase();
+        let says = (0..12).flat_map(|t| { g.communes[0].idea_turn = t; g.worker_says(j, 0) }).collect::<Vec<_>>().join(" ");
+        assert!(says.contains(&format!("I'VE WRITTEN THE {name} ON THE SCROLL NEARBY")), "{says}");
+        let at = (g.monsters[j].x, g.monsters[j].y);
+        beside(&mut g, at, 0);
+        let card = crate::inspect::card(&g, 0);
+        assert!(has_line(&card, &format!("{}'S {name} IS ON THE SCROLL NEARBY (100 RENOWN).", w.name)), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+        // The scroll's card says whose it is, and Space learns it for renown, as at any rack.
+        beside(&mut g, w.secret.0, 1);
+        g.communes[0].renown = 150.0;
+        let card = crate::inspect::card(&g, 0);
+        assert_eq!(card.title, name);
+        assert!(has_line(&card, &format!("WRITTEN DOWN BY {} THE {}.", w.name, w.title)), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+        g.script("u");
+        assert_eq!(g.monsters[0].gear, vec![w.secret.1.to_string()], "{}", said(&g, 0));
+        assert_eq!(g.communes[0].renown, 50.0);
+        assert!(said(&g, 0).contains(&format!("LEARNS THE {name}")), "{}", said(&g, 0));
+    }
+}
+
+/// The average of `n` quantity rolls of `good` by Mogg with these skills and pieces.
+fn average_count(g: &Game, good: &str, skill: f64, pieces: &[&str], n: u64) -> f64 {
+    let st = g.monsters[0].abilities(&g.data);
+    let recipe = g.data.good(good);
+    let mut sk = g.monsters[0].skills.clone();
+    sk.applied.insert(recipe.primary_applied_skill.clone(), skill);
+    for k in &recipe.secondary_applied_skills {
+        sk.applied.insert(k.clone(), skill);
+    }
+    sk.specific.insert(good.into(), skill);
+    let knack = pieces.iter().fold(crate::econ::PLAIN, |k, p| k.with(&g.data.piece(p).does));
+    let craft = crate::econ::Craft { recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack: &knack }, inputs: Vec::new(), tools: Vec::new(), workshop: None };
+    (1..=n).map(|seed| crate::econ::roll_quantity(&craft, &mut crate::econ::Rng::new(seed)) as f64).sum::<f64>() / n as f64
+}
+
+#[test]
+fn a_secret_lifts_quality_where_its_goods_have_it_and_how_many_where_not() {
+    let g = Game::new();
+    // Each craft's secret lifts what its own goods roll: quality where they have it, how many
+    // where they don't, and a craft with both kinds gets both.
+    for p in g.data.pieces.iter().filter(|p| p.id.starts_with("secret_")) {
+        let skill = p.does.at.as_deref().expect("a secret is of one craft");
+        let mine: Vec<_> = g.data.goods.iter().filter(|r| r.primary_applied_skill == skill).collect();
+        assert_eq!(p.does.quality != 0, mine.iter().any(|r| r.has_quality), "{}: quality", p.id);
+        assert_eq!(p.does.quantity != 0, mine.iter().any(|r| !r.has_quality), "{}: yield", p.id);
+    }
+    // Coal has no quality roll: the Secret of Prospecting sends its count roll 10% further before
+    // it's rounded. The more skill spreads the roll, the more often that tips it into one more:
+    // skilled, about 10% more coal; partway there, less; new to it, the roll sits on 2 and 2.2
+    // still rounds to 2.
+    let secret = ["secret_prospecting"];
+    let gain = |skill| average_count(&g, "coal", skill, &secret, 4000) / average_count(&g, "coal", skill, &[], 4000);
+    let (skilled, partway) = (gain(0.9), gain(0.6));
+    assert!((1.07..1.16).contains(&skilled), "skilled: {skilled:.3}");
+    assert!(partway > 1.01 && partway < skilled, "partway: {partway:.3}");
+    assert_eq!(average_count(&g, "coal", 0.0, &secret, 200), average_count(&g, "coal", 0.0, &[], 200), "new to it");
+    // Plums have a quality roll, so gathering's secret lifts their quality and not how many.
+    let gathering = ["secret_gathering"];
+    assert!(g.data.good("plums").has_quality && !g.data.good("plums").is_fixed_quantity);
+    assert_eq!(average_count(&g, "plums", 0.6, &gathering, 400), average_count(&g, "plums", 0.6, &[], 400));
+    let knack = crate::econ::PLAIN.with(&g.data.piece("secret_gathering").does);
+    assert!((knack.quality - 1.1).abs() < 1e-9 && (knack.quantity - 1.1).abs() < 1e-9);
+    // The cards say it in a line, the secret's name saying which craft: "QUALITY OR YIELD" where
+    // its craft's goods are of both kinds.
+    assert_eq!(g.data.piece("secret_prospecting").effect_text(), "+10% YIELD");
+    assert_eq!(g.data.piece("secret_gathering").effect_text(), "+10% QUALITY OR YIELD");
+    assert_eq!(g.data.piece("secret_spinning").effect_text(), "+10% QUALITY");
+    // On the rope belt's rack, for the test.
+    let (mut g, r) = at_rack("rope_belt", 0.0);
+    g.world.racks[r].piece = "secret_gathering";
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "+10% QUALITY OR YIELD"), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+}
+
+#[test]
+fn the_coal_seam_lists_only_what_helps_there() {
+    let mut g = Game::new();
+    let p = g.world.plants.iter().position(|p| p.good == "coal" && p.owner.is_none()).expect("a seam for anyone");
+    let (x, y) = (g.world.plants[p].x, g.world.plants[p].y);
+    let m = &mut g.monsters[0];
+    (m.x, m.y, m.facing) = (x, y, Dir::Down);
+    m.gear = vec!["secret_prospecting".into()];
+    m.hands = vec![Some(Held::Piece("magnifying_glass".into())), Some(Held::Piece("lucky_charm".into()))];
+    let card = crate::inspect::card(&g, 0);
+    let lines: Vec<&String> = card.lines().map(|l| &l.text).collect();
+    // Coal's count is rolled, its quality isn't: the secret's yield helps, the glass and the
+    // charm don't.
+    assert!(has_line(&card, "SECRET OF PROSPECTING: +10% YIELD"), "{lines:?}");
+    assert!(!has_line(&card, "MAGNIFYING GLASS") && !has_line(&card, "LUCKY CHARM"), "{lines:?}");
 }

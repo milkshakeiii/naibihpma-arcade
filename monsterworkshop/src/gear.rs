@@ -133,7 +133,12 @@ impl Game {
     /// How many racks stand beside monster `c`.
     pub(crate) fn racks_beside(&self, c: usize) -> usize {
         let m = &self.monsters[c];
-        crate::world::DIRS.iter().filter(|d| self.rack_at(m.x + d.delta().0, m.y + d.delta().1).is_some()).count()
+        self.racks_beside_tile((m.x, m.y))
+    }
+
+    /// How many racks stand beside a tile.
+    pub(crate) fn racks_beside_tile(&self, (x, y): (i32, i32)) -> usize {
+        crate::world::DIRS.iter().filter(|d| self.rack_at(x + d.delta().0, y + d.delta().1).is_some()).count()
     }
 
     /// The piece of the same kind monster `i` has on, which `piece` would replace.
@@ -205,7 +210,7 @@ impl Game {
         }
         let k = self.monsters[c].commune;
         if self.communes[k].renown < piece.renown as f64 {
-            self.say(c, &format!("GIVEN AT {} RENOWN.", piece.renown), true);
+            self.say(c, &format!("NOT ENOUGH RENOWN YET ({}).", piece.renown), true);
             sfx.push(Sfx::Deny);
             return;
         }
