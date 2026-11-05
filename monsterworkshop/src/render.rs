@@ -240,7 +240,7 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
         match (held.and_then(crate::game::Held::tool), piece) {
             (Some(d), _) => {
                 t(fb, 26, y, &g.good_name(&d.good), TEXT);
-                t(fb, 26, y + 9, &format!("QUALITY {:.2}, WEAR LEFT {}", d.quality, d.durability_left()), TEXT_DIM);
+                t(fb, 26, y + 9, &format!("QUALITY {:.2}, DURABILITY {}/{}", d.quality, d.durability_left(&g.data), d.durability(&g.data)), TEXT_DIM);
             }
             (None, Some(p)) => {
                 t(fb, 26, y, &p.name.to_uppercase(), TEXT);

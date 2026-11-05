@@ -376,7 +376,7 @@ const OLD_SOOT: WorkerSpec = WorkerSpec {
     name: "OLD SOOT",
     title: "COLLIER",
     skin: (crate::palette::HUD_FILL, 3),
-    holds: &[("pick", "copper_ingot"), ("shovel", "copper_ingot")],
+    holds: &[("pick", "pig_iron_ingot"), ("shovel", "copper_ingot")],
     about: &["HE DIGS COAL AT HIS OWN END OF THE SEAM, A PICK AND A SHOVEL IN HAND. WATCH HOW HE DOES IT.", "THE REST OF THE SEAM IS FOR ANYONE WITH THE TOOLS. HIS ORDER BOARD TAKES ANYONE'S COAL, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
     says: &["THE TRADER HAS PICKS AND SHOVELS. TAKE ONE IN EACH HAND, THEN STAND ON THE SEAM AND DIG.", "TOOLS WEAR DOWN AS YOU DIG. TAKE YOURS FROM A PILE OF SPARES WHILE YOU RECORD, AND THE LOOP FETCHES A NEW ONE THERE WHEN IT BREAKS.", "COAL BURNS HOTTER THAN WOOD. THE KILN BAKES IT INTO COKE, FOR CASTING."],
     skills: &[("prospecting", 0.8), ("gathering", 0.6), ("hauling", 0.4)],

@@ -1718,7 +1718,7 @@ impl Game {
 
     /// Does monster `i` hold a `good` with wear left?
     pub(crate) fn holds_working(&self, i: usize, good: &str) -> bool {
-        self.monsters[i].tools().any(|h| h.good == good && h.durability_left() > 0)
+        self.monsters[i].tools().any(|h| h.good == good && h.durability_left(&self.data) > 0)
     }
 
     /// A tool on the ground just ahead of monster `i` that it could hold in a hand.
@@ -1791,7 +1791,7 @@ impl Game {
         let m = &self.monsters[i];
         let mut used = Vec::new();
         for group in good.tools_required_tags.iter().filter(|g| !g.is_empty()) {
-            let fits = |h: usize| m.tool(h).is_some_and(|d| d.durability_left() > 0 && self.data.try_good(&d.good).is_some_and(|t| crate::data::matches(&t.type_tags, group)));
+            let fits = |h: usize| m.tool(h).is_some_and(|d| d.durability_left(&self.data) > 0 && self.data.try_good(&d.good).is_some_and(|t| crate::data::matches(&t.type_tags, group)));
             match (0..m.hands.len()).find(|&h| !used.contains(&h) && fits(h)) {
                 Some(h) => used.push(h),
                 None => return Err(format!("MISSING A TOOL: {}.", self.describe_group(group))),

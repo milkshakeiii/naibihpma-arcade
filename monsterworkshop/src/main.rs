@@ -894,7 +894,7 @@ fn export_screenshots(dir: &Path) {
         hg.fit_hands(i);
         let m = &mut hg.monsters[i];
         m.hands[0] = Some(game::Held::Piece("shoulder_pole".into()));
-        m.hands[2] = Some(game::Held::Tool(econ::plain(&hg.data, "pick", "copper_ingot")));
+        m.hands[2] = Some(game::Held::Tool(econ::plain(&hg.data, "pick", "pig_iron_ingot")));
     }
     shot(&hg, "67_hauling_worn.png");
     // The sheet of a monster with a tool belt: a pick and a shovel in hand, the belt's hand empty.
@@ -902,7 +902,7 @@ fn export_screenshots(dir: &Path) {
     let bc = bg.communes[0].controlled;
     bg.monsters[bc].gear = vec!["tool_belt".into()];
     bg.fit_hands(bc);
-    bg.monsters[bc].hands[0] = Some(game::Held::Tool(econ::plain(&bg.data, "pick", "copper_ingot")));
+    bg.monsters[bc].hands[0] = Some(game::Held::Tool(econ::plain(&bg.data, "pick", "pig_iron_ingot")));
     bg.monsters[bc].hands[1] = Some(game::Held::Tool(econ::plain(&bg.data, "shovel", "copper_ingot")));
     bg.script("c");
     shot(&bg, "68_sheet_tool_belt.png");

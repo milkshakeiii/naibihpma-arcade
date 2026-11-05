@@ -1,4 +1,13 @@
 {
+  "alloys": [
+    {
+      "name": "bronze",
+      "of": [
+        "copper",
+        "tin"
+      ]
+    }
+  ],
   "good_types": [
     {
       "destabilizer_skills": [
@@ -742,12 +751,7 @@
       "storage_volume": 1,
       "tools_required_tags": [
         [
-          "t",
-          "r",
-          "e",
-          "l",
-          "i",
-          "s"
+          "trellis"
         ]
       ],
       "tools_weights": [
@@ -1091,14 +1095,7 @@
       "storage_volume": 0.1,
       "tools_required_tags": [
         [
-          "c",
-          "a",
-          "u",
-          "l",
-          "d",
-          "r",
-          "o",
-          "n"
+          "cauldron"
         ]
       ],
       "tools_weights": [
@@ -1770,11 +1767,11 @@
       ],
       "value_added_shares": 8,
       "variety": {
+        "color": "water",
         "name": "indigo",
         "of": [
           "dye"
-        ],
-        "color": "water"
+        ]
       }
     },
     {
@@ -3531,6 +3528,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "durability": 0.5,
         "name": "red clay",
         "of": [
           "clay"
@@ -3577,6 +3575,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "durability": 0.5,
         "name": "yellow clay",
         "of": [
           "clay"
@@ -3623,6 +3622,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "durability": 0.5,
         "name": "blue clay",
         "of": [
           "clay"
@@ -3669,6 +3669,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "durability": 0.5,
         "name": "white clay",
         "of": [
           "clay"
@@ -3715,6 +3716,7 @@
       ],
       "value_added_shares": 9,
       "variety": {
+        "durability": 0.5,
         "name": "black clay",
         "of": [
           "clay"
@@ -4183,6 +4185,7 @@
       ],
       "value_added_shares": 5,
       "variety": {
+        "durability": 0.5,
         "name": "porcelain",
         "of": [
           "clay"
@@ -4461,7 +4464,8 @@
       ],
       "type_tags": [
         "metal",
-        "pot"
+        "pot",
+        "cauldron"
       ],
       "value_added_shares": 8
     },
@@ -4920,7 +4924,7 @@
           "solder"
         ],
         [
-          "fuel"
+          "heat"
         ]
       ],
       "is_fixed_quantity": true,
@@ -5115,7 +5119,7 @@
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ]
       ],
       "is_fixed_quantity": false,
@@ -5185,7 +5189,7 @@
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ],
         [
           "rope"
@@ -5261,7 +5265,7 @@
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ],
         [
           "rope"
@@ -5380,11 +5384,12 @@
       ],
       "input_goods_tags_required": [
         [
+          "hard",
           "metal",
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ]
       ],
       "is_fixed_quantity": false,
@@ -5416,13 +5421,17 @@
         ],
         [
           "chisel"
+        ],
+        [
+          "tub"
         ]
       ],
       "tools_weights": [
         1,
         2,
         1,
-        2
+        2,
+        1
       ],
       "transferable_skills": [
         "handcrafts",
@@ -5445,20 +5454,28 @@
       "input_goods_tags_carryover": [
         [
           "metal"
-        ]
+        ],
+        [],
+        []
       ],
       "input_goods_tags_required": [
         [
           "wire"
+        ],
+        [
+          "heat"
+        ],
+        [
+          "clay"
         ]
       ],
-      "is_fixed_quantity": false,
+      "is_fixed_quantity": true,
       "name": "Needle",
       "primary_applied_skill": "blacksmithing",
       "production_time": 180,
-      "quantity": 1,
+      "quantity": 4,
       "relevant_ability_score": 1,
-      "requires_workshop": false,
+      "requires_workshop": true,
       "secondary_applied_skills": [
         "prospecting",
         "carpentry",
@@ -5472,10 +5489,18 @@
       "tools_required_tags": [
         [
           "file"
+        ],
+        [
+          "cauldron"
+        ],
+        [
+          "tub"
         ]
       ],
       "tools_weights": [
-        2
+        1,
+        1,
+        1
       ],
       "transferable_skills": [
         "handcrafts",
@@ -5507,7 +5532,7 @@
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ]
       ],
       "is_fixed_quantity": false,
@@ -5532,7 +5557,8 @@
           "forceps"
         ],
         [
-          "die"
+          "die",
+          "metal"
         ]
       ],
       "tools_weights": [
@@ -5573,7 +5599,7 @@
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ],
         [
           "wood",
@@ -5649,7 +5675,7 @@
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ]
       ],
       "is_fixed_quantity": false,
@@ -5677,7 +5703,8 @@
           "hammer"
         ],
         [
-          "die"
+          "die",
+          "metal"
         ]
       ],
       "tools_weights": [
@@ -5831,11 +5858,12 @@
       ],
       "input_goods_tags_required": [
         [
+          "hard",
           "metal",
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ],
         [
           "fastener"
@@ -5870,12 +5898,16 @@
         ],
         [
           "anvil"
+        ],
+        [
+          "tub"
         ]
       ],
       "tools_weights": [
         1,
         2,
-        2
+        2,
+        1
       ],
       "transferable_skills": [
         "handcrafts",
@@ -6204,11 +6236,12 @@
       ],
       "input_goods_tags_required": [
         [
+          "hard",
           "metal",
           "ingot"
         ],
         [
-          "fuel"
+          "heat"
         ],
         [
           "wood",
@@ -6244,12 +6277,16 @@
         ],
         [
           "anvil"
+        ],
+        [
+          "tub"
         ]
       ],
       "tools_weights": [
         1,
         2,
-        2
+        2,
+        1
       ],
       "transferable_skills": [
         "handcrafts",
@@ -6306,6 +6343,7 @@
       ],
       "value_added_shares": 2,
       "variety": {
+        "durability": 0.5,
         "name": "elder",
         "of": [
           "wood"
@@ -6405,11 +6443,12 @@
       ],
       "value_added_shares": 2,
       "variety": {
+        "color": "plank",
+        "durability": 0.75,
         "name": "hemlock",
         "of": [
           "wood"
-        ],
-        "color": "plank"
+        ]
       }
     },
     {
@@ -6456,11 +6495,11 @@
       ],
       "value_added_shares": 2,
       "variety": {
+        "color": "wood",
         "name": "oak",
         "of": [
           "wood"
-        ],
-        "color": "wood"
+        ]
       }
     },
     {
@@ -6504,6 +6543,7 @@
       ],
       "value_added_shares": 2,
       "variety": {
+        "durability": 0.75,
         "name": "arrow bamboo",
         "of": [
           "bamboo"
@@ -7797,8 +7837,24 @@
       "difficulty_rating": 8,
       "has_quality": true,
       "id": "copper_ingot",
-      "input_goods_tags_carryover": [],
-      "input_goods_tags_required": [],
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "copper",
+          "ore"
+        ],
+        [
+          "copper",
+          "ore"
+        ],
+        [
+          "heat"
+        ]
+      ],
       "is_fixed_quantity": false,
       "name": "Copper Ingot",
       "primary_applied_skill": "casting",
@@ -7816,8 +7872,14 @@
         1
       ],
       "storage_volume": 0.2,
-      "tools_required_tags": [],
-      "tools_weights": [],
+      "tools_required_tags": [
+        [
+          "forceps"
+        ]
+      ],
+      "tools_weights": [
+        1
+      ],
       "transferable_skills": [
         "science",
         "engineering",
@@ -7830,6 +7892,7 @@
       ],
       "value_added_shares": 3,
       "variety": {
+        "durability": 0.75,
         "name": "copper",
         "of": [
           "metal"
@@ -7841,8 +7904,24 @@
       "difficulty_rating": 8,
       "has_quality": true,
       "id": "tin_ingot",
-      "input_goods_tags_carryover": [],
-      "input_goods_tags_required": [],
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "tin",
+          "ore"
+        ],
+        [
+          "tin",
+          "ore"
+        ],
+        [
+          "heat"
+        ]
+      ],
       "is_fixed_quantity": false,
       "name": "Tin Ingot",
       "primary_applied_skill": "casting",
@@ -7860,8 +7939,14 @@
         1
       ],
       "storage_volume": 0.2,
-      "tools_required_tags": [],
-      "tools_weights": [],
+      "tools_required_tags": [
+        [
+          "forceps"
+        ]
+      ],
+      "tools_weights": [
+        1
+      ],
       "transferable_skills": [
         "science",
         "engineering",
@@ -7874,6 +7959,7 @@
       ],
       "value_added_shares": 3,
       "variety": {
+        "durability": 0.5,
         "name": "tin",
         "of": [
           "metal"
@@ -7885,12 +7971,31 @@
       "difficulty_rating": 8,
       "has_quality": true,
       "id": "shovel",
-      "input_goods_tags_carryover": [],
-      "input_goods_tags_required": [],
+      "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
+        [],
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "metal",
+          "ingot"
+        ],
+        [
+          "heat"
+        ],
+        [
+          "sticks"
+        ]
+      ],
       "is_fixed_quantity": false,
       "name": "Shovel",
       "primary_applied_skill": "blacksmithing",
-      "production_time": 600,
+      "production_time": 300,
       "quantity": 1,
       "raw_material_density": 130,
       "relevant_ability_score": 0,
@@ -7904,8 +8009,22 @@
         1
       ],
       "storage_volume": 0.3,
-      "tools_required_tags": [],
-      "tools_weights": [],
+      "tools_required_tags": [
+        [
+          "forceps"
+        ],
+        [
+          "hammer"
+        ],
+        [
+          "anvil"
+        ]
+      ],
+      "tools_weights": [
+        1,
+        2,
+        2
+      ],
       "transferable_skills": [
         "handcrafts",
         "engineering",
@@ -7916,15 +8035,1230 @@
         "metal"
       ],
       "value_added_shares": 3
-    }
-  ],
-  "alloys": [
+    },
     {
-      "name": "bronze",
-      "of": [
-        "copper",
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "copper_ore",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Copper Ore",
+      "primary_applied_skill": "prospecting",
+      "production_time": 720,
+      "quantity": 2,
+      "raw_material_base_value": 5,
+      "raw_material_density": 100,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "pick"
+        ],
+        [
+          "shovel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        3
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "ore",
+        "copper"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "tin_sand",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Tin Sand",
+      "primary_applied_skill": "prospecting",
+      "production_time": 900,
+      "quantity": 2,
+      "raw_material_base_value": 8,
+      "raw_material_density": 90,
+      "raw_material_rarity": 6,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "shovel"
+        ],
+        [
+          "basket"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        2
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "ore",
         "tin"
-      ]
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "iron_ore",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Iron Ore",
+      "primary_applied_skill": "prospecting",
+      "production_time": 600,
+      "quantity": 2,
+      "raw_material_base_value": 3,
+      "raw_material_density": 110,
+      "raw_material_rarity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "shovel"
+        ]
+      ],
+      "tools_weights": [
+        3
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "ore",
+        "iron"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "silver_ore",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Silver Ore",
+      "primary_applied_skill": "prospecting",
+      "production_time": 1500,
+      "quantity": 1,
+      "raw_material_base_value": 20,
+      "raw_material_density": 120,
+      "raw_material_rarity": 12,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "pick"
+        ],
+        [
+          "shovel"
+        ]
+      ],
+      "tools_weights": [
+        3,
+        3
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "ore",
+        "silver"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "granite",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Granite",
+      "primary_applied_skill": "prospecting",
+      "production_time": 600,
+      "quantity": 2,
+      "raw_material_base_value": 4,
+      "raw_material_density": 270,
+      "raw_material_rarity": 3,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "stone",
+        "hard stone",
+        "granite"
+      ],
+      "value_added_shares": 6,
+      "variety": {
+        "name": "granite",
+        "of": [
+          "stone"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 10,
+      "has_quality": false,
+      "id": "pyrite",
+      "input_goods_tags_carryover": [],
+      "input_goods_tags_required": [],
+      "is_fixed_quantity": false,
+      "name": "Pyrite",
+      "primary_applied_skill": "prospecting",
+      "production_time": 900,
+      "quantity": 2,
+      "raw_material_base_value": 6,
+      "raw_material_density": 150,
+      "raw_material_rarity": 4,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "gathering",
+        "hauling",
+        "casting"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "pick"
+        ]
+      ],
+      "tools_weights": [
+        3
+      ],
+      "transferable_skills": [
+        "outdoorsmonstership",
+        "engineering",
+        "science"
+      ],
+      "type_tags": [
+        "pyrite"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [
+        "blacksmithing"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "id": "silver_ingot",
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "silver",
+          "ore"
+        ],
+        [
+          "silver",
+          "ore"
+        ],
+        [
+          "heat"
+        ],
+        [
+          "heat"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Silver Ingot",
+      "primary_applied_skill": "casting",
+      "production_time": 900,
+      "quantity": 1,
+      "raw_material_density": 1050,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ]
+      ],
+      "tools_weights": [
+        1
+      ],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "metal",
+        "ingot",
+        "silver"
+      ],
+      "value_added_shares": 3,
+      "variety": {
+        "durability": 0.5,
+        "name": "silver",
+        "of": [
+          "metal"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "blacksmithing"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "id": "pig_iron_ingot",
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "iron",
+          "ore"
+        ],
+        [
+          "iron",
+          "ore"
+        ],
+        [
+          "heat"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Pig Iron Ingot",
+      "primary_applied_skill": "casting",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 720,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ]
+      ],
+      "tools_weights": [
+        1
+      ],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "metal",
+        "ingot",
+        "iron",
+        "cast iron",
+        "hard"
+      ],
+      "value_added_shares": 3,
+      "variety": {
+        "durability": 0.75,
+        "name": "cast iron",
+        "of": [
+          "metal"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "blacksmithing"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "id": "wrought_iron_ingot",
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "cast iron",
+          "ingot"
+        ],
+        [
+          "clay"
+        ],
+        [
+          "sticks"
+        ]
+      ],
+      "is_fixed_quantity": false,
+      "name": "Wrought Iron Ingot",
+      "primary_applied_skill": "casting",
+      "production_time": 600,
+      "quantity": 1,
+      "raw_material_density": 770,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ]
+      ],
+      "tools_weights": [
+        1
+      ],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "metal",
+        "ingot",
+        "iron",
+        "wrought iron"
+      ],
+      "value_added_shares": 3,
+      "variety": {
+        "durability": 1.25,
+        "name": "wrought iron",
+        "of": [
+          "metal"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "blacksmithing"
+      ],
+      "difficulty_rating": 14,
+      "has_quality": true,
+      "id": "steel_ingot",
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "wrought iron",
+          "ingot"
+        ],
+        [
+          "cast iron",
+          "ingot"
+        ],
+        [
+          "stalks"
+        ],
+        [
+          "clay"
+        ],
+        [
+          "heat"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Steel Ingot",
+      "primary_applied_skill": "casting",
+      "production_time": 900,
+      "quantity": 2,
+      "raw_material_density": 785,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ],
+        [
+          "hammer"
+        ]
+      ],
+      "tools_weights": [
+        1,
+        2
+      ],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "metal",
+        "ingot",
+        "iron",
+        "steel",
+        "hard"
+      ],
+      "value_added_shares": 3,
+      "variety": {
+        "durability": 2.0,
+        "name": "steel",
+        "of": [
+          "metal"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "blacksmithing"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "id": "bronze_ingot",
+      "input_goods_tags_carryover": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "copper",
+          "ingot"
+        ],
+        [
+          "copper",
+          "ingot"
+        ],
+        [
+          "tin",
+          "ingot"
+        ],
+        [
+          "heat"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Bronze Ingot",
+      "primary_applied_skill": "casting",
+      "production_time": 600,
+      "quantity": 3,
+      "raw_material_density": 880,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "metal",
+        "ingot",
+        "bronze",
+        "hard"
+      ],
+      "value_added_shares": 3,
+      "variety": {
+        "durability": 1.5,
+        "name": "bronze",
+        "of": [
+          "metal"
+        ]
+      }
+    },
+    {
+      "destabilizer_skills": [
+        "blacksmithing"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "id": "solder",
+      "input_goods_tags_carryover": [
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "tin",
+          "ingot"
+        ],
+        [
+          "heat"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Solder",
+      "primary_applied_skill": "casting",
+      "production_time": 600,
+      "quantity": 2,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "firing"
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "storage_volume": 0.1,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "science",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "solder"
+      ],
+      "value_added_shares": 3
+    },
+    {
+      "destabilizer_skills": [
+        "firing"
+      ],
+      "difficulty_rating": 4,
+      "has_quality": true,
+      "id": "primitive_tongs",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "sticks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Primitive Tongs",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 120,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "casting",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.1,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "athletics"
+      ],
+      "type_tags": [
+        "tongs",
+        "forceps"
+      ],
+      "value_added_shares": 3
+    },
+    {
+      "destabilizer_skills": [
+        "firing"
+      ],
+      "difficulty_rating": 6,
+      "has_quality": true,
+      "id": "double_tongs",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "tongs"
+        ],
+        [
+          "tongs"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Double Tongs",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 240,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "casting",
+        "carpentry"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "athletics"
+      ],
+      "type_tags": [
+        "tongs",
+        "forceps"
+      ],
+      "value_added_shares": 4
+    },
+    {
+      "destabilizer_skills": [
+        "casting"
+      ],
+      "difficulty_rating": 11,
+      "has_quality": true,
+      "id": "forceps",
+      "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "metal",
+          "ingot"
+        ],
+        [
+          "heat"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Forceps",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 240,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "carpentry",
+        "firing"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ],
+        [
+          "hammer"
+        ],
+        [
+          "anvil"
+        ]
+      ],
+      "tools_weights": [
+        1,
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "handcrafts",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "forceps",
+        "tongs",
+        "metal"
+      ],
+      "value_added_shares": 4
+    },
+    {
+      "destabilizer_skills": [],
+      "difficulty_rating": 6,
+      "has_quality": true,
+      "id": "basket",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ],
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "sticks"
+        ],
+        [
+          "sticks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Basket",
+      "primary_applied_skill": "weaving",
+      "production_time": 300,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "carpentry",
+        "textiles"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.3,
+      "tools_required_tags": [],
+      "tools_weights": [],
+      "transferable_skills": [
+        "handcrafts",
+        "visual_art",
+        "outdoorsmonstership"
+      ],
+      "type_tags": [
+        "basket"
+      ],
+      "value_added_shares": 4
+    },
+    {
+      "destabilizer_skills": [
+        "casting"
+      ],
+      "difficulty_rating": 11,
+      "has_quality": true,
+      "id": "sickle",
+      "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
+        [],
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "metal",
+          "ingot"
+        ],
+        [
+          "heat"
+        ],
+        [
+          "sticks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Sickle",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 240,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "carpentry",
+        "firing"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ],
+        [
+          "hammer"
+        ],
+        [
+          "anvil"
+        ]
+      ],
+      "tools_weights": [
+        1,
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "handcrafts",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "sickle",
+        "metal"
+      ],
+      "value_added_shares": 4
+    },
+    {
+      "destabilizer_skills": [
+        "casting"
+      ],
+      "difficulty_rating": 11,
+      "has_quality": true,
+      "id": "scythe",
+      "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
+        [],
+        [
+          "wood"
+        ],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "metal",
+          "ingot"
+        ],
+        [
+          "heat"
+        ],
+        [
+          "sticks"
+        ],
+        [
+          "sticks"
+        ],
+        [
+          "rope"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Scythe",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 360,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "carpentry",
+        "firing"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.4,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ],
+        [
+          "hammer"
+        ],
+        [
+          "anvil"
+        ]
+      ],
+      "tools_weights": [
+        1,
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "handcrafts",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "scythe",
+        "metal"
+      ],
+      "value_added_shares": 4
+    },
+    {
+      "destabilizer_skills": [
+        "casting"
+      ],
+      "difficulty_rating": 11,
+      "has_quality": true,
+      "id": "billhook",
+      "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
+        [],
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "metal",
+          "ingot"
+        ],
+        [
+          "heat"
+        ],
+        [
+          "sticks"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Billhook",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 300,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "carpentry",
+        "firing"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.2,
+      "tools_required_tags": [
+        [
+          "forceps"
+        ],
+        [
+          "hammer"
+        ],
+        [
+          "anvil"
+        ],
+        [
+          "file"
+        ]
+      ],
+      "tools_weights": [
+        1,
+        2,
+        2,
+        1
+      ],
+      "transferable_skills": [
+        "handcrafts",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "billhook",
+        "metal"
+      ],
+      "value_added_shares": 4
+    },
+    {
+      "destabilizer_skills": [
+        "casting"
+      ],
+      "difficulty_rating": 12,
+      "has_quality": true,
+      "id": "strong_pan",
+      "input_goods_tags_carryover": [
+        [
+          "metal"
+        ],
+        [
+          "metal"
+        ],
+        [],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "metal",
+          "ingot"
+        ],
+        [
+          "metal",
+          "ingot"
+        ],
+        [
+          "fastener"
+        ],
+        [
+          "fastener"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Strong Pan",
+      "primary_applied_skill": "blacksmithing",
+      "production_time": 600,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": true,
+      "secondary_applied_skills": [
+        "prospecting",
+        "carpentry",
+        "firing"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 0.6,
+      "tools_required_tags": [
+        [
+          "hammer"
+        ],
+        [
+          "anvil"
+        ]
+      ],
+      "tools_weights": [
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "handcrafts",
+        "engineering",
+        "athletics"
+      ],
+      "type_tags": [
+        "strong pan",
+        "metal"
+      ],
+      "value_added_shares": 4
     }
   ]
 }

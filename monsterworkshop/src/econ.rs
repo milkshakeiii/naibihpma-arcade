@@ -193,8 +193,8 @@ pub struct ItemData {
     pub depth: u32,
     pub value: f64,
     pub shares: Vec<Share>,
-    /// Durability spent so far (tools and frontier workshops): in uses, a whetstone's halves
-    /// included.
+    /// Durability spent so far (tools and frontier workshops): each use spends its recipe's
+    /// weight for the tool (1 to 8), less with a whetstone, more in a hasty apron.
     pub wear: f64,
     /// Who has pushed or pulled it since it was made, and how many tiles each.
     #[serde(default)]
@@ -219,10 +219,22 @@ impl ItemData {
         t
     }
 
-    /// Whole uses left: a tool with half a use left still has one.
-    pub fn durability_left(&self) -> u32 {
-        (TOOL_DURABILITY as f64 - self.wear).ceil().max(0.0) as u32
+    /// A tool's durability when new: the usual 100, more or less by what it's made of (Henry,
+    /// 2026-11-05: a steel tool's is twice that, an elder one's half). Not uses: each use wears
+    /// it by its recipe's weight for the tool.
+    pub fn durability(&self, data: &Data) -> u32 {
+        tool_durability(data.material(&self.tags(data)))
     }
+
+    /// Whole durability left: a tool with half a point left still works once more.
+    pub fn durability_left(&self, data: &Data) -> u32 {
+        (self.durability(data) as f64 - self.wear).ceil().max(0.0) as u32
+    }
+}
+
+/// The durability of a tool of `material`: the usual 100, scaled by the material's own number.
+pub fn tool_durability(material: Option<&crate::data::Variety>) -> u32 {
+    (TOOL_DURABILITY as f64 * material.and_then(|v| v.durability).unwrap_or(1.0)).round() as u32
 }
 
 /// A workshop as the crafting rules see it. Town workshops have no shares and never wear.

@@ -406,8 +406,12 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         first.push(line(format!("{} IS SEEING TO IT", m.name), TEXT_DIM));
     }
     if is_tool(g, item) {
-        let left = item.durability_left();
-        first.push(line(format!("{left}/{} USES LEFT", econ::TOOL_DURABILITY), TEXT).icon(Icon::Wear).bar(left as f64 / econ::TOOL_DURABILITY as f64));
+        let (left, full) = (item.durability_left(&g.data), item.durability(&g.data));
+        first.push(line(format!("DURABILITY {left}/{full}"), TEXT).icon(Icon::Wear).bar(left as f64 / full.max(1) as f64));
+        // What it's made of says how long it lasts.
+        if let Some(v) = g.data.material(&item.tags(&g.data)) {
+            first.push(line(format!("{}: {}.", v.tag.to_uppercase(), crate::recipes::against_most(full)), TEXT_DIM));
+        }
     }
     if let Some(kind) = crate::frontier::kit_kind(&item.good) {
         first.push(line(format!("FACE IT AND PRESS SPACE TO SET UP A {}. NOT IN TOWN OR ON A ROAD.", kind.label()), TEXT));
@@ -428,6 +432,9 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         let names: Vec<String> = into.iter().take(3).map(|r| g.good_name(r)).collect();
         let more = into.len().saturating_sub(3);
         details.push(line(format!("GOES INTO {}{}.", names.join(", "), if more > 0 { format!(" AND {more} MORE") } else { String::new() }), TEXT_DIM));
+    }
+    if let Some(life) = g.tool_life_of(gt) {
+        details.push(line(life, TEXT_DIM).icon(Icon::Wear));
     }
     if gt.type_tags.iter().any(|t| t == "fuel") {
         details.push(line("BURNS AS FUEL.", TEXT_DIM));
@@ -690,6 +697,9 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
     }
     let (lo, hi, avg) = econ::quantity_range(&craft);
     first.push(time_line(g, recipe, c, lo, hi));
+    if let Some(wear) = g.wear_each_time(recipe, c, |_| true) {
+        first.push(line(wear, TEXT_DIM).icon(Icon::Wear));
+    }
     if lo != hi {
         details.push(line(format!("ABOUT {avg:.1} {name} A HARVEST"), TEXT_DIM));
     }
@@ -869,6 +879,14 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
     }
     // What the spot makes and what it teaches, whether or not it can start yet.
     first.push(time_line(g, recipe, i, lo, hi));
+    // What each go takes off the tools that wear here; making a tool, what it could be made of
+    // and how long each lasts.
+    if let Some(wear) = g.wear_each_time(recipe, i, |k| pv.wears.get(k).copied().unwrap_or(true)) {
+        first.push(line(wear, TEXT_DIM).icon(Icon::Wear));
+    }
+    if let Some(by) = g.durability_by_material(recipe) {
+        first.push(line(by, TEXT_DIM).icon(Icon::Wear));
+    }
     first.extend(held);
     let (learns, more) = learning(g, recipe, i, "CRAFTS");
     first.push(learns);

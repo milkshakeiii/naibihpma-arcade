@@ -290,6 +290,9 @@ fn dig_once(third: Option<&str>, gear: &[&str]) -> f64 {
     m.hands = vec![Some(Held::Tool(tool("pick"))), Some(Held::Tool(tool("shovel")))];
     m.hands.extend(third.map(|p| Some(Held::Piece(p.into()))));
     m.gear = gear.iter().map(|s| s.to_string()).collect();
+    // The seam's card says beforehand what a dig will take off each tool.
+    let card = crate::inspect::card(&g, 0);
+    let shown = card.lines().map(|l| l.text.clone()).find(|t| t.starts_with("WEARS ")).unwrap_or_default();
     g.script("u");
     for _ in 0..5000 {
         if g.communes[0].made.contains("coal") {
@@ -298,7 +301,11 @@ fn dig_once(third: Option<&str>, gear: &[&str]) -> f64 {
         g.run_ticks(1);
     }
     assert!(g.communes[0].made.contains("coal"), "dug: {}", said(&g, 0));
-    g.monsters[0].tool(0).expect("the pick").wear
+    let wear = g.monsters[0].tool(0).expect("the pick").wear;
+    let n = format!("{wear:.2}");
+    let n = n.trim_end_matches('0').trim_end_matches('.');
+    assert_eq!(shown, format!("WEARS PICK {n}, SHOVEL {n}."), "the card agrees with the dig");
+    wear
 }
 
 /// Bruna at the spinnery with fiber on its pad, steered, as the forecast card is seen.
@@ -435,9 +442,81 @@ fn a_whetstone_halves_the_wear_on_tools_and_a_hasty_apron_doubles_it() {
     assert_eq!(dig_once(Some("whetstone"), &[]), 1.5);
     assert_eq!(dig_once(None, &["hasty_apron"]), 6.0);
     assert_eq!(dig_once(Some("whetstone"), &["hasty_apron"]), 3.0);
-    let mut pick = tool("pick");
-    pick.wear = 99.5;
-    assert_eq!(pick.durability_left(), 1, "half a use left is still a use");
+    let (mut pick, data) = (tool("pick"), crate::data::Data::load());
+    pick.wear = pick.durability(&data) as f64 - 0.5;
+    assert_eq!(pick.durability_left(&data), 1, "half a point left still works once more");
+}
+
+/// Tool life by material (Henry, 2026-11-05): a steel tool has twice the usual durability, an
+/// elder one half, copper with tin a bronze tool's, and the head decides, not the handle. And a
+/// player can find it out where it matters: the material's card, the tool's, the workshop's
+/// while it makes one, and the bubble when one wears out, all with the same numbers. Durability,
+/// not uses: each go wears a tool by its recipe's weight, which the plant's and the workshop's
+/// cards say.
+#[test]
+fn a_tool_lasts_by_what_its_made_of_and_every_card_says_so() {
+    let mut g = Game::new();
+    let made = |g: &Game, id: &str, from: &str| crate::econ::plain(&g.data, id, from);
+    assert_eq!(made(&g, "knife", "steel_ingot").durability(&g.data), 200);
+    assert_eq!(made(&g, "pick", "pig_iron_ingot").durability(&g.data), 75);
+    assert_eq!(made(&g, "spool", "elder_sticks").durability(&g.data), 50);
+    assert_eq!(made(&g, "spool", "rhododendron_sticks").durability(&g.data), 100);
+    assert_eq!(made(&g, "wooden_tub", "hemlock_log").durability(&g.data), 75);
+    let mut bronze = made(&g, "knife", "copper_ingot");
+    bronze.carried_tags.push("tin".into());
+    assert_eq!(bronze.durability(&g.data), 150, "copper with tin is a bronze tool");
+    let mut pick = made(&g, "pick", "pig_iron_ingot");
+    pick.carried_tags.push("oak".into());
+    assert_eq!(pick.durability(&g.data), 75, "an oak handle on a cast iron head is a cast iron pick");
+    assert_eq!(made(&g, "pick", "pick").durability(&g.data), 100, "made of nothing known: the usual");
+
+    // What a workshop making a tool could make it of, longest-lasting first.
+    assert_eq!(g.durability_by_material(g.data.good("spool")).as_deref(), Some("DURABILITY BY WOOD: RHODODENDRON 100, ELDER 50."));
+    assert_eq!(g.durability_by_material(g.data.good("pick")).as_deref(), Some("DURABILITY BY METAL: STEEL 200, BRONZE 150, CAST IRON 75."));
+    assert_eq!(g.durability_by_material(g.data.good("thread")), None, "thread isn't a tool");
+    // Wearing out: something lasting longer that grows here, if anything does.
+    assert_eq!(g.wore_out("THE", &made(&g, "spool", "elder_sticks")), "THE ELDER SPOOL WORE OUT. RHODODENDRON LASTS LONGER: DURABILITY 100, ELDER 50.");
+    assert_eq!(g.wore_out("MY", &made(&g, "pick", "pig_iron_ingot")), "MY CAST IRON PICK WORE OUT.", "no better hard metal to be had here yet");
+
+    // The cards: a steel knife ahead, then elder sticks, then limestone, which makes no tool.
+    let (x, y) = (g.monsters[0].x, g.monsters[0].y);
+    g.monsters[0].facing = Dir::Right;
+    let look = |g: &mut Game, item: ItemData| {
+        g.world.items.retain(|it| (it.x, it.y) != (x + 1, y));
+        g.world.items.push(crate::world::Item::new(x + 1, y, item));
+        crate::inspect::card(g, 0)
+    };
+    let knife = made(&g, "knife", "steel_ingot");
+    let card = look(&mut g, knife);
+    assert!(has_line(&card, "DURABILITY 200/200") && has_line(&card, "STEEL: 200 (MOST 100)."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    let sticks = made(&g, "elder_sticks", "elder_sticks");
+    let card = look(&mut g, sticks);
+    assert!(has_line(&card, "TOOL DURABILITY 50 (MOST 100)."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    let sticks = made(&g, "rhododendron_sticks", "rhododendron_sticks");
+    let card = look(&mut g, sticks);
+    assert!(has_line(&card, "TOOL DURABILITY 100, AS MOST."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    let stone = made(&g, "limestone", "limestone");
+    assert!(!has_line(&look(&mut g, stone), "TOOL DURABILITY"), "limestone makes no tool");
+    // At a bench with elder sticks on its pad, making a spool: the card ranks the woods.
+    let s = (0..g.world.shops.len()).find(|&s| g.world.shops[s].kind.recipes().contains(&"spool") && g.world.shops[s].frontier.is_none()).expect("a bench that makes spools");
+    let (pad, spot) = (g.world.shops[s].pads[0], g.world.shops[s].spot);
+    let sticks = made(&g, "elder_sticks", "elder_sticks");
+    g.world.items.push(crate::world::Item::new(pad.0, pad.1, sticks));
+    (g.monsters[0].x, g.monsters[0].y) = spot;
+    assert_eq!(g.preview(s).recipe, "spool");
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "DURABILITY BY WOOD: RHODODENDRON 100, ELDER 50."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    assert!(!card.lines().any(|l| l.text.starts_with("WEARS ")), "a spool takes no tools");
+
+    // Spinning thread: the spinnery's own spool and wheel never wear, so the card says nothing
+    // of wear; an elder spool hung on its peg does, and the card says by how much.
+    let (mut g, s) = at_spinnery();
+    let lines = |g: &Game| crate::inspect::card(g, 0).lines().map(|l| l.text.clone()).collect::<Vec<_>>();
+    assert_eq!(g.preview(s).recipe, "thread");
+    assert!(!lines(&g).iter().any(|t| t.starts_with("WEARS ")), "{:?}", lines(&g));
+    let peg = g.world.shops[s].pegs[0];
+    g.world.items.push(crate::world::Item::new(peg.0, peg.1, made(&g, "spool", "elder_sticks")));
+    assert!(lines(&g).iter().any(|t| t == "WEARS SPOOL 3."), "{:?}", lines(&g));
 }
 
 #[test]

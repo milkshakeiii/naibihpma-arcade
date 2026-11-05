@@ -79,6 +79,9 @@ pub struct VarietyOf {
     pub of: Vec<String>,
     #[serde(default)]
     pub color: Option<String>,
+    /// For a tool material, its durability against the usual: 2 for steel, 0.5 for elder.
+    #[serde(default)]
+    pub durability: Option<f64>,
 }
 
 fn yes() -> bool {
@@ -475,13 +478,25 @@ pub struct Variety {
     pub tag: String,
     pub of: Vec<String>,
     pub color: Option<String>,
+    /// A tool of it: its durability against the usual (none: the usual).
+    pub durability: Option<f64>,
 }
 
 impl Variety {
     pub fn is(&self, category: &str) -> bool {
         self.of.iter().any(|c| c == category)
     }
+
+    /// The material category it's a tool material of, if any ("metal" for steel).
+    pub fn material(&self) -> Option<&'static str> {
+        MATERIALS.iter().copied().find(|c| self.is(c))
+    }
 }
+
+/// What a tool can be made of, in the order that decides what it's made of: its metal if it
+/// carries one (an iron head on an oak handle is an iron tool), then its stone, its wood or
+/// bamboo, its clay.
+pub const MATERIALS: [&str; 5] = ["metal", "stone", "wood", "bamboo", "clay"];
 
 pub struct Data {
     pub goods: Vec<GoodType>,
@@ -509,7 +524,7 @@ impl Data {
             let of: Vec<String> = varieties.iter().find(|v| a.of.first() == Some(&v.tag)).map_or_else(Vec::new, |first| first.of.iter().filter(|c| a.of.iter().all(|m| varieties.iter().any(|v| &v.tag == m && v.is(c)))).cloned().collect());
             match varieties.iter_mut().find(|v| v.tag == a.name) {
                 Some(v) => v.of.extend(of.into_iter().filter(|c| !v.of.contains(c)).collect::<Vec<_>>()),
-                None => varieties.push(Variety { tag: a.name.clone(), of, color: None }),
+                None => varieties.push(Variety { tag: a.name.clone(), of, color: None, durability: None }),
             }
         }
         for g in &mut goods {
@@ -549,6 +564,14 @@ impl Data {
 
     pub fn variety(&self, tag: &str) -> Option<&Variety> {
         self.varieties.iter().find(|v| v.tag == tag)
+    }
+
+    /// What a tool with these tags is made of, for how long it lasts: the first of its
+    /// varieties in the first material category it has any of (`MATERIALS`), metals once
+    /// they've met (copper with tin is a bronze tool).
+    pub fn material(&self, tags: &[String]) -> Option<&Variety> {
+        let tags = self.alloyed(tags);
+        MATERIALS.iter().find_map(|c| tags.iter().filter_map(|t| self.variety(t)).find(|v| v.is(c)))
     }
 
     /// The first of `tags` that's a variety of `category`: the wood of an oak kit.
@@ -592,13 +615,14 @@ fn gather_varieties(goods: &[GoodType]) -> Vec<Variety> {
     let mut out: Vec<Variety> = Vec::new();
     for d in goods.iter().filter_map(|g| g.variety.as_ref()) {
         let k = out.iter().position(|v| v.tag == d.name).unwrap_or_else(|| {
-            out.push(Variety { tag: d.name.clone(), of: Vec::new(), color: None });
+            out.push(Variety { tag: d.name.clone(), of: Vec::new(), color: None, durability: None });
             out.len() - 1
         });
         let v = &mut out[k];
         let new: Vec<String> = d.of.iter().filter(|c| !v.of.contains(c)).cloned().collect();
         v.of.extend(new);
         v.color = v.color.take().or_else(|| d.color.clone());
+        v.durability = v.durability.or(d.durability);
     }
     out
 }
@@ -677,6 +701,79 @@ mod tests {
         assert_eq!(d.alloyed(&tags(&["copper"])), ["copper"], "copper alone is copper");
         assert!(d.good("temple_bell").input_goods_tags_carryover.iter().any(|c| c.iter().any(|t| t == "bronze")), "bronze carries over into a bell by either road");
         assert_eq!(d.metal_of(&tags(&["copper", "tin"])).as_deref(), Some("bronze"));
+    }
+
+    /// The metal batch (PROVINCES.md, "Metals, from ore to edge", agreed 2026-11-05): every
+    /// input and tool its goods ask for is something, and its chains bottom out in ore and
+    /// what else can be gathered.
+    #[test]
+    fn the_metal_batch_bottoms_out_in_ore_and_every_tool_it_asks_for_exists() {
+        let d = Data::load();
+        fn makeable(d: &Data, id: &str, depth: u32) -> bool {
+            let g = d.good(id);
+            depth < 10
+                && g.input_goods_tags_required
+                    .iter()
+                    .filter(|grp| !grp.is_empty())
+                    .all(|grp| d.goods.iter().any(|p| matches(&p.type_tags, grp) && p.id != id && makeable(d, &p.id, depth + 1)))
+        }
+        let batch = [
+            "copper_ore", "tin_sand", "iron_ore", "silver_ore", "granite", "pyrite", "copper_ingot", "tin_ingot", "silver_ingot", "pig_iron_ingot", "wrought_iron_ingot", "steel_ingot",
+            "bronze_ingot", "solder", "primitive_tongs", "double_tongs", "forceps", "basket", "shovel", "sickle", "scythe", "billhook", "strong_pan",
+        ];
+        for id in batch.into_iter().chain(["knife", "metal_chisel", "file", "pick", "needle", "wire", "nail", "metal_anvil", "green_vitriol", "stone_anvil"]) {
+            let g = d.good(id);
+            for group in g.input_goods_tags_required.iter().chain(&g.tools_required_tags).filter(|g| !g.is_empty()) {
+                assert!(d.goods.iter().any(|p| matches(&p.type_tags, group)), "{id} needs {group:?}, which nothing provides");
+            }
+            assert!(makeable(&d, id, 0), "{id} can't be made from gatherable goods");
+        }
+        // Edges of hard metal: pig iron, steel or bronze; a knife takes any metal.
+        let fits = |group: &[&str]| -> Vec<&str> { d.goods.iter().filter(|p| group.iter().all(|t| p.type_tags.iter().any(|x| x == t))).map(|p| p.id.as_str()).collect() };
+        assert_eq!(fits(&["hard", "metal", "ingot"]), ["pig_iron_ingot", "steel_ingot", "bronze_ingot"]);
+        assert_eq!(d.good("pick").input_goods_tags_required[0], ["hard", "metal", "ingot"]);
+        assert_eq!(d.good("knife").input_goods_tags_required[0], ["metal", "ingot"]);
+        // Wire is drawn through a metal die, not the wooden pattern; the metal pot is a cauldron.
+        assert_eq!(fits(&["die", "metal"]), ["die"]);
+        assert_eq!(fits(&["cauldron"]), ["metal_pot"]);
+        // The die is cast in a sand mold made on its pattern, which takes the pattern's name:
+        // a "die" mold.
+        assert!(d.good("die_pattern").variety.as_ref().is_some_and(|v| v.name == "die" && v.of == ["pattern"]));
+        let mold = d.good("sand_mold");
+        let k = mold.input_goods_tags_required.iter().position(|grp| grp == &["pattern"]).expect("a sand mold takes a pattern");
+        assert!(mold.input_goods_tags_carryover[k].iter().any(|t| t == "die"), "and carries its name");
+        assert_eq!(d.good("die").input_goods_tags_required[0], ["die", "mold"]);
+    }
+
+    /// A tag list written as a string splits into letters on loading ("trellis" became t, r,
+    /// e, l, i, s, which no tool is): no tag is a single letter.
+    #[test]
+    fn no_tag_is_a_single_letter() {
+        let d = Data::load();
+        for g in &d.goods {
+            let lists = [&g.input_goods_tags_required, &g.input_goods_tags_carryover, &g.tools_required_tags];
+            for t in g.type_tags.iter().chain(lists.into_iter().flatten().flatten()) {
+                assert!(t.chars().count() > 1, "{} has the one-letter tag {t:?}", g.id);
+            }
+        }
+    }
+
+    /// Tool life by material (agreed 2026-11-05), each variety's number declared once.
+    #[test]
+    fn tool_materials_declare_their_durability_once() {
+        let d = Data::load();
+        for v in &d.varieties {
+            let declared: Vec<f64> = d.goods.iter().filter_map(|g| g.variety.as_ref()).filter(|w| w.name == v.tag).filter_map(|w| w.durability).collect();
+            assert!(declared.windows(2).all(|w| w[0] == w[1]), "{} is declared with different durabilities: {declared:?}", v.tag);
+            assert!(v.durability.map_or(true, |u| u > 0.0 && v.material().is_some()), "{}'s durability needs a tool material", v.tag);
+        }
+        let agreed = [("steel", 2.0), ("bronze", 1.5), ("wrought iron", 1.25), ("copper", 0.75), ("cast iron", 0.75), ("tin", 0.5), ("silver", 0.5), ("hemlock", 0.75), ("elder", 0.5), ("arrow bamboo", 0.75), ("red clay", 0.5)];
+        for (tag, factor) in agreed {
+            assert_eq!(d.variety(tag).and_then(|v| v.durability), Some(factor), "{tag}");
+        }
+        for tag in ["oak", "rhododendron", "granite"] {
+            assert_eq!(d.variety(tag).and_then(|v| v.durability), None, "{tag} is the usual");
+        }
     }
 
     #[test]

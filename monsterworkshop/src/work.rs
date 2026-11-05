@@ -40,6 +40,8 @@ pub(crate) struct Preview {
     pub inputs: Result<Vec<ItemData>, String>,
     /// The tools the craft would use, or the one that is missing.
     pub tools: Result<Vec<ItemData>, String>,
+    /// Which of the recipe's tools would wear, in recipe order.
+    pub wears: Vec<bool>,
     pub workshop: Option<Workshop>,
 }
 
@@ -240,7 +242,11 @@ impl Game {
     pub(crate) fn preview(&self, s: usize) -> Preview {
         let Aim { recipe, used, missing } = self.aim(s, &|_| true);
         let inputs = if missing.is_empty() { Ok(used.iter().map(|&i| self.world.items[i].data.clone()).collect()) } else { Err(self.pads_note(s, &|_| true)) };
-        let tools = self.match_tools(s, &recipe).map(|src| {
+        let sources = self.tool_sources(s, &recipe);
+        // A town workshop's own tool never wears; one on a peg does, and so will one still to
+        // be hung there.
+        let wears = sources.iter().map(|t| !matches!(t, Ok(ToolSource::Builtin(_)))).collect();
+        let tools = sources.into_iter().collect::<Result<Vec<_>, _>>().map(|src| {
             src.iter()
                 .map(|t| match t {
                     ToolSource::Peg(i) => self.world.items[*i].data.clone(),
@@ -252,7 +258,7 @@ impl Game {
         // A frontier workshop's makers share in everything made there.
         let shares = shop.frontier.as_ref().map_or_else(Vec::new, |f| f.shares.clone());
         let workshop = shop.kind.is_building().then(|| Workshop { quality: shop.quality, shares });
-        Preview { recipe, inputs, tools, workshop }
+        Preview { recipe, inputs, tools, wears, workshop }
     }
 
     /// A good just landed on one of workshop `s`'s pads: if they're working toward something
@@ -339,26 +345,33 @@ impl Game {
         self.match_tools(s, recipe).map(|_| ())
     }
 
-    /// For each tool the recipe needs: a working tool on a peg, or the workshop's own.
+    /// For each tool the recipe needs: a working tool on a peg, or the workshop's own, or else
+    /// the first one missing.
     fn match_tools(&self, s: usize, recipe: &str) -> Result<Vec<ToolSource>, String> {
+        self.tool_sources(s, recipe).into_iter().collect()
+    }
+
+    /// Each tool the recipe needs, in order: a working tool on a peg, the workshop's own, or
+    /// what's missing.
+    fn tool_sources(&self, s: usize, recipe: &str) -> Vec<Result<ToolSource, String>> {
         let r = self.data.good(recipe);
         let shop = &self.world.shops[s];
         let mut used = Vec::new();
         let mut out = Vec::new();
         for group in r.tools_required_tags.iter().filter(|g| !g.is_empty()) {
             let on_peg = shop.pegs.iter().filter_map(|&(x, y)| self.world.peg_item(x, y)).find(|it| {
-                !used.contains(it) && self.world.items[*it].data.durability_left() > 0 && self.world.item_matches(&self.data, *it, group)
+                !used.contains(it) && self.world.items[*it].data.durability_left(&self.data) > 0 && self.world.item_matches(&self.data, *it, group)
             });
             if let Some(it) = on_peg {
                 used.push(it);
-                out.push(ToolSource::Peg(it));
+                out.push(Ok(ToolSource::Peg(it)));
             } else if let Some(id) = shop.kind.builtin_tools().iter().filter(|_| shop.frontier.is_none()).find(|id| matches(&self.data.good(id).type_tags, group)) {
-                out.push(ToolSource::Builtin(id));
+                out.push(Ok(ToolSource::Builtin(id)));
             } else {
-                return Err(crate::recipes::one(&self.describe_type(group)));
+                out.push(Err(crate::recipes::one(&self.describe_type(group))));
             }
         }
-        Ok(out)
+        out
     }
 
     pub(crate) fn tick_work(&mut self) {
@@ -436,11 +449,11 @@ impl Game {
         for (k, &h) in worn.iter().enumerate() {
             let Some(tool) = self.monsters[m].hands[h].as_mut().and_then(crate::game::Held::tool_mut) else { continue };
             tool.wear += knack.wear_of(recipe.tool_weight(k));
-            if tool.durability_left() == 0 {
-                let good = tool.good.clone();
-                let name = self.good_name(&good);
+            if tool.durability_left(&self.data) == 0 {
+                let tool = tool.clone();
                 self.monsters[m].hands[h] = None;
-                self.say(m, &format!("MY {name} BROKE."), true);
+                let said = self.wore_out("MY", &tool);
+                self.say(m, &said, true);
             }
         }
         let secs = econ::production_seconds(&recipe, &stats, &knack);
@@ -496,14 +509,14 @@ impl Game {
         // Inputs are used up; tools on pegs wear by their weight (less with a whetstone, more in a
         // hasty apron) and may break.
         let mut gone: Vec<(i32, i32)> = inputs_idx.iter().map(|&i| (self.world.items[i].x, self.world.items[i].y)).collect();
-        let mut broke = false;
+        let mut broke = None;
         for (k, t) in tool_src.iter().enumerate() {
             if let ToolSource::Peg(i) = t {
                 let it = &mut self.world.items[*i];
                 it.data.wear += knack.wear_of(recipe.tool_weight(k));
-                if it.data.durability_left() == 0 {
+                if it.data.durability_left(&self.data) == 0 {
                     gone.push((it.x, it.y));
-                    broke = true;
+                    broke = Some(it.data.clone());
                 }
             }
         }
@@ -524,8 +537,9 @@ impl Game {
         self.event(m, Ev::Made(recipe.id.clone()));
         self.sound((sx, sy), Sfx::Chime);
         let k = self.monsters[m].commune;
-        if broke {
-            self.say(m, "A TOOL WORE OUT!", true);
+        if let Some(tool) = broke {
+            let said = self.wore_out("THE", &tool);
+            self.say(m, &said, true);
         } else if !self.communes[k].examine_hinted && self.controller(m) == Some(k) {
             self.communes[k].examine_hinted = true;
             self.say(m, "DONE! HOLD E TO EXAMINE THINGS.", false);

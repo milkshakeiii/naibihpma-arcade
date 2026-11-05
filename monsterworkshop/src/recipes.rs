@@ -7,9 +7,9 @@ use crate::game::Game;
 use crate::world::{ShopKind, SCREEN_H, SCREEN_W};
 
 /// Words that take no "a" in front ("PUT FIBER ON A PAD"): stuff rather than things.
-const MASS: [&str; 30] = [
+const MASS: [&str; 35] = [
     "FIBER", "THREAD", "FABRIC", "LIME", "QUICKLIME", "LYE", "DYE", "INDIGO", "LIMESTONE", "CLAY", "SAND", "SALT", "SUGAR", "OIL", "CHARCOAL", "COAL", "COKE", "MORTAR", "BEESWAX", "PITCH", "ROSIN", "ALUM", "OCHRE", "FUEL",
-    "FLOUR", "MALT", "GRAIN", "BAMBOO", "ROPE", "WOOD",
+    "FLOUR", "MALT", "GRAIN", "BAMBOO", "ROPE", "WOOD", "HEAT", "ORE", "GRANITE", "PYRITE", "SOLDER",
 ];
 
 /// "A LOG", "AN OAK LOG", "FIBER", "PLANKS": a name as one of it, or as stuff.
@@ -109,6 +109,110 @@ impl Game {
     /// The workshops that make a good.
     pub(crate) fn made_at(&self, good: &str) -> Vec<ShopKind> {
         ShopKind::all().filter(|k| k.recipes().contains(&good)).collect()
+    }
+}
+
+/// Tool life by material, where a player meets it (Henry, 2026-11-05: which materials make good
+/// tools must be discoverable): on the material's card, the tool's, the workshop's while it
+/// makes a tool, and when a tool wears out. Every one gives the same numbers, in durability,
+/// and the plant's and workshop's cards say how much each go takes off.
+impl Game {
+    /// Is this good a tool: something some recipe asks for as one.
+    pub(crate) fn is_tool_good(&self, good: &GoodType) -> bool {
+        self.data.goods.iter().any(|r| r.tools_required_tags.iter().any(|grp| !grp.is_empty() && matches(&good.type_tags, grp)))
+    }
+
+    /// What decides a tool recipe's material: the first material category one of its inputs
+    /// carries (the pick's ingot, not its handle), with that input's slot.
+    fn material_slot<'a>(&self, recipe: &'a GoodType) -> Option<(&'static str, &'a Vec<String>)> {
+        if !self.is_tool_good(recipe) {
+            return None;
+        }
+        crate::data::MATERIALS.iter().find_map(|&c| {
+            let k = recipe.input_goods_tags_carryover.iter().position(|carry| carry.iter().any(|t| self.data.variety(t).is_some_and(|v| v.is(c))))?;
+            Some((c, recipe.input_goods_tags_required.get(k)?))
+        })
+    }
+
+    /// The materials that fit a tool recipe's material slot, longest-lasting first, each once:
+    /// a pick's hard metals, a spool's sticks. `local` keeps only goods to be had here.
+    fn materials_for(&self, recipe: &GoodType, local: bool) -> Vec<&crate::data::Variety> {
+        let Some((c, group)) = self.material_slot(recipe) else { return Vec::new() };
+        let here = |id: &str| self.world.plants.iter().any(|p| p.good == id) || (0..self.world.shops.len()).any(|s| self.offers(s).iter().any(|r| self.data.good(r).output() == id));
+        let mut out: Vec<&crate::data::Variety> = Vec::new();
+        for g in self.data.goods.iter().filter(|g| matches(&g.type_tags, group) && (!local || here(&g.id))) {
+            if let Some(v) = g.variety.as_ref().and_then(|v| self.data.variety(&v.name)).filter(|v| v.is(c)) {
+                if !out.iter().any(|o| o.tag == v.tag) {
+                    out.push(v);
+                }
+            }
+        }
+        out.sort_by(|a, b| crate::econ::tool_durability(Some(b)).cmp(&crate::econ::tool_durability(Some(a))).then(a.tag.cmp(&b.tag)));
+        out
+    }
+
+    /// "DURABILITY BY METAL: STEEL 200, BRONZE 150, CAST IRON 75.": what a workshop making a
+    /// tool could make it of, for its card.
+    pub(crate) fn durability_by_material(&self, recipe: &GoodType) -> Option<String> {
+        let (c, _) = self.material_slot(recipe)?;
+        let all = self.materials_for(recipe, false);
+        (!all.is_empty()).then(|| {
+            let each: Vec<String> = all.iter().map(|v| format!("{} {}", v.tag.to_uppercase(), crate::econ::tool_durability(Some(v)))).collect();
+            format!("DURABILITY BY {}: {}.", c.to_uppercase(), each.join(", "))
+        })
+    }
+
+    /// "TOOL DURABILITY 200 (MOST 100).": on the card of a good some tool can be made of (the card
+    /// names the material).
+    pub(crate) fn tool_life_of(&self, good: &GoodType) -> Option<String> {
+        let v = good.variety.as_ref().and_then(|v| self.data.variety(&v.name)).filter(|v| v.material().is_some())?;
+        let makes_tools = self.data.goods.iter().filter(|r| self.material_slot(r).is_some_and(|(c, group)| v.is(c) && matches(&good.type_tags, group))).count() > 0;
+        makes_tools.then(|| format!("TOOL DURABILITY {}.", against_most(crate::econ::tool_durability(Some(v)))))
+    }
+
+    /// What's said when a tool wears out: which, and something lasting longer that can be had
+    /// here, if anything can ("THE ELDER SPOOL WORE OUT. RHODODENDRON LASTS LONGER: DURABILITY
+    /// 100, ELDER 50.").
+    pub(crate) fn wore_out(&self, whose: &str, tool: &crate::econ::ItemData) -> String {
+        let said = format!("{whose} {} WORE OUT.", crate::inspect::display_name(self, tool));
+        let Some(made_of) = self.data.material(&tool.tags(&self.data)) else { return said };
+        let had = crate::econ::tool_durability(Some(made_of));
+        match self.materials_for(self.data.good(&tool.good), true).into_iter().find(|v| crate::econ::tool_durability(Some(v)) > had) {
+            Some(better) => format!("{said} {} LASTS LONGER: DURABILITY {}, {} {had}.", better.tag.to_uppercase(), crate::econ::tool_durability(Some(better)), made_of.tag.to_uppercase()),
+            None => said,
+        }
+    }
+
+    /// "WEARS PICK 3, SHOVEL 3.": what one go at `recipe` takes off the durability of
+    /// each tool monster `m` would use, its own gear counted (a whetstone halves it). `wears(k)`
+    /// says whether the k-th tool would wear at all (a town workshop's own never does). Durability
+    /// alone doesn't say how many goes a tool has: digging wears a pick 3, a loom's weaving 8.
+    pub(crate) fn wear_each_time(&self, recipe: &GoodType, m: usize, wears: impl Fn(usize) -> bool) -> Option<String> {
+        // A working townsperson's own tools never wear.
+        if self.monsters[m].worker.is_some() {
+            return None;
+        }
+        let knack = self.monsters[m].knack(&self.data, &recipe.primary_applied_skill);
+        let each: Vec<String> = recipe
+            .tools_required_tags
+            .iter()
+            .filter(|g| !g.is_empty())
+            .enumerate()
+            .filter(|&(k, _)| wears(k))
+            .map(|(k, group)| {
+                let w = format!("{:.2}", knack.wear_of(recipe.tool_weight(k)));
+                format!("{} {}", self.describe_type(group), w.trim_end_matches('0').trim_end_matches('.'))
+            })
+            .collect();
+        (!each.is_empty()).then(|| format!("WEARS {}.", each.join(", ")))
+    }
+}
+
+/// "200 (MOST 100)", or "100, AS MOST": a tool durability against the usual.
+pub(crate) fn against_most(n: u32) -> String {
+    match crate::econ::TOOL_DURABILITY {
+        most if n == most => format!("{n}, AS MOST"),
+        most => format!("{n} (MOST {most})"),
     }
 }
 

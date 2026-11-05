@@ -1662,7 +1662,7 @@ fn coal_is_dug_with_a_traded_pick_and_shovel_in_hand_which_wear_and_break() {
         t.wear = crate::econ::TOOL_DURABILITY as f64 - 1.0;
     }
     let got = dig(&mut g, seam);
-    assert!(got.contains("MY PICK BROKE"), "{got}");
+    assert!(got.contains("MY PICK WORE OUT."), "{got}");
     assert!(g.monsters[c].tools().all(|t| t.good == "shovel"), "only the shovel left");
     assert!(dig(&mut g, seam).contains("MISSING A TOOL: PICK."), "{}", said(&g, c));
 }
