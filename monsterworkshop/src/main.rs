@@ -885,5 +885,23 @@ fn export_screenshots(dir: &Path) {
     bg.monsters[bc].hands[2] = Some(game::Held::Piece("shoulder_pole".into()));
     bg.monsters[bc].earned = 400.0;
     shot(&bg, "69_sheet_full.png");
+    // The work song: its stand beside the temple's bell frame, then Bruna singing as she spins.
+    let mut wsg = temple_test_game();
+    let wc = wsg.communes[0].controlled;
+    let song = wsg.world.racks.iter().find(|r| r.piece == "work_song").map(|r| (r.x, r.y)).expect("the work song's stand");
+    (wsg.monsters[wc].x, wsg.monsters[wc].y, wsg.monsters[wc].facing) = (song.0, song.1 - 1, game::Dir::Down);
+    wsg.monsters[wc].bubble = None;
+    shot(&wsg, "70_work_song_stand.png");
+    let mut ng = Game::new();
+    let slivers = plain_work(&ng, ng.monsters[1].id, "cotton_slivers", &["cotton"], 1, &["cotton_bolls"]);
+    ng.world.items.push(world::Item::new(30, 9, slivers));
+    ng.communes[0].controlled = 1;
+    (ng.monsters[1].x, ng.monsters[1].y, ng.monsters[1].facing) = (30, 8, game::Dir::Down);
+    ng.monsters[1].gear = vec!["work_song".into()];
+    ng.press(0, Input { use_pressed: true, ..Input::default() });
+    for _ in 0..24 {
+        ng.update(&[]);
+    }
+    shot(&ng, "71_singing_at_work.png");
     println!("exported screenshots to {} ({} fabric stored)", dir.display(), g.cloth_stored());
 }

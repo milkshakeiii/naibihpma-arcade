@@ -908,13 +908,19 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
 /// where quality's rolled, a secret's yield where it isn't.
 fn helping(g: &Game, recipe: &GoodType, i: usize) -> Vec<Line> {
     let m = &g.monsters[i];
-    m.helping(&g.data, &recipe.primary_applied_skill)
+    let mut lines: Vec<Line> = m
+        .helping(&g.data, &recipe.primary_applied_skill)
         .into_iter()
         .filter_map(|p| {
             let text = p.does.at_craft(recipe).text();
             (!text.is_empty()).then(|| line(format!("{}: {}", p.name.to_uppercase(), text.join(", ")), TEXT_GOOD))
         })
-        .collect()
+        .collect();
+    // Someone else's work song carrying here, while they work.
+    if let Some((j, v)) = g.song_for(i).filter(|&(j, _)| j != i) {
+        lines.push(line(format!("{}'S WORK SONG: -{v}% TIME", g.monsters[j].name), TEXT_GOOD));
+    }
+    lines
 }
 
 /// "[time] 5.5S  [rope] 1 ROPE": how long a job takes this monster and what comes out.

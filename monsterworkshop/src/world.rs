@@ -308,7 +308,8 @@ const REGIONS: [Region; 5] = [
         province: "",
         at: (75, 32),
         // The temple's teachings, a scroll for each talent along its top wall; patience and the
-        // lucky charm by the drum and the altar candle, and Old Quiet who keeps them.
+        // lucky charm by the drum and the altar candle, and Old Quiet who keeps them; the work
+        // song beside the bell frame.
         racks: &[
             ((7, 23), "teaching_mathematics"),
             ((8, 23), "teaching_science"),
@@ -322,6 +323,7 @@ const REGIONS: [Region; 5] = [
             ((17, 23), "teaching_social"),
             ((8, 26), "lucky_charm"),
             ((16, 26), "patience"),
+            ((11, 26), "work_song"),
         ],
         folk: &[((15, 26), Folk::Keeper)],
         labels: &[((12, 22), "TEMPLE")],
@@ -834,6 +836,8 @@ pub enum PKind {
     Fluff,
     Spark,
     Leaf,
+    /// A note rising from a work song's singer.
+    Note,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1310,6 +1314,13 @@ impl World {
         }
     }
 
+    /// A note rising just right of the head of a monster at tile `(tx, ty)` singing at its work,
+    /// gone before it reaches a work bar over it, and clear of the marker over the one you steer.
+    pub fn note(&mut self, tx: i32, ty: i32) {
+        let ox = self.rand(2) as i32;
+        self.particles.push(Particle { x: tx * TS + 16 + ox, y: ty * TS + 5, vx: 0, vy: 0, life: 20, kind: PKind::Note });
+    }
+
     /// Dust kicked up behind something sliding in `dir`.
     pub fn dust(&mut self, tx: i32, ty: i32, dir: Dir) {
         let (dx, dy) = dir.delta();
@@ -1331,6 +1342,8 @@ impl World {
                 PKind::Dust | PKind::Leaf if frame % 2 == 0 => p.vy += 1,
                 PKind::Fluff if frame % 3 == 0 => p.vx = (p.vx + 1).min(1),
                 PKind::Spark if frame % 2 == 0 => p.vx -= p.vx.signum(),
+                // A note drifts up slowly, swaying.
+                PKind::Note => (p.vy, p.vx) = (-((frame % 2 == 0) as i32), if frame % 8 < 4 { 0 } else { (frame / 8 % 2) as i32 * 2 - 1 }),
                 _ => {}
             }
         }

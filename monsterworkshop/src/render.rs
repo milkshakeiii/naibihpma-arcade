@@ -1774,6 +1774,18 @@ fn draw_rack(g: &Game, fb: &mut Framebuffer, piece: &str, x0: i32, y0: i32) {
             outlined(fb, 6, 8, 3, 4);
             fb.rect_fill(x0 + 10, y0 + 11, 2, 1, THREAD + 1);
         }
+        "song" => {
+            // A scroll of music: two notes on its paper.
+            fb.rect_fill(x0 + 4, y0 + 5, 8, 8, OUTLINE);
+            fb.rect_fill(x0 + 5, y0 + 6, 6, 6, COTTON + 2);
+            for (nx, ny) in [(6, 8), (9, 7)] {
+                fb.rect_fill(x0 + nx - 1, y0 + ny + 1, 2, 2, INK);
+                fb.rect_fill(x0 + nx, y0 + ny - 2, 1, 3, INK);
+            }
+            fb.rect_fill(x0 + 6, y0 + 6, 4, 1, INK);
+            fb.rect_fill(x0 + 4, y0 + 5, 8, 1, c);
+            fb.rect_fill(x0 + 4, y0 + 12, 8, 1, shift(c, -1));
+        }
         k if k == "teaching" || k == "patience" || k.starts_with("secret_") => {
             // A scroll hung from the bar: rolled top and bottom, its paper between.
             fb.rect_fill(x0 + 4, y0 + 5, 8, 8, OUTLINE);
@@ -1834,6 +1846,17 @@ fn draw_particles(g: &Game, fb: &mut Framebuffer, v: &View) {
                 fb.pset(x, y, if p.life > 4 { COTTON + 2 } else { COTTON + 1 });
                 if p.life > 6 {
                     fb.pset(x + 1, y, COTTON + 1);
+                }
+            }
+            // An eighth note, outlined as everything in the foreground is: its stem and flag,
+            // its head at the foot.
+            PKind::Note => {
+                const NOTE: [(i32, i32); 9] = [(0, -3), (0, -2), (1, -2), (0, -1), (0, 0), (-1, 1), (0, 1), (-1, 2), (0, 2)];
+                for (dx, dy) in NOTE {
+                    fb.rect_fill(x + dx - 1, y + dy - 1, 3, 3, OUTLINE);
+                }
+                for (dx, dy) in NOTE {
+                    fb.pset(x + dx, y + dy, COTTON + 2);
                 }
             }
             PKind::Spark => {

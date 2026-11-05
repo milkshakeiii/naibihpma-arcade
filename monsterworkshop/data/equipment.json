@@ -65,6 +65,7 @@
     {"id": "backpack", "name": "Backpack", "slot": "worn", "look": "backpack", "body": 30, "renown": 100, "does": {"room": 50}, "color": ["mat", 1], "about": "CANVAS AND LEATHER STRAPS. YOU CARRY PART OF THE LOAD, SO THE WAGON YOU LEAD HOLDS HALF AGAIN AS MUCH, PARKED TOO."},
     {"id": "feathered_cap", "name": "Feathered Cap", "slot": "worn", "look": "cap", "body": 10, "renown": 100, "does": {"pull": 50}, "color": ["leaf", 1], "about": "A PUMPKIN HURRIES FOR A DASHING LEADER, SO A LOADED WAGON KEEPS FULL SPEED LONGER."},
     {"id": "shoulder_pole", "name": "Shoulder Pole", "slot": "hand", "look": "pole", "body": 30, "renown": 100, "does": {"push": 50}, "color": ["plank", 2], "about": "A SPRINGY POLE ACROSS THE SHOULDERS TAKES THE WEIGHT, SO HEAVIER GOODS ARE PUSHED AT FULL SPEED. IT TAKES A HAND."},
-    {"id": "tool_belt", "name": "Tool Belt", "slot": "worn", "look": "tool_belt", "body": 20, "renown": 100, "does": {"hands": 1}, "color": ["wood", 2], "about": "LEATHER, WITH LOOPS AND A HOOK: A THIRD HAND, FOR A TOOL OR ANYTHING ELSE HELD."}
+    {"id": "tool_belt", "name": "Tool Belt", "slot": "worn", "look": "tool_belt", "body": 20, "renown": 100, "does": {"hands": 1}, "color": ["wood", 2], "about": "LEATHER, WITH LOOPS AND A HOOK: A THIRD HAND, FOR A TOOL OR ANYTHING ELSE HELD."},
+    {"id": "work_song", "name": "Work Song", "slot": "inside", "look": "song", "mind": 40, "renown": 200, "does": {"song": 5}, "color": ["spark", 1], "about": "A TUNE TO KEEP TIME BY, SUNG WHENEVER ANYONE NEARBY IS WORKING. EVERYONE WORKING NEARBY, WHOEVER THEY ARE, THE SINGER TOO, WORKS 5% FASTER. TWO SINGERS ARE NO FASTER THAN ONE."}
   ]
 }

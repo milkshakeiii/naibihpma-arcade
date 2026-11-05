@@ -1189,6 +1189,14 @@ impl Game {
                 }
             }
         }
+        // A singer, while anyone near it works: a note now and then beside its head.
+        for i in 0..self.monsters.len() {
+            let m = &self.monsters[i];
+            if self.frame.wrapping_add(m.id.wrapping_mul(7)) % 14 == 0 && self.singing(i) {
+                let (x, y) = (m.x, m.y);
+                self.world.note(x, y);
+            }
+        }
         // What each monster faces, and since when: a rack's or a townsperson's bubble is as new
         // as that, for drawing newer bubbles over older ones.
         let frame = self.frame;

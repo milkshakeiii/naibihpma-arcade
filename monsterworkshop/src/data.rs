@@ -276,6 +276,9 @@ pub struct Does {
     pub push: i32,
     /// Hands more than its type has, for a tool or anything else held (a tool belt's one).
     pub hands: u32,
+    /// Everyone working near its singer, of any commune, the singer too, works this many percent
+    /// faster (the work song's 5); it sings whenever anyone near it works.
+    pub song: i32,
     /// How much further a result above the forecast goes (a lucky charm's 50: half as far again).
     pub luck: i32,
     /// How much of the way back to the forecast a result below it comes (patience: halfway).
@@ -342,6 +345,9 @@ impl Does {
             0 => {}
             50 => out.push("BAD ROLLS HALF AS BAD".into()),
             p => out.push(format!("BAD ROLLS {p}% LESS BAD")),
+        }
+        if self.song != 0 {
+            out.push(format!("{:+}% TIME FOR ALL NEARBY", -self.song));
         }
         if let Some(t) = &self.talent {
             out.push(format!("TALENT: {}", t.replace('_', " ").to_uppercase()));

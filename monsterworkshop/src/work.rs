@@ -43,14 +43,48 @@ pub(crate) struct Preview {
     pub workshop: Option<Workshop>,
 }
 
+/// How far a work song carries from its singer, in tiles either way.
+pub const SONG_REACH: i32 = 4;
+
 impl Game {
+    /// How long monster `monster`'s job of `recipe` takes, in ticks: shorter with a work song
+    /// sung nearby as it starts.
     pub(crate) fn job_ticks(&self, recipe: &str, monster: usize) -> u32 {
         if self.data.good(recipe).is_trade() {
             return TRADE_TICKS;
         }
         let (r, m) = (self.data.good(recipe), &self.monsters[monster]);
         let secs = econ::production_seconds(r, &m.abilities(&self.data), &m.knack(&self.data, &r.primary_applied_skill));
-        ((secs / GAME_SECONDS_PER_TICK).round() as u32).max(1)
+        let song = self.song_for(monster).map_or(1.0, |(_, v)| 1.0 - v as f64 / 100.0);
+        ((secs * song / GAME_SECONDS_PER_TICK).round() as u32).max(1)
+    }
+
+    /// The work song monster `i` works to, if one carries to it: whoever knows one within
+    /// `SONG_REACH`, of any commune, `i` itself too, working or not, since a singer sings
+    /// whenever anyone near it works (Henry); and how much faster. Two singers are no faster
+    /// than the better of them.
+    pub(crate) fn song_for(&self, i: usize) -> Option<(usize, i32)> {
+        (0..self.monsters.len())
+            .filter(|&j| self.within_song(j, i))
+            .filter_map(|j| Some((j, self.sings(j)?)))
+            .max_by_key(|&(j, v)| (v, j == i))
+    }
+
+    /// Is monster `j` near enough monster `i` for a song to carry between them?
+    pub(crate) fn within_song(&self, j: usize, i: usize) -> bool {
+        let (a, b) = (&self.monsters[j], &self.monsters[i]);
+        (a.x - b.x).abs().max((a.y - b.y).abs()) <= SONG_REACH
+    }
+
+    /// Is monster `j` singing: it knows a work song and someone near it, itself or anyone else,
+    /// is working?
+    pub(crate) fn singing(&self, j: usize) -> bool {
+        self.sings(j).is_some() && (0..self.monsters.len()).any(|k| self.monsters[k].busy && self.within_song(j, k))
+    }
+
+    /// How much faster monster `j`'s work song makes work nearby, if it knows one.
+    pub(crate) fn sings(&self, j: usize) -> Option<i32> {
+        self.monsters[j].pieces().filter_map(|id| self.data.try_piece(id)).map(|p| p.does.song).max().filter(|&v| v > 0)
     }
 
     /// "COTTON SLIVERS" for a recipe's input, for hints: a good this town makes or grows if

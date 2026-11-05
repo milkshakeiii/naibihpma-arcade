@@ -798,3 +798,58 @@ fn a_tool_belt_is_a_third_hand_and_comes_off_only_with_somewhere_for_what_it_hel
     assert_eq!(g.monsters[0].hands.len(), 2);
     assert!(g.monsters[0].hands.iter().any(|h| matches!(h, Some(Held::Piece(p)) if p == "shoulder_pole")) && g.monsters[0].holding() == 2);
 }
+
+#[test]
+fn a_work_song_speeds_everyone_working_near_its_singer() {
+    use crate::work::SONG_REACH;
+    let mut g = Game::new();
+    // The temple keeps it, and its card says what it does.
+    let r = g.world.racks.iter().position(|r| r.piece == "work_song").expect("its stand");
+    assert_eq!(crate::world::area_name(g.world.racks[r].x, g.world.racks[r].y), "TEMPLE TOWN");
+    assert_eq!(g.data.piece("work_song").effect_text(), "-5% TIME FOR ALL NEARBY");
+    // Old Spoke, of the town's own commune, at his bench, and Mogg beside him with the song,
+    // not working himself: he sings while anyone near him works.
+    let spoke = g.monsters.iter().position(|m| m.name == "OLD SPOKE").expect("Old Spoke");
+    let plain = g.job_ticks("wagon_wheel", spoke);
+    let (sx, sy) = (g.monsters[spoke].x, g.monsters[spoke].y);
+    (g.monsters[0].x, g.monsters[0].y) = (sx + 2, sy);
+    g.monsters[0].gear = vec!["work_song".into()];
+    assert!(!g.singing(0), "with nobody near him at work, he's quiet");
+    g.monsters[spoke].busy = true;
+    assert!(g.singing(0), "Old Spoke at work, Mogg sings");
+    let sung = g.job_ticks("wagon_wheel", spoke);
+    assert!((sung as f64 / plain as f64 - 0.95).abs() < 0.02, "{plain} ticks to {sung}");
+    (g.monsters[0].x, g.monsters[0].y) = (sx + SONG_REACH + 1, sy);
+    assert_eq!(g.job_ticks("wagon_wheel", spoke), plain, "out of its reach");
+    // Two singers are no faster than one.
+    (g.monsters[0].x, g.monsters[0].y) = (sx + 2, sy);
+    (g.monsters[1].x, g.monsters[1].y) = (sx - 2, sy);
+    g.monsters[1].gear = vec!["work_song".into()];
+    assert_eq!(g.job_ticks("wagon_wheel", spoke), sung);
+    // The singer works faster too, as it starts.
+    g.monsters[spoke].busy = false;
+    g.monsters[1] = Game::new().monsters.swap_remove(1);
+    let own = g.job_ticks("thread", 0);
+    g.monsters[0].gear.clear();
+    assert!((own as f64 / g.job_ticks("thread", 0) as f64 - 0.95).abs() < 0.02);
+    // At the spinnery, Bruna's card says whose song carries there; as she spins, notes rise
+    // beside Mogg, who isn't working.
+    let (mut g, _) = at_spinnery();
+    (g.monsters[0].x, g.monsters[0].y) = (g.monsters[1].x + 1, g.monsters[1].y + 1);
+    g.monsters[0].gear = vec!["work_song".into()];
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "MOGG'S WORK SONG: -5% TIME"), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    let notes = |g: &Game| g.world.particles.iter().filter(|p| matches!(p.kind, crate::world::PKind::Note)).count();
+    for _ in 0..30 {
+        g.update(&[]);
+    }
+    assert_eq!(notes(&g), 0, "nobody working, no song");
+    let mut space = Input::default();
+    space.use_pressed = true;
+    g.press(0, space);
+    assert!(g.monsters[1].busy && !g.monsters[0].busy, "Bruna spinning, Mogg not");
+    for _ in 0..30 {
+        g.update(&[]);
+    }
+    assert!(notes(&g) > 0, "notes beside Mogg while Bruna works");
+}
