@@ -1,0 +1,26 @@
+alum_springs_225_48
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is ALUM SPRINGS, in the ORE HILLS, a province of rocky hills, copper mines and dark pine woods. Under the cliff where the heights end, mineral springs well up on a stony terrace; as they dry they leave a crust on their rims, white alum at some and pale green vitriol at others, which monsters scrape off. Pyrite, fool's gold, shows in ledges at the cliff's foot. Beside the brine well stands the boiling house, where brine is boiled down to salt in wide pans, and pyrite with iron to green vitriol. A ramp climbs the cliff to the town above, and the middle road runs east along the Rust Brook. The springs are a workplace, not a spa or a garden: a mineral yard where the crust is scraped from the rims, raked, carried and boiled, as at an old alum or copperas works. Recompose the screen into a pleasant, practical working place, the way a fine level designer and pixel artist would: think about composition, framing, clusters and open space, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Use the pieces already in the picture, and add decorations generously but tastefully. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground, like sacks, crystals or ore, or like the springs and pyrite ledges below, since those are things players gather.
+- Nothing for leisure: no benches, stone lanterns, shrines, statues or seats by the springs. Everything added should look like it's there for the work.
+- Colors stay calm and natural, as in the picture. Every spring's water is clear and blue, like the brook's; the alum and the vitriol show only as a crust on the springs' rims. The terrace is pale grey stone. No colored pools, no orange, yellow or green-stained ground, no glowing water.
+- It is wild country: the left, right and bottom edges are open, with no hedge, running on into the screens beside. The cliff stays along the top edge, three tiles deep. Keep the ramp, the road and the brook where they cross the edges, on the rows and columns they cross on now. In between, new paths may be laid.
+- Leave walking room: everything below must be reachable on foot over open ground, one tile wide at least.
+- Draw no words or labels on the picture except the building's name and the signposts' names that are already there.
+
+What is here, and what must stay true:
+- THE CLIFF: grey rock columns along the whole top edge, three tiles deep, where the heights end.
+- THE RAMP: a road two tiles wide cut up through the cliff, on the columns it climbs now, and its road down to the middle road.
+- THE MIDDLE ROAD: right across the screen, from edge to edge.
+- THE RUST BROOK: along the bottom, two tiles wide, edge to edge, with reeds. Below the road, as now.
+- THE BOILING HOUSE: a small stone building you walk into, its door onto the path to the road. Inside, the pan on its hearth with a tan mat on each side of it, where goods are laid, and a mat with a lighter border below it, where the salt comes out. Keep its mats round it. It may be dressed: a chimney, firewood stacked by its wall, a brine trough from the well.
+- THE BRINE WELL: the tall timber frame over a stone curb, beside the boiling house.
+- THE SPRINGS: the ten round pools in stone rims on the terrace, five crusted white (alum) and five crusted pale green (vitriol). Keep ten, each on open ground with walkable ground beside it.
+- THE PYRITE: the six rock ledges with a brassy gold band, at the cliff's foot, each with open ground below it.
+- THE SIGNPOSTS: VERDIGRIS EAST by the ramp's foot, BELLOWS at the road's west end.
+
+Decorations that would suit it: duckboards and plank walkways for footing on the wet terrace; little stone-lined runnels carrying the springs' overflow away along the terrace (never across the road); racks of long-handled scrapers and rakes; a scrapers' lean-to with a sorting table; a tally board; wisps of steam from the springs; rocks crusted pale where the overflow runs over them; firewood, barrels and a woodpile by the boiling house; a trough or timber flume carrying brine from the well; boulders and junipers at the terrace's edge; reeds and stones along the brook; pines on the cliff's lip.
+
+Return only the image.

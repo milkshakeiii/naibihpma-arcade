@@ -190,6 +190,16 @@
       "lends": ["saw", "metal_chisel"]
     },
     {
+      "id": "boiling_house",
+      "label": "BOILING HOUSE",
+      "about": "Alum Springs', by the brine well: liquors boiled down in wide pans over a fire. Well salt from the well's brine and any fuel; green vitriol from pyrite and iron, as the copperas works boil it with scrap iron. It lends the pans and a hammer.",
+      "map_char": "Ƀ",
+      "look": "salt_pan",
+      "building": true,
+      "recipes": ["well_salt", "green_vitriol"],
+      "lends": ["strong_pan", "metal_pot", "stone_hammer"]
+    },
+    {
       "id": "trader_stall",
       "label": "TRADER'S STALL",
       "about": "A temporary trader from the hills, for testing: Cloth Reaches goods for what the bell needs from provinces not open yet, and a pick and a shovel for the coal seam until somebody can make them. Each trade wants a different mix, since the pads choose. It offers only what nothing in the world makes or grows.",

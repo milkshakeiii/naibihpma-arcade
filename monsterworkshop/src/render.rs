@@ -9,7 +9,7 @@ use crate::tutorial::{self, wrap, HELP, STAGES};
 use crate::world::*;
 
 /// The sprites a workshop kind's `look` can name (`data/workshops.json`).
-pub const LOOKS: [&str; 11] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench", "mound", "forge", "smelter", "sawpit"];
+pub const LOOKS: [&str; 12] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench", "mound", "forge", "smelter", "sawpit", "salt_pan"];
 
 pub const VIEW_H: i32 = SCREEN_H * TS; // 256; the HUD fills the remaining 44 rows
 const HOP: [i32; 7] = [0, 2, 4, 5, 5, 4, 2];
@@ -19,6 +19,14 @@ fn hash(x: i32, y: i32) -> u32 {
     h ^= h >> 13;
     h = h.wrapping_mul(0x85eb_ca6b);
     h ^ (h >> 16)
+}
+
+/// Smooth noise over the world's pixels, 0 to 255: a hashed value at every `cell`-th pixel each
+/// way, blended between them.
+fn smooth(px: i32, py: i32, cell: i32) -> i32 {
+    let (gx, gy, fx, fy) = (px.div_euclid(cell), py.div_euclid(cell), px.rem_euclid(cell), py.rem_euclid(cell));
+    let at = |x: i32, y: i32| (hash(x * 31 + cell, y) % 256) as i32;
+    (at(gx, gy) * (cell - fx) * (cell - fy) + at(gx + 1, gy) * fx * (cell - fy) + at(gx, gy + 1) * (cell - fx) * fy + at(gx + 1, gy + 1) * fx * fy) / (cell * cell)
 }
 
 /// Flip-screen camera: the top-left tile of the screen the controlled monster stands on.
@@ -149,6 +157,7 @@ fn draw_ground(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
             "mound" => (&sp.mound[if s.job.is_some() { 1 + (g.frame / 5 % 2) as usize } else { 0 }], TS - 22),
             "forge" => (&sp.forge[if s.job.is_some() { 1 + (g.frame / 2 % 2) as usize } else { 0 }], TS - 24),
             "sawpit" => (&sp.sawpit, 0),
+            "salt_pan" => (&sp.salt_pan[if s.job.is_some() { 1 + (g.frame / 3 % 2) as usize } else { 0 }], TS - 20),
             "smelter" => (&sp.smelter[if s.job.is_some() { 1 + (g.frame / 4 % 2) as usize } else { 0 }], TS - 26),
             "indigo_vat" => (&sp.indigo_vat, -4),
             "dye_vat" => (&sp.dye_vat, -4),
@@ -471,6 +480,45 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                         HEDGE
                     }
                 }
+                Tile::Boards => {
+                    // Planks laid across the way, a dark gap between each, their sides edged.
+                    let across = g.world.tile(tx - 1, ty) == Tile::Boards || g.world.tile(tx + 1, ty) == Tile::Boards;
+                    let (k, side, before, after) = if across { (x, y, (0, -1), (0, 1)) } else { (y, x, (-1, 0), (1, 0)) };
+                    let edge = (side == 0 && g.world.tile(tx + before.0, ty + before.1) != Tile::Boards) || (side == TS - 1 && g.world.tile(tx + after.0, ty + after.1) != Tile::Boards);
+                    if edge {
+                        WOOD
+                    } else if (k + 1) % 4 == 0 {
+                        PLANK
+                    } else if (k + 1) % 4 == 1 {
+                        PLANK + 3
+                    } else if h % 9 == 0 {
+                        PLANK + 1
+                    } else {
+                        PLANK + 2
+                    }
+                }
+                Tile::Sinter => {
+                    // The springs' crust: pale, rippled in rims where the overflow ran and
+                    // dried, each rim lit along its lip; ragged where it gives out into grass.
+                    let (px, py) = (wx + x, wy + y);
+                    let n = (smooth(px, py, 16) * 2 + smooth(px, py, 7)) / 3;
+                    let open_side = |dx: i32, dy: i32| !matches!(g.world.tile(tx + dx, ty + dy), Tile::Sinter | Tile::Boards) && self::ground(g, tx + dx, ty + dy) != Tile::Sinter;
+                    let fringe = [(-1, 0, x), (1, 0, TS - 1 - x), (0, -1, y), (0, 1, TS - 1 - y)].iter().filter(|&&(dx, dy, _)| open_side(dx, dy)).map(|&(_, _, d)| d).min();
+                    if fringe.is_some_and(|d| d < smooth(px, py, 9) / 36) {
+                        grass(h)
+                    } else if n % 30 == 0 {
+                        LAND_PATH + 1
+                    } else if n % 30 == 1 {
+                        COTTON + 1
+                    } else if h % 29 == 0 {
+                        LAND_PATH + 1
+                    } else {
+                        // Soft patches where it's older and duller, dithered at their edges.
+                        let m = smooth(px, py, 24);
+                        let duller = if (m - 150).abs() < 8 { (px + py) % 2 == 0 } else { m > 150 };
+                        if duller { LAND_PATH + 2 } else { COTTON }
+                    }
+                }
                 Tile::Wall => wall_px(v.style.walls(), x, y, (tx, ty), g.world.tile(tx, ty + 1) != Tile::Wall, h),
                 _ => floor_px(v.style.floors(), x, y, tx, h),
             };
@@ -748,13 +796,27 @@ fn grass(h: u32) -> u8 {
 /// The ground drawn on a tile, under whatever stands there: a building's floor indoors, otherwise
 /// grass, or under a bin what it stands in (a path). A stand for a piece too: outdoors, on grass.
 fn ground(g: &Game, tx: i32, ty: i32) -> Tile {
-    // Scenery stands on planks indoors; outdoors, on gravel where the ground around is gravel,
-    // otherwise on grass.
-    let gravel = || DIRS.iter().any(|d| {
+    // Scenery stands on planks indoors; outdoors, on gravel where the ground around is gravel, on
+    // the springs' sinter where it's most of the ground around, on cobbles where all the open
+    // ground around is cobbled (a well in a square), otherwise on grass.
+    let around = || DIRS.iter().map(|d| {
         let (dx, dy) = d.delta();
-        g.world.tile(tx + dx, ty + dy) == Tile::Gravel
+        g.world.tile(tx + dx, ty + dy)
     });
-    let under = || if indoors(g, tx, ty) { Tile::Floor } else if gravel() { Tile::Gravel } else { Tile::Grass };
+    let gravel = || around().any(|t| t == Tile::Gravel);
+    let sinter = || around().filter(|&t| matches!(t, Tile::Sinter | Tile::Boards)).count() >= 2;
+    let paved = || around().any(|t| t == Tile::Paving) && around().filter(|t| t.walkable()).all(|t| t == Tile::Paving);
+    let under = || if indoors(g, tx, ty) {
+        Tile::Floor
+    } else if gravel() {
+        Tile::Gravel
+    } else if sinter() {
+        Tile::Sinter
+    } else if paved() {
+        Tile::Paving
+    } else {
+        Tile::Grass
+    };
     match g.world.tile(tx, ty) {
         Tile::Bin => match g.world.tile(tx, ty + 1) {
             Tile::Wall | Tile::Door | Tile::Sign | Tile::Tree | Tile::Bin => under(),

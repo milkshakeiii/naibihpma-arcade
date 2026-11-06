@@ -34,16 +34,18 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam  `©` copper seam
 // `ĝ` granite outcrop  `ĥ` hemp  `Ƥ` pine  `ƥ` a pine tapped for resin  `ʝ` juniper  `ɨ` iron,
-// in a red bank
+// in a red bank  `ƿ` pyrite  `ȃ` a spring crusted with alum  `ʋ` a spring crusted with green
+// vitriol
 // `0` a gate into a province past the first, shut until its board's goal is met
 // `░` paving  `╪` a jetty (planks over water)  `╬` a bridge, built  `▒` gravel: bare stony ground, as in a quarry or
-// a pit (copper seams and granite outcrops lie on it too)  `≡` stone steps
+// a pit (copper seams and granite outcrops lie on it too)  `≡` stone steps  `═` duckboards  `▓` sinter,
+// the pale crust round mineral springs
 // Work spots are marked by their kind's `map_char` in `data/workshops.json` (`B` workbench,
 // `S` spinnery, `L` loom house...). Each `p` pad, `g` tool peg and `o` output mat belongs to the
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋɨ";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋɨƿȃʋ═▓";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -204,7 +206,7 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 /// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks, the
 /// parapet and the yard wall join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 99] = [
+pub const PROPS: [PropKind; 105] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -316,12 +318,19 @@ pub const PROPS: [PropKind; 99] = [
     prop("ferns", 'ɸ', "FERNS", "THEY LIKE IT DAMP BY THE WATER.", (1, 1)),
     water_prop("river_stones", 'ɵ', "STONES IN THE BROOK", "THE WATER CHATTERS OVER THEM.", (1, 1)),
     water_prop("fallen_log", 'ɤ', "A FALLEN LOG", "IT LIES ACROSS THE WATER. NOBODY TRUSTS IT TO WALK ON.", (1, 1)),
+    // Alum Springs'.
+    prop("brine_well", 'Ɓ', "THE BRINE WELL", "A BORE DOWN TO SALT WATER, FAR DEEPER THAN A WELL FOR DRINKING. THE BOILING HOUSE BOILS IT DOWN TO SALT.", (2, 2)),
+    prop("brine_trough", 'ǂ', "THE BRINE TROUGH", "IT CARRIES BRINE FROM THE WELL TO THE BOILING HOUSE, A DRIP AT A TIME.", (2, 1)),
+    prop("boiling_chimney", 'ʭ', "THE BOILING HOUSE CHIMNEY", "IT DRAWS THE FIRE UNDER THE PANS. THE SMOKE SMELLS OF SALT.", (1, 1)),
+    prop("scraper_rack", 'ɷ', "A RACK OF SCRAPERS", "LONG-HANDLED SCRAPERS AND RAKES, FOR THE CRUST ON THE SPRINGS' RIMS. NOBODY SCRAPES WITH THEIR CLAWS TWICE.", (1, 1)),
+    prop("tally_post", 'Ɣ', "THE TALLY POST", "A NOTCH FOR EVERY BASKET OF CRUST SCRAPED. THE NOTCHES GO BACK YEARS.", (1, 1)),
+    prop("sorting_table", 'Ƣ', "THE SORTING TABLE", "WHERE THE CRUST IS PICKED OVER FOR GRIT, THROUGH A SIEVE.", (1, 1)),
 ];
 
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 12] = [
+const REGIONS: [Region; 13] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
@@ -546,7 +555,7 @@ const REGIONS: [Region; 12] = [
         workers: &[],
     },
     // Iron Brook, south of Hemp Hollow: the Rust Brook comes down from the hollow and turns west
-    // out of the hills, its banks red with iron; pines, and a sawpit at the road's end.
+    // out of the hills, iron in seams along its banks; pines, and a sawpit at the road's end.
     Region {
         map: include_str!("../data/iron_brook.map"),
         province: "THE HILLS",
@@ -558,6 +567,24 @@ const REGIONS: [Region; 12] = [
         goods: &[],
         labels: &[],
         signs: &[("HEMP HOLLOW", Dir::Up)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
+    // Alum Springs, east of Bellows: springs crusted with alum and green vitriol, pyrite at the
+    // cliff's foot, the brine well and its boiling house; the ramp up to Verdigris East. Until the
+    // foundry casts, a pick and a pot lie by the seams and springs.
+    Region {
+        map: include_str!("../data/alum_springs.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (225, 48),
+        racks: &[],
+        folk: &[],
+        vines: &[],
+        goods: &[((7, 4), "pick", "pig_iron_ingot"), ((21, 6), "metal_pot", "pig_iron_ingot")],
+        labels: &[],
+        signs: &[("VERDIGRIS EAST", Dir::Up), ("BELLOWS", Dir::Left)],
         boards: &[],
         supplies: &[],
         workers: &[],
@@ -654,7 +681,7 @@ pub const SUPPLY_TICKS: u32 = 60;
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it, then the hills row by row, each west to east (the last
 /// one a tile lies past is its name, so the order matters).
-const AREAS: [(i32, i32, &str); 14] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS"), (150, 64, "IRON BROOK")];
+const AREAS: [(i32, i32, &str); 15] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS"), (150, 64, "IRON BROOK"), (225, 48, "ALUM SPRINGS")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 /// A test checks it against the regions, since a region further south makes the world taller.
@@ -685,6 +712,9 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'ƥ' => "pine_resin",
         'ʝ' => "juniper_sticks",
         'ɨ' => "iron_ore",
+        'ƿ' => "pyrite",
+        'ȃ' => "alum_found",
+        'ʋ' => "green_vitriol_found",
         _ => return None,
     })
 }
@@ -753,6 +783,11 @@ pub enum Tile {
     /// Stone steps, between a pit's terraces: walked, and goods pushed up and down them, but no
     /// wagon climbs them.
     Stair,
+    /// Duckboards: planks laid on wet ground, across the way. Walked like grass.
+    Boards,
+    /// Sinter: the pale crust mineral springs lay down round themselves, rippled where their
+    /// overflow ran. Walked like gravel.
+    Sinter,
 }
 
 impl Tile {
@@ -1275,8 +1310,11 @@ impl World {
                         'Y' => Tile::Tree,
                         '0' => Tile::Gate,
                         '░' => Tile::Paving,
-                    '▒' | '©' | 'ĝ' | 'ɨ' => Tile::Gravel,
+                    '▒' | '©' | 'ĝ' | 'ɨ' | 'ƿ' => Tile::Gravel,
+                    // Springs well up out of their own sinter.
+                    '▓' | 'ȃ' | 'ʋ' => Tile::Sinter,
                     '≡' => Tile::Stair,
+                    '═' => Tile::Boards,
                     '╬' => Tile::Bridge,
                         // A jetty: planks over the water, walked like the footbridge.
                         '╪' => Tile::Footbridge,

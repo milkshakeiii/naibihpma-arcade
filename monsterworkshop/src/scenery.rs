@@ -50,7 +50,7 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "trough" => vec![trough()],
         "anvil" => vec![anvil()],
         "hand_cart" => vec![hand_cart()],
-        "chimney" => vec![chimney()],
+        "chimney" | "boiling_chimney" => vec![chimney()],
         "hoist" => vec![hoist()],
         "wall_lantern" => vec![wall_lantern()],
         "moulds" => vec![moulds()],
@@ -64,6 +64,11 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "drum" => vec![drum()],
         "altar" => vec![altar()],
         "well" => vec![well()],
+        "brine_well" => vec![brine_well()],
+        "brine_trough" => vec![brine_trough()],
+        "scraper_rack" => vec![scraper_rack()],
+        "tally_post" => vec![tally_post()],
+        "sorting_table" => vec![sorting_table()],
         "dye_barrel" => [INDIGO, MADDER, [WATER, WATER + 1, WATER + 2]].into_iter().map(dye_barrel).collect(),
         "dye_tub" => [MADDER, INDIGO].into_iter().map(dye_tub).collect(),
         "cloth_shelf" => vec![cloth_shelf()],
@@ -1509,5 +1514,135 @@ fn fallen_log() -> Sprite {
     rect(&mut s, 12, 1, 15, 6, WOOD);
     rect(&mut s, 13, 2, 14, 5, PLANK + 3);
     s.set(13, 3, PLANK + 1);
+    s.outline()
+}
+
+/// The brine well: a low stone curb over a deep bore, a tall timber frame leaning in over it to a
+/// wheel at its head, and the long bucket that's let down on its rope for brine.
+fn brine_well() -> Sprite {
+    let mut s = Sprite::blank(32, 44);
+    for y in 30..=43 {
+        for x in 4..=27 {
+            let (dx, dy) = ((x - 16) as f64 / 11.5, (y - 37) as f64 / 6.5);
+            if dx * dx + dy * dy <= 1.0 {
+                let joint = y % 3 == 0 || (x + (y / 3) * 3) % 6 == 0;
+                s.set(x, y, if joint { STONE[0] } else if x < 10 { STONE[2] } else { STONE[1] });
+            }
+        }
+    }
+    for y in 33..=38 {
+        for x in 9..=22 {
+            let (dx, dy) = ((x - 16) as f64 / 6.5, (y - 35) as f64 / 2.5);
+            if dx * dx + dy * dy <= 1.0 {
+                s.set(x, y, if y <= 34 { WATER + 1 } else { HUD_SHADOW });
+            }
+        }
+    }
+    // Two legs leaning in to the head.
+    for y in 6..=40 {
+        let t = (y - 6) * 11 / 34;
+        for (x, light) in [(5 + 11 - t, false), (26 - 11 + t, true)] {
+            s.set(x, y, if light { WOOD + 2 } else { WOOD + 1 });
+            s.set(x + 1, y, WOOD + 1);
+        }
+    }
+    rect(&mut s, 9, 22, 23, 23, WOOD + 2);
+    // The wheel at the head.
+    for y in 0..=10 {
+        for x in 11..=21 {
+            let d = (x - 16) * (x - 16) + (y - 5) * (y - 5);
+            if (16..=25).contains(&d) || x == 16 || y == 5 && d <= 25 {
+                s.set(x, y, if d <= 2 { WOOD } else { WOOD + 2 });
+            }
+        }
+    }
+    // The rope, and the long bucket on it.
+    rect(&mut s, 21, 6, 21, 21, HUD_HI);
+    rect(&mut s, 20, 24, 22, 32, PLANK + 2);
+    rect(&mut s, 20, 24, 20, 32, PLANK + 3);
+    rect(&mut s, 20, 26, 22, 26, WOOD);
+    rect(&mut s, 20, 30, 22, 30, WOOD);
+    s.outline()
+}
+
+/// The brine trough: a long wooden trough on two pairs of legs, brine glinting in it, a drip
+/// falling from its end.
+fn brine_trough() -> Sprite {
+    let mut s = Sprite::blank(32, 16);
+    for x in [3, 4, 27, 28] {
+        rect(&mut s, x, 8, x, 15, if x % 2 == 0 { WOOD + 2 } else { WOOD + 1 });
+    }
+    rect(&mut s, 0, 3, 31, 8, WOOD + 1);
+    rect(&mut s, 0, 3, 31, 3, WOOD + 3);
+    rect(&mut s, 1, 4, 30, 5, WATER + 1);
+    rect(&mut s, 1, 4, 30, 4, WATER + 2);
+    rect(&mut s, 0, 8, 31, 8, WOOD);
+    s.set(31, 10, WATER + 2);
+    s.set(31, 13, WATER + 1);
+    s.outline()
+}
+
+/// A rack of long-handled scrapers and a rake, heads up, against a bar on two posts, as the
+/// Copper Cut keeps its picks.
+fn scraper_rack() -> Sprite {
+    let mut s = Sprite::blank(16, 22);
+    rect(&mut s, 1, 6, 2, 21, WOOD + 1);
+    rect(&mut s, 13, 6, 14, 21, WOOD + 1);
+    rect(&mut s, 1, 8, 14, 9, WOOD + 2);
+    // Two scrapers: a flat blade on a long handle, its edge bright.
+    for x in [4, 8] {
+        rect(&mut s, x, 3, x, 20, PLANK + 3);
+        rect(&mut s, x - 2, 1, x + 2, 2, HUD_HI);
+        rect(&mut s, x - 2, 1, x + 2, 1, TEXT_DIM);
+    }
+    // The rake: its bar and tines.
+    rect(&mut s, 11, 4, 11, 20, PLANK + 3);
+    rect(&mut s, 9, 3, 13, 3, HUD_MID);
+    for x in [9, 11, 13] {
+        s.set(x, 2, HUD_MID);
+    }
+    s.outline()
+}
+
+/// The tally post: a board on a short post, notched in fives, four strokes and one across.
+fn tally_post() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    rect(&mut s, 7, 10, 8, 15, WOOD + 1);
+    rect(&mut s, 7, 10, 7, 15, WOOD + 2);
+    rect(&mut s, 1, 0, 14, 10, WOOD);
+    rect(&mut s, 2, 1, 13, 9, PLANK + 2);
+    for x0 in [3, 9] {
+        for i in 0..4 {
+            rect(&mut s, x0 + i, 2, x0 + i, 5, WOOD);
+        }
+        for i in 0..5 {
+            s.set(x0 - 1 + i, 5 - i * 3 / 4, OUTLINE);
+        }
+    }
+    for x in [3, 5] {
+        rect(&mut s, x, 6, x, 8, WOOD);
+    }
+    s.outline()
+}
+
+/// The sorting table: planks on legs, a sieve in its frame on it and a wooden scoop.
+fn sorting_table() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    for x in [2, 13] {
+        rect(&mut s, x, 9, x, 15, WOOD + 1);
+    }
+    rect(&mut s, 0, 5, 15, 9, PLANK + 2);
+    rect(&mut s, 0, 5, 15, 5, PLANK + 3);
+    rect(&mut s, 0, 9, 15, 9, WOOD);
+    // The sieve: a frame round a mesh.
+    rect(&mut s, 2, 2, 9, 7, WOOD + 2);
+    for y in 3..=6 {
+        for x in 3..=8 {
+            s.set(x, y, if (x + y) % 2 == 0 { HUD_MID } else { HUD_FILL });
+        }
+    }
+    // The scoop.
+    rect(&mut s, 11, 6, 13, 7, WOOD + 2);
+    rect(&mut s, 12, 4, 12, 5, WOOD + 1);
     s.outline()
 }

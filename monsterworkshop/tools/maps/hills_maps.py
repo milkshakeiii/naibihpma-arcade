@@ -325,7 +325,61 @@ put(i, '@', (3, 4), (17, 5), (23, 8), (21, 13))
 put(i, 's', (4, 2))
 assert i[0][12] in 'w¥' and i[0][13] in 'w¥', "the brook comes in where Hemp Hollow's goes out"
 
-for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b), ('iron_brook', i)]:
+# --- Alum Springs, from variant 1 of the first round (tools/briefs/hills_alum.txt), which Henry
+# picked over a second round briefed as a working yard: east of Bellows, under the heights' edge,
+# the ramp cut up through it to Verdigris East; the middle road east toward the foundry, the Rust
+# Brook below it. The springs in their own pale sinter with duckboards across it; the variant's benches
+# and lanterns (Henry: benches for enjoying the green vitriol seemed odd) are racks of scrapers and
+# tally posts. Pyrite at the cliff's foot, which stays on the top rows to meet Bellows' (the model
+# drew it a row lower, under a strip of pines). The brine well, its trough and the boiling house.
+# Wild: open to Bellows (whose hedge stands on its own side), to the foundry east and over the
+# brook to the Slag Slopes.
+a = blank()
+box(a, 'Λ', 0, 0, 24, 2)         # the heights' edge, under Verdigris East
+box(a, ',', 8, 0, 9, 2)          # the ramp, cut up through it
+box(a, '.', 0, 3, 0, 15)
+box(a, '.', 24, 3, 24, 15)
+box(a, '.', 1, 15, 23, 15)
+box(a, ',', 8, 3, 8, 10)         # the ramp's road down to the middle road
+box(a, ',', 0, 11, 24, 11)       # the middle road, from Bellows on east to the foundry
+box(a, 'w', 0, 13, 24, 14)       # the Rust Brook
+box(a, 'W', 1, 5, 6, 9)          # the boiling house,
+box(a, '_', 2, 6, 5, 8)
+put(a, 'D', (3, 9))
+put(a, 'Ƀ', (3, 7))
+put(a, 'p', (2, 7), (4, 7))
+put(a, 'o', (3, 8))
+box(a, 'Ɓ', 2, 3, 3, 4)          # the brine well,
+box(a, 'ǂ', 5, 4, 6, 4)          # the trough from it,
+put(a, 'ʭ', (4, 4))              # and the house's chimney behind it
+put(a, '+', (7, 6), (7, 7))      # firewood for the pans,
+put(a, 'i', (0, 7), (0, 8))      # barrels
+# The springs' sinter, the pale crust they lay down, with duckboards across it.
+box(a, '▓', 13, 5, 17, 5)
+box(a, '▓', 19, 5, 22, 5)
+box(a, '▓', 11, 6, 23, 7)
+box(a, '▓', 12, 8, 23, 9)
+box(a, '▓', 13, 10, 16, 10)
+box(a, '▓', 18, 10, 22, 10)
+box(a, '═', 13, 8, 21, 8)
+put(a, '═', (13, 7), (17, 6), (17, 7), (21, 7))
+put(a, 'ȃ', (15, 5), (12, 6), (14, 7), (14, 9), (17, 9))   # alum springs,
+put(a, 'ʋ', (21, 5), (18, 6), (20, 7), (19, 9), (22, 9))   # green vitriol springs
+put(a, 'ɷ', (15, 7), (19, 7))    # racks of scrapers and tally posts where the benches and
+put(a, 'Ɣ', (16, 7), (18, 7))    # lanterns were, with no spring behind a rack
+put(a, 'Ƣ', (12, 4))             # the sorting table
+put(a, 'ƿ', (6, 3), (11, 3), (14, 3), (17, 3), (20, 3), (23, 3))   # pyrite at the cliff's foot
+put(a, 'Y', (0, 5), (10, 5), (24, 5), (12, 10))
+put(a, 'ŏ', (24, 6))
+put(a, '@', (10, 6), (1, 10), (23, 10), (23, 7))
+put(a, '@', (8, 15), (16, 15))
+# The brook: stones along both banks, reeds.
+put(a, 'ɵ', (1, 13), (10, 13), (23, 13), (9, 14), (16, 14))
+put(a, '¥', (3, 13), (7, 13), (18, 13), (19, 13), (11, 14), (5, 14))
+put(a, 's', (9, 10), (1, 12))
+assert all(a[y][8] == ',' for y in range(0, 12)), 'the ramp runs from the heights to the road'
+
+for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b), ('iron_brook', i), ('alum_springs', a)]:
     rows = [''.join(r) for r in g]
     assert all(len(r) == W for r in rows)
     (DATA / f'{name}.map').write_text('\n'.join(rows) + '\n', encoding='utf-8', newline='\n')

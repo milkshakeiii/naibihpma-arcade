@@ -4443,6 +4443,7 @@
       "primary_applied_skill": "casting",
       "production_time": 480,
       "quantity": 1,
+      "raw_material_density": 240,
       "relevant_ability_score": 2,
       "requires_workshop": true,
       "secondary_applied_skills": [

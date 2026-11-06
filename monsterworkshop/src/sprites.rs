@@ -1104,6 +1104,65 @@ fn make_tool_icon(id: &str) -> Sprite {
             }
             s.set(4, 4, WOOD + 1);
         }
+        // Well salt: a heap of white crystals.
+        "well_salt" => {
+            for (y, x0, x1) in [(2, 3, 4), (3, 2, 5), (4, 2, 5), (5, 1, 6), (6, 0, 7)] {
+                for x in x0..=x1 {
+                    s.set(x, y, if x <= x0 + 1 { COTTON + 2 } else if (x + y) % 3 == 0 { COTTON } else { COTTON + 1 });
+                }
+            }
+        }
+        // Crystals in a blocky cluster: alum white, green vitriol pale green.
+        "alum_found" | "green_vitriol" | "green_vitriol_found" => {
+            let (lo, mid, hi) = if id == "alum_found" { (COTTON, COTTON + 1, COTTON + 2) } else { (LEAF + 1, LEAF + 2, TEXT_GOOD) };
+            for (x0, y0, w, h) in [(1, 3, 2, 4), (3, 1, 2, 6), (5, 4, 2, 3)] {
+                for y in y0..y0 + h {
+                    for x in x0..x0 + w {
+                        s.set(x, y, if y == y0 { hi } else if x == x0 { mid } else { lo });
+                    }
+                }
+            }
+        }
+        // Pyrite: brassy cubes.
+        "pyrite" => {
+            for (x0, y0) in [(1, 3), (4, 2), (3, 5)] {
+                for y in y0..y0 + 3 {
+                    for x in x0..x0 + 3 {
+                        s.set(x, y, if y == y0 { SPARK + 2 } else if x == x0 { SPARK + 1 } else { SPARK });
+                    }
+                }
+            }
+        }
+        // A strong pan: wide and shallow, iron, a handle each side.
+        "strong_pan" => {
+            for x in 1..=6 {
+                s.set(x, 3, HUD_HI);
+                s.set(x, 6, HUD_FILL);
+            }
+            for y in 4..=5 {
+                s.set(1, y, HUD_HI);
+                s.set(6, y, HUD_FILL);
+                for x in 2..=5 {
+                    s.set(x, y, if y == 4 { HUD_FILL } else { HUD_SHADOW });
+                }
+            }
+            s.set(0, 4, HUD_MID);
+            s.set(7, 4, HUD_MID);
+        }
+        // A metal pot: round-bellied, with a rim and a bail.
+        "metal_pot" => {
+            for (x, y) in [(1, 2), (2, 1), (3, 0), (4, 0), (5, 1), (6, 2)] {
+                s.set(x, y, HUD_MID);
+            }
+            for x in 1..=6 {
+                s.set(x, 3, HUD_HI);
+            }
+            for (y, x0, x1) in [(4, 1, 6), (5, 1, 6), (6, 2, 5)] {
+                for x in x0..=x1 {
+                    s.set(x, y, if x <= x0 { HUD_MID } else { HUD_FILL });
+                }
+            }
+        }
         // Iron ore: red-brown earth in lumps, a dark glint.
         "iron_ore" => {
             for (cx, cy, r) in [(2, 5, 2), (5, 5, 2), (4, 3, 1)] {
@@ -1443,6 +1502,8 @@ enum Look {
     Gourd,
     /// A rock ledge with coal in it: a seam.
     Seam,
+    /// A spring in a ring of stone, crusted with what it leaves: alum, green vitriol.
+    Spring,
 }
 
 impl Look {
@@ -1501,6 +1562,7 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
         }
         (Look::Stalks, _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
         (Look::Seam, _) => seam(&mut s, stage, bloom),
+        (Look::Spring, _) => spring(&mut s, stage, bloom),
         (_, 0) => {
             for y in 12..=15 {
                 s.set(8, y, LEAF);
@@ -1514,7 +1576,7 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
         (_, 1) => shrub(&mut s, 4, 3, dark),
         _ => shrub(&mut s, 6, 5, dark),
     }
-    if stage == 2 && look != Look::Seam {
+    if stage == 2 && look != Look::Seam && look != Look::Spring {
         if let Some((a, b)) = bloom {
             for (x, y) in [(5, 7), (10, 6), (8, 9), (4, 11), (12, 10), (7, 5)] {
                 s.set(x, y, b);
@@ -1524,7 +1586,14 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
             }
         }
     }
-    s.outline()
+    let mut s = s.outline();
+    // Steam rises off a spring, too faint to outline.
+    if look == Look::Spring {
+        for (x, y) in [(8, 3), (7, 2), (7, 1), (8, 0)] {
+            s.set(x, y, if y % 2 == 0 { COTTON + 1 } else { COTTON });
+        }
+    }
+    s
 }
 
 /// A grey rock face with a band of coal through it: black and glinting when it's ready, half
@@ -1563,6 +1632,45 @@ fn seam(s: &mut Sprite, stage: u8, ore: Option<(u8, u8)>) {
             s.set(x, y, ore.map_or(COAL[0], |(c, _)| c));
         }
         s.set(10, 13, COAL[1]);
+    }
+}
+
+/// A spring welling up in a ring of stone. Its water stays clear; what it leaves as it dries
+/// crusts a band inside the stone, in patches while it grows back, all round with crystals heaped
+/// on the rim when it's ready, and scraped back to wet stone once gathered.
+fn spring(s: &mut Sprite, stage: u8, crust: Option<(u8, u8)>) {
+    let (c, hi) = crust.unwrap_or((COTTON + 1, COTTON + 2));
+    for y in 4..=15 {
+        for x in 0..=15 {
+            let (dx, dy) = ((x as f64 - 7.5) / 7.6, (y as f64 - 9.8) / 5.9);
+            if dx * dx + dy * dy > 1.0 {
+                continue;
+            }
+            let (ix, iy) = ((x as f64 - 7.5) / 5.4, (y as f64 - 9.5) / 3.6);
+            let w = ix * ix + iy * iy;
+            let color = if w <= 0.62 {
+                if iy < -0.35 { LAND_WATER + 2 } else { LAND_WATER + 1 }
+            } else if w <= 1.0 {
+                let shown = match stage {
+                    2 => true,
+                    1 => (x * 7 + y * 3) % 10 < 4,
+                    _ => false,
+                };
+                if !shown { LAND_WATER } else if (x + y) % 3 == 0 { hi } else { c }
+            } else if y < 9 {
+                STONE[2]
+            } else if y > 12 {
+                STONE[0]
+            } else {
+                STONE[1]
+            };
+            s.set(x, y, color);
+        }
+    }
+    if stage == 2 {
+        for (x, y, k) in [(12, 13, c), (13, 13, hi), (13, 12, c), (11, 14, c), (3, 6, hi), (4, 6, c)] {
+            s.set(x, y, k);
+        }
     }
 }
 
@@ -2067,6 +2175,44 @@ fn make_smelter(frame: u8) -> Sprite {
     s.outline()
 }
 
+/// A boiling house's pan: wide and shallow, iron, on a stone hearth with its fire mouth below;
+/// the liquor in it boiling down to a white crust at the rim, steaming while it works.
+fn make_salt_pan(frame: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 20);
+    for y in 12..=19 {
+        for x in 1..=14 {
+            let joint = y % 3 == 0 || (x + (y / 3) * 2) % 5 == 0;
+            s.set(x, y, if joint { STONE[0] } else if x < 4 { STONE[2] } else { STONE[1] });
+        }
+    }
+    for y in 15..=19 {
+        for x in 6..=9 {
+            s.set(x, y, if frame == 0 { if y > 17 { THREAD } else { OUTLINE } } else if (x + y + frame as i32) % 3 == 0 { SPARK + 2 } else { SPARK + (y as u8 % 2) });
+        }
+    }
+    for x in 0..=15 {
+        s.set(x, 6, HUD_HI);
+        s.set(x, 11, HUD_MID);
+        s.set(x, 12, HUD_FILL);
+    }
+    for y in 7..=10 {
+        s.set(0, y, HUD_HI);
+        s.set(15, y, HUD_MID);
+        for x in 1..=14 {
+            let rim = x < 3 || x > 12 || y == 7;
+            s.set(x, y, if rim { COTTON + 2 } else if y == 8 { LAND_WATER + 2 } else { LAND_WATER + 1 });
+        }
+    }
+    if frame > 0 {
+        let puffs: &[(i32, i32)] = if frame == 1 { &[(4, 4), (5, 2), (10, 3), (11, 1)] } else { &[(5, 3), (4, 1), (11, 4), (10, 2)] };
+        for &(x, y) in puffs {
+            s.set(x, y, TEXT_DIM);
+            s.set(x + 1, y, HUD_HI);
+        }
+    }
+    s.outline()
+}
+
 /// A sawpit: a log laid over a pit on two trestles, a long saw standing in its cut.
 fn make_sawpit() -> Sprite {
     let mut s = Sprite::blank(16, 16);
@@ -2339,7 +2485,7 @@ fn make_wagon(open: bool) -> Sprite {
 
 /// Wild plants with art of their own: how each grows, and the blossoms that show it's ready
 /// (pink rhododendron and indigofera, white elder). Others grow by their type's look.
-const WILD: [(&str, Look, Option<(u8, u8)>); 12] = [
+const WILD: [(&str, Look, Option<(u8, u8)>); 15] = [
     ("hemlock_log", Look::Conifer, None),
     ("oak_log", Look::Broadleaf, None),
     ("elder_sticks", Look::Bush, Some((COTTON + 1, COTTON + 2))),
@@ -2352,6 +2498,11 @@ const WILD: [(&str, Look, Option<(u8, u8)>); 12] = [
     ("copper_ore", Look::Seam, Some((WOOD + 2, LEAF + 2))),
     // Iron, a red-brown band in the bank.
     ("iron_ore", Look::Seam, Some((THREAD, HUD_FILL))),
+    // Pyrite, a brassy band.
+    ("pyrite", Look::Seam, Some((SPARK + 1, SPARK + 2))),
+    // Springs, crusted with what they leave: alum white, green vitriol pale green.
+    ("alum_found", Look::Spring, Some((COTTON + 1, COTTON + 2))),
+    ("green_vitriol_found", Look::Spring, Some((LEAF + 2, TEXT_GOOD))),
     ("granite", Look::Rocks, None),
     // A tapped pine is a pine; the resin is drawn on it later.
     ("pine_resin", Look::Conifer, None),
@@ -2419,6 +2570,8 @@ pub struct Sprites {
     /// A smelter, cold, and working in two frames of smoke.
     pub smelter: [Sprite; 3],
     pub sawpit: Sprite,
+    /// A boiling house's pan, cold, and steaming in two frames.
+    pub salt_pan: [Sprite; 3],
     pub indigo_vat: Sprite,
     pub dye_vat: Sprite,
     pub jar: Sprite,
@@ -2473,7 +2626,7 @@ impl Sprites {
             trader: [make_trader(0), make_trader(1)],
             copper_ingot: make_ingot(SPARK + 1, SPARK, WOOD + 2),
             tin_ingot: make_ingot(COTTON + 2, COTTON + 1, COTTON),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick", "sack", "roller", "pitch", "stone_anvil", "knife", "needle", "metal_axe", "metal_hammer", "sickle", "scythe", "forceps", "primitive_tongs", "copper_ore", "iron_ore", "file", "billhook", "pig_iron_ingot", "wrought_iron_ingot", "steel_ingot", "bronze_ingot", "silver_ingot"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick", "sack", "roller", "pitch", "stone_anvil", "knife", "needle", "metal_axe", "metal_hammer", "sickle", "scythe", "forceps", "primitive_tongs", "copper_ore", "iron_ore", "file", "billhook", "pig_iron_ingot", "wrought_iron_ingot", "steel_ingot", "bronze_ingot", "silver_ingot", "well_salt", "alum_found", "green_vitriol", "green_vitriol_found", "pyrite", "strong_pan", "metal_pot"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             typed_icons: crate::data::Data::load().goods.iter().filter_map(|gt| Some((gt.id.clone(), type_of(gt)?))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
@@ -2501,6 +2654,7 @@ impl Sprites {
             forge: [make_forge(0), make_forge(1), make_forge(2)],
             smelter: [make_smelter(0), make_smelter(1), make_smelter(2)],
             sawpit: make_sawpit(),
+            salt_pan: [make_salt_pan(0), make_salt_pan(1), make_salt_pan(2)],
             indigo_vat: make_vat(false),
             dye_vat: make_vat(true),
             jar: make_jar(),
