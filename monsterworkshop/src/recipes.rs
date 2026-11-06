@@ -314,7 +314,12 @@ impl Game {
         let Some(w) = self.monsters[j].worker.and_then(|n| self.world.workers.get(n)) else { return Vec::new() };
         let id = Some(self.monsters[j].id);
         let bench = self.world.shops.iter().position(|s| s.owner == id);
-        let mut lines: Vec<String> = bench.map(|s| self.offers(s)).unwrap_or_default().iter().map(|r| format!("{} TAKES {}.", one(&self.good_name(r)), self.inputs_text(self.data.good(r)))).collect();
+        // What their bench makes that their loop carries off (a smith's knives, not every tool a
+        // smithy can make), or everything it makes if their loop carries none of it.
+        let offers = bench.map(|s| self.offers(s)).unwrap_or_default();
+        let carried = |r: &&str| w.tasks.iter().any(|t| matches!(t, crate::world::Task::Move(good, ..) if *good == self.data.good(r).output()));
+        let theirs: Vec<&str> = if offers.iter().any(carried) { offers.iter().copied().filter(|r| carried(&r)).collect() } else { offers };
+        let mut lines: Vec<String> = theirs.iter().map(|r| format!("{} TAKES {}.", one(&self.good_name(r)), self.inputs_text(self.data.good(r)))).collect();
         let mut gathers: Vec<&str> = self.world.plants.iter().filter(|p| p.owner == id).map(|p| p.good.as_str()).collect();
         gathers.dedup();
         for good in gathers {

@@ -160,10 +160,19 @@ impl Game {
                 Goal::Take { good, .. } => !self.holds_working(i, good),
                 Goal::Lead { wagon, bed, pumpkin } => self.world.wagons.get(*wagon).is_some_and(|w| (w.at, w.pumpkin) != (*bed, *pumpkin)),
                 Goal::Activate(Thing::Tailgate { wagon, open }) => self.world.wagons.get(*wagon).is_some_and(|w| w.open != *open),
+                Goal::Activate(Thing::Choice { shop, recipe }) => self.chosen_is(*shop, *recipe) == Some(false),
                 Goal::Activate(Thing::Shop(s)) => !self.output_full(*s),
                 _ => !self.puts(g).iter().any(lying),
             })
             .collect()
+    }
+
+    /// Does workshop `shop`'s choice board say the recipe numbered `recipe`? None if there's no
+    /// such workshop or recipe.
+    fn chosen_is(&self, shop: usize, recipe: u8) -> Option<bool> {
+        let s = self.world.shops.get(shop)?;
+        let r = s.kind.recipes().get(recipe as usize)?;
+        Some(s.chosen.as_deref() == Some(*r))
     }
 
     /// Is workshop `s`'s output full of what it would make next? Its output is its mat and up to
@@ -292,6 +301,11 @@ impl Game {
                     return Err(waiting());
                 }
                 Ok(vec![Want::Item(k)])
+            }
+            &Goal::Activate(Thing::Choice { shop, recipe }) => {
+                let Some((stand, _)) = self.activation_spot(Thing::Choice { shop, recipe }) else { return Err(Why::world("NOWHERE TO STAND BY THE BOARD.")) };
+                tile_free(stand)?;
+                Ok(vec![Want::Tile(stand)])
             }
             &Goal::Activate(Thing::Tailgate { wagon, .. }) => {
                 let w = self.wagon_free(i, wagon)?;
@@ -602,6 +616,22 @@ impl Game {
                     if self.world.wagons.get(wagon).is_some_and(|w| w.open == open) {
                         return Outcome::Done;
                     }
+                }
+                if let Thing::Choice { shop, recipe } = t {
+                    if self.chosen_is(shop, recipe) != Some(false) {
+                        return Outcome::Done;
+                    }
+                    let Some((spot, facing)) = self.activation_spot(t) else { return Outcome::GiveUp(String::new()) };
+                    return match self.go_toward(i, spot, facing, sfx) {
+                        Going::Arrived => {
+                            self.set_choice(i, shop, recipe);
+                            sfx.push(Sfx::Pop);
+                            Outcome::Done
+                        }
+                        Going::Moving => Outcome::Moving,
+                        Going::Waiting(msg) => Outcome::Waiting(msg),
+                        Going::Stuck(msg) => self.shove_or_give_up(i, spot, msg),
+                    };
                 }
                 let Some((spot, facing)) = self.activation_spot(t) else { return Outcome::GiveUp(String::new()) };
                 match self.go_toward(i, spot, facing, sfx) {

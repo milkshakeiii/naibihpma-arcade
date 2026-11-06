@@ -140,6 +140,7 @@ impl Game {
                 || self.world.wagon_at(x, y).is_some_and(|w| self.world.wagons[w].behind() == here)
                 || self.applicant_at(x, y)
                 || self.rack_at(x, y).is_some()
+                || self.world.choice_at(x, y).is_some()
                 || item.is_some_and(|k| crate::frontier::kit_kind(self.world.items[k].good()).is_some())
             {
                 return 2;

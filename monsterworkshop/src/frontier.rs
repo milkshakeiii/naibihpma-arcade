@@ -242,7 +242,7 @@ impl Game {
         let news = match fp.what {
             Unpacks::Shop(kind) => {
                 let frontier = Frontier { kit: data.good.clone(), material, speed: speed(&data), shares: data.shares.clone(), worked: 0, idle: 0, fallen: false };
-                let shop = Shop { kind, spot: fp.spot, pad_flash: vec![0; fp.pads.len()], pads: fp.pads, pegs: fp.pegs, outs: fp.outs, quality: data.quality, job: None, pending: Vec::new(), out_timer: 0, frontier: Some(frontier), aimed: None, owner: None };
+                let shop = Shop { kind, spot: fp.spot, pad_flash: vec![0; fp.pads.len()], pads: fp.pads, pegs: fp.pegs, outs: fp.outs, quality: data.quality, job: None, pending: Vec::new(), out_timer: 0, frontier: Some(frontier), aimed: None, chosen: None, owner: None };
                 self.world.shops.push(shop);
                 let s = self.world.shops.len() - 1;
                 self.world.lay_shop(s);

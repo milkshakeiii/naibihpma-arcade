@@ -309,6 +309,18 @@ fn worker_card(g: &Game, j: usize, n: usize) -> Card {
 /// Scenery: what it is, and what goes into the real thing it stands for.
 fn prop_card(g: &Game, prop: Prop, at: (i32, i32)) -> Card {
     let k = prop.kind();
+    // A choice board says what it says, and what it chooses between.
+    if let Some(s) = g.world.choice_at(at.0, at.1) {
+        let shop = &g.world.shops[s];
+        let names = |rs: &[&str]| rs.iter().map(|r| crate::recipes::one(&g.good_name(g.data.good(r).output()))).collect::<Vec<_>>();
+        let mut lines = vec![match shop.chosen.as_deref() {
+            Some(r) => line(format!("THE {} MAKES {} WHEN ITS GOODS COULD MAKE SEVERAL THINGS.", shop.kind.label(), names(&[r])[0]), TEXT_GOOD).icon(Icon::Good(g.data.good(r).output().to_string())),
+            None => line(format!("NOTHING CHOSEN: THE {} MAKES THE FIRST THAT FITS.", shop.kind.label()), TEXT),
+        }];
+        lines.push(line(format!("IT CHOOSES BETWEEN {}.", crate::recipes::and_list(&names(&g.contested(s)))), TEXT_DIM));
+        lines.push(line("SPACE: THE NEXT.", TEXT_DIM));
+        return Card::one(k.name, lines, at);
+    }
     let mut lines = vec![line(k.about, if k.shows.is_some() { TEXT } else { TEXT_DIM })];
     if let Some(good) = k.shows {
         lines.push(line(format!("{}: {}.", g.good_name(good), g.inputs_text(g.data.good(good))), TEXT_DIM).icon(Icon::Good(good.into())));
@@ -591,6 +603,10 @@ pub(crate) fn goal_text(g: &Game, goal: &crate::game::Goal) -> String {
         Goal::Activate(Thing::Shop(s)) => format!("WORK THE {}", g.shop_name(*s)),
         Goal::Activate(Thing::Tailgate { open: true, .. }) => "OPEN THE WAGON'S TAILGATE".into(),
         Goal::Activate(Thing::Tailgate { open: false, .. }) => "SHUT THE WAGON'S TAILGATE".into(),
+        Goal::Activate(Thing::Choice { shop, recipe }) => match g.world.shops.get(*shop).and_then(|s| s.kind.recipes().get(*recipe as usize)) {
+            Some(r) => format!("SET THE {} TO MAKE {}", g.shop_name(*shop), crate::recipes::one(&g.good_name(g.data.good(r).output()))),
+            None => "SET A CHOICE BOARD".into(),
+        },
         Goal::Lead { bed, .. } => format!("LEAD THE WAGON TO {}", place(*bed)),
         Goal::Take { good, from } => format!("TAKE {} FROM {} WHEN MINE WEARS OUT", crate::recipes::one(&g.good_name(good)), place(*from)),
     }

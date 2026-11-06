@@ -321,11 +321,13 @@ impl Game {
 
     /// The recipe the pads hold ingredients for. When several fit, the one that uses the most
     /// of what's there wins, so laying out a hammer's ingot, fuel, rope and sticks makes the
-    /// hammer, not a knife from the ingot and fuel alone. Equal fits go to the earlier recipe
-    /// (a signboard will choose between them once a workshop has a real tie).
+    /// hammer, not a knife from the ingot and fuel alone. Equal fits go to what the workshop's
+    /// choice board says, else the earlier recipe.
     /// Only pad items `ok` accepts count.
     pub(crate) fn best_recipe(&self, s: usize, recipes: &[&str], ok: &dyn Fn(usize) -> bool) -> Option<(String, Vec<usize>)> {
-        recipes.iter().rev().filter_map(|r| self.match_inputs(s, r, ok).map(|inputs| (r.to_string(), inputs))).max_by_key(|(_, inputs)| inputs.len())
+        // Of those using as many, what its choice board says, else the earliest.
+        let chosen = self.world.shops[s].chosen.as_deref();
+        recipes.iter().rev().filter_map(|r| self.match_inputs(s, r, ok).map(|inputs| (r.to_string(), inputs))).max_by_key(|(r, inputs)| (inputs.len(), Some(r.as_str()) == chosen))
     }
 
     /// Items on the pads that satisfy each of the recipe's inputs, in recipe order.

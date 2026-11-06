@@ -2191,3 +2191,64 @@ fn the_hills_walk_the_long_way_round_from_the_way_in_to_the_copper_cut() {
     let smithy = g.world.shops.iter().find(|s| s.kind.label() == "SMITHY" && s.owner.is_none()).expect("the smithy");
     assert!((smithy.spot.0 - lift.top.0).abs() + (smithy.spot.1 - lift.top.1).abs() <= 15, "the lift vine sets goods down a few steps from the smithy");
 }
+
+/// The world's height in the code (for made-up worlds and area names) is the regions' (a region
+/// further south once made it taller without it, 2026-11-06).
+#[test]
+fn the_worlds_height_is_its_regions() {
+    let g = Game::new();
+    assert_eq!(g.world.h, crate::world::WORLD_ROWS);
+    assert_eq!(crate::world::area_name(160, 70), "IRON BROOK");
+}
+
+/// Iron Brook's ore goes all the way to steel at Bellows' smelter (2026-11-06): two iron ore and
+/// heat make pig iron; pig iron stirred with clay and sticks makes wrought iron; wrought iron and
+/// pig iron with stalks, clay and heat make steel.
+#[test]
+fn iron_ore_becomes_pig_iron_wrought_iron_and_steel_at_the_smelter() {
+    let mut g = Game::new();
+    assert!(g.world.plants.iter().any(|p| p.good == "iron_ore" && crate::world::area_name(p.x, p.y) == "IRON BROOK"), "iron in Iron Brook's banks");
+    let smelter = g.world.shops.iter().find(|s| s.kind.label() == "SMELTER").map(|s| s.spot).expect("a smelter in Bellows");
+    assert!(work(&mut g, smelter, &["iron_ore", "iron_ore", "charcoal"]).contains(&"pig_iron_ingot".to_string()), "pig iron");
+    g.world.items.retain(|it| !it.good().ends_with("_ingot"));
+    assert!(work(&mut g, smelter, &["pig_iron_ingot", "red_clay", "elder_sticks"]).contains(&"wrought_iron_ingot".to_string()), "wrought iron");
+    g.world.items.retain(|it| !it.good().ends_with("_ingot"));
+    let steel = work(&mut g, smelter, &["wrought_iron_ingot", "pig_iron_ingot", "hemp_stalks", "red_clay", "charcoal"]);
+    assert!(steel.contains(&"steel_ingot".to_string()), "steel: {steel:?}");
+}
+
+/// A workshop whose recipes can take the same goods has a choice board beside it (Henry,
+/// 2026-11-06): the same ingot and heat make forceps when the board says so, not the knife that
+/// comes first; Space on the board turns it; a loop records what it was set to, and sets it so
+/// on replay.
+#[test]
+fn a_choice_board_says_what_a_workshop_makes_when_its_goods_could_make_several() {
+    let mut g = Game::new();
+    for s in 0..g.world.shops.len() {
+        if g.world.shops[s].owner.is_none() && !g.world.shops[s].kind.trades() && !g.shadowed(s).is_empty() {
+            assert!(g.world.choices.iter().any(|&(_, c)| c == s), "the {} at {:?} needs a choice board: {:?} can't be made without one", g.world.shops[s].kind.label(), g.world.shops[s].spot, g.shadowed(s));
+        }
+    }
+    let smithy = g.world.shops.iter().position(|s| s.kind.label() == "SMITHY" && s.owner.is_none()).expect("the smithy");
+    let spot = g.world.shops[smithy].spot;
+    assert!(work(&mut g, spot, &["copper_ingot", "charcoal"]).contains(&"knife".to_string()), "nothing chosen: the first that fits");
+    g.world.items.retain(|it| it.good() != "knife");
+    // Space on the board, recorded.
+    assert!(g.world.choices.iter().any(|&(_, s)| s == smithy), "its board");
+    assert_eq!(g.shadowed(smithy), ["metal_hammer", "sickle", "forceps", "file", "billhook"], "what the smithy's pads alone could never make");
+    let forceps = g.world.shops[smithy].kind.recipes().iter().position(|r| *r == "forceps").unwrap() as u8;
+    let (before, facing) = g.activation_spot(Thing::Choice { shop: smithy, recipe: forceps }).expect("somewhere to stand");
+    stand(&mut g, before, facing.unwrap());
+    g.script("r");
+    for _ in 0..12 {
+        if g.world.shops[smithy].chosen.as_deref() == Some("forceps") {
+            break;
+        }
+        g.script("u");
+    }
+    g.script("r");
+    let c = g.communes[0].controlled;
+    let goals = g.monsters[c].routine.as_ref().map(|r| r.goals.clone()).unwrap_or_default();
+    assert!(goals.iter().any(|gl| matches!(gl, Goal::Activate(Thing::Choice { recipe, .. }) if *recipe == forceps)), "the loop recorded forceps: {goals:?}");
+    assert!(work(&mut g, spot, &["copper_ingot", "charcoal"]).contains(&"forceps".to_string()), "the board says forceps");
+}

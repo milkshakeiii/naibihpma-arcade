@@ -33,7 +33,8 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam  `©` copper seam
-// `ĝ` granite outcrop  `ĥ` hemp  `Ƥ` pine  `ƥ` a pine tapped for resin  `ʝ` juniper
+// `ĝ` granite outcrop  `ĥ` hemp  `Ƥ` pine  `ƥ` a pine tapped for resin  `ʝ` juniper  `ɨ` iron,
+// in a red bank
 // `0` a gate into a province past the first, shut until its board's goal is met
 // `░` paving  `╪` a jetty (planks over water)  `╬` a bridge, built  `▒` gravel: bare stony ground, as in a quarry or
 // a pit (copper seams and granite outcrops lie on it too)  `≡` stone steps
@@ -42,7 +43,7 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋ";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋɨ";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -203,7 +204,7 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 /// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks, the
 /// parapet and the yard wall join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 92] = [
+pub const PROPS: [PropKind; 99] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -306,12 +307,21 @@ pub const PROPS: [PropKind; 92] = [
     prop("tong_rack", 'ʇ', "A RACK OF TONGS", "TONGS AND RAKES FOR THE FURNACES, EACH ON ITS OWN PEG.", (1, 1)),
     prop("scales", 'ʡ', "THE ASSAY SCALES", "EVERY INGOT IS WEIGHED HERE, AND ITS METAL JUDGED.", (1, 1)),
     prop("gear_shelf", 'ɧ', "SHELVES OF GEAR", "HATS, BOOTS AND COILS OF ROPE. THE BELT ON THE STAND IS THE ONE WORTH HAVING.", (1, 1)),
+    // Beside a workshop whose recipes can take the same goods (Henry, 2026-11-06).
+    prop("choice_board", 'ȵ', "THE CHOICE BOARD", "WHEN THE GOODS ON THE PADS BESIDE IT COULD MAKE SEVERAL THINGS, IT SAYS WHICH. SPACE CHANGES IT.", (1, 1)),
+    // Iron Brook's.
+    prop("sawyers_shed", 'Ɖ', "THE SAWYERS' SHED", "SEASONED LOGS UNDER COVER, OUT OF THE RAIN.", (3, 2)),
+    prop("log_pile", 'ɮ', "LOGS FOR THE SAW", "PINE, BARKED AND WAITING ITS TURN OVER THE PIT.", (1, 1)),
+    prop("sawdust", 'ʓ', "SAWDUST", "IT GETS EVERYWHERE. IT SMELLS OF PINE.", (1, 1)),
+    prop("ferns", 'ɸ', "FERNS", "THEY LIKE IT DAMP BY THE WATER.", (1, 1)),
+    water_prop("river_stones", 'ɵ', "STONES IN THE BROOK", "THE WATER CHATTERS OVER THEM.", (1, 1)),
+    water_prop("fallen_log", 'ɤ', "A FALLEN LOG", "IT LIES ACROSS THE WATER. NOBODY TRUSTS IT TO WALK ON.", (1, 1)),
 ];
 
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 11] = [
+const REGIONS: [Region; 12] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
@@ -535,6 +545,23 @@ const REGIONS: [Region; 11] = [
         supplies: &[],
         workers: &[],
     },
+    // Iron Brook, south of Hemp Hollow: the Rust Brook comes down from the hollow and turns west
+    // out of the hills, its banks red with iron; pines, and a sawpit at the road's end.
+    Region {
+        map: include_str!("../data/iron_brook.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (150, 64),
+        racks: &[],
+        folk: &[],
+        vines: &[],
+        goods: &[],
+        labels: &[],
+        signs: &[("HEMP HOLLOW", Dir::Up)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
 ];
 
 /// Pinewater's wagonwright, after Xi Zhong, who legend says made the first cart. He fetches his
@@ -627,10 +654,11 @@ pub const SUPPLY_TICKS: u32 = 60;
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it, then the hills row by row, each west to east (the last
 /// one a tile lies past is its name, so the order matters).
-const AREAS: [(i32, i32, &str); 13] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS")];
+const AREAS: [(i32, i32, &str); 14] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS"), (150, 64, "IRON BROOK")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
-const WORLD_ROWS: i32 = 64;
+/// A test checks it against the regions, since a region further south makes the world taller.
+pub(crate) const WORLD_ROWS: i32 = 80;
 
 pub fn area_name(x: i32, y: i32) -> &'static str {
     let y = y.rem_euclid(WORLD_ROWS);
@@ -656,6 +684,7 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'Ƥ' => "pine_log",
         'ƥ' => "pine_resin",
         'ʝ' => "juniper_sticks",
+        'ɨ' => "iron_ore",
         _ => return None,
     })
 }
@@ -1049,6 +1078,9 @@ pub struct Shop {
     /// What its pads last worked toward (`Game::aim`): with them empty, it stays set up for it.
     #[serde(default)]
     pub aimed: Option<String>,
+    /// What its choice board says, when the goods on its pads could make several things.
+    #[serde(default)]
+    pub chosen: Option<String>,
     /// A working townsperson's own bench (their monster's id): only they work it, and what it
     /// makes is theirs.
     #[serde(skip)]
@@ -1064,10 +1096,10 @@ impl Shop {
         recipes.iter().copied().find(|r| data.good(r).input_groups().count() == self.pads.len()).unwrap_or(recipes[0])
     }
 
-    /// What it rests on with nothing of use on its pads: what they last worked toward, else what
-    /// it's set up for at first.
+    /// What it rests on with nothing of use on its pads: what its choice board says, else what
+    /// they last worked toward, else what it's set up for at first.
     pub fn resting<'a>(&'a self, data: &Data) -> &'a str {
-        self.aimed.as_deref().unwrap_or_else(|| self.default_recipe(data))
+        self.chosen.as_deref().or(self.aimed.as_deref()).unwrap_or_else(|| self.default_recipe(data))
     }
 }
 
@@ -1155,6 +1187,8 @@ pub struct World {
     pub gates: Vec<Gate>,
     /// Cliff-lift vines.
     pub lifts: Vec<Lift>,
+    /// Choice boards: where each stands, and the workshop it chooses for (the nearest).
+    pub choices: Vec<((i32, i32), usize)>,
     /// Each region's box (x, y, width, height) and the province it's in.
     pub provinces: Vec<((i32, i32, i32, i32), &'static str)>,
     /// Each region's box and its look.
@@ -1241,7 +1275,7 @@ impl World {
                         'Y' => Tile::Tree,
                         '0' => Tile::Gate,
                         '░' => Tile::Paving,
-                    '▒' | '©' | 'ĝ' => Tile::Gravel,
+                    '▒' | '©' | 'ĝ' | 'ɨ' => Tile::Gravel,
                     '≡' => Tile::Stair,
                     '╬' => Tile::Bridge,
                         // A jetty: planks over the water, walked like the footbridge.
@@ -1269,7 +1303,7 @@ impl World {
                         }
                     }
                     if let Some(kind) = shop_kind {
-                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None, aimed: None, owner: None });
+                        shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None, aimed: None, chosen: None, owner: None });
                     }
                     match ch {
                         'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None }),
@@ -1361,6 +1395,12 @@ impl World {
                 b.mouth = Some(m);
             }
         }
+        // Each choice board chooses for the workshop nearest it.
+        let choices: Vec<((i32, i32), usize)> = props
+            .iter()
+            .filter(|(_, p)| p.0 == "choice_board")
+            .filter_map(|&((x, y), _)| (0..shops.len()).min_by_key(|&s| (shops[s].spot.0 - x).abs() + (shops[s].spot.1 - y).abs()).map(|s| ((x, y), s)))
+            .collect();
         // Each vine runs from its foot the way it carries, over its own tiles, to the tile past
         // them.
         let vine = |(x, y): (i32, i32)| props.iter().any(|&((px, py), p): &((i32, i32), Prop)| (px, py) == (x, y) && p.0 == "lift_vine");
@@ -1405,7 +1445,7 @@ impl World {
                 material: String::new(),
             })
             .collect();
-        Self { w, h, tiles, items, plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, racks, gates, lifts, provinces, looks, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items, plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, racks, gates, lifts, choices, provinces, looks, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`
@@ -1524,6 +1564,11 @@ impl World {
             let (w, h) = p.kind().size;
             (px..px + w).contains(&x) && (py..py + h).contains(&y)
         })
+    }
+
+    /// The workshop the choice board at this tile chooses for, if one stands there.
+    pub fn choice_at(&self, x: i32, y: i32) -> Option<usize> {
+        self.choices.iter().find(|&&(at, _)| at == (x, y)).map(|&(_, s)| s)
     }
 
     pub fn sign_at(&self, x: i32, y: i32) -> Option<&Sign> {

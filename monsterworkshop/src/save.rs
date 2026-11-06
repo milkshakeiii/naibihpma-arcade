@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump whenever the save format or the map changes.
-pub const VERSION: u32 = 24;
+pub const VERSION: u32 = 25;
 /// Autosave every minute of play (15 ticks a second).
 pub const AUTOSAVE_TICKS: u32 = 900;
 
@@ -123,7 +123,7 @@ pub fn from_json(json: &str) -> Result<Game, String> {
     let town = g.world.shops.len();
     for (s, saved) in d.shops.into_iter().enumerate() {
         match g.world.shops.get_mut(s) {
-            Some(shop) => (shop.job, shop.pending, shop.out_timer, shop.aimed) = (saved.job, saved.pending, saved.out_timer, saved.aimed),
+            Some(shop) => (shop.job, shop.pending, shop.out_timer, shop.aimed, shop.chosen) = (saved.job, saved.pending, saved.out_timer, saved.aimed, saved.chosen),
             None => g.world.shops.push(saved),
         }
     }

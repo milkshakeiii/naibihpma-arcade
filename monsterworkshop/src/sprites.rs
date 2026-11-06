@@ -1069,8 +1069,8 @@ fn make_tool_icon(id: &str) -> Sprite {
             s.set(5, 3, HUD_SHADOW);
         }
         // A bar, narrower on top, in its metal's colors.
-        "copper_ingot" | "tin_ingot" => {
-            let (top, face, side) = if id == "copper_ingot" { (SPARK + 1, SPARK, WOOD + 2) } else { (COTTON + 2, COTTON + 1, COTTON) };
+        _ if INGOTS.iter().any(|(i, _)| *i == id) => {
+            let (top, face, side) = INGOTS.iter().find(|(i, _)| *i == id).map(|(_, c)| *c).unwrap_or_default();
             for x in 2..=5 {
                 s.set(x, 3, top);
             }
@@ -1103,6 +1103,43 @@ fn make_tool_icon(id: &str) -> Sprite {
                 s.set(x, y, WOOD + 2);
             }
             s.set(4, 4, WOOD + 1);
+        }
+        // Iron ore: red-brown earth in lumps, a dark glint.
+        "iron_ore" => {
+            for (cx, cy, r) in [(2, 5, 2), (5, 5, 2), (4, 3, 1)] {
+                for y in cy - r..=cy + r {
+                    for x in cx - r..=cx + r {
+                        if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r + 1 {
+                            s.set(x, y, if y < cy { THREAD + 1 } else { THREAD });
+                        }
+                    }
+                }
+            }
+            s.set(4, 5, HUD_FILL);
+            s.set(2, 4, HUD_FILL);
+        }
+        // A file: a long rasp, its teeth cross-cut, on a wooden handle.
+        "file" => {
+            for k in 0..=4 {
+                s.set(2 + k, 5 - k, if k % 2 == 0 { HUD_HI } else { HUD_MID });
+                s.set(3 + k, 5 - k, HUD_FILL);
+            }
+            for (x, y) in [(1, 6), (0, 7), (1, 7)] {
+                s.set(x, y, WOOD + 2);
+            }
+        }
+        // A billhook: a broad blade hooked at its tip, on a short handle.
+        "billhook" => {
+            for y in 1..=4 {
+                for x in 3..=5 {
+                    s.set(x, y, if x == 3 { TEXT_DIM } else { HUD_HI });
+                }
+            }
+            s.set(2, 1, HUD_HI);
+            s.set(2, 2, TEXT_DIM);
+            for y in 5..=7 {
+                s.set(4, y, WOOD + 2);
+            }
         }
         // Copper ore: rusty lumps, flecked green.
         "copper_ore" => {
@@ -1877,6 +1914,18 @@ fn make_board() -> Sprite {
     s.outline()
 }
 
+/// Each metal's ingot, by its colors (top, face, side): how a bar of it looks lying about, and its
+/// icon.
+const INGOTS: [(&str, (u8, u8, u8)); 7] = [
+    ("copper_ingot", (SPARK + 1, SPARK, WOOD + 2)),
+    ("tin_ingot", (COTTON + 2, COTTON + 1, COTTON)),
+    ("pig_iron_ingot", (HUD_MID, HUD_FILL, HUD_SHADOW)),
+    ("wrought_iron_ingot", (HUD_HI, HUD_MID, HUD_FILL)),
+    ("steel_ingot", (TEXT_DIM, HUD_HI, HUD_MID)),
+    ("bronze_ingot", (SPARK, WOOD + 2, WOOD + 1)),
+    ("silver_ingot", (TEXT, TEXT_DIM, HUD_HI)),
+];
+
 /// Grey limestone, dark to light.
 pub(crate) const STONE: [u8; 3] = [HUD_MID, HUD_HI, TEXT_DIM];
 
@@ -2014,6 +2063,34 @@ fn make_smelter(frame: u8) -> Sprite {
     for x in 1..=14 {
         s.set(x, 24, STONE[0]);
         s.set(x, 25, HUD_FILL);
+    }
+    s.outline()
+}
+
+/// A sawpit: a log laid over a pit on two trestles, a long saw standing in its cut.
+fn make_sawpit() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    for y in 6..=15 {
+        for x in 1..=14 {
+            s.set(x, y, if y < 8 { WOOD } else { OUTLINE });
+        }
+    }
+    for x in [2, 12] {
+        for y in 4..=12 {
+            s.set(x, y, WOOD + 1);
+            s.set(x + 1, y, WOOD + 2);
+        }
+    }
+    for x in 0..=15 {
+        s.set(x, 4, WOOD + 3);
+        s.set(x, 5, WOOD + 2);
+        s.set(x, 6, WOOD + 1);
+    }
+    for y in 0..=13 {
+        s.set(9, y, if y % 2 == 0 { HUD_HI } else { TEXT_DIM });
+    }
+    for x in 7..=11 {
+        s.set(x, 0, WOOD + 2);
     }
     s.outline()
 }
@@ -2262,7 +2339,7 @@ fn make_wagon(open: bool) -> Sprite {
 
 /// Wild plants with art of their own: how each grows, and the blossoms that show it's ready
 /// (pink rhododendron and indigofera, white elder). Others grow by their type's look.
-const WILD: [(&str, Look, Option<(u8, u8)>); 11] = [
+const WILD: [(&str, Look, Option<(u8, u8)>); 12] = [
     ("hemlock_log", Look::Conifer, None),
     ("oak_log", Look::Broadleaf, None),
     ("elder_sticks", Look::Bush, Some((COTTON + 1, COTTON + 2))),
@@ -2273,6 +2350,8 @@ const WILD: [(&str, Look, Option<(u8, u8)>); 11] = [
     ("limestone", Look::Rocks, None),
     // A seam's "blossoms" are its ore's colors: copper, flecked green with verdigris.
     ("copper_ore", Look::Seam, Some((WOOD + 2, LEAF + 2))),
+    // Iron, a red-brown band in the bank.
+    ("iron_ore", Look::Seam, Some((THREAD, HUD_FILL))),
     ("granite", Look::Rocks, None),
     // A tapped pine is a pine; the resin is drawn on it later.
     ("pine_resin", Look::Conifer, None),
@@ -2339,11 +2418,15 @@ pub struct Sprites {
     pub forge: [Sprite; 3],
     /// A smelter, cold, and working in two frames of smoke.
     pub smelter: [Sprite; 3],
+    pub sawpit: Sprite,
     pub indigo_vat: Sprite,
     pub dye_vat: Sprite,
     pub jar: Sprite,
     pub limestone: Sprite,
     pub copper_ore: Sprite,
+    pub iron_ore: Sprite,
+    /// Every metal's ingot, lying about (`INGOTS`).
+    ingots: Vec<(&'static str, Sprite)>,
     pub granite: Sprite,
     pub coal: Sprite,
     pub quicklime: Sprite,
@@ -2390,7 +2473,7 @@ impl Sprites {
             trader: [make_trader(0), make_trader(1)],
             copper_ingot: make_ingot(SPARK + 1, SPARK, WOOD + 2),
             tin_ingot: make_ingot(COTTON + 2, COTTON + 1, COTTON),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick", "sack", "roller", "pitch", "stone_anvil", "knife", "needle", "metal_axe", "metal_hammer", "sickle", "scythe", "forceps", "primitive_tongs", "copper_ore"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick", "sack", "roller", "pitch", "stone_anvil", "knife", "needle", "metal_axe", "metal_hammer", "sickle", "scythe", "forceps", "primitive_tongs", "copper_ore", "iron_ore", "file", "billhook", "pig_iron_ingot", "wrought_iron_ingot", "steel_ingot", "bronze_ingot", "silver_ingot"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             typed_icons: crate::data::Data::load().goods.iter().filter_map(|gt| Some((gt.id.clone(), type_of(gt)?))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
@@ -2417,11 +2500,14 @@ impl Sprites {
             mound: [make_mound(0), make_mound(1), make_mound(2)],
             forge: [make_forge(0), make_forge(1), make_forge(2)],
             smelter: [make_smelter(0), make_smelter(1), make_smelter(2)],
+            sawpit: make_sawpit(),
             indigo_vat: make_vat(false),
             dye_vat: make_vat(true),
             jar: make_jar(),
             limestone: make_lumps(STONE),
             coal: make_coal(),
+            iron_ore: make_flecked([THREAD, THREAD + 1, THREAD + 2], &[(3, 5, HUD_FILL), (8, 4, WOOD), (10, 6, HUD_FILL), (6, 7, WOOD + 1), (7, 3, HUD_SHADOW)]),
+            ingots: INGOTS.iter().map(|&(id, (t, f, sd))| (id, make_ingot(t, f, sd))).collect(),
             copper_ore: make_flecked([WOOD, WOOD + 1, WOOD + 2], &[(3, 5, LEAF + 2), (8, 4, LEAF + 1), (10, 6, LEAF + 2), (6, 7, SPARK), (4, 7, LEAF + 1), (7, 3, SPARK + 1)]),
             granite: make_flecked(STONE, &[(3, 5, HUD_FILL), (5, 7, THREAD + 2), (8, 5, HUD_FILL), (10, 7, THREAD + 2), (7, 3, HUD_FILL), (9, 4, TEXT)]),
             quicklime: make_lumps([TEXT_DIM, COTTON + 1, COTTON + 2]),
@@ -2556,7 +2642,8 @@ impl Sprites {
             "temple_bell" => &self.bell,
             "copper_ingot" => &self.copper_ingot,
             "tin_ingot" => &self.tin_ingot,
-            _ => return None,
+            "iron_ore" => &self.iron_ore,
+            _ => return self.ingots.iter().find(|(id, _)| *id == good).map(|(_, s)| s),
         })
     }
 

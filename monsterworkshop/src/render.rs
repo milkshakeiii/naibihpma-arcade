@@ -9,7 +9,7 @@ use crate::tutorial::{self, wrap, HELP, STAGES};
 use crate::world::*;
 
 /// The sprites a workshop kind's `look` can name (`data/workshops.json`).
-pub const LOOKS: [&str; 10] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench", "mound", "forge", "smelter"];
+pub const LOOKS: [&str; 11] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench", "mound", "forge", "smelter", "sawpit"];
 
 pub const VIEW_H: i32 = SCREEN_H * TS; // 256; the HUD fills the remaining 44 rows
 const HOP: [i32; 7] = [0, 2, 4, 5, 5, 4, 2];
@@ -148,6 +148,7 @@ fn draw_ground(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
             "kiln" => (&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], -5),
             "mound" => (&sp.mound[if s.job.is_some() { 1 + (g.frame / 5 % 2) as usize } else { 0 }], TS - 22),
             "forge" => (&sp.forge[if s.job.is_some() { 1 + (g.frame / 2 % 2) as usize } else { 0 }], TS - 24),
+            "sawpit" => (&sp.sawpit, 0),
             "smelter" => (&sp.smelter[if s.job.is_some() { 1 + (g.frame / 4 % 2) as usize } else { 0 }], TS - 26),
             "indigo_vat" => (&sp.indigo_vat, -4),
             "dye_vat" => (&sp.dye_vat, -4),
@@ -1571,6 +1572,17 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
                 if let Some(s) = sp.prop(k.id, 0) {
                     fb.blit(s, x + (TS - s.w) / 2, y + TS - 2 - s.h, false);
                 }
+            }
+        }
+        "choice_board" => {
+            fb.rect_fill(x + 7, y + 9, 2, 7, WOOD + 1);
+            fb.rect_fill(x + 1, y - 1, 14, 12, OUTLINE);
+            fb.rect_fill(x + 2, y, 12, 10, WOOD + 2);
+            fb.rect_fill(x + 2, y, 12, 1, WOOD + 3);
+            let chosen = g.world.choice_at(px, py).and_then(|s| g.world.shops[s].chosen.as_deref());
+            match chosen.and_then(|r| sp.icon(g.data.good(r).output())) {
+                Some(icon) => fb.blit(icon, x + 4, y + 1, false),
+                None => fb.text_centered("?", x + 8, y + 2, TEXT, Some(OUTLINE), 1),
             }
         }
         "hemp_rack" => {

@@ -162,22 +162,32 @@
     {
       "id": "smithy",
       "label": "SMITHY",
-      "about": "Verdigris's, a forge with an anvil: the metal tools from any ingot and heat. It lends tongs, a hammer, a stone anvil and a tub. What wants hard metal (chisels, files, picks), a die (nails, wire) or a file (saws, needles, billhooks) joins it once Bellows smelts and the foundry casts. The smith works his own, outdoors across the road.",
+      "about": "Verdigris's, a forge with an anvil: the metal tools from any ingot and heat. It lends tongs, a hammer, a stone anvil and a tub. Files (hard metal, and a chisel on its peg) and billhooks (a file) since Iron Brook; what wants a nail or a die (chisels, picks, saws, nails, wire, needles) joins it once the foundry casts. The smith works his own, outdoors across the road.",
       "map_char": "ʍ",
       "look": "forge",
       "building": true,
-      "recipes": ["knife", "metal_axe", "metal_hammer", "shovel", "sickle", "scythe", "forceps"],
+      "recipes": ["knife", "metal_axe", "metal_hammer", "shovel", "sickle", "scythe", "forceps", "file", "billhook"],
       "lends": ["primitive_tongs", "stone_hammer", "stone_anvil", "wooden_tub"]
     },
     {
       "id": "smelter",
       "label": "SMELTER",
-      "about": "Bellows's, in the smelters' yard where the ore and charcoal vines set their goods down: ore and heat to ingots. It lends tongs and a hammer. Copper now; pig iron, wrought iron and steel join with Iron Brook's ore, tin with the Tin Gulch's, silver with the Deep Drift's.",
+      "about": "Bellows's, in the smelters' yard where the ore and charcoal vines set their goods down: ore and heat to ingots. It lends tongs and a hammer. Copper, and pig iron, wrought iron and steel from Iron Brook's ore; tin joins with the Tin Gulch's, silver with the Deep Drift's.",
       "map_char": "ɕ",
       "look": "smelter",
       "building": true,
-      "recipes": ["copper_ingot"],
+      "recipes": ["copper_ingot", "pig_iron_ingot", "wrought_iron_ingot", "steel_ingot"],
       "lends": ["primitive_tongs", "stone_hammer"]
+    },
+    {
+      "id": "sawpit",
+      "label": "SAWPIT",
+      "about": "Iron Brook's: a log over a pit, sawn from above and below. Planks and rollers from any log; it lends a saw and a chisel.",
+      "map_char": "ʑ",
+      "look": "sawpit",
+      "building": false,
+      "recipes": ["planks", "roller"],
+      "lends": ["saw", "metal_chisel"]
     },
     {
       "id": "trader_stall",

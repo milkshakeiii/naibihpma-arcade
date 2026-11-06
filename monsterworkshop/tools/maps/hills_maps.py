@@ -166,6 +166,7 @@ put(w, 'o', (5, 7), (10, 7))
 put(w, 'ɭ', (3, 5), (3, 7), (11, 5))   # logs waiting for them,
 put(w, 'ʉ', (4, 5), (6, 7), (11, 7))   # turf to cover them,
 put(w, 'ʊ', (8, 8))                    # and the burners' shelter
+put(w, 'ȵ', (7, 7), (12, 7))     # each mound's choice board: charcoal, or pitch from pine
 put(w, 'Ɯ', (19, 9))             # the stonemason's bench
 put(w, 'p', (18, 9), (20, 9))
 put(w, 'o', (19, 10))
@@ -204,6 +205,7 @@ put(v, 'ʍ', (5, 8))
 put(v, 'p', (3, 8), (4, 8), (6, 8), (7, 8), (3, 9))
 put(v, 'o', (5, 9))
 put(v, 'g', (2, 7), (9, 7), (2, 10), (9, 10))
+put(v, 'ȵ', (8, 9))              # its choice board: what it makes when the goods could make several
 put(v, 'ʍ', (5, 2))              # the smith's own forge, out in the open
 put(v, 'p', (4, 2), (6, 2))
 put(v, 'o', (5, 3))
@@ -282,7 +284,48 @@ put(b, '¥', (5, 13), (6, 13), (12, 13), (14, 13), (18, 13), (19, 13), (21, 13),
 assert b[3][16] == ',' and b[6][4] == '▒', "both vines set their goods down on open ground"
 assert all(b[4][x] != 'p' for x in (7, 11)) and b[7][11] == '▒', 'nothing sits above a smelter'
 
-for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b)]:
+# --- Iron Brook, from the second round's variant 3 (tools/briefs/hills_iron.txt): the first
+# round drew the brook rust-red, which Henry found gruesome, so the second kept its water clear and
+# its banks green. The Rust Brook comes down from Hemp Hollow on the columns it leaves the hollow
+# by, wanders, and turns west out of the hills; iron in seams along its banks; bright pines on the
+# far bank; a sawyard at the road's end, its choice board saying planks or rollers. Open to Hemp
+# Hollow above and to the Great Furnace east; hedged where the hills end.
+i = blank()
+box(i, '.', 1, 0, 24, 0)
+box(i, '.', 24, 1, 24, 14)
+box(i, ',', 5, 0, 5, 9)          # the road down from Hemp Hollow,
+box(i, ',', 6, 9, 13, 9)         # to the sawyard, and on to the brook,
+box(i, 'w', 12, 0, 13, 1)        # the Rust Brook, down from the hollow,
+box(i, 'w', 13, 2, 14, 4)        # wandering,
+box(i, 'w', 14, 5, 15, 9)
+box(i, 'w', 13, 10, 14, 11)
+box(i, 'w', 0, 12, 13, 13)       # and away west out of the hills
+put(i, '╬', (14, 9), (15, 9))    # bridged to the far bank's seams and pines
+put(i, 'ɨ', (12, 2), (15, 3), (16, 5), (13, 7), (16, 8), (12, 10), (15, 11))   # iron in its banks
+for x in (2, 4, 6, 8, 10):
+    put(i, 'ɨ', (x, 11))
+box(i, 'Ɖ', 7, 3, 9, 4)          # the sawyers' shed
+put(i, 'ɮ', (10, 4), (7, 5))     # logs waiting,
+put(i, 'ʓ', (8, 5), (9, 5))      # sawdust,
+put(i, 'd', (10, 5))             # sawn planks,
+put(i, 'z', (9, 6))              # a sawhorse
+put(i, 'ʑ', (8, 7))              # the sawpit
+put(i, 'p', (7, 7), (9, 7))
+put(i, 'o', (8, 8))
+put(i, 'ȵ', (10, 7))             # its choice board: planks, or a roller
+put(i, 'º', (12, 7), (11, 8), (11, 10))
+put(i, 'ɵ', (14, 3), (13, 4), (14, 7))   # stones in the brook,
+put(i, 'ɤ', (15, 7))             # a fallen log across it,
+put(i, '¥', (12, 0), (13, 2), (14, 6), (15, 5), (14, 10), (5, 12), (1, 13), (4, 13), (11, 13))
+put(i, 'ɸ', (16, 3), (13, 5), (16, 10), (11, 11), (12, 8), (17, 7))   # ferns
+put(i, 'Ƥ', (17, 1), (19, 3), (22, 2), (21, 5), (23, 4), (19, 7), (22, 8), (20, 10), (17, 11), (22, 12))
+put(i, 'Y', (18, 14), (20, 14), (23, 14), (24, 13), (1, 14))
+put(i, 'Y', (20, 0), (24, 0), (24, 3), (20, 6), (21, 7), (24, 5), (24, 9), (23, 10), (19, 12), (18, 13), (24, 11))   # the wood
+put(i, '@', (3, 4), (17, 5), (23, 8), (21, 13))
+put(i, 's', (4, 2))
+assert i[0][12] in 'w¥' and i[0][13] in 'w¥', "the brook comes in where Hemp Hollow's goes out"
+
+for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b), ('iron_brook', i)]:
     rows = [''.join(r) for r in g]
     assert all(len(r) == W for r in rows)
     (DATA / f'{name}.map').write_text('\n'.join(rows) + '\n', encoding='utf-8', newline='\n')

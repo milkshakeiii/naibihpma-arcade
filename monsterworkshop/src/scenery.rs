@@ -39,7 +39,12 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "big_tree" => vec![big_tree()],
         "shade_tree" => vec![shade_tree()],
         "bench" => vec![bench()],
-        "firewood" | "log_stack" => vec![firewood()],
+        "firewood" | "log_stack" | "log_pile" => vec![firewood()],
+        "sawyers_shed" => vec![sawyers_shed()],
+        "sawdust" => vec![sawdust()],
+        "ferns" => (0..2).map(ferns).collect(),
+        "river_stones" => (0..2).map(river_stones).collect(),
+        "fallen_log" => vec![fallen_log()],
         "turf_heap" => vec![turf_heap()],
         "shelter" => vec![shelter()],
         "trough" => vec![trough()],
@@ -1416,5 +1421,93 @@ fn gear_shelf() -> Sprite {
     rect(&mut s, 9, 14, 13, 14, WOOD + 1);
     circle_fill(&mut s, 7, 19, 2, [MAT, MAT + 1, MAT + 2]);
     s.set(7, 19, WOOD);
+    s.outline()
+}
+
+/// The sawyers' shed: a plank roof on posts over seasoned logs, stacked with their ends out.
+fn sawyers_shed() -> Sprite {
+    let mut s = Sprite::blank(48, 32);
+    for (x0, x1) in [(3, 5), (42, 44)] {
+        rect(&mut s, x0, 8, x1, 31, WOOD + 1);
+        rect(&mut s, x0, 8, x0, 31, WOOD + 2);
+    }
+    for y in 2..=10 {
+        rect(&mut s, 0, y, 47, y, if y < 4 { WOOD + 3 } else { WOOD + 2 });
+    }
+    for x in (2..47).step_by(5) {
+        rect(&mut s, x, 3, x, 10, WOOD + 1);
+    }
+    rect(&mut s, 0, 11, 47, 11, WOOD);
+    rect(&mut s, 0, 12, 47, 13, SHADOW);
+    // The logs, ends out, in three rows.
+    for (row, n) in [(26, 6), (21, 5), (16, 4)] {
+        let x0 = 24 - n * 3;
+        for k in 0..n {
+            let cx = x0 + k * 6 + 2;
+            rect(&mut s, cx - 2, row - 2, cx + 2, row + 2, WOOD);
+            rect(&mut s, cx - 1, row - 1, cx + 1, row + 1, PLANK + 3);
+            s.set(cx, row, PLANK + 1);
+        }
+    }
+    s.outline()
+}
+
+/// Sawdust: a low pale drift under the pit, with flecks blown round it. Ground, not a heap of
+/// anything to carry.
+fn sawdust() -> Sprite {
+    let mut s = Sprite::blank(16, 8);
+    for (y, x0, x1) in [(4, 5, 10), (5, 2, 13), (6, 1, 14), (7, 3, 11)] {
+        rect(&mut s, x0, y, x1, y, MAT + 1);
+    }
+    for (x, y) in [(6, 4), (9, 5), (4, 6), (11, 6), (7, 7)] {
+        s.set(x, y, MAT + 2);
+    }
+    for (x, y) in [(1, 3), (14, 4), (0, 7), (15, 7), (12, 2), (3, 2)] {
+        s.set(x, y, MAT + 1);
+    }
+    s
+}
+
+/// Ferns: fronds arching out of the damp.
+fn ferns(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 12);
+    let fronds: &[(i32, i32, i32)] = if k == 0 { &[(-1, 5, 5), (1, 5, 5), (0, 4, 7)] } else { &[(-1, 6, 4), (1, 4, 6), (-1, 3, 6)] };
+    for &(dir, len, top) in fronds {
+        for t in 0..len {
+            let x = 8 + dir * t;
+            let y = top + t / 2 + 1;
+            s.set(x, y, LEAF + 1);
+            s.set(x, y - 1, if t % 2 == 0 { LEAF + 2 } else { LEAF });
+        }
+    }
+    rect(&mut s, 7, 9, 8, 11, LEAF);
+    s.outline()
+}
+
+/// Stones in the brook, wet on top.
+fn river_stones(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 12);
+    let stones: &[(i32, i32, i32)] = if k == 0 { &[(5, 6, 3), (11, 8, 2)] } else { &[(4, 8, 2), (11, 6, 3)] };
+    for &(cx, cy, r) in stones {
+        circle_fill(&mut s, cx, cy, r, STONE);
+    }
+    s.outline()
+}
+
+/// A fallen pine across the water, its bark mossy, its sawn end pale.
+fn fallen_log() -> Sprite {
+    let mut s = Sprite::blank(16, 14);
+    for k in 0..12 {
+        let (x, y) = (1 + k, 11 - k * 2 / 3);
+        rect(&mut s, x, y - 2, x, y + 1, WOOD);
+        s.set(x, y - 2, WOOD + 2);
+        s.set(x, y + 1, WOOD + 1);
+    }
+    for (x, y) in [(3, 8), (6, 7), (9, 5)] {
+        s.set(x, y, LEAF + 1);
+    }
+    rect(&mut s, 12, 1, 15, 6, WOOD);
+    rect(&mut s, 13, 2, 14, 5, PLANK + 3);
+    s.set(13, 3, PLANK + 1);
     s.outline()
 }

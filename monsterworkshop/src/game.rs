@@ -177,6 +177,10 @@ pub enum Thing {
     Shop(usize),
     /// Open or shut this wagon's tailgate, standing behind it.
     Tailgate { wagon: usize, open: bool },
+    /// Set the choice board of workshop `shop` to the recipe numbered `recipe` among its kind's,
+    /// standing before the board: as with a tailgate, a loop records what it was set to, not the
+    /// press, so a replay sets it so whatever it says by then.
+    Choice { shop: usize, recipe: u8 },
 }
 
 /// A loop: its flag, and its goals in the order they were shown.
@@ -1706,6 +1710,18 @@ impl Game {
         if let Some(s) = self.world.shop_at_spot(x, y) {
             return self.use_shop(i, s, sfx);
         }
+        // Facing a choice board, Space turns it to the next of what its workshop could make.
+        let (dx, dy) = self.monsters[i].facing.delta();
+        if let Some(s) = self.world.choice_at(x + dx, y + dy) {
+            return match self.next_choice(s) {
+                Some(r) => {
+                    self.set_choice(i, s, r);
+                    sfx.push(Sfx::Pop);
+                    UseRes::Done
+                }
+                None => UseRes::Nothing,
+            };
+        }
         // Asking a working townsperson something: the next thing they say.
         if self.faced_worker(i).is_some() && !self.monsters[i].playing {
             let k = self.monsters[i].commune;
@@ -1843,6 +1859,9 @@ impl Game {
         if let Some(s) = self.world.shop_at_spot(here.0, here.1) {
             return Some(Thing::Shop(s));
         }
+        if let Some(s) = self.world.choice_at(ahead.0, ahead.1) {
+            return self.next_choice(s).map(|recipe| Thing::Choice { shop: s, recipe });
+        }
         self.world.plant_at(here.0, here.1).map(|_| Thing::Plant { at: here, facing: m.facing })
     }
 
@@ -1856,7 +1875,88 @@ impl Game {
                 let d = DIRS.iter().copied().find(|d| (back.0 + d.delta().0, back.1 + d.delta().1) == w.at).unwrap_or(Dir::Up);
                 (back, Some(d))
             }),
+            // Before its board: below it if that's open ground, else any side.
+            Thing::Choice { shop, .. } => {
+                let &(at, _) = self.world.choices.iter().find(|&&(_, s)| s == shop)?;
+                [Dir::Up, Dir::Left, Dir::Right, Dir::Down].into_iter().find_map(|d| {
+                    let (dx, dy) = d.delta();
+                    let stand = (at.0 - dx, at.1 - dy);
+                    self.world.walkable(stand.0, stand.1).then_some((stand, Some(d)))
+                })
+            }
         }
+    }
+
+    /// The recipes of workshop `s` that can take the same goods as another of its own, so its
+    /// pads alone can't say which to make: a knife and forceps both take a metal ingot and heat.
+    /// Two tie when they take as many goods, each of one's fitting some good that fits one of
+    /// the other's. In its kind's order.
+    pub(crate) fn contested(&self, s: usize) -> Vec<&'static str> {
+        let recipes = self.world.shops[s].kind.recipes();
+        let overlap = |a: &Vec<String>, b: &Vec<String>| self.data.goods.iter().any(|g| crate::data::matches(&g.type_tags, a) && crate::data::matches(&g.type_tags, b));
+        let tie = |r1: &str, r2: &str| {
+            let (g1, g2): (Vec<&Vec<String>>, Vec<&Vec<String>>) = (self.data.good(r1).input_groups().map(|(_, g)| g).collect(), self.data.good(r2).input_groups().map(|(_, g)| g).collect());
+            if g1.len() != g2.len() {
+                return false;
+            }
+            let mut free: Vec<&Vec<String>> = g2.clone();
+            g1.iter().all(|a| match free.iter().position(|b| overlap(a, b)) {
+                Some(k) => {
+                    free.remove(k);
+                    true
+                }
+                None => false,
+            })
+        };
+        recipes.iter().copied().filter(|&r| recipes.iter().any(|&o| o != r && tie(r, o))).collect()
+    }
+
+    /// The recipes of workshop `s` its pads alone could never make: whatever goods fit one, an
+    /// earlier one with as many inputs fits them too (forceps, behind the knife). These need a
+    /// choice board. A tie the goods can settle (coal and a log making coke, two logs charcoal)
+    /// doesn't. The tests hold every map to it.
+    #[cfg(test)]
+    pub(crate) fn shadowed(&self, s: usize) -> Vec<&'static str> {
+        let recipes = self.world.shops[s].kind.recipes();
+        let fits = |grp: &Vec<String>| -> Vec<usize> { (0..self.data.goods.len()).filter(|&k| crate::data::matches(&self.data.goods[k].type_tags, grp)).collect() };
+        let within = |a: &Vec<String>, b: &Vec<String>| {
+            let fb = fits(b);
+            fits(a).iter().all(|k| fb.contains(k))
+        };
+        let behind = |r: &str, e: &str| {
+            let (gr, ge): (Vec<&Vec<String>>, Vec<&Vec<String>>) = (self.data.good(r).input_groups().map(|(_, g)| g).collect(), self.data.good(e).input_groups().map(|(_, g)| g).collect());
+            if gr.len() != ge.len() {
+                return false;
+            }
+            let mut free = ge.clone();
+            gr.iter().all(|a| match free.iter().position(|b| within(a, b)) {
+                Some(k) => {
+                    free.remove(k);
+                    true
+                }
+                None => false,
+            })
+        };
+        recipes.iter().enumerate().filter(|&(n, &r)| recipes[..n].iter().any(|&e| behind(r, e))).map(|(_, &r)| r).collect()
+    }
+
+    /// What workshop `s`'s choice board says next: the contested recipe after the one it says
+    /// now (by number among its kind's), round again to the first.
+    pub(crate) fn next_choice(&self, s: usize) -> Option<u8> {
+        let contested = self.contested(s);
+        let recipes = self.world.shops[s].kind.recipes();
+        let now = self.world.shops[s].chosen.as_deref().and_then(|c| contested.iter().position(|&r| r == c));
+        let next = contested.get(now.map_or(0, |k| (k + 1) % contested.len()))?;
+        recipes.iter().position(|r| r == next).map(|k| k as u8)
+    }
+
+    /// Sets workshop `s`'s choice board to the recipe numbered `recipe`, and says so.
+    pub(crate) fn set_choice(&mut self, i: usize, s: usize, recipe: u8) {
+        let Some(&r) = self.world.shops[s].kind.recipes().get(recipe as usize) else { return };
+        self.world.shops[s].chosen = Some(r.to_string());
+        let label = self.world.shops[s].kind.label();
+        let what = crate::recipes::one(&self.good_name(self.data.good(r).output()));
+        self.say(i, &format!("THE {label} MAKES {what} WHEN ITS GOODS COULD MAKE SEVERAL THINGS."), false);
     }
 
     fn toggle_record(&mut self, i: usize, sfx: &mut Vec<Sfx>) {
