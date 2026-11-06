@@ -9,7 +9,7 @@ use crate::tutorial::{self, wrap, HELP, STAGES};
 use crate::world::*;
 
 /// The sprites a workshop kind's `look` can name (`data/workshops.json`).
-pub const LOOKS: [&str; 7] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench"];
+pub const LOOKS: [&str; 8] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench", "mound"];
 
 pub const VIEW_H: i32 = SCREEN_H * TS; // 256; the HUD fills the remaining 44 rows
 const HOP: [i32; 7] = [0, 2, 4, 5, 5, 4, 2];
@@ -139,12 +139,14 @@ fn draw_ground(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
         fb.blit(s, x + (TS - s.w) / 2, y + TS - s.h, false);
     }
     draw_boards_and_signs(g, sp, fb, v);
+    draw_vine_feet(g, fb, v);
     for s in g.world.shops.iter().filter(|s| v.sees(s.spot.0, s.spot.1) && s.frontier.as_ref().is_none_or(|f| !f.fallen)) {
         let (x, y) = v.px(s.spot.0, s.spot.1);
         let (art, dy) = match s.kind.look() {
             "wheel" => (&sp.wheel[if s.job.is_some() { (g.frame / 2 % 2) as usize } else { 0 }], -5),
             "loom" => (&sp.loom, -5),
             "kiln" => (&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], -5),
+            "mound" => (&sp.mound[if s.job.is_some() { 1 + (g.frame / 5 % 2) as usize } else { 0 }], TS - 22),
             "indigo_vat" => (&sp.indigo_vat, -4),
             "dye_vat" => (&sp.dye_vat, -4),
             "wagon_bench" => (&sp.wagon_bench, TS - sp.wagon_bench.h - 4),
@@ -567,7 +569,9 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
             canopy(fb, x0, y0, tx);
         }
     }
-    if tile == Tile::Spot {
+    // A charcoal mound sits on bare earth, burning.
+    let mound = || g.world.shop_at_spot(tx, ty).is_some_and(|s| g.world.shops[s].kind.look() == "mound");
+    if tile == Tile::Spot && !mound() {
         // A rug under the work spot so it reads at a glance.
         fb.rect_fill(x0 + 1, y0 + 1, TS - 2, TS - 2, THREAD + 1);
         fb.rect_fill(x0 + 2, y0 + 2, TS - 4, TS - 4, THREAD);
@@ -792,9 +796,12 @@ fn mat_hint(g: &Game, tx: i32, ty: i32, tile: Tile) -> Option<String> {
 
 /// The good a ghost shows for an input: one the world grows or makes nearby before a far-off one.
 fn ghost_good(g: &Game, group: &[String]) -> Option<String> {
-    let local = |id: &str| g.world.plants.iter().any(|p| p.good == id) || g.world.shops.iter().any(|s| s.kind.recipes().contains(&id));
+    // What grows here first (a stone pad shows a stone, not the stone anvil a mason's bench
+    // makes), then what's made here, then anything that fits.
+    let grows = |id: &str| g.world.plants.iter().any(|p| p.good == id);
+    let made = |id: &str| g.world.shops.iter().any(|s| s.kind.recipes().contains(&id));
     let fits: Vec<&crate::data::GoodType> = g.data.goods.iter().filter(|p| crate::data::matches(&p.type_tags, group)).collect();
-    fits.iter().find(|p| local(&p.id)).or(fits.first()).map(|p| p.id.clone())
+    fits.iter().find(|p| grows(&p.id)).or_else(|| fits.iter().find(|p| made(&p.id))).or(fits.first()).map(|p| p.id.clone())
 }
 
 /// The built-in tool a peg stands in for.
@@ -1154,12 +1161,15 @@ fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
     let mut named: Vec<((i32, i32), &str)> = Vec::new();
     // Town workshops' buildings; frontier ones are open-air, with no walls to put a name on.
     for s in g.world.shops.iter().filter(|s| s.kind.is_building() && s.frontier.is_none()) {
-        // Up from the work spot to the building's top wall; a door in that wall counts too.
+        // Up from the work spot to the building's top wall; a door in that wall counts too. One
+        // out in the open (a charcoal mound) has no wall to put a name on.
         let (sx, mut wy) = s.spot;
-        while wy > 0 && !matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
+        while wy > s.spot.1 - SCREEN_H && !matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
             wy -= 1;
         }
-        named.push(((sx, wy), s.kind.label()));
+        if matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
+            named.push(((sx, wy), s.kind.label()));
+        }
     }
     named.extend(g.world.labels.iter().copied());
     for ((sx, wy), label) in named.into_iter().filter(|((x, y), _)| v.sees(*x, *y)) {
@@ -1254,9 +1264,10 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
         let lx = (x + 8 - w / 2).clamp(6, 394 - w);
         fb.text(s.text, lx, y - 8, TEXT, Some(OUTLINE), 1);
         // A small arrow beside the name, pointing the way.
-        if s.dir == Dir::Down {
+        if s.dir == Dir::Down || s.dir == Dir::Up {
             for (k, h) in [5, 3, 1].iter().enumerate() {
-                fb.rect_fill(lx + w + 4 - h / 2, y - 8 + 1 + k as i32, *h, 1, SPARK + 2);
+                let row = if s.dir == Dir::Down { k as i32 } else { 2 - k as i32 };
+                fb.rect_fill(lx + w + 4 - h / 2, y - 8 + 1 + row, *h, 1, SPARK + 2);
             }
             continue;
         }
@@ -1424,6 +1435,55 @@ fn draw_lift_vine(fb: &mut Framebuffer, x: i32, y: i32, (px, py): (i32, i32), up
     }
 }
 
+/// Where each vine takes goods on, plain to see: an empty woven cradle on the ground at its
+/// foot, a tendril reaching to it from the vine, so you know where to set a good to send it.
+fn draw_vine_feet(g: &Game, fb: &mut Framebuffer, v: &View) {
+    for l in g.world.lifts.iter().filter(|l| v.sees(l.foot.0, l.foot.1)) {
+        let (x, y) = v.px(l.foot.0, l.foot.1);
+        // The tendril, from the cradle's edge to the vine's side of the tile.
+        let (rx, ry, rw, rh) = match l.dir {
+            Dir::Up => (7, 0, 2, 8),
+            Dir::Down => (7, 14, 2, 2),
+            Dir::Left => (0, 10, 3, 2),
+            Dir::Right => (13, 10, 3, 2),
+        };
+        fb.rect_fill(x + rx - 1, y + ry, rw + 2, rh, OUTLINE);
+        fb.rect_fill(x + rx, y + ry, rw, rh, LEAF);
+        // The cradle, open and waiting.
+        fb.rect_fill(x + 2, y + 7, 12, 8, OUTLINE);
+        fb.rect_fill(x + 3, y + 8, 10, 6, MAT + 1);
+        fb.rect_fill(x + 4, y + 9, 8, 3, MAT);
+        for wx in (4..12).step_by(2) {
+            fb.pset(x + wx, y + 13, MAT + 2);
+        }
+        fb.rect_fill(x + 3, y + 8, 10, 1, MAT + 2);
+    }
+}
+
+/// A vine running across a cliff, sideways: its stem along the rock, leaves above and below,
+/// and a cradle hanging from it on every other tile.
+fn draw_vine_across(fb: &mut Framebuffer, x: i32, y: i32, (px, py): (i32, i32)) {
+    let h = hash(px, py);
+    for (k, &(lx, ly)) in [(0, 2), (6, 1), (11, 3), (2, 10), (9, 11)].iter().enumerate() {
+        let lx = lx + (h >> (k * 2)) as i32 % 2;
+        fb.rect_fill(x + lx, y + ly, 6, 4, OUTLINE);
+        fb.rect_fill(x + lx + 1, y + ly + 1, 4, 2, LEAF);
+        fb.rect_fill(x + lx + 1, y + ly + 1, 2, 1, LEAF + 1);
+    }
+    for xx in 0..TS {
+        let sy = 7 + [0, 1, 1, 0, -1, -1, 0, 1][((xx + px * TS) / 2 % 8) as usize];
+        fb.rect_fill(x + xx, y + sy - 1, 1, 4, OUTLINE);
+        fb.rect_fill(x + xx, y + sy, 1, 2, LEAF);
+        fb.pset(x + xx, y + sy, LEAF + 1);
+    }
+    if px % 2 == 0 {
+        fb.rect_fill(x + 6, y + 9, 1, 2, LEAF);
+        fb.rect_fill(x + 3, y + 10, 7, 6, OUTLINE);
+        fb.rect_fill(x + 4, y + 10, 5, 5, MAT + 1);
+        fb.rect_fill(x + 4, y + 10, 5, 1, MAT + 2);
+    }
+}
+
 /// A piece of scenery: whole on its tiles, or joined to its neighbors of the same kind.
 fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (i32, i32), prop: Prop) {
     let k = prop.kind();
@@ -1433,7 +1493,9 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
         "cliff" | "lift_vine" | "pit_wall" => {
             let cliff = |dx: i32, dy: i32| ["cliff", "lift_vine", "pit_wall"].iter().any(|id| joins(id, dx, dy));
             draw_cliff(fb, x, y, (px, py), [cliff(0, -1), cliff(0, 1), cliff(-1, 0), cliff(1, 0)]);
-            if k.id == "lift_vine" {
+            if k.id == "lift_vine" && (joins("lift_vine", -1, 0) || joins("lift_vine", 1, 0)) {
+                draw_vine_across(fb, x, y, (px, py));
+            } else if k.id == "lift_vine" {
                 draw_lift_vine(fb, x, y, (px, py), joins("lift_vine", 0, -1), joins("lift_vine", 0, 1));
             }
             // A pit's wall is shored with timber here and there: a post, and a cap across it.
@@ -1509,6 +1571,37 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
                 if let Some(s) = sp.prop(k.id, 0) {
                     fb.blit(s, x + (TS - s.w) / 2, y + TS - 2 - s.h, false);
                 }
+            }
+        }
+        "hemp_rack" => {
+            // An A-frame at each end, a pole across, and bundles of hemp hung over it to dry.
+            let (l, r) = (joins(k.id, -1, 0), joins(k.id, 1, 0));
+            for (end, ex) in [(l, 3), (r, 12)] {
+                if !end {
+                    for yy in 1..TS {
+                        let spread = (yy - 1) / 4;
+                        for lx in [ex - spread, ex + spread] {
+                            fb.rect_fill(x + lx - 1, y + yy, 3, 1, OUTLINE);
+                        }
+                    }
+                    for yy in 1..TS {
+                        let spread = (yy - 1) / 4;
+                        for lx in [ex - spread, ex + spread] {
+                            fb.pset(x + lx, y + yy, WOOD + 2);
+                        }
+                    }
+                }
+            }
+            let (a, b) = (if l { 0 } else { 2 }, if r { 16 } else { 14 });
+            fb.rect_fill(x + a, y + 1, b - a, 3, OUTLINE);
+            fb.rect_fill(x + a, y + 2, b - a, 1, WOOD + 3);
+            for bx in (a + 1..b - 2).step_by(3) {
+                let long = 9 + (hash(px * TS + bx, py) % 3) as i32;
+                fb.rect_fill(x + bx - 1, y + 3, 4, long + 1, OUTLINE);
+                fb.rect_fill(x + bx, y + 3, 2, long, MAT + 2);
+                fb.pset(x + bx + 1, y + 3 + long / 2, MAT + 1);
+                fb.rect_fill(x + bx, y + 3, 2, 2, MAT);
+                fb.pset(x + bx, y + 2 + long, LEAF + 1);
             }
         }
         "washing_line" | "drying_line" => {

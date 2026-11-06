@@ -32,16 +32,16 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam  `©` copper seam
-// `ĝ` granite outcrop
+// `ĝ` granite outcrop  `ĥ` hemp  `Ƥ` pine  `ƥ` a pine tapped for resin  `ʝ` juniper
 // `0` a gate into a province past the first, shut until its board's goal is met
-// `░` paving  `╪` a jetty (planks over water)  `▒` gravel: bare stony ground, as in a quarry or
+// `░` paving  `╪` a jetty (planks over water)  `╬` a bridge, built  `▒` gravel: bare stony ground, as in a quarry or
 // a pit (copper seams and granite outcrops lie on it too)  `≡` stone steps
 // Work spots are marked by their kind's `map_char` in `data/workshops.json` (`B` workbench,
 // `S` spinnery, `L` loom house...). Each `p` pad, `g` tool peg and `o` output mat belongs to the
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -199,10 +199,10 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 }
 
 /// Every kind of scenery. Fences, stone walls, rails, washing and drying lines, gate posts, the
-/// awning over a shop's door, the hillside, and the cliff and its vine join their neighbors of the
-/// same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
+/// awning over a shop's door, the hillside, the cliff and its vine, and hemp's drying racks join
+/// their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 76] = [
+pub const PROPS: [PropKind; 83] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -285,12 +285,21 @@ pub const PROPS: [PropKind; 76] = [
     prop("tool_rack", 'ŧ', "A TOOL RACK", "OLD PATINA'S SPARE PICKS AND SHOVELS. HE COUNTS THEM.", (1, 1)),
     prop("windlass", 'ω', "THE WINDLASS", "IT WINDS ORE UP FROM THE SHAFT, A BUCKET AT A TIME.", (4, 3)),
     prop("spoil_heap", 'ʬ', "A SPOIL HEAP", "BROKEN ROCK WITH NO COPPER IN IT. IT ONLY GROWS.", (3, 2)),
+    // Hemp Hollow's.
+    prop("hemp_rack", 'ɦ', "A DRYING RACK", "HEMP STALKS HUNG UP TO DRY, BEFORE THEY GO IN THE POND.", (1, 1)),
+    prop("stook", 'ʈ', "A STOOK OF HEMP", "STALKS STOOD ON END TO DRY. THEY RATTLE IN THE WIND.", (1, 1)),
+    water_prop("retting", 'ɽ', "HEMP SOAKING", "BUNDLES OF STALKS WEIGHTED UNDER THE WATER, ROTTING SOFT ENOUGH TO STRIP.", (1, 1)),
+    prop("sack_scarecrow", 'ƨ', "A SCARECROW", "DRESSED IN AN OLD HEMP SACK. THE CROWS AREN'T FOOLED.", (1, 1)),
+    // Charcoal Wood's.
+    prop("log_stack", 'ɭ', "LOGS FOR THE MOUNDS", "PINE, STACKED TO SEASON BEFORE IT'S BURIED AND BURNT.", (1, 1)),
+    prop("turf_heap", 'ʉ', "TURF AND EARTH", "CUT TO COVER THE NEXT MOUND, SO IT SMOULDERS INSTEAD OF BURNING.", (1, 1)),
+    prop("shelter", 'ʊ', "THE BURNERS' SHELTER", "SOMEBODY HAS TO WATCH A MOUND ALL NIGHT. THIS IS WHERE.", (1, 1)),
 ];
 
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 7] = [
+const REGIONS: [Region; 9] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
@@ -441,6 +450,41 @@ const REGIONS: [Region; 7] = [
         supplies: &[],
         workers: &[OLD_PATINA],
     },
+    // The road the long way round: south from the Cliff Lift into Hemp Hollow, where hemp grows
+    // by the Rust Brook and the hemp house stands on its retting pond.
+    Region {
+        map: include_str!("../data/hemp_hollow.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (150, 48),
+        racks: &[],
+        folk: &[],
+        vines: &[],
+        // Until there's a smithy, a knife for bast fiber and a needle for sacks.
+        goods: &[((16, 8), "knife", "pig_iron_ingot"), ((21, 8), "needle", "pig_iron_ingot")],
+        labels: &[],
+        signs: &[("TEMPLE TOWN", Dir::Up), ("VERDIGRIS", Dir::Right), ("CHARCOAL WOOD", Dir::Right)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
+    // Charcoal Wood, a pine ridge: the charcoal mounds and the stonemason's yard, the Stone Stair
+    // up its north cliff to Verdigris, and the charcoal vine over its east edge to Bellows.
+    Region {
+        map: include_str!("../data/charcoal_wood.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (175, 48),
+        racks: &[],
+        folk: &[],
+        vines: &[((21, 6), Dir::Right)],
+        goods: &[],
+        labels: &[],
+        signs: &[("VERDIGRIS", Dir::Up)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
 ];
 
 /// Pinewater's wagonwright, after Xi Zhong, who legend says made the first cart. He fetches his
@@ -513,7 +557,7 @@ pub const SUPPLY_TICKS: u32 = 60;
 
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it.
-const AREAS: [(i32, i32, &str); 9] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (200, 32, "COPPER CUT")];
+const AREAS: [(i32, i32, &str); 11] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 const WORLD_ROWS: i32 = 64;
@@ -538,6 +582,10 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'M' => "coal",
         '©' => "copper_ore",
         'ĝ' => "granite",
+        'ĥ' => "hemp_stalks",
+        'Ƥ' => "pine_log",
+        'ƥ' => "pine_resin",
+        'ʝ' => "juniper_sticks",
         _ => return None,
     })
 }
@@ -1125,6 +1173,7 @@ impl World {
                         '░' => Tile::Paving,
                     '▒' | '©' | 'ĝ' => Tile::Gravel,
                     '≡' => Tile::Stair,
+                    '╬' => Tile::Bridge,
                         // A jetty: planks over the water, walked like the footbridge.
                         '╪' => Tile::Footbridge,
                         's' => Tile::Sign,

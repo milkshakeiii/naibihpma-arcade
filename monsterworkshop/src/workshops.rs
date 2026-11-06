@@ -251,16 +251,18 @@ mod tests {
         }
     }
 
-    /// Every recipe of every kind can be made starting from what grows on the map: at a town
-    /// workshop on the map, with the tools it lends, or at a frontier one whose kit can be made,
-    /// with tools that can be made. A trader's goods count as made once its trade can be.
+    /// Every recipe of every kind can be made starting from what grows on the map, or lies on it:
+    /// at a town workshop on the map, with the tools it lends, or at a frontier one whose kit can
+    /// be made, with tools that can be made. A trader's goods count as made once its trade can be.
     #[test]
     fn everything_in_play_can_be_made_from_what_grows_on_the_map() {
         let data = Data::load();
         let world = World::new(&data);
         let in_town: HashSet<ShopKind> = world.shops.iter().map(|s| s.kind).collect();
-        // Goods that can be had, and recipes that can be made (a trade's good is another good).
-        let mut made: BTreeSet<&str> = world.plants.iter().map(|p| data.good(&p.good).id.as_str()).collect();
+        // Goods that can be had, and recipes that can be made (a trade's good is another good):
+        // what grows, and what lies about when a world begins (the hills' hammers, chisels, knife
+        // and needle until their smithy).
+        let mut made: BTreeSet<&str> = world.plants.iter().map(|p| data.good(&p.good).id.as_str()).chain(world.items.iter().map(|it| data.good(it.good()).id.as_str())).collect();
         let mut can: BTreeSet<&str> = BTreeSet::new();
         let provided = |made: &BTreeSet<&str>, group: &Vec<String>| made.iter().any(|id| matches(&data.good(id).type_tags, group));
         loop {

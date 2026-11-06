@@ -131,6 +131,35 @@
       "lends": ["metal_chisel", "shovel"]
     },
     {
+      "id": "hemp_house",
+      "label": "HEMP HOUSE",
+      "about": "Hemp Hollow's, by the retting pond: the Cloth Reaches' cloth in miniature, for the hills' side industry. Bast fiber from hemp or ramie stalks, thread, fabric, rope and sacks; it lends a tub (the pond), a roller and the spinning and weaving tools, so only the knife and the needle come from the smithy.",
+      "map_char": "ʜ",
+      "look": "dye_vat",
+      "building": true,
+      "recipes": ["bast_fiber", "thread", "fabric", "rope", "sack"],
+      "lends": ["wooden_tub", "roller", "spool", "spinning_wheel", "waist_loom"]
+    },
+    {
+      "id": "charcoal_mound",
+      "label": "CHARCOAL MOUND",
+      "about": "Charcoal Wood's: logs stacked and buried in earth to smoulder. Charcoal from any log, and pitch from pine.",
+      "map_char": "Ɱ",
+      "look": "mound",
+      "building": true,
+      "recipes": ["charcoal", "pitch"]
+    },
+    {
+      "id": "mason_bench",
+      "label": "MASON'S BENCH",
+      "about": "The stonemason's yard in Charcoal Wood: the stone hammer and the stone anvil, from the Cliff Lift's granite. It lends a hammer and a chisel.",
+      "map_char": "Ɯ",
+      "look": "bench",
+      "building": false,
+      "recipes": ["stone_hammer", "stone_anvil"],
+      "lends": ["stone_hammer", "metal_chisel"]
+    },
+    {
       "id": "trader_stall",
       "label": "TRADER'S STALL",
       "about": "A temporary trader from the hills, for testing: Cloth Reaches goods for what the bell needs from provinces not open yet, and a pick and a shovel for the coal seam until somebody can make them. Each trade wants a different mix, since the pads choose. It offers only what nothing in the world makes or grows.",

@@ -2136,7 +2136,7 @@ fn cloth_from_temple_town_can_be_pushed_out_to_the_gates_board() {
 #[test]
 fn the_cliff_lift_vine_carries_goods_up_and_waits_for_room_at_the_top() {
     let mut g = Game::new();
-    assert_eq!(g.world.lifts.iter().map(|l| l.dir).collect::<Vec<_>>(), [Dir::Up, Dir::Down], "the lift vine up from the way in, the ore vine down from the Copper Cut");
+    assert_eq!(g.world.lifts.iter().map(|l| l.dir).collect::<Vec<_>>(), [Dir::Up, Dir::Down, Dir::Right], "the lift vine up from the way in, the ore vine down from the Copper Cut, the charcoal vine east from Charcoal Wood");
     let lift = g.world.lifts[0].clone();
     assert_eq!(crate::world::area_name(lift.foot.0, lift.foot.1), "THE CLIFF LIFT");
     assert!(g.world.walkable(lift.foot.0, lift.foot.1) && g.world.walkable(lift.top.0, lift.top.1), "open ground at both ends");

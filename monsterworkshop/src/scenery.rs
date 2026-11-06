@@ -39,7 +39,9 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "big_tree" => vec![big_tree()],
         "shade_tree" => vec![shade_tree()],
         "bench" => vec![bench()],
-        "firewood" => vec![firewood()],
+        "firewood" | "log_stack" => vec![firewood()],
+        "turf_heap" => vec![turf_heap()],
+        "shelter" => vec![shelter()],
         "trough" => vec![trough()],
         "anvil" => vec![anvil()],
         "hand_cart" => vec![hand_cart()],
@@ -77,6 +79,9 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "baskets" => vec![baskets()],
         "sacks" => vec![sacks()],
         "cairn" => vec![cairn()],
+        "stook" => (0..2).map(stook).collect(),
+        "retting" => (0..2).map(retting).collect(),
+        "sack_scarecrow" => vec![sack_scarecrow()],
         "scree" => (0..2).map(scree).collect(),
         "cut_stone" => (0..2).map(cut_stone).collect(),
         "lean_to" => vec![lean_to()],
@@ -1193,5 +1198,89 @@ fn spoil_heap() -> Sprite {
         s.set(cx, cy + r - 1, HUD_FILL);
     }
     rect(&mut s, 4, 28, 44, 29, STONE[0]);
+    s.outline()
+}
+
+/// A stook of hemp: stalks stood on end in a cone, tied near the top, their tops fanned out.
+fn stook(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 26);
+    for y in 7..=25 {
+        let hw = 1 + (y - 7) * (5 + k as i32) / 18;
+        for x in 8 - hw..=7 + hw {
+            let c = if (x + k as i32) % 3 == 0 { MAT } else if x < 8 { MAT + 2 } else { MAT + 1 };
+            s.set(x, y, c);
+        }
+    }
+    // The tops, fanned above the tie, still green.
+    for (x, y) in [(5, 3), (6, 4), (7, 2), (8, 2), (9, 4), (10, 3), (6, 6), (9, 6), (7, 5), (8, 5)] {
+        s.set(x, y, if y < 4 { LEAF + 1 } else { LEAF });
+    }
+    rect(&mut s, 6, 7, 9, 8, WOOD + 1);
+    s.outline()
+}
+
+/// Hemp soaking in the pond: a fat bundle of stalks under the water, tied twice, a stone on it.
+fn retting(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 12);
+    let (x0, y0) = if k == 0 { (1, 3) } else { (2, 4) };
+    rect(&mut s, x0, y0, x0 + 12, y0 + 5, LEAF);
+    rect(&mut s, x0, y0, x0 + 12, y0 + 1, LEAF + 1);
+    for x in (x0 + 1..x0 + 12).step_by(3) {
+        s.set(x, y0 + 3, LEAF + 2);
+    }
+    rect(&mut s, x0 + 3, y0, x0 + 3, y0 + 5, MAT + 1);
+    rect(&mut s, x0 + 9, y0, x0 + 9, y0 + 5, MAT + 1);
+    circle_fill(&mut s, x0 + 6, y0 + 2, 2, STONE);
+    s.outline()
+}
+
+/// A scarecrow in an old hemp sack, a straw hat on its head.
+fn sack_scarecrow() -> Sprite {
+    let mut s = Sprite::blank(16, 20);
+    rect(&mut s, 7, 8, 8, 19, WOOD + 1);
+    rect(&mut s, 1, 9, 14, 10, MAT + 1);
+    rect(&mut s, 4, 8, 11, 15, MAT + 1);
+    rect(&mut s, 4, 8, 4, 15, MAT + 2);
+    rect(&mut s, 5, 12, 10, 12, MAT);
+    for x in [1, 14] {
+        s.set(x, 11, MAT + 2);
+    }
+    rect(&mut s, 5, 3, 10, 7, MAT + 2);
+    s.set(6, 5, OUTLINE);
+    s.set(9, 5, OUTLINE);
+    rect(&mut s, 3, 2, 12, 3, SPARK + 1);
+    rect(&mut s, 5, 0, 10, 2, SPARK);
+    s.outline()
+}
+
+/// A heap of cut turf and earth, for covering a charcoal mound: brown, grass still on the sods.
+fn turf_heap() -> Sprite {
+    let mut s = Sprite::blank(16, 11);
+    for &(cx, cy, r) in &[(4, 7, 3), (11, 7, 3), (8, 4, 3)] {
+        circle_fill(&mut s, cx, cy, r, [WOOD, WOOD + 1, WOOD + 2]);
+    }
+    rect(&mut s, 2, 10, 13, 10, WOOD);
+    for (x, y) in [(3, 4), (4, 4), (7, 1), (8, 1), (9, 2), (11, 4), (12, 4), (6, 6)] {
+        s.set(x, y, LEAF);
+        s.set(x, y + 1, LEAF + 1);
+    }
+    s.outline()
+}
+
+/// The burners' shelter: a lean-to of poles and bark, a bedroll inside.
+fn shelter() -> Sprite {
+    let mut s = Sprite::blank(16, 18);
+    for y in 2..=13 {
+        let half = (y - 1) / 2 + 1;
+        rect(&mut s, 8 - half, y, 7 + half, y, if (y + 1) % 3 == 0 { WOOD } else { WOOD + 1 });
+    }
+    for y in 2..=13 {
+        s.set(8 - ((y - 1) / 2 + 1), y, WOOD + 2);
+    }
+    rect(&mut s, 5, 9, 10, 13, HUD_SHADOW);
+    rect(&mut s, 6, 11, 9, 13, MAT + 1);
+    rect(&mut s, 7, 0, 8, 2, WOOD + 2);
+    rect(&mut s, 1, 14, 14, 17, WOOD);
+    rect(&mut s, 1, 14, 14, 14, WOOD + 1);
     s.outline()
 }

@@ -136,12 +136,14 @@ impl Game {
 
     /// The materials that fit a tool recipe's material slot, longest-lasting first, each once:
     /// a pick's hard metals, a spool's sticks. Only those the world has (something grows them, or
-    /// a workshop or trader gives them): the data names many more woods than are planted yet.
+    /// a workshop or trader gives them), outside provinces still shut: the data names many more
+    /// woods than are planted yet, and the hills' juniper isn't to be had till their gate opens.
     /// Where the slot takes something that carries its material rather than being one (a sack's
     /// fabric), every material of its kind the world grows.
     fn materials_for(&self, recipe: &GoodType) -> Vec<&crate::data::Variety> {
         let Some((c, group)) = self.material_slot(recipe) else { return Vec::new() };
-        let here = |id: &str| self.world.plants.iter().any(|p| p.good == id) || (0..self.world.shops.len()).any(|s| self.offers(s).iter().any(|r| self.data.good(r).output() == id));
+        let open = |(x, y): (i32, i32)| !self.world.closed_at(x, y);
+        let here = |id: &str| self.world.plants.iter().any(|p| open((p.x, p.y)) && p.good == id) || (0..self.world.shops.len()).any(|s| open(self.world.shops[s].spot) && self.offers(s).iter().any(|r| self.data.good(r).output() == id));
         let declares = |g: &GoodType| g.variety.as_ref().is_some_and(|v| self.data.variety(&v.name).is_some_and(|v| v.is(c)));
         let carried = !self.data.goods.iter().any(|g| matches(&g.type_tags, group) && declares(g));
         let mut out: Vec<&crate::data::Variety> = Vec::new();
@@ -173,7 +175,7 @@ impl Game {
     /// until a workshop sews them.
     pub(crate) fn tool_life_of(&self, good: &GoodType, tags: &[String]) -> Option<(String, &crate::data::Variety)> {
         let v = self.data.material(tags)?;
-        let made_here = |id: &str| (0..self.world.shops.len()).any(|s| self.offers(s).contains(&id));
+        let made_here = |id: &str| (0..self.world.shops.len()).any(|s| !self.world.closed_at(self.world.shops[s].spot.0, self.world.shops[s].spot.1) && self.offers(s).contains(&id));
         let makes_tools = self.data.goods.iter().any(|r| made_here(&r.id) && self.material_slot(r).is_some_and(|(c, group)| v.is(c) && matches(&good.type_tags, group)));
         makes_tools.then(|| (format!("TOOL DURABILITY {}.", against_most(crate::econ::tool_durability(Some(v)))), v))
     }

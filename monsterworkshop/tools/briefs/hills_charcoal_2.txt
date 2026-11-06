@@ -1,0 +1,27 @@
+charcoal_wood_175_48
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is CHARCOAL WOOD, in the ORE HILLS, a province of rocky hills, copper mines and dark pine woods. It is a ridge of pines where charcoal burners smoulder logs under earth mounds, and a stonemason works granite into hammers and anvils. Above it, behind the cliff along the top, are the hills' heights and the town of Verdigris, reached by THE STONE STAIR cut into the rock. On its right, the ridge ends in a cliff over the smelters of Bellows, off the right edge, and a living vine carries charcoal straight there over that edge.
+
+This picture's layout already works: where things are, the road, the paths and the brook. Keep it close. Your part is to make it a real, smoky, working pine wood, with a grand stair and a vine that plainly does its job: dress it with decoration, give the cliffs character, and nudge things only a little.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Add decorations generously but tastefully, about the mounds, the mason's yard, the stair, the road and the brook. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground, like crops, or like the pines and junipers below, since those are things players pick up and harvest.
+- There is no hedge on this screen. Keep open ground up to the left edge, the bottom edge, and the right edge below the cliff, with no hedge or wall along them: they run on into the screens around.
+- Leave walking room: everything below must be reachable on foot from the road over open ground, one tile wide at least.
+- Draw no words or labels on the picture except the signpost's name that's already there.
+
+What is here, and what must stay true:
+- THE RUST BROOK runs along the bottom, in at the right edge from Bellows and out at the left edge into Hemp Hollow. Keep it exactly where it crosses both edges, the same rows as now, since the screens beside carry it on. It is one brook all the way, with its stone bridge where the road crosses it.
+- THE CHARCOAL VINE: the green vine on the right-hand cliff, running sideways to the right edge. Monsters set charcoal at its LOADING POINT, the tile at its left end with the empty woven cradle on it, and the vine carries it away over the edge to the smelters. Make that loading point plain to see: keep the cradle there on open ground, and the vine's tendril reaching to it, with a clear way to it from the mounds. The vine must read as one living thing that carries goods: from the cradle, over the rock and off the right edge, a woven cradle hanging on it.
+- THE CLIFF along the top: natural rock, rough and weathered, all along the top edge, with grass hanging over its lip. The cliff on the right: the same rock, the ridge's end.
+- THE STONE STAIR: the stone steps up through the top cliff, two tiles wide, where they are, with the path from the road up to their foot. Make it grand: the way up to the town.
+- THE CHARCOAL MOUNDS: the two earthen domes, each with a tan mat on either side and one below it, where logs and fuel go in and charcoal comes out. Keep two, each with its three mats, on open ground.
+- THE MASON'S BENCH: the bench on a red base with a mat either side and one below: the stonemason's yard. Keep its mats round it.
+- THE PINES: the bright green pines are trees monsters fell for logs, and two are tapped for resin. Keep all ten, with open ground on every side of each.
+- THE JUNIPERS: the three round bushes, cut for sticks. Keep three, with open ground round each.
+- THE ROAD: it crosses from the left edge to the right edge where it does now, and a road goes down from it over the bridge and out of the bottom edge.
+- THE SIGNPOST: VERDIGRIS, by the path at the foot of the stair.
+
+Decorations that would suit it: stacks of cut logs waiting by the mounds; heaps of turf and earth for covering them; sacks and baskets of charcoal near the loading point; a burner's lean-to; rakes and long-handled shovels; stumps where pines were felled; resin cups on the tapped pines; in the mason's yard, cut blocks, chippings and a mallet; a lantern at the stair's foot; reeds by the brook; boulders; dark pines on the slopes.
+
+Return only the image.

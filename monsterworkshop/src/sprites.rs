@@ -1104,6 +1104,83 @@ fn make_tool_icon(id: &str) -> Sprite {
             }
             s.set(4, 4, WOOD + 1);
         }
+        // A knife: an iron blade, lit along its back, on a wooden handle.
+        "knife" => {
+            for (x, y) in [(1, 6), (2, 5), (3, 4)] {
+                s.set(x, y, WOOD + 2);
+                s.set(x, y + 1, WOOD);
+            }
+            for (x, y) in [(4, 3), (5, 2), (6, 1)] {
+                s.set(x, y, TEXT_DIM);
+                s.set(x, y + 1, HUD_MID);
+            }
+            s.set(7, 0, TEXT_DIM);
+        }
+        // A needle, its eye threaded with red.
+        "needle" => {
+            for (x, y) in [(1, 7), (2, 6), (3, 5), (4, 4), (5, 3), (6, 2)] {
+                s.set(x, y, HUD_HI);
+            }
+            s.set(6, 1, TEXT_DIM);
+            s.set(7, 1, THREAD + 1);
+            s.set(7, 2, THREAD + 1);
+            s.set(7, 3, THREAD);
+        }
+        // A sack, tied at the neck.
+        "sack" => {
+            for y in 2..=7 {
+                for x in 1..=6 {
+                    s.set(x, y, if x == 1 { MAT + 2 } else if y == 7 { MAT } else { MAT + 1 });
+                }
+            }
+            s.set(3, 1, MAT);
+            s.set(4, 1, MAT);
+            s.set(2, 0, MAT + 2);
+            s.set(5, 0, MAT + 2);
+        }
+        // A wooden roller, handles at its ends.
+        "roller" => {
+            for x in 1..=6 {
+                s.set(x, 3, WOOD + 3);
+                s.set(x, 4, WOOD + 2);
+                s.set(x, 5, WOOD + 1);
+            }
+            for y in [4] {
+                s.set(0, y, WOOD);
+                s.set(7, y, WOOD);
+            }
+        }
+        // Pitch: a black lump with a sheen, in a clay bowl.
+        "pitch" => {
+            for x in 2..=5 {
+                s.set(x, 2, HUD_SHADOW);
+                s.set(x, 3, HUD_SHADOW);
+            }
+            s.set(3, 2, HUD_MID);
+            for x in 1..=6 {
+                s.set(x, 4, WOOD + 1);
+                s.set(x, 5, WOOD + 2);
+            }
+            for x in 2..=5 {
+                s.set(x, 6, WOOD + 1);
+            }
+        }
+        // A stone anvil: a dressed block, narrower at its waist.
+        "stone_anvil" => {
+            for x in 0..=7 {
+                s.set(x, 1, STONE[2]);
+                s.set(x, 2, STONE[1]);
+            }
+            for y in 3..=4 {
+                for x in 2..=5 {
+                    s.set(x, y, STONE[1]);
+                }
+            }
+            for x in 1..=6 {
+                s.set(x, 5, STONE[1]);
+                s.set(x, 6, STONE[0]);
+            }
+        }
         // A stone head lashed to a stick.
         "stone_hammer" => {
             for y in 1..=3 {
@@ -1773,6 +1850,42 @@ fn make_kiln(frame: u8) -> Sprite {
     s.outline()
 }
 
+/// A charcoal mound: a low dome of earth patched with turf, a vent at its top, and a glowing
+/// draught hole at its foot. While it burns (`frame` 1 and 2), smoke curls from the vent.
+fn make_mound(frame: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 22);
+    // An earth dome, its foot the sprite's whole width, its crown six rows down.
+    for y in 8..=21 {
+        for x in 0..=15 {
+            let (dx, dy) = (2 * x - 15, 2 * (y - 21));
+            if dx * dx * 169 + dy * dy * 64 > 4 * 64 * 169 {
+                continue;
+            }
+            let c = if dx < -7 { WOOD + 2 } else if dx > 7 { WOOD } else { WOOD + 1 };
+            s.set(x, y, c);
+        }
+    }
+    // Turf laid over the earth.
+    for (x, y) in [(5, 11), (6, 11), (9, 12), (10, 12), (3, 15), (4, 15), (11, 15), (12, 16), (6, 18), (7, 18), (13, 19)] {
+        s.set(x, y, LEAF);
+        s.set(x, y - 1, LEAF + 1);
+    }
+    // The vent, and the draught hole.
+    s.set(7, 9, OUTLINE);
+    s.set(8, 9, OUTLINE);
+    for (x, y) in [(7, 20), (8, 20), (7, 21), (8, 21)] {
+        s.set(x, y, if frame == 0 { OUTLINE } else { SPARK + (x as u8 % 2) });
+    }
+    if frame > 0 {
+        let puffs: &[(i32, i32)] = if frame == 1 { &[(7, 7), (8, 5), (7, 3), (6, 1)] } else { &[(8, 7), (7, 5), (8, 3), (9, 1)] };
+        for &(x, y) in puffs {
+            s.set(x, y, HUD_HI);
+            s.set(x + 1, y, TEXT_DIM);
+        }
+    }
+    s.outline()
+}
+
 /// A wooden vat with dark liquid; the dye vat has a length of blue cloth over its rim.
 fn make_vat(cloth: bool) -> Sprite {
     let mut s = Sprite::blank(16, 14);
@@ -1981,7 +2094,7 @@ fn make_wagon(open: bool) -> Sprite {
 
 /// Wild plants with art of their own: how each grows, and the blossoms that show it's ready
 /// (pink rhododendron and indigofera, white elder). Others grow by their type's look.
-const WILD: [(&str, Look, Option<(u8, u8)>); 10] = [
+const WILD: [(&str, Look, Option<(u8, u8)>); 11] = [
     ("hemlock_log", Look::Conifer, None),
     ("oak_log", Look::Broadleaf, None),
     ("elder_sticks", Look::Bush, Some((COTTON + 1, COTTON + 2))),
@@ -1993,6 +2106,8 @@ const WILD: [(&str, Look, Option<(u8, u8)>); 10] = [
     // A seam's "blossoms" are its ore's colors: copper, flecked green with verdigris.
     ("copper_ore", Look::Seam, Some((WOOD + 2, LEAF + 2))),
     ("granite", Look::Rocks, None),
+    // A tapped pine is a pine; the resin is drawn on it later.
+    ("pine_resin", Look::Conifer, None),
 ];
 
 pub struct Sprites {
@@ -2050,6 +2165,8 @@ pub struct Sprites {
     pub signpost: Sprite,
     pub board: Sprite,
     pub kiln: [Sprite; 2],
+    /// A charcoal mound, cold, and burning in two frames of smoke.
+    pub mound: [Sprite; 3],
     pub indigo_vat: Sprite,
     pub dye_vat: Sprite,
     pub jar: Sprite,
@@ -2101,7 +2218,7 @@ impl Sprites {
             trader: [make_trader(0), make_trader(1)],
             copper_ingot: make_ingot(SPARK + 1, SPARK, WOOD + 2),
             tin_ingot: make_ingot(COTTON + 2, COTTON + 1, COTTON),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick", "sack", "roller", "pitch", "stone_anvil", "knife", "needle"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             typed_icons: crate::data::Data::load().goods.iter().filter_map(|gt| Some((gt.id.clone(), type_of(gt)?))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
@@ -2125,6 +2242,7 @@ impl Sprites {
             signpost: make_signpost(),
             board: make_board(),
             kiln: [make_kiln(0), make_kiln(1)],
+            mound: [make_mound(0), make_mound(1), make_mound(2)],
             indigo_vat: make_vat(false),
             dye_vat: make_vat(true),
             jar: make_jar(),
