@@ -195,6 +195,16 @@ pub enum Floors {
 impl Style {
     pub const ALL: [Style; 5] = [Style::Cloth, Style::Hills, Style::Kiln, Style::Plains, Style::Coast];
 
+    /// Its number on the wire: its place in `ALL`.
+    pub fn index(self) -> u8 {
+        Style::ALL.iter().position(|&s| s == self).unwrap_or(0) as u8
+    }
+
+    /// The style numbered `i`, or the first province's for a number it doesn't know.
+    pub fn from_index(i: u8) -> Style {
+        Style::ALL.get(i as usize).copied().unwrap_or(Style::Cloth)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Style::Cloth => "cloth",

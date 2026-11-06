@@ -5,8 +5,8 @@
 //! - To the server: `Hello` (protocol version and the player's key), then `Keys` whenever a key
 //!   goes down or anything held changes.
 //! - To a player: `Welcome` (which commune is theirs), then a `Frame` each tick something
-//!   changed: the sounds they hear and their screen's changed pixels, compressed. `Bye` when the
-//!   server lets them go.
+//!   changed: the sounds they hear, the palette their screen is shown in (its province's look)
+//!   and its changed pixels, compressed. `Bye` when the server lets them go.
 //!
 //! Frames are deltas: the changed pixels are the old screen XOR-ed with the new, deflated. TCP
 //! keeps them in order, so a player's screen is always the server's picture.
@@ -16,7 +16,7 @@ use crate::game::{Input, Sfx};
 use std::io::{self, Read, Write};
 
 /// Bump when messages change; a player's game and a server must agree on it.
-pub const PROTOCOL: u32 = 4;
+pub const PROTOCOL: u32 = 5;
 pub const DEFAULT_PORT: u16 = 7777;
 const MAX_MESSAGE: usize = 4 << 20;
 
@@ -27,7 +27,8 @@ pub enum ToServer {
 
 pub enum ToPlayer {
     Welcome { commune: usize },
-    Frame { sounds: Vec<Sfx>, pixels: Vec<u8> },
+    /// `style` is the province look whose palette shows the picture (`palette::Style::index`).
+    Frame { sounds: Vec<Sfx>, style: u8, pixels: Vec<u8> },
     Bye(String),
 }
 
@@ -89,9 +90,10 @@ impl ToPlayer {
         let mut out = Vec::new();
         let _ = match self {
             ToPlayer::Welcome { commune } => write_message(&mut out, 1, &(*commune as u32).to_le_bytes()),
-            ToPlayer::Frame { sounds, pixels } => {
+            ToPlayer::Frame { sounds, style, pixels } => {
                 let mut p = (sounds.len() as u16).to_le_bytes().to_vec();
                 p.extend(sounds.iter().map(|&s| s as u8));
+                p.push(*style);
                 p.extend_from_slice(pixels);
                 write_message(&mut out, 2, &p)
             }
@@ -109,7 +111,8 @@ impl ToPlayer {
                 let n = u16::from_le_bytes([p[0], p[1]]) as usize;
                 let sounds = p.get(2..2 + n).ok_or_else(|| bad("a frame cut short"))?;
                 let sounds = sounds.iter().map(|&b| Sfx::ALL.get(b as usize).copied().ok_or_else(|| bad("an unknown sound"))).collect::<io::Result<_>>()?;
-                Ok(ToPlayer::Frame { sounds, pixels: p[2 + n..].to_vec() })
+                let &style = p.get(2 + n).ok_or_else(|| bad("a frame cut short"))?;
+                Ok(ToPlayer::Frame { sounds, style, pixels: p[3 + n..].to_vec() })
             }
             3 => Ok(ToPlayer::Bye(String::from_utf8_lossy(&p).into_owned())),
             _ => Err(bad("an unknown message to a player")),
@@ -208,9 +211,9 @@ mod tests {
         let mut now = had.clone();
         now[1234] = 17;
         now[99_999] = 63;
-        let wire = ToPlayer::Frame { sounds: vec![Sfx::Chime, Sfx::Deny], pixels: pixel_delta(&had, &now) }.encode();
-        let ToPlayer::Frame { sounds, pixels } = ToPlayer::read(&mut wire.as_slice()).unwrap() else { panic!("not a frame") };
-        assert_eq!(sounds, vec![Sfx::Chime, Sfx::Deny]);
+        let wire = ToPlayer::Frame { sounds: vec![Sfx::Chime, Sfx::Deny], style: 1, pixels: pixel_delta(&had, &now) }.encode();
+        let ToPlayer::Frame { sounds, style, pixels } = ToPlayer::read(&mut wire.as_slice()).unwrap() else { panic!("not a frame") };
+        assert_eq!((sounds, style), (vec![Sfx::Chime, Sfx::Deny], 1));
         let mut screen = had.clone();
         apply_delta(&mut screen, &pixels).unwrap();
         assert_eq!(screen, now);

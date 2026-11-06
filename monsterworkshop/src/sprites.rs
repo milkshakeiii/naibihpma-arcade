@@ -1270,7 +1270,7 @@ impl Look {
             _ if has("log") && has("softwood") => Look::Conifer,
             _ if has("log") => Look::Broadleaf,
             _ if has("bamboo") => Look::Bamboo,
-            _ if has("coal") => Look::Seam,
+            _ if has("coal") || has("ore") => Look::Seam,
             _ if has("stone") => Look::Rocks,
             _ if has("stalks") => Look::Stalks,
             _ if has("leaves") => Look::Leafy,
@@ -1318,7 +1318,7 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
             }
         }
         (Look::Stalks, _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
-        (Look::Seam, _) => seam(&mut s, stage),
+        (Look::Seam, _) => seam(&mut s, stage, bloom),
         (_, 0) => {
             for y in 12..=15 {
                 s.set(8, y, LEAF);
@@ -1332,7 +1332,7 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
         (_, 1) => shrub(&mut s, 4, 3, dark),
         _ => shrub(&mut s, 6, 5, dark),
     }
-    if stage == 2 {
+    if stage == 2 && look != Look::Seam {
         if let Some((a, b)) = bloom {
             for (x, y) in [(5, 7), (10, 6), (8, 9), (4, 11), (12, 10), (7, 5)] {
                 s.set(x, y, b);
@@ -1346,8 +1346,9 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
 }
 
 /// A grey rock face with a band of coal through it: black and glinting when it's ready, half
-/// dug out halfway, and a dark hollow just after it's dug.
-fn seam(s: &mut Sprite, stage: u8) {
+/// dug out halfway, and a dark hollow just after it's dug. Another ore's band is its own color,
+/// flecked with a second (`ore`): copper's, green with verdigris.
+fn seam(s: &mut Sprite, stage: u8, ore: Option<(u8, u8)>) {
     let tops = [8, 7, 6, 6, 5, 5, 5, 6, 5, 5, 6, 6, 7, 8];
     for (k, &top) in tops.iter().enumerate() {
         let x = k as i32 + 1;
@@ -1359,9 +1360,10 @@ fn seam(s: &mut Sprite, stage: u8) {
     let coal = [1, 7, 13][stage as usize];
     for x in 2..=13 {
         if x <= coal {
-            s.set(x, 9, COAL[1]);
-            s.set(x, 10, COAL[0]);
-            s.set(x, 11, COAL[0]);
+            let (top, low) = ore.map_or((COAL[1], COAL[0]), |(c, _)| (shift(c, 1), c));
+            s.set(x, 9, top);
+            s.set(x, 10, low);
+            s.set(x, 11, low);
         } else {
             s.set(x, 9, HUD_FILL);
             s.set(x, 10, STONE[0]);
@@ -1370,13 +1372,13 @@ fn seam(s: &mut Sprite, stage: u8) {
     }
     for (x, y) in [(4, 10), (8, 9), (11, 10), (6, 11)] {
         if x <= coal {
-            s.set(x, y, TEXT_DIM);
+            s.set(x, y, ore.map_or(TEXT_DIM, |(_, fleck)| fleck));
         }
     }
     // A few lumps fallen at its foot while it's ready.
     if stage == 2 {
         for (x, y) in [(3, 14), (4, 14), (10, 14), (11, 14), (10, 13)] {
-            s.set(x, y, COAL[0]);
+            s.set(x, y, ore.map_or(COAL[0], |(c, _)| c));
         }
         s.set(10, 13, COAL[1]);
     }
@@ -1830,6 +1832,22 @@ fn make_coal() -> Sprite {
     s.outline()
 }
 
+/// A heap of lumps flecked with another color or two: copper ore (rusty, with verdigris and a
+/// coppery glint) or granite (grey, speckled).
+fn make_flecked(ramp: [u8; 3], flecks: &[(i32, i32, u8)]) -> Sprite {
+    let mut s = Sprite::blank(14, 10);
+    for (cx, cy, r) in [(4, 6, 3), (9, 6, 3), (7, 4, 2)] {
+        circle_fill(&mut s, cx, cy, r, ramp);
+    }
+    for x in 2..=11 {
+        s.set(x, 9, ramp[0]);
+    }
+    for &(x, y, c) in flecks {
+        s.set(x, y, c);
+    }
+    s.outline()
+}
+
 /// A heap of lumps: limestone (grey) or quicklime (white).
 fn make_lumps(ramp: [u8; 3]) -> Sprite {
     let mut s = Sprite::blank(14, 10);
@@ -1963,7 +1981,7 @@ fn make_wagon(open: bool) -> Sprite {
 
 /// Wild plants with art of their own: how each grows, and the blossoms that show it's ready
 /// (pink rhododendron and indigofera, white elder). Others grow by their type's look.
-const WILD: [(&str, Look, Option<(u8, u8)>); 8] = [
+const WILD: [(&str, Look, Option<(u8, u8)>); 10] = [
     ("hemlock_log", Look::Conifer, None),
     ("oak_log", Look::Broadleaf, None),
     ("elder_sticks", Look::Bush, Some((COTTON + 1, COTTON + 2))),
@@ -1972,6 +1990,9 @@ const WILD: [(&str, Look, Option<(u8, u8)>); 8] = [
     ("ramie_stalks", Look::Stalks, None),
     ("indigofera_leaves", Look::Leafy, Some((FLOWER, WATER + 2))),
     ("limestone", Look::Rocks, None),
+    // A seam's "blossoms" are its ore's colors: copper, flecked green with verdigris.
+    ("copper_ore", Look::Seam, Some((WOOD + 2, LEAF + 2))),
+    ("granite", Look::Rocks, None),
 ];
 
 pub struct Sprites {
@@ -2033,6 +2054,8 @@ pub struct Sprites {
     pub dye_vat: Sprite,
     pub jar: Sprite,
     pub limestone: Sprite,
+    pub copper_ore: Sprite,
+    pub granite: Sprite,
     pub coal: Sprite,
     pub quicklime: Sprite,
     pub indigo: Sprite,
@@ -2107,6 +2130,8 @@ impl Sprites {
             jar: make_jar(),
             limestone: make_lumps(STONE),
             coal: make_coal(),
+            copper_ore: make_flecked([WOOD, WOOD + 1, WOOD + 2], &[(3, 5, LEAF + 2), (8, 4, LEAF + 1), (10, 6, LEAF + 2), (6, 7, SPARK), (4, 7, LEAF + 1), (7, 3, SPARK + 1)]),
+            granite: make_flecked(STONE, &[(3, 5, HUD_FILL), (5, 7, THREAD + 2), (8, 5, HUD_FILL), (10, 7, THREAD + 2), (7, 3, HUD_FILL), (9, 4, TEXT)]),
             quicklime: make_lumps([TEXT_DIM, COTTON + 1, COTTON + 2]),
             indigo: make_indigo(),
             tub: make_tub(),
@@ -2222,6 +2247,8 @@ impl Sprites {
             "lye" => &self.jar,
             "limestone" => &self.limestone,
             "coal" => &self.coal,
+            "copper_ore" => &self.copper_ore,
+            "granite" => &self.granite,
             "quicklime" => &self.quicklime,
             "indigo" => &self.indigo,
             "wooden_tub" => &self.tub,

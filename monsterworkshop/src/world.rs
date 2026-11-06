@@ -5,6 +5,7 @@
 use crate::data::{matches, Data};
 use crate::econ::ItemData;
 pub use crate::workshops::ShopKind;
+use crate::palette::Style;
 use serde::{Deserialize, Serialize};
 
 pub const TS: i32 = 16;
@@ -30,15 +31,17 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
-// `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam
+// `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam  `©` copper seam
+// `ĝ` granite outcrop
 // `0` a gate into a province past the first, shut until its board's goal is met
-// `░` paving  `╪` a jetty (planks over water)
+// `░` paving  `╪` a jetty (planks over water)  `▒` gravel: bare stony ground, as in a quarry or
+// a pit (copper seams and granite outcrops lie on it too)  `≡` stone steps
 // Work spots are marked by their kind's `map_char` in `data/workshops.json` (`B` workbench,
 // `S` spinnery, `L` loom house...). Each `p` pad, `g` tool peg and `o` output mat belongs to the
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -46,6 +49,8 @@ struct Region {
     /// The province it's in: "" for the first, always open; another is closed off until one of
     /// its gates (`0`) opens.
     province: &'static str,
+    /// Its look: its province's palette and building materials.
+    style: Style,
     /// Where its northwest corner lies in the world, in tiles. Between regions is hedge.
     at: (i32, i32),
     /// Building names, each placed by one tile of the building's top wall (region coordinates).
@@ -63,6 +68,11 @@ struct Region {
     racks: &'static [((i32, i32), &'static str)],
     /// Townsfolk placed by the region's data rather than the map (region coordinates).
     folk: &'static [((i32, i32), Folk)],
+    /// Its vines (`ʃ` on the map): each one's foot, where goods are set to go, and the way it
+    /// carries them (region coordinates).
+    vines: &'static [((i32, i32), Dir)],
+    /// Goods lying about when a world begins: where, the good, and what it's plainly made from.
+    goods: &'static [((i32, i32), &'static str, &'static str)],
 }
 
 /// A working townsperson as a region's data gives them: a monster of the town's on a loop at a
@@ -137,6 +147,25 @@ impl Prop {
     }
 }
 
+/// A vine (DESIGN.md, World highlights; PROVINCES.md, Vines straight): a living conveyor across
+/// a cliff, carrying goods straight to where they're used while the way on foot goes round. A
+/// good set on the tile at its foot is taken into its cradles and carried along, a tile at a
+/// time, and set down on the tile past its head once that's clear.
+#[derive(Clone, Debug)]
+pub struct Lift {
+    /// Where goods are set to go.
+    pub foot: (i32, i32),
+    /// Its own tiles, from its foot on: what it's carrying rides on them.
+    pub vine: Vec<(i32, i32)>,
+    /// Where it sets goods down, past its last tile (its head).
+    pub top: (i32, i32),
+    /// The way it carries: up a cliff, or down one.
+    pub dir: Dir,
+}
+
+/// Ticks the vine takes to carry a good one tile up: half a second.
+pub const LIFT_TICKS: u8 = 8;
+
 /// A kind of scenery: what it's called and says, and how much of the map it takes.
 pub struct PropKind {
     pub id: &'static str,
@@ -170,10 +199,10 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 }
 
 /// Every kind of scenery. Fences, stone walls, rails, washing and drying lines, gate posts, the
-/// awning over a shop's door and the hillside join their neighbors of the same kind; the rest is
-/// drawn whole on its tiles. The map marks newer kinds with characters past plain ASCII, which ran
-/// out (2026-11-04).
-pub const PROPS: [PropKind; 64] = [
+/// awning over a shop's door, the hillside, and the cliff and its vine join their neighbors of the
+/// same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
+/// plain ASCII, which ran out (2026-11-04).
+pub const PROPS: [PropKind; 76] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -243,18 +272,34 @@ pub const PROPS: [PropKind; 64] = [
     prop("shrub", 'ŏ', "A BOX SHRUB", "CLIPPED ROUND. NOTHING ON IT TO PICK.", (1, 1)),
     prop("baskets", 'ŭ', "A PAIR OF BASKETS", "FOR THE ENDS OF A SHOULDER POLE. NOTHING IN THEM.", (1, 1)),
     prop("sacks", 'ş', "EMPTY SACKS", "FOLDED, FOR WHOEVER'S CARRYING SOMETHING HOME.", (1, 1)),
+    // The Ore Hills' (2026-11-05): the way in.
+    prop("cliff", 'Λ', "THE CLIFF", "THE HILLS BEGIN AT THE TOP. ON FOOT IT'S THE LONG WAY ROUND; GOODS GO UP BY THE VINE.", (1, 1)),
+    prop("lift_vine", 'ʃ', "A VINE", "IT CARRIES WHATEVER IS SET AT ITS FOOT, STRAIGHT TO ITS HEAD.", (1, 1)),
+    prop("pit_wall", 'Ш', "THE PIT WALL", "SHORED UP WITH TIMBER WHERE THE ROCK IS LOOSE.", (1, 1)),
+    prop("cairn", 'ɑ', "A CAIRN", "EVERYONE WHO MAKES THE CLIMB ADDS A STONE.", (1, 1)),
+    prop("scree", '∴', "SCREE", "LOOSE STONES, FALLEN FROM THE CLIFF.", (1, 1)),
+    prop("cut_stone", '▪', "CUT STONE", "GRANITE BLOCKS, SQUARED FOR BUILDING. NOBODY'S IN A HURRY FOR THEM.", (1, 1)),
+    prop("lean_to", 'Ł', "THE STONECUTTER'S LEAN-TO", "A ROOF OVER THE BENCH WHERE BLOCKS ARE DRESSED.", (3, 2)),
+    prop("sledge", 'ʂ', "A STONE SLEDGE", "BLOCKS ARE DRAGGED ON IT. THE BIG ONES, ANYWAY.", (2, 1)),
+    prop("miners_shed", 'Ĥ', "THE MINERS' SHED", "LAMPS, ROPE, AND A KETTLE THAT'S ALWAYS ON.", (2, 2)),
+    prop("tool_rack", 'ŧ', "A TOOL RACK", "OLD PATINA'S SPARE PICKS AND SHOVELS. HE COUNTS THEM.", (1, 1)),
+    prop("windlass", 'ω', "THE WINDLASS", "IT WINDS ORE UP FROM THE SHAFT, A BUCKET AT A TIME.", (4, 3)),
+    prop("spoil_heap", 'ʬ', "A SPOIL HEAP", "BROKEN ROCK WITH NO COPPER IN IT. IT ONLY GROWS.", (3, 2)),
 ];
 
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 5] = [
+const REGIONS: [Region; 7] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
+        style: Style::Cloth,
         at: (0, 0),
         racks: &[],
         folk: &[],
+        vines: &[],
+        goods: &[],
         labels: &[((5, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((16, 18), "OLD SPOKE'S YARD")],
         signs: &[("TANGLEMERE", Dir::Right)],
         boards: &[("OLD SPOKE'S ORDER", "wagon_wheel", 4, Project::Order)],
@@ -264,9 +309,12 @@ const REGIONS: [Region; 5] = [
     Region {
         map: include_str!("../data/wilderness.map"),
         province: "",
+        style: Style::Cloth,
         at: (50, 0),
         racks: &[],
         folk: &[],
+        vines: &[],
+        goods: &[],
         supplies: &[],
         workers: &[],
         labels: &[],
@@ -276,6 +324,7 @@ const REGIONS: [Region; 5] = [
     Region {
         map: include_str!("../data/tanglemere.map"),
         province: "",
+        style: Style::Cloth,
         at: (125, 0),
         // The outfitter's: the plain pieces along the back wall, given for renown, and Old Thimble
         // between them; by the door, things to work with; outside, along the path, things for
@@ -297,6 +346,8 @@ const REGIONS: [Region; 5] = [
             ((37, 14), "tool_belt"),
         ],
         folk: &[((43, 13), Folk::Outfitter)],
+        vines: &[],
+        goods: &[],
         labels: &[((39, 2), "CLOTH HALL"), ((46, 10), "OUTFITTER")],
         signs: &[("PINEWATER", Dir::Left)],
         boards: &[],
@@ -306,6 +357,7 @@ const REGIONS: [Region; 5] = [
     Region {
         map: include_str!("../data/temple_town.map"),
         province: "",
+        style: Style::Cloth,
         at: (75, 32),
         // The temple's teachings, a scroll for each talent along its top wall; patience and the
         // lucky charm by the drum and the altar candle, and Old Quiet who keeps them; the work
@@ -326,6 +378,8 @@ const REGIONS: [Region; 5] = [
             ((11, 26), "work_song"),
         ],
         folk: &[((15, 26), Folk::Keeper)],
+        vines: &[],
+        goods: &[],
         labels: &[((12, 22), "TEMPLE")],
         signs: &[],
         boards: &[("OLD SOOT'S ORDER", "coal", 6, Project::Order), ("THE TEMPLE BELL", "temple_bell", 1, Project::Bell)],
@@ -337,14 +391,55 @@ const REGIONS: [Region; 5] = [
     Region {
         map: include_str!("../data/high_pass.map"),
         province: "THE HILLS",
+        style: Style::Cloth,
         at: (125, 32),
         racks: &[],
         folk: &[],
+        vines: &[],
+        goods: &[],
         labels: &[],
         signs: &[("THE HILLS", Dir::Right)],
         boards: &[("THE PASS TO THE HILLS", "fabric", 20, Project::Gate)],
         supplies: &[],
         workers: &[],
+    },
+    // The Ore Hills, screen by screen (`PROVINCES.md`, the second draft): vines carry goods
+    // straight to where they're used, and the road goes the long way round. The way in: the pass
+    // arrives below a cliff, with a granite quarry at its foot, and the lift vine carries goods up
+    // it to the high road into Verdigris; on foot, the road goes south, the long way.
+    Region {
+        map: include_str!("../data/cliff_lift.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (150, 32),
+        racks: &[],
+        folk: &[],
+        vines: &[((21, 10), Dir::Up)],
+        // Until there's a smithy (Henry, 2026-11-05: for testing, lay some on the ground).
+        goods: &[((20, 13), "stone_hammer", "granite"), ((21, 13), "metal_chisel", "pig_iron_ingot"), ((22, 13), "stone_hammer", "granite"), ((23, 13), "metal_chisel", "pig_iron_ingot")],
+        labels: &[],
+        signs: &[("TEMPLE TOWN", Dir::Left), ("VERDIGRIS", Dir::Down)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
+    // The most copper: an open cut with two terraces of seams, a windlass over a shaft, and the
+    // copper miner at his own seams by the road. Its ore vine goes over its south edge, down into
+    // the smelters' yard in Bellows.
+    Region {
+        map: include_str!("../data/copper_cut.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (200, 32),
+        racks: &[],
+        folk: &[],
+        vines: &[((16, 13), Dir::Down)],
+        goods: &[],
+        labels: &[],
+        signs: &[],
+        boards: &[("OLD PATINA'S ORDER", "copper_ore", 6, Project::Order)],
+        supplies: &[],
+        workers: &[OLD_PATINA],
     },
 ];
 
@@ -391,13 +486,34 @@ const OLD_SOOT: WorkerSpec = WorkerSpec {
     secret: ((6, 5), "secret_prospecting"),
 };
 
+/// The Copper Cut's miner: he digs copper at his own end of the cut, as Old Soot digs coal,
+/// and takes it to his order board.
+const OLD_PATINA: WorkerSpec = WorkerSpec {
+    name: "OLD PATINA",
+    title: "COPPER MINER",
+    skin: (crate::palette::THREAD, 3),
+    holds: &[("pick", "bronze_ingot"), ("shovel", "copper_ingot")],
+    about: &["HE DIGS COPPER AT HIS OWN END OF THE CUT, A PICK AND A SHOVEL IN HAND. WATCH HOW HE DOES IT.", "THE REST OF THE CUT IS FOR ANYONE WITH THE TOOLS. HIS ORDER BOARD TAKES ANYONE'S COPPER ORE, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
+    says: &["MORE COPPER COMES OUT OF THESE HILLS THAN OUT OF ANYWHERE ELSE. EVERYBODY KNOWS IT.", "THE GREEN IN THE ROCK IS HOW YOU KNOW IT'S COPPER. DIG WHERE IT'S GREENEST.", "A PICK IN ONE HAND, A SHOVEL IN THE OTHER. THEY WEAR DOWN, SO KEEP SPARES BY THE CUT."],
+    skills: &[("prospecting", 0.8), ("gathering", 0.6), ("hauling", 0.4)],
+    tasks: &[
+        Task::Gather((3, 2), Dir::Down),
+        Task::Move("copper_ore", (3, 3), (2, 3)),
+        Task::Move("copper_ore", (3, 3), (2, 3)),
+        Task::Gather((4, 2), Dir::Down),
+        Task::Move("copper_ore", (4, 3), (2, 3)),
+        Task::Move("copper_ore", (4, 3), (2, 3)),
+    ],
+    secret: ((1, 3), "secret_prospecting"),
+};
+
 /// How long a working townsperson's supply takes to set out a fresh good once theirs is taken:
 /// four seconds, so a second plank from the same stack is a short wait.
 pub const SUPPLY_TICKS: u32 = 60;
 
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it.
-const AREAS: [(i32, i32, &str); 7] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS")];
+const AREAS: [(i32, i32, &str); 9] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (200, 32, "COPPER CUT")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 const WORLD_ROWS: i32 = 64;
@@ -420,6 +536,8 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'l' => "limestone",
         'v' => "pumpkin",
         'M' => "coal",
+        '©' => "copper_ore",
+        'ĝ' => "granite",
         _ => return None,
     })
 }
@@ -483,6 +601,11 @@ pub enum Tile {
     Rack,
     /// Cobbles: a town square, walked and driven on like a road.
     Paving,
+    /// Bare stony ground: a quarry's floor, a mine's pit. Walked like grass.
+    Gravel,
+    /// Stone steps, between a pit's terraces: walked, and goods pushed up and down them, but no
+    /// wagon climbs them.
+    Stair,
 }
 
 impl Tile {
@@ -912,8 +1035,12 @@ pub struct World {
     pub racks: Vec<Rack>,
     /// Gates into the provinces past the first.
     pub gates: Vec<Gate>,
+    /// Cliff-lift vines.
+    pub lifts: Vec<Lift>,
     /// Each region's box (x, y, width, height) and the province it's in.
     pub provinces: Vec<((i32, i32, i32, i32), &'static str)>,
+    /// Each region's box and its look.
+    pub looks: Vec<((i32, i32, i32, i32), Style)>,
     /// Every bell hung in the temple, first first.
     pub bells: Vec<Hung>,
     /// The last id given to an item.
@@ -960,10 +1087,12 @@ impl World {
         let (mut workers, mut supplies, mut props) = (Vec::new(), Vec::new(), Vec::new());
         let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
-        let (mut gates, mut provinces, mut racks) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut gates, mut provinces, mut racks, mut looks) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut vine_feet, mut items) = (Vec::new(), Vec::new());
         for (ox, oy, region, rows) in placed {
             let rw = rows[0].len() as i32;
             provinces.push(((ox, oy, rw, rows.len() as i32), region.province));
+            looks.push(((ox, oy, rw, rows.len() as i32), region.style));
             let (first_board, mut gate_tiles) = (boards.len(), Vec::new());
             let (mut sign_texts, mut board_specs) = (region.signs.iter(), region.boards.iter());
             let (mut supply_specs, mut worker_specs) = (region.supplies.iter(), region.workers.iter());
@@ -994,6 +1123,8 @@ impl World {
                         'Y' => Tile::Tree,
                         '0' => Tile::Gate,
                         '░' => Tile::Paving,
+                    '▒' | '©' | 'ĝ' => Tile::Gravel,
+                    '≡' => Tile::Stair,
                         // A jetty: planks over the water, walked like the footbridge.
                         '╪' => Tile::Footbridge,
                         's' => Tile::Sign,
@@ -1072,6 +1203,11 @@ impl World {
                 tiles[(y * w + x) as usize] = Tile::Rack;
                 racks.push(Rack { x, y, piece });
             }
+            vine_feet.extend(region.vines.iter().map(|&(foot, dir)| (at(foot), dir)));
+            items.extend(region.goods.iter().map(|&(spot, good, from)| {
+                let (x, y) = at(spot);
+                Item::new(x, y, crate::econ::plain(data, good, from))
+            }));
             for &(spot, kind) in region.folk {
                 let (x, y) = at(spot);
                 let name = match kind {
@@ -1105,6 +1241,23 @@ impl World {
                 b.mouth = Some(m);
             }
         }
+        // Each vine runs from its foot the way it carries, over its own tiles, to the tile past
+        // them.
+        let vine = |(x, y): (i32, i32)| props.iter().any(|&((px, py), p): &((i32, i32), Prop)| (px, py) == (x, y) && p.0 == "lift_vine");
+        let lifts: Vec<Lift> = vine_feet
+            .into_iter()
+            .map(|(foot, dir)| {
+                let (dx, dy) = dir.delta();
+                let mut tiles = Vec::new();
+                let mut at = (foot.0 + dx, foot.1 + dy);
+                while vine(at) {
+                    tiles.push(at);
+                    at = (at.0 + dx, at.1 + dy);
+                }
+                assert!(!tiles.is_empty(), "a vine's foot at {foot:?} with no vine {dir:?} of it");
+                Lift { foot, vine: tiles, top: at, dir }
+            })
+            .collect();
         // The footbridge spans the stretch of water from its west end to the far bank.
         let footbridge: Vec<(i32, i32)> = boat.iter().min().map_or_else(Vec::new, |&(west, y)| {
             let mut far = west;
@@ -1132,7 +1285,7 @@ impl World {
                 material: String::new(),
             })
             .collect();
-        Self { w, h, tiles, items: Vec::new(), plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, racks, gates, provinces, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
+        Self { w, h, tiles, items, plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, racks, gates, lifts, provinces, looks, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`
@@ -1155,6 +1308,11 @@ impl World {
         taken
     }
 
+    /// The look of the region this tile is in: the first province's outside every region.
+    pub fn style_at(&self, x: i32, y: i32) -> Style {
+        self.looks.iter().find(|&&((rx, ry, rw, rh), _)| (rx..rx + rw).contains(&x) && (ry..ry + rh).contains(&y)).map_or(Style::Cloth, |&(_, s)| s)
+    }
+
     pub fn tile(&self, x: i32, y: i32) -> Tile {
         if x < 0 || y < 0 || x >= self.w || y >= self.h {
             Tile::Hedge
@@ -1175,7 +1333,7 @@ impl World {
 
     /// Can a wagon (or its pumpkin) roll here? Anywhere a monster walks, but the footbridge.
     pub fn wagon_way(&self, x: i32, y: i32) -> bool {
-        self.walkable(x, y) && self.tile(x, y) != Tile::Footbridge
+        self.walkable(x, y) && !matches!(self.tile(x, y), Tile::Footbridge | Tile::Stair)
     }
 
     pub fn wagon_at(&self, x: i32, y: i32) -> Option<usize> {

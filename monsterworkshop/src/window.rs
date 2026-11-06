@@ -188,15 +188,18 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
 
-        let pal = palette::build(palette::Style::Cloth);
+        // Every province's palette; a frame says which its picture is shown in.
+        let pals = palette::Style::ALL.map(palette::build);
+        let mut style = 0u8;
         let mut fb = Framebuffer::new();
         let mut scaled: Vec<u32> = Vec::new();
-        let mut present = |fb: &Framebuffer, crt: bool| {
+        let mut present = |fb: &Framebuffer, crt: bool, style: u8| {
+            let pal = &pals[palette::Style::from_index(style).index() as usize];
             let mut rc: RECT = zeroed();
             GetClientRect(hwnd, &mut rc);
             let (cw, ch) = ((rc.right - rc.left).max(1), (rc.bottom - rc.top).max(1));
             let scale = Framebuffer::integer_scale_for_viewport(cw, ch);
-            let (dw, dh) = fb.present(&mut scaled, scale, &pal, &pal, 0, crt);
+            let (dw, dh) = fb.present(&mut scaled, scale, pal, pal, 0, crt);
             let (dw, dh) = (dw as i32, dh as i32);
             let (dx, dy) = ((cw - dw) / 2, (ch - dh) / 2);
             bmi.bmiHeader.biWidth = dw;
@@ -250,7 +253,8 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
                 let mut lost = conn.keys(&polled).err().map(|e| format!("LOST THE CONNECTION: {e}"));
                 for m in conn.messages() {
                     match m {
-                        Ok(ToPlayer::Frame { sounds, pixels }) => {
+                        Ok(ToPlayer::Frame { sounds, style: shown_in, pixels }) => {
+                            style = shown_in;
                             if let Err(e) = net::apply_delta(&mut fb.px, &pixels) {
                                 lost = Some(format!("THE SERVER SENT A BAD PICTURE: {e}"));
                             }
@@ -330,7 +334,8 @@ pub fn run(audio: &mut Audio, windowed: bool, connect: Option<String>, player: O
                 redraw = true;
             }
             if redraw {
-                present(&fb, crt);
+                // The title is in the first province's colors; play, in the screen's.
+                present(&fb, crt, if matches!(screen, Screen::Play { .. }) { style } else { 0 });
             } else {
                 std::thread::sleep(Duration::from_millis(4));
             }

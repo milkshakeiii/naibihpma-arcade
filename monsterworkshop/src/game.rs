@@ -715,6 +715,33 @@ impl Game {
         }
     }
 
+    /// Vines carry goods: whatever lies still at a vine's foot is taken into its cradles, carried
+    /// along a tile at a time, and set down past its head once nothing's there.
+    fn tick_lifts(&mut self) {
+        for l in 0..self.world.lifts.len() {
+            let lift = self.world.lifts[l].clone();
+            // From the top down, so each good moves into the space the one above it left.
+            let mut path = vec![lift.foot];
+            path.extend(lift.vine.iter().copied());
+            path.push(lift.top);
+            for k in (0..path.len() - 1).rev() {
+                let (from, to) = (path[k], path[k + 1]);
+                let Some(it) = self.world.item_at(from.0, from.1) else { continue };
+                let item = &self.world.items[it];
+                if item.slide.is_some() || item.locked || item.hop > 0 {
+                    continue;
+                }
+                let clear = self.world.item_at(to.0, to.1).is_none() && (to != lift.top || self.monster_at(to.0, to.1).is_none() && self.world.item_floor(to.0, to.1));
+                if !clear {
+                    continue;
+                }
+                let item = &mut self.world.items[it];
+                (item.x, item.y) = to;
+                item.slide = Some(Slide { dir: lift.dir, left: crate::world::LIFT_TICKS, total: crate::world::LIFT_TICKS });
+            }
+        }
+    }
+
     /// The town's supplies set out a fresh good wherever theirs has been taken, after a while:
     /// out of the shed or wall beside it, if there is one, as a bin pushes goods out of its chute.
     fn tick_supplies(&mut self) {
@@ -1150,6 +1177,7 @@ impl Game {
         self.advance_motion();
         self.tick_wagons();
         self.tick_supplies();
+        self.tick_lifts();
         self.tick_breaks();
         self.tick_work();
         self.tick_frontier();

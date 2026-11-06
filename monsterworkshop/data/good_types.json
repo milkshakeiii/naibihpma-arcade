@@ -5284,6 +5284,7 @@
       "primary_applied_skill": "blacksmithing",
       "production_time": 240,
       "quantity": 1,
+      "raw_material_density": 150,
       "relevant_ability_score": 0,
       "requires_workshop": true,
       "secondary_applied_skills": [
@@ -5882,6 +5883,7 @@
       "primary_applied_skill": "blacksmithing",
       "production_time": 240,
       "quantity": 1,
+      "raw_material_density": 120,
       "relevant_ability_score": 0,
       "requires_workshop": true,
       "secondary_applied_skills": [
@@ -5957,6 +5959,7 @@
       "primary_applied_skill": "stone_carving",
       "production_time": 240,
       "quantity": 1,
+      "raw_material_density": 200,
       "relevant_ability_score": 0,
       "requires_workshop": false,
       "secondary_applied_skills": [

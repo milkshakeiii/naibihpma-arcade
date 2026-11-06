@@ -1,0 +1,18 @@
+copper_cut_175_32
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is COPPER CUT, in the ORE HILLS, a province of rocky hills, copper mines and dark pine woods. The hills' folk say more copper comes out of here than anywhere, and it does: this is a great open cut, terraced pits stepping down into the hillside, with copper seams along the terraces. Recompose the screen into a busy, characterful open-cut mine, the way a fine level designer and pixel artist would: think about composition, framing, clusters and open space, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Use the pieces already in the picture, and add decorations generously but tastefully, scattered about the pit, its terraces and its rim as well as by the road. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground, like crops, or like the copper seams, since those are things players pick up, harvest and dig.
+- Keep the dark hedge border where it is, and keep the road where it crosses the edges of the screen, since it joins this screen to the ones beside it. In between, the road may bend, and new dirt paths and ramps may be laid.
+- Leave walking room: everything below must be reachable on foot from the road over open ground, one tile wide at least. The terraces are drawn as low rock steps and ledges, but they are walked on like any ground.
+
+What is here, and what must stay true:
+- THE COPPER SEAMS: the low rock ledges with a brown band flecked with green (copper ore). There are sixteen: OLD PATINA's own two at the top left, and fourteen more for anyone, in two rows. Keep at least fourteen besides his, along the terraces of the pit, each on open ground with walkable ground around it and a free tile below it, where the dug ore is set out.
+- OLD PATINA, the copper miner (the red monster), his order board (the notice board on legs) and the scroll on a stand beside it (his trade's secret). He digs his own two seams and pushes the ore to his board, so keep his two seams, the board and the stand close together, within four tiles, with open ground between them.
+- THE ROAD: it crosses from the left edge to the right edge where it does now; it may bend between.
+- THE RAILS and the mine cart.
+
+Decorations that would suit it: terraced pit walls stepping down, drawn as low rock ledges and steps, with bare rock and gravel on the pit floor rather than grass; heaps of ore and of spoil; more rails with carts running to the heaps; wheelbarrows; a timber hoist or windlass over a shaft; a miners' shed; spare picks and shovels leaning in a rack; lanterns on posts; timber props; pines and boulders on the rim.
+
+Return only the image.

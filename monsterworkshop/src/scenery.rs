@@ -76,6 +76,15 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "shrub" => vec![shrub()],
         "baskets" => vec![baskets()],
         "sacks" => vec![sacks()],
+        "cairn" => vec![cairn()],
+        "scree" => (0..2).map(scree).collect(),
+        "cut_stone" => (0..2).map(cut_stone).collect(),
+        "lean_to" => vec![lean_to()],
+        "sledge" => vec![sledge()],
+        "miners_shed" => vec![miners_shed()],
+        "tool_rack" => vec![tool_rack()],
+        "windlass" => vec![windlass()],
+        "spoil_heap" => vec![spoil_heap()],
         _ => Vec::new(),
     }
 }
@@ -996,5 +1005,193 @@ fn sacks() -> Sprite {
         s.set((x0 + x1) / 2, y0 + 1, MAT);
     }
     rect(&mut s, 7, 2, 8, 5, WOOD + 2);
+    s.outline()
+}
+
+/// A cairn: flat stones stacked smaller and smaller, each lit along its top.
+fn cairn() -> Sprite {
+    let mut s = Sprite::blank(16, 22);
+    for (k, &(w, h)) in [(13, 4), (11, 3), (9, 3), (7, 3), (5, 3), (3, 2)].iter().enumerate() {
+        let bottom = 21 - [0, 4, 7, 10, 13, 16][k];
+        let x0 = 8 - w / 2 + if k % 2 == 1 { 1 } else { 0 };
+        rect(&mut s, x0, bottom - h + 1, x0 + w - 1, bottom, STONE[k % 2]);
+        rect(&mut s, x0, bottom - h + 1, x0 + w - 1, bottom - h + 1, STONE[2]);
+    }
+    s.outline()
+}
+
+/// Scree: a scatter of small loose stones.
+fn scree(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 10);
+    let stones: &[(i32, i32, i32)] = if k == 0 { &[(3, 7, 2), (8, 8, 1), (11, 6, 2), (6, 4, 1), (13, 8, 1)] } else { &[(4, 6, 1), (7, 8, 2), (12, 7, 2), (10, 3, 1), (2, 8, 1)] };
+    for &(cx, cy, r) in stones {
+        circle_fill(&mut s, cx, cy, r, STONE);
+    }
+    s.outline()
+}
+
+/// Squared granite blocks, stacked: lit tops, shaded sides.
+fn cut_stone(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 18);
+    let block = |s: &mut Sprite, x0: i32, y0: i32, w: i32, h: i32| {
+        rect(s, x0, y0, x0 + w - 1, y0 + h - 1, STONE[1]);
+        rect(s, x0, y0, x0 + w - 1, y0 + 1, STONE[2]);
+        rect(s, x0 + w - 2, y0 + 2, x0 + w - 1, y0 + h - 1, STONE[0]);
+        s.set(x0 + 2, y0 + h / 2 + 1, HUD_FILL);
+        s.set(x0 + w - 4, y0 + 3, HUD_FILL);
+    };
+    if k == 0 {
+        block(&mut s, 1, 11, 7, 7);
+        block(&mut s, 8, 11, 7, 7);
+        block(&mut s, 4, 4, 8, 7);
+    } else {
+        block(&mut s, 2, 10, 12, 8);
+        block(&mut s, 4, 3, 8, 7);
+    }
+    s.outline()
+}
+
+/// The stonecutter's lean-to: a plank roof on two posts, sloping toward you, over a bench with a
+/// block on it being dressed, a mallet, and chips about.
+fn lean_to() -> Sprite {
+    let mut s = Sprite::blank(48, 32);
+    for (x0, x1) in [(3, 5), (42, 44)] {
+        rect(&mut s, x0, 8, x1, 31, WOOD + 1);
+        rect(&mut s, x0, 8, x0, 31, WOOD + 2);
+    }
+    for y in 2..=10 {
+        rect(&mut s, 0, y, 47, y, if y < 4 { WOOD + 3 } else { WOOD + 2 });
+    }
+    for x in (2..47).step_by(5) {
+        rect(&mut s, x, 3, x, 10, WOOD + 1);
+    }
+    rect(&mut s, 0, 11, 47, 11, WOOD);
+    rect(&mut s, 0, 12, 47, 13, SHADOW);
+    // The bench, and the block on it.
+    rect(&mut s, 10, 22, 37, 24, WOOD + 2);
+    rect(&mut s, 12, 25, 13, 30, WOOD);
+    rect(&mut s, 34, 25, 35, 30, WOOD);
+    rect(&mut s, 17, 15, 28, 21, STONE[1]);
+    rect(&mut s, 17, 15, 28, 16, STONE[2]);
+    rect(&mut s, 27, 17, 28, 21, STONE[0]);
+    rect(&mut s, 31, 18, 35, 20, WOOD + 3);
+    rect(&mut s, 33, 20, 33, 21, WOOD + 1);
+    for (x, y) in [(15, 28), (20, 30), (26, 29), (31, 30)] {
+        rect(&mut s, x, y, x + 1, y + 1, STONE[2]);
+    }
+    s.outline()
+}
+
+/// A stone sledge: two runners curled up at the front, slats across, a block lashed on.
+fn sledge() -> Sprite {
+    let mut s = Sprite::blank(32, 16);
+    for y in [11, 14] {
+        rect(&mut s, 4, y, 29, y + 1, WOOD + 1);
+        rect(&mut s, 1, y - 2, 3, y, WOOD + 1);
+        s.set(1, y - 3, WOOD + 2);
+    }
+    for x in (6..29).step_by(5) {
+        rect(&mut s, x, 10, x + 1, 15, WOOD + 2);
+    }
+    rect(&mut s, 9, 2, 24, 10, STONE[1]);
+    rect(&mut s, 9, 2, 24, 3, STONE[2]);
+    rect(&mut s, 23, 4, 24, 10, STONE[0]);
+    rect(&mut s, 16, 2, 16, 10, MAT + 2);
+    s.outline()
+}
+
+/// The miners' shed, built into the pit's wall: a dark plank roof, board walls, a door ajar, a
+/// lamp by it and a pick against it.
+fn miners_shed() -> Sprite {
+    let mut s = Sprite::blank(32, 34);
+    for y in 1..13 {
+        let inset = (13 - y).min(4) / 2;
+        rect(&mut s, 1 + inset, y, 30 - inset, y, if y < 4 { WOOD + 2 } else { WOOD + 1 });
+    }
+    for x in (4..29).step_by(4) {
+        rect(&mut s, x, 3, x, 12, WOOD);
+    }
+    rect(&mut s, 1, 13, 30, 14, OUTLINE);
+    rect(&mut s, 2, 15, 29, 33, PLANK + 1);
+    for x in (4..29).step_by(4) {
+        rect(&mut s, x, 15, x, 33, PLANK);
+    }
+    rect(&mut s, 11, 19, 19, 33, OUTLINE);
+    rect(&mut s, 12, 20, 18, 33, HUD_SHADOW);
+    rect(&mut s, 16, 20, 18, 33, PLANK + 2);
+    rect(&mut s, 22, 18, 24, 21, SPARK + 1);
+    s.set(23, 17, OUTLINE);
+    rect(&mut s, 5, 21, 5, 33, WOOD + 2);
+    rect(&mut s, 3, 20, 8, 21, HUD_HI);
+    s.outline()
+}
+
+/// A tool rack: two posts and a rail, picks and a shovel leaning in it.
+fn tool_rack() -> Sprite {
+    let mut s = Sprite::blank(16, 22);
+    rect(&mut s, 1, 6, 2, 21, WOOD + 1);
+    rect(&mut s, 13, 6, 14, 21, WOOD + 1);
+    rect(&mut s, 1, 8, 14, 9, WOOD + 2);
+    for x in [4, 8] {
+        rect(&mut s, x, 3, x, 20, WOOD + 2);
+        rect(&mut s, x - 2, 2, x + 2, 3, HUD_HI);
+        s.set(x - 3, 3, HUD_MID);
+        s.set(x + 3, 3, HUD_MID);
+    }
+    rect(&mut s, 11, 5, 11, 15, WOOD + 2);
+    rect(&mut s, 10, 15, 12, 20, HUD_MID);
+    rect(&mut s, 10, 15, 10, 20, HUD_HI);
+    s.outline()
+}
+
+/// The windlass over the shaft: two timber frames, a drum across with its crank and rope, a
+/// bucket on the rope, and the dark of the shaft in its timber collar.
+fn windlass() -> Sprite {
+    let mut s = Sprite::blank(64, 56);
+    // The shaft and its collar.
+    rect(&mut s, 12, 26, 51, 55, WOOD + 1);
+    rect(&mut s, 12, 26, 51, 27, WOOD + 2);
+    rect(&mut s, 16, 30, 47, 52, OUTLINE);
+    rect(&mut s, 18, 31, 45, 52, HUD_SHADOW);
+    // The frames.
+    for x0 in [4, 54] {
+        rect(&mut s, x0, 6, x0 + 3, 55, WOOD + 1);
+        rect(&mut s, x0, 6, x0, 55, WOOD + 2);
+        rect(&mut s, x0 - 3, 50, x0 + 6, 55, WOOD);
+    }
+    for (x0, x1) in [(8, 14), (48, 53)] {
+        for k in 0..6 {
+            s.set(x0 + k, 26 + k * 4, WOOD + 1);
+            s.set(x1 - k, 26 + k * 4, WOOD + 1);
+        }
+    }
+    // The drum, rope wound on it, and the crank.
+    rect(&mut s, 4, 8, 59, 13, WOOD + 2);
+    rect(&mut s, 4, 8, 59, 8, WOOD + 3);
+    for x in (24..40).step_by(2) {
+        rect(&mut s, x, 8, x, 13, MAT + 1);
+    }
+    rect(&mut s, 60, 9, 62, 11, HUD_HI);
+    rect(&mut s, 62, 11, 62, 18, HUD_HI);
+    // The rope down, and the bucket.
+    rect(&mut s, 31, 14, 31, 33, MAT + 2);
+    rect(&mut s, 26, 34, 36, 42, WOOD + 1);
+    rect(&mut s, 26, 34, 36, 35, HUD_HI);
+    rect(&mut s, 26, 39, 36, 39, HUD_MID);
+    s.outline()
+}
+
+/// A spoil heap: broken rock piled up, darker underneath.
+fn spoil_heap() -> Sprite {
+    let mut s = Sprite::blank(48, 30);
+    let stones = [(8, 24, 6), (18, 22, 7), (30, 23, 7), (40, 25, 5), (14, 15, 6), (25, 12, 7), (35, 16, 6), (22, 6, 4), (29, 25, 5)];
+    for &(cx, cy, r) in &stones {
+        circle_fill(&mut s, cx, cy, r, STONE);
+    }
+    for &(cx, cy, r) in &stones {
+        s.set(cx + r - 1, cy, HUD_FILL);
+        s.set(cx, cy + r - 1, HUD_FILL);
+    }
+    rect(&mut s, 4, 28, 44, 29, STONE[0]);
     s.outline()
 }

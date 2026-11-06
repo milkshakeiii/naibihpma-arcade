@@ -50,7 +50,7 @@ fn hedges_block_and_items_push_one_tile() {
     let data = boll(&g.data);
     g.world.items.push(Item::new(3, 9, data));
     g.script("R");
-    let it = &g.world.items[0];
+    let it = g.world.items.last().expect("the boll");
     assert_eq!((it.x, it.y), (4, 9));
 }
 
@@ -342,6 +342,7 @@ fn a_loop_carries_goods_over_the_footbridge_and_back() {
 #[test]
 fn a_cornered_item_says_how_to_pull_it_and_pulling_is_slow() {
     let mut g = Game::new();
+    let b = g.world.items.len();
     g.world.items.push(Item::new(1, 1, boll(&g.data))); // Pinewater's top-left corner
     stand(&mut g, (2, 1), Dir::Left);
     g.script("L");
@@ -350,7 +351,7 @@ fn a_cornered_item_says_how_to_pull_it_and_pulling_is_slow() {
 
     let before = g.frame;
     g.script(">");
-    assert_eq!((g.monsters[0].x, g.world.items[0].x), (3, 2), "backed away one tile, dragging the boll");
+    assert_eq!((g.monsters[0].x, g.world.items[b].x), (3, 2), "backed away one tile, dragging the boll");
     assert_eq!(g.monsters[0].facing, Dir::Left, "still facing what it pulls");
     assert!(g.frame - before >= PULL_TICKS as u32, "a pull takes {} ticks", g.frame - before);
 
@@ -361,6 +362,7 @@ fn a_cornered_item_says_how_to_pull_it_and_pulling_is_slow() {
 #[test]
 fn a_loop_pulls_out_of_a_corner_only_when_it_must_and_pays_for_it() {
     let mut g = Game::new();
+    let b = g.world.items.len();
     g.world.items.push(Item::new(1, 1, boll(&g.data))); // Pinewater's top-left corner
     stand(&mut g, (6, 3), Dir::Left);
     let m = &mut g.monsters[0];
@@ -369,9 +371,9 @@ fn a_loop_pulls_out_of_a_corner_only_when_it_must_and_pays_for_it() {
     (m.pc, m.playing) = (0, true);
     let (plan, _) = g.plan_carry((1, 1), (4, 1), (6, 3), "cotton_bolls").expect("a plan out of the corner");
     assert_eq!(plan.iter().filter(|s| s.1).count(), 1, "one pull gets it out of the corner, pushes do the rest: {plan:?}");
-    (g.world.items[0].x, g.world.items[0].y) = (4, 1);
+    (g.world.items[b].x, g.world.items[b].y) = (4, 1);
     assert!(g.plan_carry((4, 1), (1, 1), (6, 3), "cotton_bolls").unwrap().0.iter().all(|s| !s.1), "back into the corner needs no pull");
-    (g.world.items[0].x, g.world.items[0].y) = (1, 1);
+    (g.world.items[b].x, g.world.items[b].y) = (1, 1);
     g.run_ticks(600);
     let loops = g.monsters[0].loops;
     assert!((3..=12).contains(&loops), "each round trip pays one slow pull: {loops} loops in 600 ticks");
@@ -2127,4 +2129,29 @@ fn cloth_from_temple_town_can_be_pushed_out_to_the_gates_board() {
         g.run_ticks(1);
     }
     assert_eq!(g.world.boards[b].have, 1, "delivered: {:?}", g.monsters[0].wait_reason);
+}
+
+/// The Cliff Lift's vine (2026-11-05): a good set at its foot is carried up the cliff and set
+/// down past its head, and one arriving at a head that isn't clear waits in its cradle.
+#[test]
+fn the_cliff_lift_vine_carries_goods_up_and_waits_for_room_at_the_top() {
+    let mut g = Game::new();
+    assert_eq!(g.world.lifts.iter().map(|l| l.dir).collect::<Vec<_>>(), [Dir::Up, Dir::Down], "the lift vine up from the way in, the ore vine down from the Copper Cut");
+    let lift = g.world.lifts[0].clone();
+    assert_eq!(crate::world::area_name(lift.foot.0, lift.foot.1), "THE CLIFF LIFT");
+    assert!(g.world.walkable(lift.foot.0, lift.foot.1) && g.world.walkable(lift.top.0, lift.top.1), "open ground at both ends");
+    assert!(lift.vine.len() >= 2 && lift.vine.iter().all(|&(x, y)| !g.world.walkable(x, y)), "it climbs the cliff");
+    let fabric = |x: i32, y: i32| Item::new(x, y, crate::econ::plain(&g.data, "fabric", "cotton_bolls"));
+    let (a, b) = (fabric(lift.foot.0, lift.foot.1), fabric(lift.top.0, lift.top.1));
+    g.world.items.push(a);
+    g.world.items.push(b);
+    let ride = (lift.vine.len() as u32 + 2) * (crate::world::LIFT_TICKS as u32 + 1);
+    g.run_ticks(ride);
+    let top_vine = *lift.vine.last().unwrap();
+    assert!(g.world.item_at(top_vine.0, top_vine.1).is_some(), "it waits in the cradle while the top is taken");
+    let blocker = g.world.item_at(lift.top.0, lift.top.1).unwrap();
+    g.world.items.remove(blocker);
+    g.run_ticks(crate::world::LIFT_TICKS as u32 + 2);
+    assert!(g.world.item_at(lift.top.0, lift.top.1).is_some_and(|it| g.world.items[it].good() == "fabric"), "set down at the top");
+    assert!(lift.vine.iter().all(|&(x, y)| g.world.item_at(x, y).is_none()), "nothing left on the vine");
 }

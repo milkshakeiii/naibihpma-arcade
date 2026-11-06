@@ -44,6 +44,8 @@ struct Player {
     screen: Vec<u8>,
     /// Sounds not sent yet, while they're behind.
     sounds: Vec<Sfx>,
+    /// The palette their screen is shown in, once it reaches them.
+    style: u8,
 }
 
 pub struct Server {
@@ -192,7 +194,7 @@ impl Server {
             std::thread::spawn(move || listen(id, reader, events));
             let (out, queue) = mpsc::sync_channel(QUEUE);
             std::thread::spawn(move || deliver(stream, queue));
-            self.players.push(Player { id, out, commune: None, keys: Input::default(), held: Input::default(), screen: vec![0; FB_W * FB_H], sounds: Vec::new() });
+            self.players.push(Player { id, out, commune: None, keys: Input::default(), held: Input::default(), screen: vec![0; FB_W * FB_H], sounds: Vec::new(), style: 0 });
         }
     }
 
@@ -264,14 +266,16 @@ fn show_to(game: &Game, sprites: &Sprites, fb: &mut Framebuffer, players: &mut [
         let excess = p.sounds.len().saturating_sub(MAX_SOUNDS);
         p.sounds.drain(..excess);
         let pixels = net::pixel_delta(&p.screen, &fb.px);
-        if pixels.is_empty() && p.sounds.is_empty() {
+        let style = crate::render::style_of(game, k).index();
+        if pixels.is_empty() && p.sounds.is_empty() && style == p.style {
             continue;
         }
-        let frame = ToPlayer::Frame { sounds: p.sounds.clone(), pixels }.encode();
+        let frame = ToPlayer::Frame { sounds: p.sounds.clone(), style, pixels }.encode();
         let len = frame.len();
         match p.out.try_send(frame) {
             Ok(()) => {
                 p.screen.copy_from_slice(&fb.px);
+                p.style = style;
                 p.sounds.clear();
                 sent += len;
             }
@@ -358,7 +362,7 @@ mod tests {
         for m in c.messages().into_iter().flatten() {
             match m {
                 ToPlayer::Welcome { commune } => s.commune = Some(commune),
-                ToPlayer::Frame { sounds, pixels } => {
+                ToPlayer::Frame { sounds, pixels, .. } => {
                     net::apply_delta(&mut s.screen, &pixels).unwrap();
                     s.sounds.extend(sounds);
                 }

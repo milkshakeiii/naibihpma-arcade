@@ -42,7 +42,7 @@ impl View {
         let c = g.communes[k].controlled;
         let m = &g.monsters[c];
         let (tx, ty) = screen_of(m.x, m.y);
-        Self { tx, ty, style: g.style.unwrap_or(Style::Cloth), k, c }
+        Self { tx, ty, style: g.style.unwrap_or_else(|| g.world.style_at(tx, ty)), k, c }
     }
 
     fn sees(&self, x: i32, y: i32) -> bool {
@@ -53,6 +53,12 @@ impl View {
     fn px(&self, x: i32, y: i32) -> (i32, i32) {
         ((x - self.tx) * TS, (y - self.ty) * TS)
     }
+}
+
+/// The look commune `k`'s player sees, whose palette shows their picture: their screen's
+/// province's.
+pub fn style_of(g: &Game, k: usize) -> Style {
+    View::of(g, k).style
 }
 
 /// What commune `k`'s player sees.
@@ -110,7 +116,7 @@ pub fn draw(g: &Game, k: usize, sp: &Sprites, fb: &mut Framebuffer) {
 /// (DESIGN.md, Layout by image model): its ground, what stands on it and whoever is about, with
 /// nobody's flags, bubbles or HUD.
 pub fn draw_place(g: &Game, sp: &Sprites, fb: &mut Framebuffer, (tx, ty): (i32, i32)) {
-    let v = View { tx, ty, style: g.style.unwrap_or(Style::Cloth), k: 0, c: g.communes[0].controlled };
+    let v = View { tx, ty, style: g.style.unwrap_or_else(|| g.world.style_at(tx, ty)), k: 0, c: g.communes[0].controlled };
     draw_ground(g, sp, fb, &v);
     draw_bodies(g, sp, fb, &v);
     draw_overhead(g, fb, &v);
@@ -425,6 +431,29 @@ fn draw_tile(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, tx: i32, ty
                     1 | 2 => LAND_PATH,
                     _ => LAND_PATH + 1,
                 },
+                Tile::Gravel => {
+                    // A path's earth, a little darker, with a pebble here and there, lit on top.
+                    let (cx, cy) = ((wx + x) / 4, (wy + y) / 4);
+                    if hash(cx, cy) % 13 == 0 && x % 4 < 2 && y % 4 < 2 {
+                        if x % 4 == 0 && y % 4 == 0 { LAND_PATH + 2 } else { WALL + 2 }
+                    } else {
+                        match h % 13 {
+                            0 => LAND_PATH + 2,
+                            1..=5 => LAND_PATH,
+                            _ => LAND_PATH + 1,
+                        }
+                    }
+                }
+                Tile::Stair => {
+                    // Steps climbing north: each a lit nosing, its tread, and a shadowed riser.
+                    let edge = (x == 0 && g.world.tile(tx - 1, ty) != Tile::Stair) || (x == TS - 1 && g.world.tile(tx + 1, ty) != Tile::Stair);
+                    match y % 4 {
+                        _ if edge => HUD_FILL,
+                        0 => TEXT_DIM,
+                        1 | 2 => if h % 13 == 0 { HUD_HI } else { HUD_MID },
+                        _ => HUD_FILL,
+                    }
+                }
                 Tile::Hedge => {
                     let lit = (x + y + (h % 3) as i32) % 5 == 0;
                     if y < 2 && g.world.tile(tx, ty - 1) != Tile::Hedge {
@@ -712,7 +741,13 @@ fn grass(h: u32) -> u8 {
 /// The ground drawn on a tile, under whatever stands there: a building's floor indoors, otherwise
 /// grass, or under a bin what it stands in (a path). A stand for a piece too: outdoors, on grass.
 fn ground(g: &Game, tx: i32, ty: i32) -> Tile {
-    let under = || if indoors(g, tx, ty) { Tile::Floor } else { Tile::Grass };
+    // Scenery stands on planks indoors; outdoors, on gravel where the ground around is gravel,
+    // otherwise on grass.
+    let gravel = || DIRS.iter().any(|d| {
+        let (dx, dy) = d.delta();
+        g.world.tile(tx + dx, ty + dy) == Tile::Gravel
+    });
+    let under = || if indoors(g, tx, ty) { Tile::Floor } else if gravel() { Tile::Gravel } else { Tile::Grass };
     match g.world.tile(tx, ty) {
         Tile::Bin => match g.world.tile(tx, ty + 1) {
             Tile::Wall | Tile::Door | Tile::Sign | Tile::Tree | Tile::Bin => under(),
@@ -1233,12 +1268,185 @@ fn draw_boards_and_signs(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View)
     }
 }
 
+/// A tile of cliff face, by which of its neighbors (up, down, left, right) are cliff too: rounded
+/// columns of rock in the province's stone (its walls' ramp: the hills' cool grey), each lit on
+/// its left and shaded on its right, broken across here and there, with dark clefts between; a
+/// lip of grass where the high ground above ends, and shadow and scree at its foot.
+fn draw_cliff(fb: &mut Framebuffer, x: i32, y: i32, (px, py): (i32, i32), [u, d, l, r]: [bool; 4]) {
+    fb.rect_fill(x, y, TS, TS, WALL);
+    let h = hash(px, py);
+    // Three columns, their widths and breaks set by the tile.
+    let a = 4 + (h % 3) as i32;
+    let b = a + 5 + (h >> 2) as i32 % 2;
+    for (k, (x0, x1)) in [(0, a), (a, b), (b, TS)].into_iter().enumerate() {
+        let w = x1 - x0 - 1;
+        if w < 2 {
+            continue;
+        }
+        let brk = 4 + (h >> (5 + k * 3)) as i32 % 9;
+        for (y0, y1) in [(0, brk), (brk, TS)] {
+            let ht = y1 - y0 - 1;
+            if ht < 2 {
+                continue;
+            }
+            for cx in 0..w {
+                // Lit down its left, shaded down its right: a rounded column.
+                let c = match (cx * 4) / w {
+                    0 => WALL + 3,
+                    1 => WALL + 2,
+                    2 => WALL + 2,
+                    _ => WALL + 1,
+                };
+                fb.rect_fill(x + x0 + 1 + cx, y + y0 + 1, 1, ht, c);
+            }
+            // A rounded top to each piece: its corners cut back into the cleft.
+            fb.rect_fill(x + x0 + 1, y + y0 + 1, 1, 1, WALL);
+            fb.rect_fill(x + x0 + w, y + y0 + 1, 1, 1, WALL);
+            fb.rect_fill(x + x0 + 2, y + y0 + 1, (w - 2).max(0), 1, WALL + 3);
+        }
+    }
+    // Now and then a boulder bulging out of the face, lit on its upper left, or a deep cleft
+    // down the whole tile, so the face doesn't read as courses.
+    if h % 4 == 0 {
+        let (cx, cy, rr) = (4 + (h >> 7) as i32 % 8, 5 + (h >> 11) as i32 % 6, 4 + (h >> 13) as i32 % 2);
+        for yy in -rr..=rr {
+            for xx in -rr..=rr {
+                let d2 = xx * xx + yy * yy;
+                if d2 > rr * rr + 1 {
+                    continue;
+                }
+                let c = if d2 > (rr - 1) * (rr - 1) + 1 && (xx > 0 || yy > 0) {
+                    WALL
+                } else if xx + yy < -rr / 2 {
+                    WALL + 3
+                } else if xx + yy < rr / 2 {
+                    WALL + 2
+                } else {
+                    WALL + 1
+                };
+                let (qx, qy) = (cx + xx, cy + yy);
+                if (0..TS).contains(&qx) && (0..TS).contains(&qy) {
+                    fb.pset(x + qx, y + qy, c);
+                }
+            }
+        }
+    } else if h % 4 == 1 {
+        let cx = [a, b][(h >> 9) as usize % 2];
+        fb.rect_fill(x + cx - 1, y, 2, TS, OUTLINE);
+        fb.rect_fill(x + cx + 1, y, 1, TS, WALL);
+    }
+    // A dark pit or two, and moss in a cleft.
+    for k in 0..2 {
+        let (mx, my) = ((h >> (18 + k * 5)) as i32 % 13 + 1, (h >> (21 + k * 3)) as i32 % 11 + 3);
+        fb.rect_fill(x + mx, y + my, 1, 2, WALL);
+    }
+    if (h >> 28) % 3 == 0 {
+        let mx = (h >> 24) as i32 % 12 + 2;
+        fb.rect_fill(x + mx, y + 7, 2, 1, HEDGE + 2);
+        fb.rect_fill(x + mx + 1, y + 8, 1, 1, HEDGE + 1);
+    }
+    if !u {
+        // The lip: the high ground's grass, ragged where it hangs over the edge.
+        for gx in 0..TS {
+            let hang = 1 + (hash(px * TS + gx, py) % 3) as i32;
+            fb.rect_fill(x + gx, y, 1, hang, if gx % 3 == 0 { GRASS + 3 } else { GRASS + 2 });
+            fb.rect_fill(x + gx, y + hang, 1, 1, OUTLINE);
+        }
+    }
+    if !d {
+        // The foot: deeper in shadow (dithered), with fallen scree.
+        for yy in 9..TS {
+            for xx in 0..TS {
+                if (xx + yy) % 2 == 0 || yy >= 13 {
+                    fb.rect_fill(x + xx, y + yy, 1, 1, WALL);
+                }
+            }
+        }
+        for k in 0..4 {
+            let sx = (h >> (k * 4 + 2)) as i32 % 13;
+            fb.rect_fill(x + sx, y + 13, 3, 2, WALL + 1);
+            fb.rect_fill(x + sx, y + 13, 2, 1, WALL + 2);
+        }
+        fb.rect_fill(x, y + 15, TS, 1, OUTLINE);
+    }
+    if !l {
+        fb.rect_fill(x, y, 1, TS, OUTLINE);
+    }
+    if !r {
+        fb.rect_fill(x + TS - 1, y, 1, TS, OUTLINE);
+    }
+}
+
+/// A vine on its cliff: a twisting stem in a mass of leaves, a woven cradle hanging off it here
+/// and there, a leafy crown where it tops the cliff and roots where it stands.
+fn draw_lift_vine(fb: &mut Framebuffer, x: i32, y: i32, (px, py): (i32, i32), up: bool, down: bool) {
+    // Leaves either side, in clumps, darker toward the rock.
+    let h = hash(px, py);
+    for (k, &(lx, ly)) in [(1, 1), (10, 3), (2, 7), (11, 9), (0, 12), (9, 13)].iter().enumerate() {
+        let (lx, ly) = (lx + (h >> (k * 2)) as i32 % 2, ly);
+        fb.rect_fill(x + lx, y + ly, 6, 4, OUTLINE);
+        fb.rect_fill(x + lx + 1, y + ly + 1, 4, 2, LEAF);
+        fb.rect_fill(x + lx + 1, y + ly + 1, 2, 1, LEAF + 1);
+        fb.pset(x + lx + 1, y + ly + 1, LEAF + 2);
+    }
+    // The stem, twisting as it goes.
+    for yy in 0..TS {
+        let sx = 6 + [0, 1, 1, 0, -1, -1, 0, 1][((yy + py * TS) / 2 % 8) as usize];
+        fb.rect_fill(x + sx - 1, y + yy, 4, 1, OUTLINE);
+        fb.rect_fill(x + sx, y + yy, 2, 1, LEAF);
+        fb.pset(x + sx, y + yy, LEAF + 1);
+    }
+    // A cradle, on every other tile.
+    if py % 2 == 0 {
+        fb.rect_fill(x + 9, y + 1, 1, 4, LEAF);
+        fb.rect_fill(x + 8, y + 5, 7, 6, OUTLINE);
+        fb.rect_fill(x + 9, y + 5, 5, 5, MAT + 1);
+        for wx in [9, 11, 13] {
+            fb.rect_fill(x + wx, y + 6, 1, 4, MAT);
+        }
+        fb.rect_fill(x + 9, y + 5, 5, 1, MAT + 2);
+    }
+    if !up {
+        // Its crown, spilling over the lip.
+        fb.rect_fill(x - 1, y - 5, 18, 8, OUTLINE);
+        fb.rect_fill(x, y - 4, 16, 6, LEAF);
+        fb.rect_fill(x + 1, y - 4, 8, 2, LEAF + 1);
+        fb.rect_fill(x + 10, y - 3, 4, 2, LEAF + 1);
+        fb.pset(x + 3, y - 4, LEAF + 2);
+        fb.pset(x + 12, y - 3, LEAF + 2);
+    }
+    if !down {
+        // Its roots, spread on the ground at its foot.
+        for (rx, rw) in [(1, 4), (11, 4), (5, 6)] {
+            fb.rect_fill(x + rx, y + 14, rw, 2, WOOD + 1);
+            fb.pset(x + rx, y + 14, WOOD + 2);
+        }
+    }
+}
+
 /// A piece of scenery: whole on its tiles, or joined to its neighbors of the same kind.
 fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (i32, i32), prop: Prop) {
     let k = prop.kind();
     let (x, y) = v.px(px, py);
     let joins = |id: &str, dx: i32, dy: i32| g.world.prop_at(px + dx, py + dy).is_some_and(|(_, p)| p.0 == id || (id == "rails" && p.0 == "mine_cart"));
     match k.id {
+        "cliff" | "lift_vine" | "pit_wall" => {
+            let cliff = |dx: i32, dy: i32| ["cliff", "lift_vine", "pit_wall"].iter().any(|id| joins(id, dx, dy));
+            draw_cliff(fb, x, y, (px, py), [cliff(0, -1), cliff(0, 1), cliff(-1, 0), cliff(1, 0)]);
+            if k.id == "lift_vine" {
+                draw_lift_vine(fb, x, y, (px, py), joins("lift_vine", 0, -1), joins("lift_vine", 0, 1));
+            }
+            // A pit's wall is shored with timber here and there: a post, and a cap across it.
+            if k.id == "pit_wall" && (px + py * 2) % 3 == 0 {
+                fb.rect_fill(x + 6, y, 5, TS, OUTLINE);
+                fb.rect_fill(x + 7, y, 3, TS, WOOD + 1);
+                fb.rect_fill(x + 7, y, 1, TS, WOOD + 2);
+                if !cliff(0, -1) {
+                    fb.rect_fill(x + 3, y + 1, 11, 4, OUTLINE);
+                    fb.rect_fill(x + 4, y + 2, 9, 2, WOOD + 2);
+                }
+            }
+        }
         "fence" => {
             // A post, with rails to the fence on either side.
             fb.rect_fill(x + 6, y + 3, 4, 12, WOOD + 2);
@@ -2423,16 +2631,17 @@ fn draw_help(fb: &mut Framebuffer) {
 fn a_stand_sits_on_the_ground_around_it() {
     let g = Game::new();
     // Planks in the outfitter's and the temple, where you stand on planks to face it; grass
-    // outdoors, in a yard, by the seam or beside a path.
+    // outdoors, in a yard, by the seam or beside a path; gravel in the Copper Cut.
     for r in &g.world.racks {
         let fronts: Vec<Tile> = crate::world::DIRS.iter().map(|d| (r.x + d.delta().0, r.y + d.delta().1)).filter(|&(x, y)| g.world.tile(x, y).walkable()).map(|(x, y)| ground(&g, x, y)).collect();
         let on = ground(&g, r.x, r.y);
-        assert!(matches!(on, Tile::Floor | Tile::Grass) && (on == Tile::Floor) == fronts.contains(&Tile::Floor), "{} at ({}, {}) on {on:?}, beside {fronts:?}", r.piece, r.x, r.y);
+        assert!(matches!(on, Tile::Floor | Tile::Grass | Tile::Gravel) && (on == Tile::Floor) == fronts.contains(&Tile::Floor), "{} at ({}, {}) on {on:?}, beside {fronts:?}", r.piece, r.x, r.y);
     }
     let on = |piece: &str| g.world.racks.iter().find(|r| r.piece == piece).map(|r| ground(&g, r.x, r.y));
     assert_eq!(on("secret_wagon_wright"), Some(Tile::Grass));
     assert_eq!(on("feathered_cap"), Some(Tile::Grass));
     assert_eq!(on("teaching_music"), Some(Tile::Floor));
+    assert_eq!(on("secret_prospecting"), Some(Tile::Grass), "Old Soot's, by the coal seam");
     assert_eq!(on("rope_belt"), Some(Tile::Floor));
 }
 

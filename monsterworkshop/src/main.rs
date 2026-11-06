@@ -395,7 +395,7 @@ fn bots(n: &str, addr: Option<String>) {
 fn export_places(dir: &Path) {
     const SCALE: usize = 4;
     let _ = std::fs::create_dir_all(dir);
-    let (sprites, pal) = (Sprites::new(), palette::build(palette::Style::Cloth));
+    let sprites = Sprites::new();
     let mut fb = Framebuffer::new();
     let mut g = Game::new();
     g.run_ticks(450);
@@ -409,6 +409,8 @@ fn export_places(dir: &Path) {
                 continue;
             }
             render::draw_place(&g, &sprites, &mut fb, (tx, ty));
+            // Each in its province's look.
+            let pal = palette::build(g.world.style_at(tx, ty));
             let (w, _) = fb.present(&mut buf, SCALE, &pal, &pal, 0, false);
             let h = render::VIEW_H as usize * SCALE;
             let name = format!("{}_{tx}_{ty}", world::area_name(tx + sw / 2, ty + sh / 2).to_lowercase().replace(' ', "_"));
