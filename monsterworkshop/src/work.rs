@@ -500,7 +500,9 @@ impl Game {
         let (produced, learned) = if recipe.is_trade() {
             (vec![econ::trade(&recipe, &inputs.iter().collect::<Vec<_>>(), &self.data)], None)
         } else {
-            let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills, knack: &knack }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: workshop.as_ref() };
+            let tools: Vec<&ItemData> = tools.iter().collect();
+            let fine = econ::fine_work(&tools, &self.data).map_or(0.0, |(_, f)| f);
+            let craft = Craft { recipe: &recipe, crafter: Crafter { id, stats: &stats, skills: &skills, knack: &knack }, inputs: inputs.iter().collect(), tools, workshop: workshop.as_ref(), fine };
             let produced = econ::produce(&craft, &self.data, &mut self.rng);
             let secs = econ::production_seconds(&recipe, &stats, &knack);
             (produced, Some(econ::learn(&mut self.monsters[m].skills, &stats, &knack, &recipe, &self.data, secs)))

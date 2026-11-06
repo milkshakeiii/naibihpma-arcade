@@ -97,6 +97,8 @@
       ],
       "value_added_shares": 8,
       "variety": {
+        "durability": 0.5,
+        "fine": 0.1,
         "name": "silk",
         "of": [
           "textiles"
@@ -257,6 +259,7 @@
       ],
       "value_added_shares": 2,
       "variety": {
+        "durability": 1.25,
         "name": "ramie",
         "of": [
           "textiles",
@@ -671,6 +674,7 @@
       ],
       "value_added_shares": 4,
       "variety": {
+        "durability": 1.5,
         "name": "hemp",
         "of": [
           "textiles",
@@ -718,6 +722,7 @@
       ],
       "value_added_shares": 4,
       "variety": {
+        "durability": 0.75,
         "name": "velvetleaf",
         "of": [
           "textiles"
@@ -765,6 +770,7 @@
       ],
       "value_added_shares": 6,
       "variety": {
+        "durability": 1.25,
         "name": "climbing hempvine",
         "of": [
           "textiles",
@@ -8413,6 +8419,7 @@
       "value_added_shares": 3,
       "variety": {
         "durability": 0.5,
+        "fine": 0.1,
         "name": "silver",
         "of": [
           "metal"
@@ -10541,6 +10548,117 @@
       ],
       "type_tags": [
         "pitch"
+      ],
+      "value_added_shares": 5
+    },
+    {
+      "destabilizer_skills": [
+        "pottery"
+      ],
+      "difficulty_rating": 12,
+      "has_quality": true,
+      "id": "roller",
+      "input_goods_tags_carryover": [
+        [
+          "wood"
+        ]
+      ],
+      "input_goods_tags_required": [
+        [
+          "log"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Roller",
+      "primary_applied_skill": "carpentry",
+      "production_time": 300,
+      "quantity": 1,
+      "relevant_ability_score": 1,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "textiles",
+        "dyeing"
+      ],
+      "size": [
+        2,
+        2
+      ],
+      "storage_volume": 0.5,
+      "tools_required_tags": [
+        [
+          "saw"
+        ],
+        [
+          "chisel"
+        ]
+      ],
+      "tools_weights": [
+        2,
+        2
+      ],
+      "transferable_skills": [
+        "engineering",
+        "handcrafts",
+        "mathematics"
+      ],
+      "type_tags": [
+        "roller"
+      ],
+      "value_added_shares": 6
+    },
+    {
+      "destabilizer_skills": [
+        "weaving"
+      ],
+      "difficulty_rating": 10,
+      "has_quality": true,
+      "id": "sack",
+      "input_goods_tags_carryover": [
+        [
+          "textiles"
+        ],
+        []
+      ],
+      "input_goods_tags_required": [
+        [
+          "fabric"
+        ],
+        [
+          "thread"
+        ]
+      ],
+      "is_fixed_quantity": true,
+      "name": "Sack",
+      "primary_applied_skill": "weaving",
+      "production_time": 600,
+      "quantity": 1,
+      "relevant_ability_score": 0,
+      "requires_workshop": false,
+      "secondary_applied_skills": [
+        "textiles",
+        "hauling"
+      ],
+      "size": [
+        2,
+        1
+      ],
+      "storage_volume": 0.4,
+      "tools_required_tags": [
+        [
+          "needle"
+        ]
+      ],
+      "tools_weights": [
+        1
+      ],
+      "transferable_skills": [
+        "handcrafts",
+        "athletics",
+        "outdoorsmonstership"
+      ],
+      "type_tags": [
+        "sack",
+        "bag"
       ],
       "value_added_shares": 5
     }

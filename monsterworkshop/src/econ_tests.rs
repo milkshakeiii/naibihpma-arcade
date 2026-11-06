@@ -34,7 +34,7 @@ fn skilled(recipe: &GoodType, level: f64, transferable: &[&str]) -> Skills {
 }
 
 fn craft<'a>(recipe: &'a GoodType, st: &'a Stats, sk: &'a Skills, inputs: Vec<&'a ItemData>, tools: Vec<&'a ItemData>, workshop: Option<&'a Workshop>) -> Craft<'a> {
-    Craft { recipe, crafter: Crafter { id: 1, stats: st, skills: sk, knack: &PLAIN_KNACK }, inputs, tools, workshop }
+    Craft { recipe, crafter: Crafter { id: 1, stats: st, skills: sk, knack: &PLAIN_KNACK }, inputs, tools, workshop, fine: 0.0 }
 }
 
 #[test]

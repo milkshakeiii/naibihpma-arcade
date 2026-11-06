@@ -411,6 +411,7 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         // What it's made of says how long it lasts.
         if let Some(v) = g.data.material(&item.tags(&g.data)) {
             first.push(line(format!("{}: {}.", v.tag.to_uppercase(), crate::recipes::against_most(full)), TEXT_DIM));
+            first.extend(crate::recipes::finer_work(v).map(|t| line(t, TEXT_GOOD)));
         }
     }
     if let Some(kind) = crate::frontier::kit_kind(&item.good) {
@@ -433,8 +434,9 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         let more = into.len().saturating_sub(3);
         details.push(line(format!("GOES INTO {}{}.", names.join(", "), if more > 0 { format!(" AND {more} MORE") } else { String::new() }), TEXT_DIM));
     }
-    if let Some(life) = g.tool_life_of(gt) {
+    if let Some((life, v)) = g.tool_life_of(gt, &item.tags(&g.data)) {
         details.push(line(life, TEXT_DIM).icon(Icon::Wear));
+        details.extend(crate::recipes::finer_work(v).map(|t| line(t, TEXT_GOOD)));
     }
     if gt.type_tags.iter().any(|t| t == "fuel") {
         details.push(line("BURNS AS FUEL.", TEXT_DIM));
@@ -688,11 +690,13 @@ fn plant_card(g: &Game, p: usize, c: usize) -> Card {
         details.push(line(format!("IT TAKES {} IN HAND. FACE ONE ON THE GROUND AND PRESS SPACE TO TAKE IT.", crate::recipes::and_list(&needs)), TEXT_DIM));
     }
     let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, &recipe.primary_applied_skill));
-    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack }, inputs: Vec::new(), tools, workshop: None };
+    let finer = econ::fine_work(&tools, &g.data);
+    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack }, inputs: Vec::new(), tools, workshop: None, fine: finer.map_or(0.0, |(_, f)| f) };
     if recipe.has_quality {
         let f = econ::forecast(&craft);
         let (lo, hi) = usual_range(&f, &st);
         first.extend(quality(lo, f.expected(&st), hi));
+        first.extend(finer.map(|(v, x)| line(crate::recipes::finer_work_from(v, x), TEXT_GOOD)));
         details.push(line(format!("USUALLY {lo:.2} TO {hi:.2}"), TEXT_DIM));
     }
     let (lo, hi, avg) = econ::quantity_range(&craft);
@@ -782,13 +786,9 @@ pub fn forecast(g: &Game, s: usize, i: usize) -> Option<Forecast> {
     let m = &g.monsters[i];
     let recipe = g.data.good(&pv.recipe);
     let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, &recipe.primary_applied_skill));
-    let craft = Craft {
-        recipe,
-        crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack },
-        inputs: inputs.iter().collect(),
-        tools: tools.iter().collect(),
-        workshop: pv.workshop.as_ref(),
-    };
+    let tools: Vec<&ItemData> = tools.iter().collect();
+    let fine = econ::fine_work(&tools, &g.data).map_or(0.0, |(_, f)| f);
+    let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack }, inputs: inputs.iter().collect(), tools, workshop: pv.workshop.as_ref(), fine };
     Some(econ::forecast(&craft))
 }
 
@@ -854,7 +854,9 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
         (_, Err(tool), _) => first.push(line(format!("FOR {}: {tool} ON A PEG.", g.good_name(&pv.recipe)), TEXT_WARN).icon(Icon::Warn)),
         (Ok(inputs), Ok(tools), Some(f)) => {
             let (st, knack) = (m.abilities(&g.data), m.knack(&g.data, &recipe.primary_applied_skill));
-            let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack }, inputs: inputs.iter().collect(), tools: tools.iter().collect(), workshop: pv.workshop.as_ref() };
+            let tools: Vec<&ItemData> = tools.iter().collect();
+            let finer = econ::fine_work(&tools, &g.data);
+            let craft = Craft { recipe, crafter: Crafter { id: m.id, stats: &st, skills: &m.skills, knack: &knack }, inputs: inputs.iter().collect(), tools, workshop: pv.workshop.as_ref(), fine: finer.map_or(0.0, |(_, f)| f) };
             let (qlo, qhi, avg) = econ::quantity_range(&craft);
             (lo, hi) = (qlo, qhi);
             if qlo != qhi {
@@ -863,6 +865,7 @@ fn forecast_card(g: &Game, s: usize, i: usize) -> Card {
             if recipe.has_quality {
                 let (rlo, rhi) = usual_range(&f, &st);
                 first.extend(quality(rlo, f.expected(&st), rhi));
+                first.extend(finer.map(|(v, x)| line(crate::recipes::finer_work_from(v, x), TEXT_GOOD)));
                 details.push(line(format!("USUALLY {rlo:.2} TO {rhi:.2}"), TEXT_DIM));
                 let (exc, mw) = (chance_at_least(&f, EXCEPTIONAL), chance_at_least(&f, MASTERWORK));
                 details.push(if exc < 1e-4 {

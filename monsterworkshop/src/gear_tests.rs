@@ -394,7 +394,7 @@ fn a_towel_makes_one_more_where_how_many_varies() {
     let towel = crate::econ::PLAIN.with(&g.data.piece("towel").does);
     for (good, more) in [("cotton_bolls", 1), ("thread", 0)] {
         let recipe = g.data.good(good);
-        let craft = |knack| crate::econ::Craft { recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: Vec::new(), tools: Vec::new(), workshop: None };
+        let craft = |knack| crate::econ::Craft { recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: Vec::new(), tools: Vec::new(), workshop: None, fine: 0.0 };
         for seed in 1..50 {
             let (a, b) = (crate::econ::roll_quantity(&craft(&crate::econ::PLAIN_KNACK), &mut crate::econ::Rng::new(seed)), crate::econ::roll_quantity(&craft(&towel), &mut crate::econ::Rng::new(seed)));
             assert_eq!(b, a + more, "{good}");
@@ -419,7 +419,7 @@ fn patience_and_a_lucky_charm_each_raise_the_average() {
         sk.specific.insert("thread".into(), 0.6);
         let fiber = tool("cotton_slivers");
         let rolls = |knack: &crate::econ::Knack| -> Vec<f64> {
-            let c = crate::econ::Craft { recipe: &recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: vec![&fiber], tools: Vec::new(), workshop: None };
+            let c = crate::econ::Craft { recipe: &recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: vec![&fiber], tools: Vec::new(), workshop: None, fine: 0.0 };
             let mut rng = crate::econ::Rng::new(11);
             (0..4000).map(|_| crate::econ::roll_quality(&c, &mut rng)).collect()
         };
@@ -538,7 +538,7 @@ fn a_writing_brush_a_notebook_and_a_carved_seal() {
     let fiber = tool("cotton_slivers");
     let seal = crate::econ::PLAIN.with(&g.data.piece("carved_seal").does);
     let made = |knack| {
-        let c = crate::econ::Craft { recipe: thread, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: vec![&fiber], tools: Vec::new(), workshop: None };
+        let c = crate::econ::Craft { recipe: thread, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack }, inputs: vec![&fiber], tools: Vec::new(), workshop: None, fine: 0.0 };
         crate::econ::produce(&c, &g.data, &mut crate::econ::Rng::new(5))[0].value
     };
     assert!((made(&seal) / made(&crate::econ::PLAIN_KNACK) - 1.1).abs() < 1e-9);
@@ -677,7 +677,7 @@ fn average_count(g: &Game, good: &str, skill: f64, pieces: &[&str], n: u64) -> f
     }
     sk.specific.insert(good.into(), skill);
     let knack = pieces.iter().fold(crate::econ::PLAIN, |k, p| k.with(&g.data.piece(p).does));
-    let craft = crate::econ::Craft { recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack: &knack }, inputs: Vec::new(), tools: Vec::new(), workshop: None };
+    let craft = crate::econ::Craft { recipe, crafter: crate::econ::Crafter { id: 1, stats: &st, skills: &sk, knack: &knack }, inputs: Vec::new(), tools: Vec::new(), workshop: None, fine: 0.0 };
     (1..=n).map(|seed| crate::econ::roll_quantity(&craft, &mut crate::econ::Rng::new(seed)) as f64).sum::<f64>() / n as f64
 }
 
@@ -1004,4 +1004,77 @@ fn new_varieties_carry_their_names_into_what_is_made_of_them() {
     let willow = made("spool", "willow_sticks");
     assert_eq!((name(&willow), willow.durability(&g.data)), ("WILLOW SPOOL".to_string(), 75));
     assert_eq!(made("stone_anvil", "basalt").durability(&g.data), 125, "basalt is hard stone");
+}
+
+/// Dear materials shouldn't simply be worst (Henry, 2026-11-05): silver and silk wear fast, but
+/// work done with them comes out finer, +0.1 quality on what's made, once a craft. Their tools'
+/// cards say so, and so does the card of the work spot where one is used.
+#[test]
+fn silver_and_silk_tools_do_finer_work_and_the_cards_say_so() {
+    let mut g = Game::new();
+    let made = |g: &Game, id: &str, from: &str| crate::econ::plain(&g.data, id, from);
+    let (silver, copper) = (made(&g, "saw", "silver_ingot"), made(&g, "saw", "copper_ingot"));
+    let fine = |tools: &[&ItemData]| crate::econ::fine_work(tools, &g.data).map(|(v, f)| (v.tag.clone(), f));
+    assert_eq!(fine(&[&copper, &silver]), Some(("silver".to_string(), 0.1)));
+    assert_eq!(fine(&[&copper]), None, "copper does plain work");
+    // At the workbench making planks: a silver saw on the peg lifts the forecast by 0.1 over a
+    // copper one of the same quality, and the card says where it comes from.
+    let s = (0..g.world.shops.len()).find(|&s| g.world.shops[s].kind.id() == "workbench" && !g.world.shops[s].pegs.is_empty()).expect("a workbench with pegs");
+    let (pad, peg, spot) = (g.world.shops[s].pads[0], g.world.shops[s].pegs[0], g.world.shops[s].spot);
+    g.world.items.retain(|it| (it.x, it.y) != pad && (it.x, it.y) != peg);
+    g.world.items.push(crate::world::Item::new(pad.0, pad.1, made(&g, "oak_log", "oak_log")));
+    let start = (g.monsters[0].x, g.monsters[0].y);
+    (g.monsters[0].x, g.monsters[0].y) = spot;
+    assert_eq!(g.preview(s).recipe, "planks");
+    let mean = |g: &mut Game, saw: ItemData| {
+        g.world.items.retain(|it| (it.x, it.y) != peg);
+        g.world.items.push(crate::world::Item::new(peg.0, peg.1, saw));
+        crate::inspect::forecast(g, s, 0).expect("a forecast").mean
+    };
+    let (plain, finer) = (mean(&mut g, copper.clone()), mean(&mut g, silver.clone()));
+    assert!((finer - plain - 0.1).abs() < 1e-9, "{plain} then {finer}");
+    let card = crate::inspect::card(&g, 0);
+    assert!(has_line(&card, "FINER WORK (SILVER): +0.1."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    // The silver saw's own card, and a silk sack's, back where it started.
+    let (x, y) = start;
+    (g.monsters[0].x, g.monsters[0].y) = start;
+    let look = |g: &mut Game, item: ItemData| {
+        g.monsters[0].facing = Dir::Right;
+        g.world.items.retain(|it| (it.x, it.y) != (x + 1, y));
+        g.world.items.push(crate::world::Item::new(x + 1, y, item));
+        crate::inspect::card(g, 0)
+    };
+    let card = look(&mut g, silver);
+    assert!(has_line(&card, "SILVER: 50 (MOST 100).") && has_line(&card, "FINER WORK: +0.1 QUALITY."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+    let mut silk = made(&g, "sack", "fabric");
+    silk.carried_tags = vec!["silk".into()];
+    let card = look(&mut g, silk);
+    assert!(has_line(&card, "SILK: 50 (MOST 100).") && has_line(&card, "FINER WORK: +0.1 QUALITY."), "{:?}", card.lines().map(|l| &l.text).collect::<Vec<_>>());
+}
+
+/// The hemp batch (agreed 2026-11-05): a roller for bast fiber, by its wood, and a sack for the
+/// recipes that want a bag, by its cloth (hemp the toughest), cloth counting last.
+#[test]
+fn a_sack_lasts_by_its_cloth_and_a_roller_by_its_wood() {
+    let g = Game::new();
+    let sack = |cloth: &str| {
+        let mut s = crate::econ::plain(&g.data, "sack", "fabric");
+        s.carried_tags = vec![cloth.to_string()];
+        s
+    };
+    assert_eq!(crate::inspect::display_name(&g, &sack("hemp")), "HEMP SACK");
+    let life: Vec<u32> = ["hemp", "ramie", "climbing hempvine", "cotton", "kudzu", "velvetleaf", "silk"].iter().map(|c| sack(c).durability(&g.data)).collect();
+    assert_eq!(life, [150, 125, 125, 100, 100, 75, 50]);
+    let roller = crate::econ::plain(&g.data, "roller", "oak_log");
+    assert_eq!((crate::inspect::display_name(&g, &roller), roller.durability(&g.data)), ("OAK ROLLER".to_string(), 100));
+    assert_eq!(crate::econ::plain(&g.data, "roller", "hemlock_log").durability(&g.data), 75);
+    // What a sack could be sewn from, of the cloth the world grows.
+    assert_eq!(g.durability_by_material(g.data.good("sack")).as_deref(), Some("DURABILITY BY CLOTH: RAMIE 125, COTTON 100."));
+    // A stone hammer bound with hemp rope is still a stone tool.
+    let mut hammer = crate::econ::plain(&g.data, "stone_hammer", "granite");
+    hammer.carried_tags.push("hemp".into());
+    assert_eq!(g.data.material(&hammer.tags(&g.data)).map(|v| v.tag.as_str()), Some("granite"));
+    // Bags at last: the ash glaze and safflower cakes have one.
+    assert!(g.data.goods.iter().filter(|r| r.tools_required_tags.iter().any(|t| t == &["bag"])).count() >= 2);
+    assert!(g.data.good("sack").type_tags.iter().any(|t| t == "bag"));
 }

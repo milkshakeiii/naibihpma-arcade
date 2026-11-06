@@ -82,6 +82,10 @@ pub struct VarietyOf {
     /// For a tool material, its durability against the usual: 2 for steel, 0.5 for elder.
     #[serde(default)]
     pub durability: Option<f64>,
+    /// For a tool material, how much finer work its tools do: +0.1 quality on what's made with
+    /// silver or silk (Henry, 2026-11-05: dear materials shouldn't simply be worst).
+    #[serde(default)]
+    pub fine: Option<f64>,
 }
 
 fn yes() -> bool {
@@ -480,6 +484,8 @@ pub struct Variety {
     pub color: Option<String>,
     /// A tool of it: its durability against the usual (none: the usual).
     pub durability: Option<f64>,
+    /// A tool of it: how much finer what's made with it comes out (none: no finer).
+    pub fine: Option<f64>,
 }
 
 impl Variety {
@@ -495,8 +501,8 @@ impl Variety {
 
 /// What a tool can be made of, in the order that decides what it's made of: its metal if it
 /// carries one (an iron head on an oak handle is an iron tool), then its stone, its wood or
-/// bamboo, its clay.
-pub const MATERIALS: [&str; 5] = ["metal", "stone", "wood", "bamboo", "clay"];
+/// bamboo, its clay, and last its cloth (a sack; a stone hammer's rope binding doesn't count).
+pub const MATERIALS: [&str; 6] = ["metal", "stone", "wood", "bamboo", "clay", "textiles"];
 
 pub struct Data {
     pub goods: Vec<GoodType>,
@@ -524,7 +530,7 @@ impl Data {
             let of: Vec<String> = varieties.iter().find(|v| a.of.first() == Some(&v.tag)).map_or_else(Vec::new, |first| first.of.iter().filter(|c| a.of.iter().all(|m| varieties.iter().any(|v| &v.tag == m && v.is(c)))).cloned().collect());
             match varieties.iter_mut().find(|v| v.tag == a.name) {
                 Some(v) => v.of.extend(of.into_iter().filter(|c| !v.of.contains(c)).collect::<Vec<_>>()),
-                None => varieties.push(Variety { tag: a.name.clone(), of, color: None, durability: None }),
+                None => varieties.push(Variety { tag: a.name.clone(), of, color: None, durability: None, fine: None }),
             }
         }
         for g in &mut goods {
@@ -615,7 +621,7 @@ fn gather_varieties(goods: &[GoodType]) -> Vec<Variety> {
     let mut out: Vec<Variety> = Vec::new();
     for d in goods.iter().filter_map(|g| g.variety.as_ref()) {
         let k = out.iter().position(|v| v.tag == d.name).unwrap_or_else(|| {
-            out.push(Variety { tag: d.name.clone(), of: Vec::new(), color: None, durability: None });
+            out.push(Variety { tag: d.name.clone(), of: Vec::new(), color: None, durability: None, fine: None });
             out.len() - 1
         });
         let v = &mut out[k];
@@ -623,6 +629,7 @@ fn gather_varieties(goods: &[GoodType]) -> Vec<Variety> {
         v.of.extend(new);
         v.color = v.color.take().or_else(|| d.color.clone());
         v.durability = v.durability.or(d.durability);
+        v.fine = v.fine.or(d.fine);
     }
     out
 }
@@ -814,6 +821,15 @@ mod tests {
         for tag in ["oak", "rhododendron", "granite"] {
             assert_eq!(d.variety(tag).and_then(|v| v.durability), None, "{tag} is the usual");
         }
+        // Cloth, for sacks (agreed 2026-11-05): hemp the toughest.
+        for (tag, x) in [("hemp", 1.5), ("ramie", 1.25), ("climbing hempvine", 1.25), ("velvetleaf", 0.75), ("silk", 0.5)] {
+            assert_eq!(d.variety(tag).and_then(|v| v.durability), Some(x), "{tag}");
+        }
+        // Finer work: silver and silk only, and only on tool materials.
+        let fine: Vec<(&str, f64)> = d.varieties.iter().filter_map(|v| Some((v.tag.as_str(), v.fine?))).collect();
+        assert_eq!(fine, [("silk", 0.1), ("silver", 0.1)].iter().copied().filter(|(t, _)| fine.iter().any(|f| f.0 == *t)).collect::<Vec<_>>());
+        assert_eq!(fine.len(), 2, "{fine:?}");
+        assert!(d.varieties.iter().filter(|v| v.fine.is_some()).all(|v| v.material().is_some()));
     }
 
     #[test]

@@ -93,7 +93,7 @@ Fifteen screens east of the high pass, five across and three down (world screens
 
 **The goods, by mark** (approval follows the mark):
 - **T, needing only a yes on where:** copper ore (the first tree; the Copper Cut); alum and green vitriol, found (Alum Springs); green vitriol, made from pyrite and iron (Alum Springs); well salt (the brine well); hemp stalks (Hemp Hollow); the smelter and the ingots smelted in it (Bellows); the metal anvil, metal hammer, metal chisel, saw, file, wire, needle, nail, knife and metal axe (the smithy in Verdigris); the stone anvil and stone hammer (the stonemason's yard in Charcoal Wood, from the Stone Stair's quarry); the metal pot, sycee and die (the foundry, in molds from the kiln banks).
-- **N, recipes to propose from the book, as a batch:** tin ore, iron ore, silver ore, hard stone, pyrite, bronze ingot, solder, forceps, sickle, scythe, billhook, a real recipe for the shovel (the data's has no inputs), and hemp's fiber, coarse cloth and sacks. The metal ones are agreed, below; hemp's are the next batch.
+- **N, recipes to propose from the book, as a batch:** tin ore, iron ore, silver ore, hard stone, pyrite, bronze ingot, solder, forceps, sickle, scythe, billhook, a real recipe for the shovel (the data's has no inputs), and hemp's fiber, coarse cloth and sacks. The metal ones are agreed, below; hemp's are drafted after them (Hemp, from stalk to sack).
 - **+, approved 2026-11-05:** the pine. Pine logs are in the data: pale (the mat ramp), and ×0.75 as tools, as hemlock. Its rosin and pitch are in the varieties proposal (Everywhere, in provincial varieties).
 - **Data fix, done 2026-11-05:** found green vitriol's cauldron was split into letters; it asks for a cauldron now, which is the metal pot.
 
@@ -140,7 +140,7 @@ Metalworking was thin at the start (the ingots were stand-ins from the trader, a
 - Agreed: forging takes heat. The fuel pad becomes a heat pad in the knife, metal axe, metal hammer, metal chisel, file, saw, wire, nail, pick and metal anvil. Unchanged: the castings (the pot, sycee and die take coke already; the bell and statue as written) and everything outside metalwork.
 - Agreed: the needle, now a wire and a file anywhere, becomes a smithy recipe: wire, heat and clay, making 4; file, cauldron and tub. The book packs needles in earth, pine charcoal and fermented soybeans before the quench; soybeans would make needles wait for the plains, and the hemp batch may want needles, so they're left out.
 
-**Tool life by material.** A tool's material sets its durability: the material of its working part, which is its metal if it carries one, otherwise its stone, then its wood or bamboo, then its clay. A hammer with an iron head on an oak handle is an iron tool. Weight matters already (a tool in hand fills body capacity, and loose goods push slower), and value when a tool is delivered (renown), but neither is felt while working. The pick and shovel keep the fixed weights their recipes give them: weighing by metal brought back the trouble of 2026-11-03, a pick and shovel too heavy to hold together.
+**Tool life by material.** A tool's material sets its durability: the material of its working part, which is its metal if it carries one, otherwise its stone, then its wood or bamboo, then its clay, and last its cloth. A hammer with an iron head on an oak handle is an iron tool. Weight matters already (a tool in hand fills body capacity, and loose goods push slower), and value when a tool is delivered (renown), but neither is felt while working. The pick and shovel keep the fixed weights their recipes give them: weighing by metal brought back the trouble of 2026-11-03, a pick and shovel too heavy to hold together.
 
 | Material | Durability | Tools made of it |
 | :-- | :-- | :-- |
@@ -155,6 +155,11 @@ Metalworking was thin at the start (the ingots were stand-ins from the trader, a
 | Elder | ×0.5 | |
 | Arrow bamboo | ×0.75 | cotton bow |
 | Fired clay | ×0.5 | pot and sycee molds (the book breaks a clay mold to free what's cast in it) |
+| Cloth (agreed with hemp) | hemp ×1.5, ramie and climbing hempvine ×1.25, kudzu and cotton ×1, velvetleaf ×0.75, silk ×0.5 | sacks |
+
+**Finer work** (Henry, 2026-11-05: a dear material shouldn't simply be the worst). Silver and silk wear fast, but work done with a silver or silk tool comes out finer: +0.1 quality on what's made, once a craft however many such tools it uses, and only for goods that have quality. It's a material's number in the data, as durability is (`fine`), on silver and silk only; other dear-but-soft materials (an expensive wood that makes poor tools) stay as they are. The tool's card says "FINER WORK: +0.1 QUALITY.", and a work spot using one says "FINER WORK (SILVER): +0.1." under its quality forecast, which includes it.
+
+**Only what the world makes.** A material's card shows tool durability only for tools some workshop in the world makes: fabric says nothing of sacks until a workshop sews them, and an ingot nothing of metal tools until there's a smithy.
 
 The metal tools: the metal pot (the cauldron), the metal anvil, knife, axe, hammer, chisel, file, saw, die, pick, shovel, forceps, sickle, scythe, billhook and strong pan. A new variety gets its number with its data, as its color: pine and willow ×0.75 and elm and camphor ×1, say, jujube ×1.25 (the book's wood for axles), palm ×0.5. So elder tongs, oak tongs, iron forceps and steel forceps make a ladder: half, one, a quarter more, twice.
 
@@ -171,6 +176,27 @@ Durability, not uses: each go wears every tool it uses by that recipe's weight f
 **Cut from the first draft** (2026-11-05): lead ore, the bellows and the crucible (the smelter and foundry have them in their art instead). The iron forceps and the tin basket were cut and then kept.
 
 **Left out:** gold, brass and zinc, silver's two furnaces as two goods, and the great anchor. Mixed metals that make no alloy (a bell of copper and pig iron) need a name rule when this is built.
+
+### Hemp, from stalk to sack (agreed and added, 2026-11-05)
+Henry approved it all on 2026-11-05, with one change: silk and silver do finer work (Tool life by material). The roller, the sack and cloth's durability are in the data; the hemp house waits for the hills to be built, as the smelter and smithy do (a workshop kind goes in with its place on the map).
+
+Most of hemp's road is in the data already, and it carries hemp's name the whole way: hemp stalks T → bast fiber T (a knife, a tub and a roller) → thread ✓ → fabric ✓ → "HEMP FABRIC", and rope ✓ from two threads. The book's way with ramie and hemp is the same: soak the stalks, strip the bast and scrape it, spin it, weave it. What's missing is the roller (no good provides one, so no bast fiber can be made yet, the Cloth Reaches' ramie included), a sack for the two recipes that ask for a bag, and somewhere in the hills to do it all.
+
+**Gathered (Hemp Hollow):** hemp stalks T, in fields beside the retting pond; wild hemp on the High Scree. No change to the recipe.
+
+**The hemp house,** a new workshop kind (a building, in Hemp Hollow, on the retting pond): the Cloth Reaches' cloth in miniature, for the hills' side industry. Its recipes, all already written except the sack: bast fiber, thread, fabric, rope and sacks. It lends a tub (the pond) and a roller, so only the knife has to come from the smithy, and a spool, a spinning wheel and a waist loom, as the spinnery and loom house do. The hemp weaver works his own, beside it.
+
+**Recipes, N (added):**
+- **Roller:** a log, worked with a saw and a chisel, at any bench (carpentry). The wood carries over, so it lasts by its wood like any wooden tool: an oak roller 100, hemlock 75. The Cloth Reaches' benches can make it too, for ramie.
+- **Sack** (tagged bag): fabric and a thread, sewn with a needle, at any bench (weaving). The cloth carries over: "HEMP SACK", "COTTON SACK". It's the bag the safflower cakes (the plains) and ash glaze (the kiln banks) ask for as a tool, so sacks go out from the hills with the metal tools.
+
+**Coarse cloth, dropped:** hemp fabric already is the hills' cloth, by name. A separate coarse cloth good would be fabric twice over.
+
+**Cloth tools wear by their cloth (agreed).** Sacks join tool life by material, with cloth as the last material category (after clay, so a hammer with a rope binding is still a stone hammer). Hemp the toughest, as the miners have it: hemp ×1.5, ramie and climbing hempvine ×1.25, kudzu and cotton ×1, velvetleaf ×0.75, silk ×0.5, but silk does finer work. Every card that shows tool life shows it for sacks as well: a workshop sewing one ranks the cloth the world grows ("DURABILITY BY CLOTH: RAMIE 125, COTTON 100.").
+
+**Linked already:** hemp lye (lye from hemp stalks, at a kiln) is the lye golden yellow dye asks for, so hemp stalks have a buyer in the Cloth Reaches too.
+
+**Left out:** hemp seeds for oil (enough varieties for now), a kit for the hemp house (a town one only, at first), and the hemp weaver's order board and trade secret, which come with the build.
 
 ## 3. The Kiln Banks
 A river valley with clay banks of five colors, reed beds and resinous pines. The book's chapter on ceramics.

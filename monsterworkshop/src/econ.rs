@@ -259,6 +259,15 @@ pub struct Craft<'a> {
     pub inputs: Vec<&'a ItemData>,
     pub tools: Vec<&'a ItemData>,
     pub workshop: Option<&'a Workshop>,
+    /// Finer work from a fine tool's material (a silver or silk one): added to the quality of
+    /// what's made. See `fine_work`.
+    pub fine: f64,
+}
+
+/// The finest material among `tools` and how much finer it makes the work, if any is fine: one
+/// bonus a craft, however many fine tools it uses.
+pub fn fine_work<'d>(tools: &[&ItemData], data: &'d Data) -> Option<(&'d crate::data::Variety, f64)> {
+    tools.iter().filter_map(|t| data.material(&t.tags(data))).filter_map(|v| Some((v, v.fine?))).max_by(|a, b| a.1.total_cmp(&b.1))
 }
 
 /// The parts of the quality roll, for the forecast card and for "what holds quality back".
@@ -370,7 +379,8 @@ pub fn forecast(c: &Craft) -> Forecast {
         let material = input_quality * primary * secondary;
         let tool = tool_quality * specific * ability_factor;
         // A magnifying glass or a craft's secret lifts the mean before the cap.
-        (soft_cap((material + tool) / 2.0 * c.crafter.knack.quality), SIGMA_BASE + SIGMA_PER_DESTABILIZER * destab_avg)
+        // A fine tool's finer work comes on top.
+        (soft_cap((material + tool) / 2.0 * c.crafter.knack.quality) + c.fine, SIGMA_BASE + SIGMA_PER_DESTABILIZER * destab_avg)
     } else {
         // Ungraded goods pass their inputs' quality through unchanged (raw ones count as 1).
         (input_quality, 0.0)
@@ -680,7 +690,8 @@ pub fn learn(skills: &mut Skills, stats: &Stats, knack: &Knack, recipe: &GoodTyp
 
 /// A gathered raw material, the start of every item history.
 pub fn gather(recipe: &GoodType, gatherer: Crafter, tools: Vec<&ItemData>, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
-    let c = Craft { recipe, crafter: gatherer, inputs: Vec::new(), tools, workshop: None };
+    let fine = fine_work(&tools, data).map_or(0.0, |(_, f)| f);
+    let c = Craft { recipe, crafter: gatherer, inputs: Vec::new(), tools, workshop: None, fine };
     produce(&c, data, rng)
 }
 

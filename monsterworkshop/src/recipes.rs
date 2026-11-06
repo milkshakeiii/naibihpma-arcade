@@ -137,11 +137,15 @@ impl Game {
     /// The materials that fit a tool recipe's material slot, longest-lasting first, each once:
     /// a pick's hard metals, a spool's sticks. Only those the world has (something grows them, or
     /// a workshop or trader gives them): the data names many more woods than are planted yet.
+    /// Where the slot takes something that carries its material rather than being one (a sack's
+    /// fabric), every material of its kind the world grows.
     fn materials_for(&self, recipe: &GoodType) -> Vec<&crate::data::Variety> {
         let Some((c, group)) = self.material_slot(recipe) else { return Vec::new() };
         let here = |id: &str| self.world.plants.iter().any(|p| p.good == id) || (0..self.world.shops.len()).any(|s| self.offers(s).iter().any(|r| self.data.good(r).output() == id));
+        let declares = |g: &GoodType| g.variety.as_ref().is_some_and(|v| self.data.variety(&v.name).is_some_and(|v| v.is(c)));
+        let carried = !self.data.goods.iter().any(|g| matches(&g.type_tags, group) && declares(g));
         let mut out: Vec<&crate::data::Variety> = Vec::new();
-        for g in self.data.goods.iter().filter(|g| matches(&g.type_tags, group) && here(&g.id)) {
+        for g in self.data.goods.iter().filter(|g| (carried || matches(&g.type_tags, group)) && here(&g.id)) {
             if let Some(v) = g.variety.as_ref().and_then(|v| self.data.variety(&v.name)).filter(|v| v.is(c)) {
                 if !out.iter().any(|o| o.tag == v.tag) {
                     out.push(v);
@@ -159,16 +163,19 @@ impl Game {
         let all = self.materials_for(recipe);
         (!all.is_empty()).then(|| {
             let each: Vec<String> = all.iter().map(|v| format!("{} {}", v.tag.to_uppercase(), crate::econ::tool_durability(Some(v)))).collect();
-            format!("DURABILITY BY {}: {}.", c.to_uppercase(), each.join(", "))
+            format!("DURABILITY BY {}: {}.", if c == "textiles" { "CLOTH" } else { c }.to_uppercase(), each.join(", "))
         })
     }
 
-    /// "TOOL DURABILITY 200 (MOST 100).": on the card of a good some tool can be made of (the card
-    /// names the material).
-    pub(crate) fn tool_life_of(&self, good: &GoodType) -> Option<String> {
-        let v = good.variety.as_ref().and_then(|v| self.data.variety(&v.name)).filter(|v| v.material().is_some())?;
-        let makes_tools = self.data.goods.iter().filter(|r| self.material_slot(r).is_some_and(|(c, group)| v.is(c) && matches(&good.type_tags, group))).count() > 0;
-        makes_tools.then(|| format!("TOOL DURABILITY {}.", against_most(crate::econ::tool_durability(Some(v)))))
+    /// "TOOL DURABILITY 200 (MOST 100).": on the card of a good some tool made in the world can be
+    /// made of (the card names the material), with its material: a steel ingot's, or hemp
+    /// fabric's, carried. Not for a tool nothing here makes yet: fabric says nothing of sacks
+    /// until a workshop sews them.
+    pub(crate) fn tool_life_of(&self, good: &GoodType, tags: &[String]) -> Option<(String, &crate::data::Variety)> {
+        let v = self.data.material(tags)?;
+        let made_here = |id: &str| (0..self.world.shops.len()).any(|s| self.offers(s).contains(&id));
+        let makes_tools = self.data.goods.iter().any(|r| made_here(&r.id) && self.material_slot(r).is_some_and(|(c, group)| v.is(c) && matches(&good.type_tags, group)));
+        makes_tools.then(|| (format!("TOOL DURABILITY {}.", against_most(crate::econ::tool_durability(Some(v)))), v))
     }
 
     /// What's said when a tool wears out: which, and something lasting longer that can be had
@@ -207,6 +214,17 @@ impl Game {
             .collect();
         (!each.is_empty()).then(|| format!("WEARS {}.", each.join(", ")))
     }
+}
+
+/// "FINER WORK: +0.1 QUALITY.": what a fine material's tools do, on its card and theirs.
+pub(crate) fn finer_work(v: &crate::data::Variety) -> Option<String> {
+    v.fine.map(|f| format!("FINER WORK: +{f} QUALITY."))
+}
+
+/// "FINER WORK (SILVER): +0.1.": on a plant's or workshop's card, under its quality, when a fine
+/// tool is in use.
+pub(crate) fn finer_work_from(v: &crate::data::Variety, f: f64) -> String {
+    format!("FINER WORK ({}): +{f}.", v.tag.to_uppercase())
 }
 
 /// "200 (MOST 100)", or "100, AS MOST": a tool durability against the usual.
