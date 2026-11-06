@@ -199,10 +199,10 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 }
 
 /// Every kind of scenery. Fences, stone walls, rails, washing and drying lines, gate posts, the
-/// awning over a shop's door, the hillside, the cliff and its vine, and hemp's drying racks join
-/// their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
+/// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks and the
+/// parapet join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 83] = [
+pub const PROPS: [PropKind; 87] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -294,12 +294,17 @@ pub const PROPS: [PropKind; 83] = [
     prop("log_stack", 'ɭ', "LOGS FOR THE MOUNDS", "PINE, STACKED TO SEASON BEFORE IT'S BURIED AND BURNT.", (1, 1)),
     prop("turf_heap", 'ʉ', "TURF AND EARTH", "CUT TO COVER THE NEXT MOUND, SO IT SMOULDERS INSTEAD OF BURNING.", (1, 1)),
     prop("shelter", 'ʊ', "THE BURNERS' SHELTER", "SOMEBODY HAS TO WATCH A MOUND ALL NIGHT. THIS IS WHERE.", (1, 1)),
+    // Verdigris's.
+    prop("cottage", 'ȼ', "A COTTAGE", "ITS ROOF IS COPPER, GONE GREEN IN THE WEATHER, LIKE EVERY ROOF HERE.", (3, 3)),
+    prop("grindstone", 'ǥ', "A GRINDSTONE", "FOR PUTTING AN EDGE BACK ON. TURN THE HANDLE, MIND YOUR FINGERS.", (1, 1)),
+    prop("parapet", 'ɐ', "THE PARAPET", "A LOW WALL ALONG THE CLIFF'S EDGE. THE PINE WOOD IS A LONG WAY DOWN.", (1, 1)),
+    prop("notice_board", 'ņ', "THE NOTICE BOARD", "LOST: ONE PICK. FOUND: ONE MITTEN. WANTED: SOMEBODY WHO CAN SING.", (2, 1)),
 ];
 
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 9] = [
+const REGIONS: [Region; 10] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
@@ -450,6 +455,25 @@ const REGIONS: [Region; 9] = [
         supplies: &[],
         workers: &[OLD_PATINA],
     },
+    // Verdigris, the hills' town, at the top of the Stone Stair: the smithy at its west end, by
+    // where the lift vine sets goods down; the smith at his own forge across the road; the
+    // gathering hall and the square. A village, hedged round but where the roads and the stair
+    // come in.
+    Region {
+        map: include_str!("../data/verdigris.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (175, 32),
+        racks: &[],
+        folk: &[],
+        vines: &[],
+        goods: &[],
+        labels: &[((21, 6), "GATHERING HALL")],
+        signs: &[("COPPER CUT", Dir::Right), ("TEMPLE TOWN", Dir::Down)],
+        boards: &[("OLD TEMPER'S ORDER", "knife", 6, Project::Order)],
+        supplies: &[("copper_ingot", "copper_ore"), ("charcoal", "pine_log")],
+        workers: &[OLD_TEMPER],
+    },
     // The road the long way round: south from the Cliff Lift into Hemp Hollow, where hemp grows
     // by the Rust Brook and the hemp house stands on its retting pond.
     Region {
@@ -551,13 +575,33 @@ const OLD_PATINA: WorkerSpec = WorkerSpec {
     secret: ((1, 3), "secret_prospecting"),
 };
 
+/// Verdigris's smith: he forges knives at his own forge from his own copper and charcoal, and
+/// takes them to his order board.
+const OLD_TEMPER: WorkerSpec = WorkerSpec {
+    name: "OLD TEMPER",
+    title: "SMITH",
+    skin: (crate::palette::WOOD, 3),
+    holds: &[("metal_hammer", "steel_ingot"), ("forceps", "pig_iron_ingot")],
+    about: &["HE FORGES KNIVES AT HIS OWN FORGE, FROM HIS OWN COPPER AND CHARCOAL. WATCH HOW HE DOES IT.", "THE SMITHY ACROSS THE ROAD IS FOR ANYONE. HIS ORDER BOARD TAKES ANYONE'S KNIVES, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
+    says: &["STEEL HOLDS AN EDGE TWICE AS LONG AS IRON. A COPPER KNIFE IS A KNIFE, BUT NOT FOR LONG.", "HEAT, THEN HAMMER: CHARCOAL OR COAL ON ONE PAD, THE METAL ON ANOTHER. THE FORGE LENDS THE TONGS AND THE ANVIL.", "CHISELS, FILES AND PICKS WANT HARD METAL: STEEL, PIG IRON OR BRONZE. COPPER WON'T DO."],
+    skills: &[("blacksmithing", 0.8), ("casting", 0.5), ("hauling", 0.4)],
+    tasks: &[
+        Task::Move("copper_ingot", (2, 2), (4, 2)),
+        Task::Move("charcoal", (8, 2), (6, 2)),
+        Task::Work((5, 2)),
+        Task::Move("knife", (5, 3), (8, 3)),
+    ],
+    secret: ((1, 1), "secret_blacksmithing"),
+};
+
 /// How long a working townsperson's supply takes to set out a fresh good once theirs is taken:
 /// four seconds, so a second plank from the same stack is a short wait.
 pub const SUPPLY_TICKS: u32 = 60;
 
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
-/// to east, then Temple Town south of it.
-const AREAS: [(i32, i32, &str); 11] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD")];
+/// to east, then Temple Town south of it, then the hills row by row, each west to east (the last
+/// one a tile lies past is its name, so the order matters).
+const AREAS: [(i32, i32, &str); 12] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 const WORLD_ROWS: i32 = 64;

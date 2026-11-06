@@ -1104,6 +1104,58 @@ fn make_tool_icon(id: &str) -> Sprite {
             }
             s.set(4, 4, WOOD + 1);
         }
+        // An axe: an iron head on a wooden haft.
+        "metal_axe" => {
+            for (x, y) in [(2, 7), (3, 6), (4, 5), (5, 4), (6, 3)] {
+                s.set(x, y, WOOD + 2);
+            }
+            for (x, y) in [(5, 1), (6, 1), (4, 2), (5, 2), (6, 2), (7, 2), (7, 3)] {
+                s.set(x, y, if y == 1 { TEXT_DIM } else { HUD_HI });
+            }
+            s.set(4, 3, HUD_MID);
+        }
+        // A smith's hammer: a squared iron head on a wooden handle.
+        "metal_hammer" => {
+            for y in 1..=3 {
+                for x in 1..=6 {
+                    s.set(x, y, if y == 1 { TEXT_DIM } else if x == 6 { HUD_MID } else { HUD_HI });
+                }
+            }
+            for y in 4..=7 {
+                s.set(3, y, WOOD + 2);
+                s.set(4, y, WOOD + 1);
+            }
+        }
+        // A sickle: a curved blade on a short handle.
+        "sickle" => {
+            for (x, y) in [(2, 1), (3, 0), (4, 0), (5, 0), (6, 1), (6, 2), (5, 3), (4, 4)] {
+                s.set(x, y, if y == 0 { TEXT_DIM } else { HUD_HI });
+            }
+            for (x, y) in [(3, 5), (2, 6), (1, 7)] {
+                s.set(x, y, WOOD + 2);
+            }
+        }
+        // A scythe: a long snath and its long blade.
+        "scythe" => {
+            for (x, y) in [(6, 7), (6, 6), (5, 5), (5, 4), (4, 3), (4, 2), (3, 1)] {
+                s.set(x, y, WOOD + 2);
+            }
+            for x in 0..=3 {
+                s.set(x, 1, if x == 0 { HUD_HI } else { TEXT_DIM });
+            }
+            s.set(0, 2, HUD_HI);
+            s.set(1, 2, HUD_MID);
+            s.set(5, 5, WOOD + 3);
+        }
+        // Tongs: two long arms crossed at a pin, jaws at the top; iron forceps, or wooden tongs.
+        "forceps" | "primitive_tongs" => {
+            let c = if id == "forceps" { HUD_HI } else { WOOD + 2 };
+            for k in 0..=6 {
+                s.set(1 + k, 7 - k, c);
+                s.set(6 - k / 2, 7 - k, if id == "forceps" { HUD_MID } else { WOOD + 1 });
+            }
+            s.set(4, 4, OUTLINE);
+        }
         // A knife: an iron blade, lit along its back, on a wooden handle.
         "knife" => {
             for (x, y) in [(1, 6), (2, 5), (3, 4)] {
@@ -1850,6 +1902,59 @@ fn make_kiln(frame: u8) -> Sprite {
     s.outline()
 }
 
+/// A forge: a stone hearth with its fire, a bellows at its side and an anvil before it. Working
+/// (`frame` 1 and 2), the coals glow and spark.
+fn make_forge(frame: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 24);
+    // The chimney, then the hood flaring out over the hearth.
+    for y in 0..=5 {
+        for x in 6..=9 {
+            s.set(x, y, if x == 6 { STONE[2] } else if x == 9 { STONE[0] } else { STONE[1] });
+        }
+    }
+    for y in 6..=9 {
+        let half = 2 + (y - 5) * 3 / 2;
+        for x in 8 - half..8 + half {
+            s.set(x, y, if x == 8 - half { STONE[2] } else if x == 7 + half { STONE[0] } else { STONE[1] });
+        }
+    }
+    // The hearth: a low stone block, its fire bed open under the hood.
+    for y in 10..=16 {
+        for x in 1..=14 {
+            s.set(x, y, if y == 13 || x == 1 { STONE[2] } else if x == 14 || y == 16 { STONE[0] } else { STONE[1] });
+        }
+    }
+    for y in 10..=12 {
+        for x in 2..=13 {
+            let c = if frame == 0 { if (x + y) % 3 == 0 { THREAD } else { OUTLINE } } else if (x + y + frame as i32) % 3 == 0 { SPARK + 2 } else { SPARK + (y as u8 % 2) };
+            s.set(x, y, c);
+        }
+    }
+    if frame > 0 {
+        for (x, y) in [(5 + frame as i32 * 2, 9), (10 - frame as i32, 8)] {
+            s.set(x, y, SPARK + 2);
+        }
+    }
+    // The anvil before it: dark iron, its face lit, its horn to the left.
+    for x in 3..=12 {
+        s.set(x, 18, TEXT_DIM);
+        s.set(x, 19, HUD_FILL);
+    }
+    s.set(1, 19, HUD_FILL);
+    s.set(2, 19, HUD_FILL);
+    s.set(2, 18, TEXT_DIM);
+    for y in 20..=21 {
+        for x in 6..=10 {
+            s.set(x, y, HUD_SHADOW);
+        }
+    }
+    for x in 4..=12 {
+        s.set(x, 22, WOOD + 1);
+        s.set(x, 23, WOOD);
+    }
+    s.outline()
+}
+
 /// A charcoal mound: a low dome of earth patched with turf, a vent at its top, and a glowing
 /// draught hole at its foot. While it burns (`frame` 1 and 2), smoke curls from the vent.
 fn make_mound(frame: u8) -> Sprite {
@@ -2167,6 +2272,8 @@ pub struct Sprites {
     pub kiln: [Sprite; 2],
     /// A charcoal mound, cold, and burning in two frames of smoke.
     pub mound: [Sprite; 3],
+    /// A forge, cold, and working in two frames of sparks.
+    pub forge: [Sprite; 3],
     pub indigo_vat: Sprite,
     pub dye_vat: Sprite,
     pub jar: Sprite,
@@ -2218,7 +2325,7 @@ impl Sprites {
             trader: [make_trader(0), make_trader(1)],
             copper_ingot: make_ingot(SPARK + 1, SPARK, WOOD + 2),
             tin_ingot: make_ingot(COTTON + 2, COTTON + 1, COTTON),
-            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick", "sack", "roller", "pitch", "stone_anvil", "knife", "needle"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
+            tool_icons: ["cotton_gin", "cotton_bow", "spinning_wheel", "spool", "waist_loom", "cotton_slivers", "fabric", "rope", "lye", "limestone", "quicklime", "indigo", "wooden_tub", "dyed_fabric", "elder_sticks", "rhododendron_sticks", "hemlock_log", "oak_log", "ramie_stalks", "arrow_bamboo", "indigofera_leaves", "workbench_kit", "kiln_kit", "planks", "wagon_wheel", "pumpkin", "temple_bell", "mortar", "beeswax", "oil", "red_clay", "charcoal", "coke", "copper_ingot", "tin_ingot", "shovel", "saw", "metal_chisel", "stone_hammer", "coal", "pick", "sack", "roller", "pitch", "stone_anvil", "knife", "needle", "metal_axe", "metal_hammer", "sickle", "scythe", "forceps", "primitive_tongs"].into_iter().map(|id| (id, make_tool_icon(id))).collect(),
             typed_icons: crate::data::Data::load().goods.iter().filter_map(|gt| Some((gt.id.clone(), type_of(gt)?))).collect(),
             spool: make_spool(),
             plant: [make_plant(0), make_plant(1), make_plant(2)],
@@ -2243,6 +2350,7 @@ impl Sprites {
             board: make_board(),
             kiln: [make_kiln(0), make_kiln(1)],
             mound: [make_mound(0), make_mound(1), make_mound(2)],
+            forge: [make_forge(0), make_forge(1), make_forge(2)],
             indigo_vat: make_vat(false),
             dye_vat: make_vat(true),
             jar: make_jar(),

@@ -9,7 +9,7 @@ use crate::tutorial::{self, wrap, HELP, STAGES};
 use crate::world::*;
 
 /// The sprites a workshop kind's `look` can name (`data/workshops.json`).
-pub const LOOKS: [&str; 8] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench", "mound"];
+pub const LOOKS: [&str; 9] = ["bench", "wheel", "loom", "kiln", "indigo_vat", "dye_vat", "wagon_bench", "mound", "forge"];
 
 pub const VIEW_H: i32 = SCREEN_H * TS; // 256; the HUD fills the remaining 44 rows
 const HOP: [i32; 7] = [0, 2, 4, 5, 5, 4, 2];
@@ -147,6 +147,7 @@ fn draw_ground(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View) {
             "loom" => (&sp.loom, -5),
             "kiln" => (&sp.kiln[if s.job.is_some() { (g.frame / 3 % 2) as usize } else { 0 }], -5),
             "mound" => (&sp.mound[if s.job.is_some() { 1 + (g.frame / 5 % 2) as usize } else { 0 }], TS - 22),
+            "forge" => (&sp.forge[if s.job.is_some() { 1 + (g.frame / 2 % 2) as usize } else { 0 }], TS - 24),
             "indigo_vat" => (&sp.indigo_vat, -4),
             "dye_vat" => (&sp.dye_vat, -4),
             "wagon_bench" => (&sp.wagon_bench, TS - sp.wagon_bench.h - 4),
@@ -1160,16 +1161,14 @@ fn blit_ghost(fb: &mut Framebuffer, s: &Sprite, x: i32, y: i32) {
 fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
     let mut named: Vec<((i32, i32), &str)> = Vec::new();
     // Town workshops' buildings; frontier ones are open-air, with no walls to put a name on.
-    for s in g.world.shops.iter().filter(|s| s.kind.is_building() && s.frontier.is_none()) {
-        // Up from the work spot to the building's top wall; a door in that wall counts too. One
-        // out in the open (a charcoal mound) has no wall to put a name on.
+    // One out in the open (a charcoal mound, the smith's own forge) has no wall to put a name on.
+    for s in g.world.shops.iter().filter(|s| s.kind.is_building() && s.frontier.is_none() && indoors(g, s.spot.0, s.spot.1)) {
+        // Up from the work spot to the building's top wall; a door in that wall counts too.
         let (sx, mut wy) = s.spot;
-        while wy > s.spot.1 - SCREEN_H && !matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
+        while wy > 0 && !matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
             wy -= 1;
         }
-        if matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
-            named.push(((sx, wy), s.kind.label()));
-        }
+        named.push(((sx, wy), s.kind.label()));
     }
     named.extend(g.world.labels.iter().copied());
     for ((sx, wy), label) in named.into_iter().filter(|((x, y), _)| v.sees(*x, *y)) {
@@ -1528,9 +1527,9 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
                 fb.rect_fill(x + 7, y + 15, 2, 4, WOOD + 1);
             }
         }
-        "stone_wall" => {
+        "stone_wall" | "parapet" => {
             // A low wall of dressed stone: a block here, and courses out to each neighbor.
-            let (l, r, u, d) = (joins("stone_wall", -1, 0), joins("stone_wall", 1, 0), joins("stone_wall", 0, -1), joins("stone_wall", 0, 1));
+            let (l, r, u, d) = (joins(k.id, -1, 0), joins(k.id, 1, 0), joins(k.id, 0, -1), joins(k.id, 0, 1));
             if u || d {
                 let (a, b) = (if u { 0 } else { 4 }, if d { 16 } else { 13 });
                 fb.rect_fill(x + 4, y + a, 8, b - a, OUTLINE);

@@ -2155,3 +2155,39 @@ fn the_cliff_lift_vine_carries_goods_up_and_waits_for_room_at_the_top() {
     assert!(g.world.item_at(lift.top.0, lift.top.1).is_some_and(|it| g.world.items[it].good() == "fabric"), "set down at the top");
     assert!(lift.vine.iter().all(|&(x, y)| g.world.item_at(x, y).is_none()), "nothing left on the vine");
 }
+
+/// The hills walk as one (2026-11-05): from the way in, the long way round by Hemp Hollow and
+/// Charcoal Wood, up the Stone Stair into Verdigris, to the lift vine's head and on to the Copper
+/// Cut; and no other way, since the cliff keeps the way in's low ground from the heights.
+#[test]
+fn the_hills_walk_the_long_way_round_from_the_way_in_to_the_copper_cut() {
+    let g = Game::new();
+    let lift = g.world.lifts.iter().find(|l| l.dir == Dir::Up).expect("the lift vine").clone();
+    let area = |p: &(i32, i32)| crate::world::area_name(p.0, p.1);
+    // Every tile walkable from the lift vine's foot, and how far, keeping out of `skip`.
+    let walk = |skip: &str| {
+        let mut far = std::collections::HashMap::from([(lift.foot, 0u32)]);
+        let mut queue = std::collections::VecDeque::from([lift.foot]);
+        while let Some((x, y)) = queue.pop_front() {
+            let d = far[&(x, y)];
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let n = (x + dx, y + dy);
+                if g.world.walkable(n.0, n.1) && area(&n) != skip && !far.contains_key(&n) {
+                    far.insert(n, d + 1);
+                    queue.push_back(n);
+                }
+            }
+        }
+        far
+    };
+    let far = walk("");
+    for place in ["HEMP HOLLOW", "CHARCOAL WOOD", "VERDIGRIS", "COPPER CUT"] {
+        assert!(far.keys().any(|p| area(p) == place), "{place} is reachable from the way in");
+    }
+    let by_vine = lift.vine.len() as u32 + 1;
+    let on_foot = far.get(&lift.top).copied().expect("the vine's head, on foot");
+    assert!(on_foot >= 8 * by_vine, "on foot the vine's head is the long way round: {on_foot} steps, {by_vine} by vine");
+    assert!(!walk("CHARCOAL WOOD").contains_key(&lift.top), "the only way up on foot is the Stone Stair");
+    let smithy = g.world.shops.iter().find(|s| s.kind.label() == "SMITHY" && s.owner.is_none()).expect("the smithy");
+    assert!((smithy.spot.0 - lift.top.0).abs() + (smithy.spot.1 - lift.top.1).abs() <= 15, "the lift vine sets goods down a few steps from the smithy");
+}

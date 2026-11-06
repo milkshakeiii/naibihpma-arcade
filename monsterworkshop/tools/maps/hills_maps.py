@@ -181,7 +181,61 @@ put(w, '¥', (4, 13), (17, 13), (18, 13), (20, 13), (1, 14), (2, 14), (3, 14), (
 assert w[6][21] == '.', "the charcoal vine's foot is open ground"
 assert w[4][0] == ',' and w[4][14] == ',' and w[4][15] == ',', 'the back road meets the stair path'
 
-for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w)]:
+# --- Verdigris, the hills' town, from variant 2 (tools/briefs/hills_verdigris.txt): hedged round
+# as a village, but open on the west, where the Cliff Lift's own hedge stands; the high road through
+# it east and west; a parapet along the cliff's edge, open where the Stone Stair comes up. The
+# smithy at the west end, a few steps from where the lift vine sets goods down; the smith's forge
+# across the road; the square with its well, flower beds and notice board; the gathering hall; two
+# copper-roofed cottages north of the road (the model stood them on the road; they moved up a row).
+v = blank()
+box(v, '.', 0, 1, 0, 15)
+box(v, ',', 0, 4, 24, 4)         # the high road
+put(v, ',', (15, 15), (16, 15))  # the top of the Stone Stair
+box(v, '░', 15, 11, 16, 14)      # up from it to the square
+box(v, 'ɐ', 0, 14, 14, 14)       # the parapet, along the cliff's edge, into the corner
+put(v, '#', (0, 15))             # and the hedge under it
+box(v, 'ɐ', 17, 14, 23, 14)
+box(v, 'W', 1, 6, 10, 11)        # the smithy, a door to the road and one behind
+box(v, '_', 2, 7, 9, 10)
+put(v, 'D', (5, 6), (6, 11))
+put(v, ',', (5, 5), (6, 12))
+box(v, ',', 6, 13, 14, 13)       # the path round from its back door
+put(v, 'ʍ', (5, 8))
+put(v, 'p', (3, 8), (4, 8), (6, 8), (7, 8), (3, 9))
+put(v, 'o', (5, 9))
+put(v, 'g', (2, 7), (9, 7), (2, 10), (9, 10))
+put(v, 'ʍ', (5, 2))              # the smith's own forge, out in the open
+put(v, 'p', (4, 2), (6, 2))
+put(v, 'o', (5, 3))
+put(v, 'G', (2, 2), (8, 2))      # his copper and his charcoal
+put(v, 'b', (8, 3))              # his order board
+put(v, 'N', (4, 1))
+box(v, ':', 3, 5, 4, 5)          # the quenching trough
+put(v, 'ǥ', (8, 5), (4, 12))     # grindstones
+box(v, ':', 7, 12, 8, 12)        # a second trough, out back
+put(v, 'ŧ', (9, 12))
+box(v, '░', 11, 5, 17, 10)       # the square
+box(v, '>', 13, 6, 14, 7)        # its well
+put(v, '*', (11, 6), (11, 7), (17, 6), (17, 7), (17, 9), (17, 10), (11, 10), (12, 10), (13, 10), (14, 10))
+box(v, 'ņ', 13, 9, 14, 9)        # the notice board
+box(v, 'W', 18, 6, 23, 11)       # the gathering hall
+box(v, '_', 19, 7, 22, 10)
+put(v, 'D', (18, 8))
+put(v, 'a', (20, 8), (21, 9))
+box(v, 'ȼ', 12, 1, 14, 3)        # two cottages,
+box(v, 'ȼ', 18, 1, 20, 3)
+box(v, ']', 15, 2, 17, 2)        # washing between them,
+box(v, '-', 15, 3, 16, 3)        # and a bench
+put(v, 'i', (11, 3), (21, 3))
+box(v, '-', 12, 12, 13, 12)      # a bench looking out
+put(v, 's', (23, 3), (18, 13))
+put(v, '!', (10, 5), (19, 5))
+put(v, 'Y', (2, 1), (0, 1), (23, 1), (22, 1), (1, 12), (2, 12), (1, 13), (23, 12), (22, 12), (23, 13))
+put(v, '@', (3, 1), (2, 3), (0, 3), (21, 12), (22, 13), (3, 13))
+assert v[2][1] == '.' and v[2][3] == '.', "the smith's copper is pushed from the west"
+assert v[13][6] == ',', "the smithy's back door has a way out"
+
+for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v)]:
     rows = [''.join(r) for r in g]
     assert all(len(r) == W for r in rows)
     (DATA / f'{name}.map').write_text('\n'.join(rows) + '\n', encoding='utf-8', newline='\n')

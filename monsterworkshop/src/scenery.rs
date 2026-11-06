@@ -79,6 +79,9 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "baskets" => vec![baskets()],
         "sacks" => vec![sacks()],
         "cairn" => vec![cairn()],
+        "cottage" => (0..2).map(cottage).collect(),
+        "grindstone" => vec![grindstone()],
+        "notice_board" => vec![notice_board()],
         "stook" => (0..2).map(stook).collect(),
         "retting" => (0..2).map(retting).collect(),
         "sack_scarecrow" => vec![sack_scarecrow()],
@@ -1282,5 +1285,80 @@ fn shelter() -> Sprite {
     rect(&mut s, 7, 0, 8, 2, WOOD + 2);
     rect(&mut s, 1, 14, 14, 17, WOOD);
     rect(&mut s, 1, 14, 14, 14, WOOD + 1);
+    s.outline()
+}
+
+/// A cottage of the hills: stone walls, a steep roof of copper gone green (the land's dark
+/// green-blue), a weathervane on its ridge, a door and windows with boxes of flowers.
+fn cottage(k: u8) -> Sprite {
+    let mut s = Sprite::blank(48, 56);
+    // The roof, its shingles in courses, the ridge lit.
+    for y in 4..=30 {
+        let inset = (30 - y) * 3 / 8;
+        for x in 3 + inset..=44 - inset {
+            let course = (y - 4) % 4 == 0;
+            let c = if x < 24 { if course { crate::palette::HEDGE + 1 } else { crate::palette::HEDGE + 2 } } else if course { crate::palette::HEDGE } else { crate::palette::HEDGE + 1 };
+            s.set(x, y, c);
+        }
+    }
+    rect(&mut s, 23, 4, 24, 30, WOOD + 2);
+    // The weathervane.
+    rect(&mut s, 23, 0, 24, 4, crate::palette::HEDGE + 2);
+    rect(&mut s, 20, 1, 27, 1, crate::palette::HEDGE + 2);
+    // The walls, stone in courses.
+    for y in 31..=55 {
+        for x in 4..=43 {
+            let joint = (y - 31) % 5 == 4 || (x + if (y - 31) / 5 % 2 == 0 { 0 } else { 3 }) % 6 == 0;
+            s.set(x, y, if joint { STONE[0] } else if x < 8 { STONE[2] } else { STONE[1] });
+        }
+    }
+    // The door and the windows, their boxes in flower.
+    let door = if k == 0 { 10 } else { 30 };
+    rect(&mut s, door, 40, door + 7, 55, OUTLINE);
+    rect(&mut s, door + 1, 41, door + 6, 55, WOOD + 1);
+    rect(&mut s, door + 1, 41, door + 6, 41, WOOD + 3);
+    s.set(door + 5, 48, SPARK + 1);
+    for wx in [if k == 0 { 24 } else { 8 }, 36] {
+        if (wx..wx + 8).contains(&door) || (wx..wx + 8).contains(&(door + 7)) {
+            continue;
+        }
+        rect(&mut s, wx, 37, wx + 7, 44, OUTLINE);
+        rect(&mut s, wx + 1, 38, wx + 6, 43, WATER + 1);
+        rect(&mut s, wx + 1, 38, wx + 2, 39, WATER + 2);
+        rect(&mut s, wx + 4, 38, wx + 4, 43, OUTLINE);
+        rect(&mut s, wx, 45, wx + 7, 46, WOOD + 1);
+        for (fx, c) in [(1, FLOWER), (3, FLOWER + 1), (5, THREAD + 2)] {
+            s.set(wx + fx, 44, c);
+        }
+    }
+    s.outline()
+}
+
+/// A grindstone: a round stone in a wooden frame, a crank on its axle.
+fn grindstone() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    rect(&mut s, 2, 9, 3, 15, WOOD + 1);
+    rect(&mut s, 12, 9, 13, 15, WOOD + 1);
+    rect(&mut s, 1, 12, 14, 12, WOOD + 2);
+    circle_fill(&mut s, 8, 7, 5, STONE);
+    rect(&mut s, 7, 6, 8, 7, WOOD);
+    rect(&mut s, 13, 6, 15, 6, HUD_HI);
+    rect(&mut s, 15, 6, 15, 9, HUD_HI);
+    s.outline()
+}
+
+/// The town's notice board: a roofed board on two posts, papers pinned all over it.
+fn notice_board() -> Sprite {
+    let mut s = Sprite::blank(32, 22);
+    rect(&mut s, 3, 1, 28, 3, WOOD + 2);
+    rect(&mut s, 3, 1, 28, 1, WOOD + 3);
+    rect(&mut s, 5, 4, 26, 15, WOOD + 1);
+    for &(x, y, w, h) in &[(7, 6, 5, 4), (13, 5, 6, 5), (20, 6, 5, 6), (8, 11, 6, 3), (16, 11, 4, 3)] {
+        rect(&mut s, x, y, x + w - 1, y + h - 1, COTTON + 2);
+        rect(&mut s, x + 1, y + 1, x + w - 2, y + 1, TEXT_DIM);
+        s.set(x + w / 2, y, THREAD + 1);
+    }
+    rect(&mut s, 6, 16, 7, 21, WOOD);
+    rect(&mut s, 24, 16, 25, 21, WOOD);
     s.outline()
 }

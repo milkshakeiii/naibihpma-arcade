@@ -160,6 +160,16 @@
       "lends": ["stone_hammer", "metal_chisel"]
     },
     {
+      "id": "smithy",
+      "label": "SMITHY",
+      "about": "Verdigris's, a forge with an anvil: the metal tools from any ingot and heat. It lends tongs, a hammer, a stone anvil and a tub. What wants hard metal (chisels, files, picks), a die (nails, wire) or a file (saws, needles, billhooks) joins it once Bellows smelts and the foundry casts. The smith works his own, outdoors across the road.",
+      "map_char": "ʍ",
+      "look": "forge",
+      "building": true,
+      "recipes": ["knife", "metal_axe", "metal_hammer", "shovel", "sickle", "scythe", "forceps"],
+      "lends": ["primitive_tongs", "stone_hammer", "stone_anvil", "wooden_tub"]
+    },
+    {
       "id": "trader_stall",
       "label": "TRADER'S STALL",
       "about": "A temporary trader from the hills, for testing: Cloth Reaches goods for what the bell needs from provinces not open yet, and a pick and a shovel for the coal seam until somebody can make them. Each trade wants a different mix, since the pads choose. It offers only what nothing in the world makes or grows.",
