@@ -763,6 +763,14 @@ fn bin_card(g: &Game, b: usize) -> Card {
         let (lo, hi) = qs.iter().fold((f64::MAX, f64::MIN), |(a, b), &q| (a.min(q), b.max(q)));
         lines.extend(quality(lo, avg, hi));
     }
+    // An office taking ingots ranks the metals, as tools last by them (the assay office).
+    if bin.accepts.iter().any(|a| a == "ingot") {
+        let mut metals: Vec<&crate::data::Variety> = g.data.goods.iter().filter(|gt| gt.type_tags.iter().any(|t| t == "ingot")).filter_map(|gt| g.data.material(&gt.type_tags)).collect();
+        metals.sort_by(|a, b| econ::tool_durability(Some(b)).cmp(&econ::tool_durability(Some(a))).then(a.tag.cmp(&b.tag)));
+        metals.dedup_by(|a, b| a.tag == b.tag);
+        let each: Vec<String> = metals.iter().map(|v| format!("{} {}{}", v.tag.to_uppercase(), econ::tool_durability(Some(v)), if v.fine.is_some() { " (FINER WORK)" } else { "" })).collect();
+        lines.push(line(format!("TOOLS LAST BY THEIR METAL: {}.", each.join(", ")), TEXT));
+    }
     if bin.scores {
         lines.push(line("PUSH IT IN TO EARN RENOWN.", TEXT_DIM).icon(Icon::Renown));
     }

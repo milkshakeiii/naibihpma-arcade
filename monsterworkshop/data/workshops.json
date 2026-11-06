@@ -170,6 +170,16 @@
       "lends": ["primitive_tongs", "stone_hammer", "stone_anvil", "wooden_tub"]
     },
     {
+      "id": "smelter",
+      "label": "SMELTER",
+      "about": "Bellows's, in the smelters' yard where the ore and charcoal vines set their goods down: ore and heat to ingots. It lends tongs and a hammer. Copper now; pig iron, wrought iron and steel join with Iron Brook's ore, tin with the Tin Gulch's, silver with the Deep Drift's.",
+      "map_char": "ɕ",
+      "look": "smelter",
+      "building": true,
+      "recipes": ["copper_ingot"],
+      "lends": ["primitive_tongs", "stone_hammer"]
+    },
+    {
       "id": "trader_stall",
       "label": "TRADER'S STALL",
       "about": "A temporary trader from the hills, for testing: Cloth Reaches goods for what the bell needs from provinces not open yet, and a pick and a shovel for the coal seam until somebody can make them. Each trade wants a different mix, since the pads choose. It offers only what nothing in the world makes or grows.",

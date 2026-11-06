@@ -28,7 +28,8 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // `Z` the builders' bench's work spot (`B` an ordinary bench's)
 // Scenery: each kind's own character, in `PROPS` below (`Q` spare wheels, `x` fence, `^` the
 // hillside...)
-// `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `a` applicant
+// `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `ȋ` the assay
+// office's bin (a drop-off for ingots, any metal)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam  `©` copper seam
@@ -41,7 +42,7 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋ";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -199,10 +200,10 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 }
 
 /// Every kind of scenery. Fences, stone walls, rails, washing and drying lines, gate posts, the
-/// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks and the
-/// parapet join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
+/// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks, the
+/// parapet and the yard wall join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 87] = [
+pub const PROPS: [PropKind; 92] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -299,12 +300,18 @@ pub const PROPS: [PropKind; 87] = [
     prop("grindstone", 'ǥ', "A GRINDSTONE", "FOR PUTTING AN EDGE BACK ON. TURN THE HANDLE, MIND YOUR FINGERS.", (1, 1)),
     prop("parapet", 'ɐ', "THE PARAPET", "A LOW WALL ALONG THE CLIFF'S EDGE. THE PINE WOOD IS A LONG WAY DOWN.", (1, 1)),
     prop("notice_board", 'ņ', "THE NOTICE BOARD", "LOST: ONE PICK. FOUND: ONE MITTEN. WANTED: SOMEBODY WHO CAN SING.", (2, 1)),
+    // Bellows's.
+    prop("yard_wall", 'ǁ', "THE YARD WALL", "ROUND THE SMELTERS' YARD. IT KEEPS THE SPARKS IN, MOSTLY.", (1, 1)),
+    prop("slag", 'ʚ', "SLAG", "WHAT'S LEFT WHEN THE METAL HAS RUN OUT OF THE ORE: GLASSY, SHARP, AND GOOD FOR NOTHING.", (1, 1)),
+    prop("tong_rack", 'ʇ', "A RACK OF TONGS", "TONGS AND RAKES FOR THE FURNACES, EACH ON ITS OWN PEG.", (1, 1)),
+    prop("scales", 'ʡ', "THE ASSAY SCALES", "EVERY INGOT IS WEIGHED HERE, AND ITS METAL JUDGED.", (1, 1)),
+    prop("gear_shelf", 'ɧ', "SHELVES OF GEAR", "HATS, BOOTS AND COILS OF ROPE. THE BELT ON THE STAND IS THE ONE WORTH HAVING.", (1, 1)),
 ];
 
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 10] = [
+const REGIONS: [Region; 11] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
@@ -509,6 +516,25 @@ const REGIONS: [Region; 10] = [
         supplies: &[],
         workers: &[],
     },
+    // Bellows, the smelters' town, below the Copper Cut's cliff and Charcoal Wood's ridge: the ore
+    // vine and the charcoal vine set their goods down in its smelters' yard. The assay office takes
+    // ingots; the miners' outfitter gives the bronze-buckled belt. A town, hedged round but where
+    // the road, the brook and the vines come in.
+    Region {
+        map: include_str!("../data/bellows.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        at: (200, 48),
+        racks: &[((19, 8), "buckled_belt")],
+        folk: &[],
+        vines: &[],
+        goods: &[],
+        labels: &[((20, 2), "ASSAY OFFICE"), ((20, 7), "MINERS' OUTFITTER")],
+        signs: &[("VERDIGRIS", Dir::Left)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
 ];
 
 /// Pinewater's wagonwright, after Xi Zhong, who legend says made the first cart. He fetches his
@@ -601,7 +627,7 @@ pub const SUPPLY_TICKS: u32 = 60;
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it, then the hills row by row, each west to east (the last
 /// one a tile lies past is its name, so the order matters).
-const AREAS: [(i32, i32, &str); 12] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD")];
+const AREAS: [(i32, i32, &str); 13] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 const WORLD_ROWS: i32 = 64;
@@ -1210,7 +1236,7 @@ impl World {
                         'p' => Tile::Pad,
                         'g' => Tile::Peg,
                         'o' => Tile::OutMat,
-                        'C' | 'T' | 'b' => Tile::Bin,
+                        'C' | 'T' | 'b' | 'ȋ' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
                         '0' => Tile::Gate,
@@ -1248,6 +1274,7 @@ impl World {
                     match ch {
                         'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None }),
                         'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None }),
+                        'ȋ' => bins.push(Bin { x, y, accepts: vec!["ingot".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None }),
                         'b' => {
                             let &(title, wants, need, project) = board_specs.next().expect("a project for every board");
                             boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0, rest: 0, log: Vec::new() });

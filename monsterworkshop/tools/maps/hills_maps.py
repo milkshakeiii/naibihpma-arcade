@@ -235,7 +235,54 @@ put(v, '@', (3, 1), (2, 3), (0, 3), (21, 12), (22, 13), (3, 13))
 assert v[2][1] == '.' and v[2][3] == '.', "the smith's copper is pushed from the west"
 assert v[13][6] == ',', "the smithy's back door has a way out"
 
-for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v)]:
+# --- Bellows, the smelters' town, from variant 1 (tools/briefs/hills_bellows.txt): below the
+# Copper Cut's cliff, whose ore vine comes down it onto a path to the road, and Charcoal Wood's
+# ridge, whose charcoal vine comes across a spur of rock, both setting their goods down in the
+# walled smelters' yard. Pines on the heights in the corner; the assay office against the cliff,
+# the miners' outfitter below it. Hedged round as a town, but where the road, the brook and the
+# trunk road south come in.
+b = blank()
+box(b, 'Λ', 8, 0, 24, 2)         # the heights' edge, under the Copper Cut
+box(b, 'Λ', 2, 2, 7, 2)
+box(b, '#', 0, 0, 7, 1)          # a dark pine wood on the heights,
+put(b, 'Y', (1, 1), (4, 1), (6, 1), (0, 2), (1, 2))   # its nearest trees standing out
+box(b, 'ʃ', 16, 0, 16, 2)        # the ore vine, coming down the cliff
+box(b, 'Λ', 0, 3, 3, 9)          # the ridge's spur, under Charcoal Wood
+box(b, 'ʃ', 0, 6, 3, 6)          # the charcoal vine, coming across it
+box(b, '▒', 4, 3, 15, 9)         # the smelters' yard,
+box(b, 'ǁ', 3, 10, 15, 10)       # walled from the road,
+put(b, '▒', (7, 10), (9, 10))    # with two gates
+box(b, ',', 16, 3, 16, 10)       # the path from the ore vine down to the road
+put(b, '.', (0, 10), (1, 10), (2, 10), (0, 12))
+box(b, ',', 0, 11, 24, 11)       # the road, from Charcoal Wood on east
+box(b, 'w', 0, 13, 24, 14)       # the Rust Brook
+put(b, '╬', (16, 13), (16, 14))  # bridged for the trunk road south
+put(b, ',', (16, 12), (16, 15))
+put(b, 'ɕ', (7, 5), (11, 8))     # two smelters, nothing above them
+put(b, 'p', (5, 5), (6, 5), (8, 5), (9, 5), (8, 6))
+put(b, 'o', (7, 6))
+put(b, 'p', (9, 8), (10, 8), (12, 8), (13, 8), (12, 9))
+put(b, 'o', (11, 9))
+box(b, 'w', 12, 4, 13, 5)        # the stirring pond, for wrought iron
+put(b, 'ʚ', (10, 4), (11, 4), (11, 5), (12, 6), (13, 6))   # slag
+box(b, ':', 14, 7, 15, 7)        # a quenching trough
+put(b, 'ʇ', (4, 8), (4, 9))      # tongs and rakes
+put(b, '!', (15, 3), (15, 9))
+box(b, 'W', 18, 2, 23, 6)        # the assay office, against the cliff
+box(b, '_', 19, 3, 22, 5)
+put(b, 'D', (18, 4))
+put(b, 'ȋ', (21, 4))
+put(b, 'ʡ', (19, 5))             # its scales
+box(b, 'W', 17, 7, 23, 10)       # the miners' outfitter
+box(b, '_', 18, 8, 22, 9)
+put(b, 'D', (20, 10))
+put(b, 'ɧ', (18, 9), (22, 9))    # its shelves of gear, along the back
+put(b, 's', (2, 12))
+put(b, '¥', (5, 13), (6, 13), (12, 13), (14, 13), (18, 13), (19, 13), (21, 13), (22, 13), (14, 14), (15, 14), (20, 14), (21, 14))
+assert b[3][16] == ',' and b[6][4] == '▒', "both vines set their goods down on open ground"
+assert all(b[4][x] != 'p' for x in (7, 11)) and b[7][11] == '▒', 'nothing sits above a smelter'
+
+for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b)]:
     rows = [''.join(r) for r in g]
     assert all(len(r) == W for r in rows)
     (DATA / f'{name}.map').write_text('\n'.join(rows) + '\n', encoding='utf-8', newline='\n')

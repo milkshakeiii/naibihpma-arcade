@@ -79,6 +79,10 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "baskets" => vec![baskets()],
         "sacks" => vec![sacks()],
         "cairn" => vec![cairn()],
+        "slag" => (0..2).map(slag).collect(),
+        "tong_rack" => vec![tool_rack()],
+        "scales" => vec![scales()],
+        "gear_shelf" => vec![gear_shelf()],
         "cottage" => (0..2).map(cottage).collect(),
         "grindstone" => vec![grindstone()],
         "notice_board" => vec![notice_board()],
@@ -1360,5 +1364,57 @@ fn notice_board() -> Sprite {
     }
     rect(&mut s, 6, 16, 7, 21, WOOD);
     rect(&mut s, 24, 16, 25, 21, WOOD);
+    s.outline()
+}
+
+/// Slag: a heap of dark, glassy lumps, rust-streaked, catching the light.
+fn slag(k: u8) -> Sprite {
+    let mut s = Sprite::blank(16, 11);
+    let lumps: &[(i32, i32, i32)] = if k == 0 { &[(4, 7, 3), (10, 7, 3), (7, 4, 3)] } else { &[(5, 6, 3), (11, 8, 2), (8, 8, 3)] };
+    for &(cx, cy, r) in lumps {
+        circle_fill(&mut s, cx, cy, r, [HUD_SHADOW, HUD_FILL, HUD_MID]);
+    }
+    rect(&mut s, 2, 10, 13, 10, HUD_SHADOW);
+    for (x, y) in [(4, 5), (9, 3), (11, 6), (6, 8)] {
+        s.set(x, y, TEXT_DIM);
+    }
+    for (x, y) in [(5, 8), (10, 8), (8, 5)] {
+        s.set(x, y, WOOD + 1);
+    }
+    s.outline()
+}
+
+/// The assay scales on their counter: a bronze balance, a weight in each pan.
+fn scales() -> Sprite {
+    let mut s = Sprite::blank(16, 20);
+    rect(&mut s, 1, 12, 14, 19, WOOD + 1);
+    rect(&mut s, 1, 12, 14, 13, WOOD + 3);
+    rect(&mut s, 7, 2, 8, 11, SPARK);
+    rect(&mut s, 2, 3, 13, 3, SPARK + 1);
+    for x0 in [1, 11] {
+        rect(&mut s, x0 + 1, 4, x0 + 1, 7, SPARK);
+        rect(&mut s, x0, 8, x0 + 3, 9, SPARK + 1);
+    }
+    rect(&mut s, 2, 6, 3, 7, HUD_HI);
+    rect(&mut s, 6, 1, 9, 1, SPARK + 2);
+    s.outline()
+}
+
+/// The outfitter's shelves: hats on the top shelf, boots below, a coil of rope.
+fn gear_shelf() -> Sprite {
+    let mut s = Sprite::blank(16, 24);
+    rect(&mut s, 1, 2, 14, 23, WOOD);
+    for y in [8, 15, 22] {
+        rect(&mut s, 1, y, 14, y, WOOD + 2);
+    }
+    rect(&mut s, 2, 4, 6, 7, MAT + 1);
+    rect(&mut s, 1, 7, 7, 7, MAT + 2);
+    rect(&mut s, 9, 5, 13, 7, THREAD + 1);
+    rect(&mut s, 3, 11, 5, 14, WOOD + 1);
+    rect(&mut s, 3, 14, 7, 14, WOOD + 1);
+    rect(&mut s, 9, 11, 11, 14, WOOD + 1);
+    rect(&mut s, 9, 14, 13, 14, WOOD + 1);
+    circle_fill(&mut s, 7, 19, 2, [MAT, MAT + 1, MAT + 2]);
+    s.set(7, 19, WOOD);
     s.outline()
 }
