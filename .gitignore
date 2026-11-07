@@ -2,6 +2,7 @@
 **/target/
 **/bestiary_save.cfg
 **/starpond_best.txt
+**/chuteworks_save.txt
 
 # Exclude all song & audio files
 **/assets/music/
