@@ -83,8 +83,9 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "lily_pads" => (0..2).map(lily_pads).collect(),
         "rowboat" => vec![rowboat()],
         "field_shed" => vec![field_shed()],
-        "scarecrow" => vec![scarecrow()],
-        "field_trough" => vec![field_trough()],
+        "scarecrow" => vec![scarecrow(WATER + 1)],
+        "smock_scarecrow" => vec![scarecrow(THREAD + 1)],
+        "field_trough" | "water_trough" => vec![field_trough()],
         "shrub" => vec![shrub()],
         "baskets" => vec![baskets()],
         "sacks" => vec![sacks()],
@@ -94,6 +95,7 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "scales" => vec![scales()],
         "gear_shelf" => vec![gear_shelf()],
         "cottage" => (0..2).map(cottage).collect(),
+        "thatched_cottage" => vec![thatched_cottage()],
         "grindstone" => vec![grindstone()],
         "notice_board" => vec![notice_board()],
         "stook" => (0..2).map(stook).collect(),
@@ -954,12 +956,12 @@ fn field_shed() -> Sprite {
 }
 
 /// A scarecrow in a straw hat, arms out, keeping birds off the indigo.
-fn scarecrow() -> Sprite {
+fn scarecrow(shirt: u8) -> Sprite {
     let mut s = Sprite::blank(16, 20);
     rect(&mut s, 7, 8, 8, 19, WOOD + 1);
-    rect(&mut s, 1, 9, 14, 10, WATER + 1);
-    rect(&mut s, 5, 8, 10, 14, WATER + 1);
-    rect(&mut s, 5, 8, 5, 14, WATER + 2);
+    rect(&mut s, 1, 9, 14, 10, shirt);
+    rect(&mut s, 5, 8, 10, 14, shirt);
+    rect(&mut s, 5, 8, 5, 14, shirt + 1);
     for x in [1, 14] {
         s.set(x, 11, MAT + 2);
     }
@@ -1343,6 +1345,69 @@ fn cottage(k: u8) -> Sprite {
         rect(&mut s, wx, 45, wx + 7, 46, WOOD + 1);
         for (fx, c) in [(1, FLOWER), (3, FLOWER + 1), (5, THREAD + 2)] {
             s.set(wx + fx, 44, c);
+        }
+    }
+    s.outline()
+}
+
+/// Pinewater's cottage: a deep reed thatch with a stone chimney through it, over half-timbered
+/// walls, the door in the middle and a window in flower each side.
+fn thatched_cottage() -> Sprite {
+    let mut s = Sprite::blank(48, 56);
+    // The chimney first, so the thatch closes round its foot.
+    rect(&mut s, 33, 0, 38, 16, STONE[1]);
+    rect(&mut s, 33, 0, 34, 16, STONE[2]);
+    rect(&mut s, 32, 0, 39, 1, STONE[0]);
+    for y in [5, 10] {
+        rect(&mut s, 35, y, 38, y, STONE[0]);
+    }
+    // The thatch: combed reed, streaked, rounded at the ridge, its eaves hanging over the walls.
+    for y in 6..=33 {
+        let inset = if y >= 30 { 0 } else { (30 - y) * 3 / 8 };
+        let (x0, x1) = if y >= 30 { (1, 46) } else { (3 + inset, 44 - inset) };
+        for x in x0..=x1 {
+            if (33..=38).contains(&x) && y <= 16 {
+                continue;
+            }
+            let c = if y >= 32 || y <= 7 {
+                MAT
+            } else if (x * 3 + y) % 7 == 0 {
+                MAT
+            } else if (x + y * 2) % 9 == 0 || x < 6 + inset {
+                MAT + 2
+            } else {
+                MAT + 1
+            };
+            s.set(x, y, c);
+        }
+    }
+    // The walls: pale plaster between dark timbers, on a stone plinth.
+    for y in 34..=55 {
+        for x in 4..=43 {
+            let timber = matches!(x, 4 | 5 | 22 | 25 | 42 | 43) || y == 34 || y == 35 || y == 50;
+            let c = if y >= 51 {
+                if (x + if (y - 51) / 2 % 2 == 0 { 0 } else { 3 }) % 6 == 0 || y == 53 { STONE[0] } else { STONE[1] }
+            } else if timber {
+                WOOD + 1
+            } else {
+                COTTON + 1
+            };
+            s.set(x, y, c);
+        }
+    }
+    // The door, and a window either side with a box of flowers.
+    rect(&mut s, 20, 40, 27, 55, OUTLINE);
+    rect(&mut s, 21, 41, 26, 55, WOOD + 1);
+    rect(&mut s, 21, 41, 26, 41, WOOD + 3);
+    s.set(25, 48, SPARK + 1);
+    for wx in [8, 32] {
+        rect(&mut s, wx, 38, wx + 7, 45, OUTLINE);
+        rect(&mut s, wx + 1, 39, wx + 6, 44, WATER + 1);
+        rect(&mut s, wx + 1, 39, wx + 2, 40, WATER + 2);
+        rect(&mut s, wx + 4, 39, wx + 4, 44, OUTLINE);
+        rect(&mut s, wx, 46, wx + 7, 47, WOOD + 1);
+        for (fx, c) in [(1, FLOWER), (3, FLOWER + 1), (5, THREAD + 2), (6, FLOWER)] {
+            s.set(wx + fx, 45, c);
         }
     }
     s.outline()

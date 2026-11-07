@@ -1726,7 +1726,7 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
                 }
             }
         }
-        "timber_gate" => {
+        "timber_gate" | "village_gate" => {
             // A rough timber post on a stone; the beam over the way is overhead.
             fb.rect_fill(x + 5, y, 6, 16, OUTLINE);
             fb.rect_fill(x + 6, y, 4, 13, WOOD + 1);
@@ -1773,12 +1773,12 @@ fn canopy(fb: &mut Framebuffer, x: i32, y: i32, tx: i32) {
 /// What hangs over everyone's heads: a gate's beam (and roof) between its two posts, two tiles
 /// apart, so whoever walks through the gate walks under it.
 fn draw_overhead(g: &Game, fb: &mut Framebuffer, v: &View) {
-    for &((px, py), prop) in g.world.props.iter().filter(|((x, y), p)| matches!(p.0, "gate_post" | "timber_gate") && v.sees(*x, *y)) {
+    for &((px, py), prop) in g.world.props.iter().filter(|((x, y), p)| matches!(p.0, "gate_post" | "timber_gate" | "village_gate") && v.sees(*x, *y)) {
         if g.world.prop_at(px + 2, py).is_none_or(|(_, p)| p != prop) {
             continue;
         }
         let (x, y) = v.px(px, py);
-        if prop.0 == "timber_gate" {
+        if matches!(prop.0, "timber_gate" | "village_gate") {
             // A rough-hewn beam on the posts, its cut ends overhanging, a crosspiece below.
             fb.rect_fill(x - 3, y - 7, 54, 7, OUTLINE);
             fb.rect_fill(x - 2, y - 6, 52, 5, WOOD + 1);

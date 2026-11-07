@@ -2292,6 +2292,68 @@ fn the_hills_wild_screens_keep_open_ground_for_players_own_workshops() {
     }
 }
 
+/// Pinewater has two of each cloth workshop against crowding, since nobody builds in town (Henry,
+/// 2026-11-06): a chain along each street, of field and cotton bin, carding bench, spinnery, loom
+/// house and cloth store, the second field on another screen, and the gate bench besides, which
+/// twists rope. Each chain carries end to end, the two share no workshop, and everything in the
+/// village can be walked to from where the first player starts.
+#[test]
+fn pinewater_has_a_cloth_chain_along_each_street() {
+    let g = Game::live();
+    let w = &g.world;
+    let in_town = |(x, y): (i32, i32)| crate::world::area_name(x, y) == "PINEWATER";
+    let count = |kind: &str| w.shops.iter().filter(|s| s.kind.id() == kind && in_town(s.spot)).count();
+    assert_eq!((count("workbench"), count("spinnery"), count("loom_house")), (3, 2, 2), "two benches to card on and the gate bench, two spinneries, two loom houses");
+    let bins: Vec<_> = w.bins.iter().filter(|b| b.accepts == ["cotton_bolls"] && in_town((b.x, b.y))).collect();
+    let stores: Vec<(i32, i32)> = w.bins.iter().filter(|b| b.accepts == ["fabric"] && in_town((b.x, b.y))).map(|b| (b.x, b.y)).collect();
+    assert_eq!((bins.len(), stores.len()), (2, 2), "a cotton bin by each field, a cloth store at each street's end");
+    let fields: std::collections::BTreeSet<(i32, i32)> = w.plants.iter().filter(|p| p.good == "cotton_bolls" && in_town((p.x, p.y))).map(|p| (p.x.div_euclid(SCREEN_W), p.y.div_euclid(SCREEN_H))).collect();
+    assert_eq!(fields.len(), 2, "the two fields on different screens");
+
+    let far = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs() + (a.1 - b.1).abs();
+    let nearest = |kind: &str, to: (i32, i32)| w.shops.iter().filter(|s| s.kind.id() == kind).min_by_key(|s| far(s.spot, to)).unwrap();
+    let beside = |(x, y): (i32, i32)| [(0, 1), (0, -1), (1, 0), (-1, 0)].iter().map(|(dx, dy)| (x + dx, y + dy)).find(|&(x, y)| w.walkable(x, y) && w.item_floor(x, y)).unwrap();
+    let mut used = std::collections::HashSet::new();
+    for bin in bins {
+        let chute = bin.mouth.expect("a chute on the bin");
+        let bench = nearest("workbench", chute);
+        let spin = nearest("spinnery", bench.spot);
+        let loom = nearest("loom_house", spin.spot);
+        let store = *stores.iter().min_by_key(|&&s| far(s, loom.spot)).unwrap();
+        assert!([bench.spot, spin.spot, loom.spot].iter().all(|&s| used.insert(s)), "the chains share no workshop");
+        let steps = [(chute, bench.pads[0], "cotton_bolls"), (bench.outs[0], spin.pads[0], "cotton_slivers"), (spin.outs[0], loom.pads[0], "thread"), (loom.outs[0], store, "fabric")];
+        for (from, to, good) in steps {
+            assert!(g.plan_carry(from, to, beside(from), good).is_some(), "{good} from {from:?} to {to:?}");
+        }
+    }
+
+    // Every tile walkable from Mogg's start.
+    let start = (g.monsters[0].x, g.monsters[0].y);
+    let mut seen = std::collections::HashSet::from([start]);
+    let mut queue = std::collections::VecDeque::from([start]);
+    while let Some((x, y)) = queue.pop_front() {
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let n = (x + dx, y + dy);
+            if w.walkable(n.0, n.1) && in_town(n) && seen.insert(n) {
+                queue.push_back(n);
+            }
+        }
+    }
+    let near = |(x, y): (i32, i32)| seen.contains(&(x, y)) || [(0, 1), (0, -1), (1, 0), (-1, 0)].iter().any(|(dx, dy)| seen.contains(&(x + dx, y + dy)));
+    for s in w.shops.iter().filter(|s| in_town(s.spot)) {
+        assert!(s.pads.iter().chain(&s.outs).chain([&s.spot]).all(|&p| seen.contains(&p)), "{} at {:?} can be walked to", s.kind.id(), s.spot);
+    }
+    for p in w.plants.iter().filter(|p| in_town((p.x, p.y))) {
+        assert!(seen.contains(&(p.x, p.y)), "the {} at {},{} can be walked to", p.good, p.x, p.y);
+    }
+    for b in w.bins.iter().filter(|b| in_town((b.x, b.y))) {
+        assert!(near((b.x, b.y)), "the bin at {},{} can be walked to", b.x, b.y);
+    }
+    for gap in [(48, 9), (48, 27)] {
+        assert!(seen.contains(&gap), "the road out east at {gap:?}");
+    }
+}
+
 /// Every gatherable grows on at least two screens (Henry, 2026-11-06): its home, where most of it
 /// is, and a satellite or two elsewhere, so no single field or seam is everyone's only source. Tin
 /// is the one exception: the hills boast that nowhere else has it. A satellite planned for a hills
@@ -2299,7 +2361,7 @@ fn the_hills_wild_screens_keep_open_ground_for_players_own_workshops() {
 /// it is. Plants a working townsperson gathers for themself don't count.
 #[test]
 fn every_gatherable_grows_on_more_than_one_screen() {
-    let g = Game::new();
+    let g = Game::live();
     let w = &g.world;
     let only_here = ["tin_ore"];
     let unbuilt = [("THE TIN GULCH", (250, 32)), ("THE GREAT FURNACE", (175, 64)), ("THE DEEP DRIFT", (200, 64)), ("SLAG SLOPES", (225, 64)), ("THE HIGH SCREE", (250, 64))];

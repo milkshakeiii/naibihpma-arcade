@@ -609,6 +609,15 @@ pub struct Game {
 }
 
 impl Game {
+    /// A test's world with the live Pinewater in it, not the frozen copy the other tests walk.
+    #[cfg(test)]
+    pub(crate) fn live() -> Self {
+        crate::world::LIVE_PINEWATER.with(|l| l.set(true));
+        let g = Self::new();
+        crate::world::LIVE_PINEWATER.with(|l| l.set(false));
+        g
+    }
+
     /// A new world, with the first player's commune: Mogg and Bruna.
     pub fn new() -> Self {
         let data = Data::load();

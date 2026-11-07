@@ -1,0 +1,23 @@
+pinewater_25_16
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. It is one quarter of PINEWATER, the weaving village where every player begins: cotton is picked in its fields, carded at a bench, spun into thread at a spinnery and woven into cloth at a loom house. The village has two such chains, one along its north road and one along its south street, so newcomers needn't crowd one. This is its south-east quarter, where the second chain's spinnery and loom house stand side by side on the south street, and the south road leaves east through the hedge to the bridge. The layout is settled: keep it exactly, and dress it. Make it a charming, cozy, lived-in part of a village, the way a fine level designer and pixel artist would, with clusters, framing and some open grass, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Keep this layout. Every building, wall, door, field bush, bin, bench, mat, tool peg, signpost, road, path and lane stays on the tiles it is on now. Add decorations only on the open grass, each taking whole tiles, generously but tastefully.
+- The dark hedge border runs along the bottom and right edges only, with a gap where the south road leaves east. The top and left edges are open, because the village carries on into the screens there: draw no hedge, wall or fence along them.
+- Keep two tiles of open ground all round each bench and bin, with its mats and pegs, and in front of each door: players crowd round them to work. Nothing in a field's rows.
+- Leave walking room: everything must stay reachable on foot from the roads over open ground, one tile wide at least.
+- Decorations must not look like goods lying about (cotton bolls, thread, spools, cloth, logs, sacks) or like crops, since those are things players pick up and harvest.
+- Draw no words or labels except the names already on the picture.
+
+What is here:
+- THE SOUTH STREET along the top, and THE SECOND SPINNERY and LOOM HOUSE below it side by side, each with a wide door onto the street, the spinning wheel and the loom inside with their mats and pegs.
+- THE SECOND CLOTH STORE: the small box at the street's east end where cloth is delivered.
+- THE LANE between the two buildings down to THE SOUTH ROAD, which leaves east through the hedge.
+- OLD SAWGRASS'S HOUSE, the village craftsman's, with his name on it.
+- THE BUILDERS' BENCH: the red bench in its block of six tan mats, with its pegs and outlet mat.
+- THE PUMPKINS growing at the bottom, and THE TOWN'S WAGON: a cart with a pumpkin to pull it.
+
+Decorations that would suit it: crates and barrels by the loom house, a drying line of dyed cloth hung high, a woodpile by Old Sawgrass's house and a bench at his door, a little garden fence round the pumpkins, lanterns along the street and the road, flower beds, trees and bushes along the hedge, a timber gateway where the road leaves.
+
+Return only the image.

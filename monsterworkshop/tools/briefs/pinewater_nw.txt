@@ -1,0 +1,20 @@
+pinewater_0_0
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is the north-west quarter of PINEWATER, the weaving village where every player begins: cotton is picked in its field, carded at a bench, spun into thread and woven into cloth. This corner holds the village's cotton field, inside its hedge. Today it is bare grass with a few things standing in it. Recompose the screen into a charming, cozy, lived-in corner of a village, the way a fine level designer and pixel artist would: think about composition, framing, clusters and open space, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Use the pieces already in the picture, and add decorations generously but tastefully, over the whole screen: the half below the road as much as the half above it, which a first attempt left as bare grass. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground (cotton bolls, sacks, bundles, logs) or like crops, since those are things players pick up and harvest.
+- The dark hedge border runs along the top and left edges only. The right and bottom edges are open, because the village carries on into the screens there: draw no hedge, wall or fence along them. The road crosses the screen from the left edge to the right edge, and a second road leaves it southward across the bottom edge; keep both where they cross the edges.
+- Leave walking room: everything below must be reachable on foot from the road over open ground, one tile wide at least.
+- Draw no words or labels on the picture.
+
+What is here, and what must stay true. Every new player learns the game in this corner, so its working pieces keep their exact tiles:
+- THE COTTON FIELD: eighteen cotton bushes in three rows of six, on alternate rows, the bottom row just above the road. Keep all eighteen on the same tiles. A fence, a scarecrow or a low border may go round the field, but nothing between its rows: the rows between stay open, because monsters walk along them.
+- THE COTTON BIN: the wooden crate with a white boll on its front, east of the field's bottom row, with three open tiles between it and the field, along which bolls are pushed into it. Keep the bin and those three tiles as they are.
+- THE CARDING BENCH: on the road just right of the bin: a tan mat, the red bench, a mat with a lighter border, and two tool pegs above them. Keep them on their tiles, and the short path below them. Keep everything else at least two tiles away from the bin and the bench on every side: no lantern, bench, well, fence or tree beside them, since players crowd round them to work.
+- THE TWO MONSTERS: the green goblin at the field's west end and the purple cyclops on the road by the bin, where players start. Keep them where they are.
+- OPEN GROUND to keep clear: the top-left corner above the field, and a strip of grass along the bottom right, three tiles deep and six tiles wide, running off the right edge, with a lane of grass from it straight up to the road. That strip is the start of the village green, which runs on into the screen to the right. The rest of the half below the road should be lived in: cottages and their gardens, a well, a woodpile, a washing line, flower beds, trees.
+
+Decorations that would suit it: below the road, two or three cottages with gardens and gates on little paths from the roads, a well, a woodpile, a washing line with white cloth, a vegetable plot fenced off (with no crops in it, only bare earth and canes), trees; above it, a split-rail fence round the field with a gap at the road end, a scarecrow, a field hut or lean-to, a rain barrel or water trough, a cottage or two with a small garden and a gate, a washing line with white cloth, a bench by the road, lanterns, flower beds along the hedge, trees and bushes along the hedge, a well.
+
+Return only the image.

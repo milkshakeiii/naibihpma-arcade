@@ -208,7 +208,7 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 /// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks, the
 /// parapet and the yard wall join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 105] = [
+pub const PROPS: [PropKind; 109] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -327,8 +327,50 @@ pub const PROPS: [PropKind; 105] = [
     prop("scraper_rack", 'ɷ', "A RACK OF SCRAPERS", "LONG-HANDLED SCRAPERS AND RAKES, FOR THE CRUST ON THE SPRINGS' RIMS. NOBODY SCRAPES WITH THEIR CLAWS TWICE.", (1, 1)),
     prop("tally_post", 'Ɣ', "THE TALLY POST", "A NOTCH FOR EVERY BASKET OF CRUST SCRAPED. THE NOTCHES GO BACK YEARS.", (1, 1)),
     prop("sorting_table", 'Ƣ', "THE SORTING TABLE", "WHERE THE CRUST IS PICKED OVER FOR GRIT, THROUGH A SIEVE.", (1, 1)),
+    // Pinewater's, as the village is dressed (2026-11-06).
+    prop("thatched_cottage", 'Ȣ', "A COTTAGE", "THATCHED WITH REED FROM THE RIVER. THE WINDOW BOXES ARE THE ENVY OF TANGLEMERE.", (3, 3)),
+    prop("village_gate", 'Ȥ', "A TIMBER GATEWAY", "OVER THE STREET DOWN TO THE LOOM HOUSES. MIND YOUR HEAD, CYCLOPS.", (1, 1)),
+    prop("smock_scarecrow", 'ȥ', "A SCARECROW", "IN A MADDER-RED SMOCK, PATCHED AT THE ELBOWS.", (1, 1)),
+    prop("water_trough", 'ȣ', "A WATER TROUGH", "FILLED FROM THE WELL. EVERYONE DRINKS FROM IT, AND THE CYCLOPS SPLASH.", (2, 1)),
 ];
 
+
+/// Pinewater as it stood before the village was rearranged (2026-11-06), frozen for the tests: so
+/// many of them walk its tiles that the live village couldn't move a bench. They build this copy;
+/// a test that checks the live village builds it with `LIVE_PINEWATER` set (`Game::live`).
+#[cfg(test)]
+const PINEWATER_TESTS: Region = Region {
+    map: include_str!("../data/tests/pinewater.map"),
+    province: "",
+    style: Style::Cloth,
+    town: true,
+    at: (0, 0),
+    racks: &[],
+    folk: &[],
+    vines: &[],
+    goods: &[],
+    labels: &[((5, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((16, 18), "OLD SPOKE'S YARD")],
+    signs: &[("TANGLEMERE", Dir::Right)],
+    boards: &[("OLD SPOKE'S ORDER", "wagon_wheel", 4, Project::Order)],
+    supplies: &[("oak_log", "oak_log"), ("planks", "hemlock_log"), ("elder_sticks", "elder_sticks")],
+    workers: &[OLD_SPOKE],
+};
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LIVE_PINEWATER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The regions as built: the live ones, but in tests the frozen Pinewater unless asked otherwise.
+fn regions() -> impl Iterator<Item = &'static Region> {
+    REGIONS.iter().map(|r| {
+        #[cfg(test)]
+        if r.at == (0, 0) && !LIVE_PINEWATER.with(|l| l.get()) {
+            return &PINEWATER_TESTS;
+        }
+        r
+    })
+}
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
@@ -343,7 +385,7 @@ const REGIONS: [Region; 13] = [
         folk: &[],
         vines: &[],
         goods: &[],
-        labels: &[((5, 19), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((16, 18), "OLD SPOKE'S YARD")],
+        labels: &[((2, 11), "GATHERING HALL"), ((25, 27), "OLD SAWGRASS"), ((19, 18), "OLD SPOKE'S YARD")],
         signs: &[("TANGLEMERE", Dir::Right)],
         boards: &[("OLD SPOKE'S ORDER", "wagon_wheel", 4, Project::Order)],
         supplies: &[("oak_log", "oak_log"), ("planks", "hemlock_log"), ("elder_sticks", "elder_sticks")],
@@ -613,8 +655,8 @@ const OLD_SPOKE: WorkerSpec = WorkerSpec {
     title: "WAGONWRIGHT",
     skin: (crate::palette::MAT, 3),
     holds: &[("stone_hammer", "limestone")],
-    about: &["HE MAKES WAGON WHEELS AT HIS OWN BENCH, FROM HIS OWN WOOD. WATCH HOW HE DOES IT.", "THE BENCH BY THE GATHERING HALL IS FOR ANYONE. HIS ORDER BOARD TAKES ANYONE'S WHEELS, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
-    says: &["A WHEEL WANTS HARDWOOD SPOKES: OAK, AROUND HERE. SOFT HEMLOCK WON'T DO.", "TWO WHEELS, PLANKS, A HARDWOOD LOG AND A PUMPKIN TO PULL IT: THAT'S A WAGON. THE BENCH BY THE HALL MAKES THOSE TOO.", "MY ORDERS TAKE ANYONE'S WHEELS. THERE'S ALWAYS A CART WANTING ONE."],
+    about: &["HE MAKES WAGON WHEELS AT HIS OWN BENCH, FROM HIS OWN WOOD. WATCH HOW HE DOES IT.", "THE BENCH BY HIS GATE IS FOR ANYONE. HIS ORDER BOARD TAKES ANYONE'S WHEELS, FOR RENOWN.", "SPACE: ASK HIM SOMETHING."],
+    says: &["A WHEEL WANTS HARDWOOD SPOKES: OAK, AROUND HERE. SOFT HEMLOCK WON'T DO.", "TWO WHEELS, PLANKS, A HARDWOOD LOG AND A PUMPKIN TO PULL IT: THAT'S A WAGON. THE BENCH BY MY GATE MAKES THOSE TOO.", "MY ORDERS TAKE ANYONE'S WHEELS. THERE'S ALWAYS A CART WANTING ONE."],
     skills: &[("wagon_wright", 0.8), ("carpentry", 0.6), ("hauling", 0.4)],
     tasks: &[
         Task::Move("oak_log", (21, 21), (19, 24)),
@@ -1257,7 +1299,7 @@ pub struct World {
 
 impl World {
     pub fn new(data: &Data) -> Self {
-        Self::build(data, &REGIONS.iter().map(|r| (r.at, r)).collect::<Vec<_>>())
+        Self::build(data, &regions().map(|r| (r.at, r)).collect::<Vec<_>>())
     }
 
     /// A made-up world for load tests: `copies` of the whole world stacked north to south, with
@@ -1265,7 +1307,7 @@ impl World {
     /// world, and every river bridged. Saves can't hold it, since a save keeps only what's on the
     /// map and the map comes from the game's data.
     pub fn made_up(data: &Data, copies: usize) -> Self {
-        let placed: Vec<((i32, i32), &Region)> = (0..copies as i32).flat_map(|k| REGIONS.iter().map(move |r| ((r.at.0, r.at.1 + k * WORLD_ROWS), r))).collect();
+        let placed: Vec<((i32, i32), &Region)> = (0..copies as i32).flat_map(|k| regions().map(move |r| ((r.at.0, r.at.1 + k * WORLD_ROWS), r))).collect();
         let mut world = Self::build(data, &placed);
         let rh = WORLD_ROWS;
         for seam in (1..copies as i32).map(|k| k * rh) {

@@ -1,0 +1,21 @@
+pinewater_25_0
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. It is one quarter of PINEWATER, the weaving village where every player begins: cotton is picked in its fields, carded at a bench, spun into thread at a spinnery and woven into cloth at a loom house. The village has two such chains, one along its north road and one along its south street, so newcomers needn't crowd one. This is its north-east quarter, where the first chain's spinnery and loom house stand side by side on the north road, and the road leaves east through the hedge towards Tanglemere. The layout is settled: keep it exactly, and dress it. Make it a charming, cozy, lived-in part of a village, the way a fine level designer and pixel artist would, with clusters, framing and some open grass, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Keep this layout. Every building, wall, door, field bush, bin, bench, mat, tool peg, signpost, road, path and lane stays on the tiles it is on now. Add decorations only on the open grass, each taking whole tiles, generously but tastefully.
+- The dark hedge border runs along the top and right edges only, with a gap where the road leaves east. The left and bottom edges are open, because the village carries on into the screens there: draw no hedge, wall or fence along them.
+- Keep two tiles of open ground all round each bench and bin, with its mats and pegs, and in front of each door: players crowd round them to work. Nothing in a field's rows.
+- Leave walking room: everything must stay reachable on foot from the roads over open ground, one tile wide at least.
+- Decorations must not look like goods lying about (cotton bolls, thread, spools, cloth, logs, sacks) or like crops, since those are things players pick up and harvest.
+- Draw no words or labels except the names already on the picture.
+
+What is here:
+- THE SPINNERY and THE LOOM HOUSE: two wooden buildings north of the road, each with a wide door onto it, the spinning wheel and the loom inside with their mats and pegs.
+- THE CLOTH STORE: the small box at the road's east end where cloth is delivered, and THE SIGNPOST to TANGLEMERE beside it.
+- THE GATE BENCH: below the road near the east gate: two tan mats, the red bench and a mat with a lighter border below it.
+- THE WELL, a COTTAGE with its path down to the south street, and THE LANE down the middle to the south street.
+
+Decorations that would suit it: a timber gateway or arch where the road leaves through the hedge, flower boxes and barrels along the buildings' walls, a cart by the spinnery, lanterns along the road, a bench by the well, a cottage garden with a low fence, a washing line, trees and bushes along the hedge, a shade tree with a bench.
+
+Return only the image.
