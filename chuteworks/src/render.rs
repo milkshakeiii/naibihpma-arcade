@@ -438,6 +438,19 @@ fn draw_play(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
         }
     }
 
+    // Hints: the stored solution, ghosted in where the board doesn't match it yet.
+    if g.hint > 0 && !g.phase.running() {
+        for p in lv.solution.iter().filter(|p| hint_shows(g, p)) {
+            if g.layout.get(p.board, p.x, p.y) == Some(p.cell) {
+                continue;
+            }
+            let (px, py) = cell_px(p.board, p.x, p.y);
+            draw_piece(fb, px, py, p.cell);
+            fb.rect_checker(px + 1, py + 1, TILE - 1, TILE - 1, GOOD_DIM);
+            brackets(fb, px + 1, py + 1, TILE - 2, TILE - 2, GOOD, 1);
+        }
+    }
+
     // Items in motion.
     let (num, den) = g.anim;
     if let Some(m) = &g.make {
@@ -502,20 +515,18 @@ fn draw_play(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
 
     draw_tray(g, fb);
 
-    // Message or note, then the key line.
-    if g.show_note {
-        for (i, line) in wrap(&format!("NOTE: {}", lv.note), 62).iter().enumerate() {
-            fb.text_centered(line, 200, 262 + i as i32 * 10, TEXT, Some(OUTLINE), 1);
-        }
-    } else if let Some((text, kind)) = &g.message {
+    // The latest message, then the foreman's note for this room (always shown).
+    if let Some((text, kind)) = &g.message {
         let col = match *kind {
             MSG_BAD => BAD,
             MSG_GOOD => GOOD,
-            _ => TEXT,
+            _ => ACCENT_HI,
         };
-        fb.text_centered(text, 200, 264, col, Some(OUTLINE), 1);
+        fb.text_centered(text, 200, 261, col, Some(OUTLINE), 1);
     }
-    fb.text_centered("ENTER RUN  R TURN  X REMOVE  BKSP UNDO  H NOTE  F1 KEYS", 200, 287, TEXT_DIM, None, 1);
+    for (i, line) in wrap(&lv.note.to_uppercase(), 64).iter().take(3).enumerate() {
+        fb.text_centered(line, 200, 272 + i as i32 * 9, TEXT, Some(OUTLINE), 1);
+    }
 
     if g.phase == Phase::Solved {
         fb.rect_checker(GUTTER_X0 - 40, 94, 128, 60, OUTLINE);
@@ -557,15 +568,30 @@ fn draw_tray(g: &Game, fb: &mut Framebuffer) {
     }
     let tool = lv.tray[g.tool].tool;
     let tx = tray_slot_rect(lv.tray.len()).0 + 8;
-    let hint = match tool {
-        Tool::Belt => "HOLD SPACE AND MOVE TO DRAW",
-        Tool::Zipper => "R TURNS  T PICKS THE FIRST SIDE",
-        Tool::Switch => "R TURNS THE LEVER",
-        Tool::Arrow => "R TURNS",
-        Tool::Booth(_) => "WORKS ON EITHER BOARD",
+    let hint: [&str; 2] = match tool {
+        Tool::Belt => ["HOLD SPACE (OR DRAG) AND MOVE", "TAP A BELT TO TURN IT"],
+        Tool::Zipper => ["TAKES FROM ITS TOOTHED SIDES", "LIT SIDE FIRST. R TURNS, T FLIPS"],
+        Tool::Switch => ["LEVER POINTS WHERE NEXT ONE GOES", "ON BELTS, FEED IT FROM THE SIDE"],
+        Tool::Arrow => ["TURNS WHATEVER SLIDES ONTO IT", "R TURNS. FLOOR ONLY"],
+        Tool::Booth(_) => ["PAINTS WHAT GOES STRAIGHT THROUGH", "WORKS ON EITHER BOARD"],
     };
-    fb.text(tool.name(), tx, 222, TEXT, Some(OUTLINE), 1);
-    fb.text(hint, tx, 234, TEXT_DIM, Some(OUTLINE), 1);
+    fb.text(tool.name(), tx, 215, TEXT, Some(OUTLINE), 1);
+    fb.text(hint[0], tx, 225, TEXT_DIM, Some(OUTLINE), 1);
+    fb.text(hint[1], tx, 234, TEXT_DIM, Some(OUTLINE), 1);
+    fb.text("ENTER RUN  BKSP UNDO  H HINT  F1 KEYS", tx, 245, ACCENT, Some(OUTLINE), 1);
+}
+
+/// Hint 1 ghosts the key parts: every non-belt piece, or for belt-only rooms the belt tiles
+/// that touch a machine. Hint 2 ghosts the whole stored solution.
+fn hint_shows(g: &Game, p: &Placement) -> bool {
+    if g.hint >= 2 || !matches!(p.cell, Cell::Belt(_)) {
+        return true;
+    }
+    let lv = g.level();
+    if lv.solution.iter().any(|q| !matches!(q.cell, Cell::Belt(_))) {
+        return false;
+    }
+    Dir::ALL.into_iter().any(|d| matches!(lv.fixed(p.board, p.x + d.dx(), p.y + d.dy()), Cell::Booth(_) | Cell::Switch(_) | Cell::Zipper(..)))
 }
 
 fn draw_select(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
@@ -573,12 +599,15 @@ fn draw_select(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
     fb.text_centered("CHUTEWORKS", 200, 18, ACCENT_HI, Some(OUTLINE), 3);
     fb.text_centered("A SMALL FACTORY ON THE NIGHT SHIFT", 200, 48, TEXT_DIM, None, 1);
     for (h, name) in HALL_NAMES.iter().enumerate() {
-        let y0 = 92 + h as i32 * 84;
-        fb.text(name, 28, y0 - 14, TEXT, Some(OUTLINE), 1);
-        fb.rect_bevel(18, y0 - 4, 364, 50, BENCH + 1, BENCH + 2, BENCH);
+        let rooms: Vec<usize> = (0..g.levels.len()).filter(|&i| g.levels[i].hall as usize == h + 1).collect();
+        let (Some(&a), Some(&b)) = (rooms.first(), rooms.last()) else { continue };
+        let (x0, y0, _, _) = g.room_rect(a);
+        let (x1, _, w, _) = g.room_rect(b);
+        fb.text(name, x0 - 6, y0 - 14, TEXT, Some(OUTLINE), 1);
+        fb.rect_bevel(x0 - 10, y0 - 4, x1 + w - x0 + 20, 50, BENCH + 1, BENCH + 2, BENCH);
     }
     for i in 0..g.levels.len() {
-        let (x, y, w, h) = room_rect(i);
+        let (x, y, w, h) = g.room_rect(i);
         let lit = g.solved[i];
         fb.rect_fill(x - 1, y - 1, w + 2, h + 2, OUTLINE);
         fb.rect_fill(x, y, w, h, if lit { ACCENT } else { GLASS });
@@ -605,7 +634,7 @@ fn draw_select(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
     // Each solved room shows what it ships, on its sill.
     for i in 0..g.levels.len() {
         if g.solved[i] {
-            let (x, y, w, h) = room_rect(i);
+            let (x, y, w, h) = g.room_rect(i);
             for (k, b) in g.levels[i].bins.iter().enumerate() {
                 let n = g.levels[i].bins.len() as i32;
                 fb.blit(s.mini(b.want), x + w / 2 - 4 - (n - 1) * 5 + k as i32 * 10, y + h - 9, false);
@@ -626,20 +655,22 @@ fn draw_help(fb: &mut Framebuffer) {
         ("T", "FLIP A SWITCH OR ZIPPER"),
         ("X / RIGHT CLICK", "REMOVE"),
         ("1-9  Q  E", "PICK A PART FROM THE SHELF"),
-        ("BACKSPACE", "UNDO"),
+        ("BACKSPACE   C", "UNDO    CLEAR THE ROOM"),
         ("ENTER", "RUN / STOP / NEXT ROOM"),
         ("F", "FAST"),
-        ("H", "FOREMAN'S NOTE"),
+        ("H", "HINT (AGAIN: MORE, THEN OFF)"),
         ("TAB / F2", "OTHER BOARD / SCANLINES"),
         ("ESC", "BACK TO THE HALLS"),
     ];
     for (i, (k, v)) in rows.iter().enumerate() {
-        let y = 64 + i as i32 * 11;
+        let y = 60 + i as i32 * 10;
         fb.text(k, 56, y, ACCENT_HI, None, 1);
         fb.text(v, 158, y, TEXT, None, 1);
     }
-    fb.text_centered("BELTS CROSS ONLY INSIDE BOOTHS.", 200, 214, TEXT_DIM, None, 1);
-    fb.text_centered("CHUTES TAKE TURNS FROM THE TOP.", 200, 225, TEXT_DIM, None, 1);
-    fb.text_centered("ONE ITEM ON THE FLOOR AT A TIME.", 200, 236, TEXT_DIM, None, 1);
-    fb.text_centered("F1 OR ESC TO CLOSE", 200, 252, TEXT_DIM, None, 1);
+    fb.text_centered("BELTS CROSS ONLY INSIDE BOOTHS.", 200, 194, TEXT_DIM, None, 1);
+    fb.text_centered("CHUTES TAKE TURNS FROM THE TOP.", 200, 204, TEXT_DIM, None, 1);
+    fb.text_centered("ONE ITEM ON THE FLOOR AT A TIME.", 200, 214, TEXT_DIM, None, 1);
+    fb.text_centered("DOTS ON AN ITEM SPELL ITS PAINT:", 200, 228, TEXT_DIM, None, 1);
+    fb.text_centered("RED LEFT, YELLOW MIDDLE, BLUE RIGHT.", 200, 238, TEXT_DIM, None, 1);
+    fb.text_centered("F1 OR ESC TO CLOSE", 200, 254, ACCENT, None, 1);
 }

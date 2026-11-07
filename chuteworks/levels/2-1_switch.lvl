@@ -1,6 +1,6 @@
 name: Switch
 hall: 2
-note: A switch deals items to its two sides in turn. R turns the lever.
+note: A switch deals items to its two lever sides in turn. The lever points where the next one goes. On belts, feed it from the side.
 left:
 ........
 ........

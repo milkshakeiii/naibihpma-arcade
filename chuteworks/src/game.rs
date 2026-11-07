@@ -5,6 +5,7 @@ use crate::geom::*;
 use crate::levels;
 use crate::model::*;
 use crate::sim::*;
+use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -21,7 +22,9 @@ pub enum Key {
     Run,
     Undo,
     Fast,
-    Note,
+    /// Cycles hints: off, key parts ghosted, whole solution ghosted.
+    Hint,
+    Clear,
     Help,
     Back,
     Tab,
@@ -102,8 +105,15 @@ pub struct Game {
     /// Chute contents from the last finished Make, and the left board that made them.
     pub made: Option<(Vec<Vec<Color>>, [Option<Cell>; 64])>,
     pub trails: Vec<Vec<(i32, i32)>>,
-    pub show_note: bool,
+    /// 0 none, 1 key parts of the stored solution ghosted, 2 the whole solution ghosted.
+    pub hint: u8,
     pub show_help: bool,
+    /// Work left in each room, so leaving and coming back keeps it.
+    layouts: Vec<Layout>,
+    log_path: Option<PathBuf>,
+    room_started: u64,
+    runs: u32,
+    hints_used: u8,
     stroke: Option<Stroke>,
     act_held: bool,
     mouse_down: bool,
@@ -129,14 +139,23 @@ pub fn tray_slot_rect(i: usize) -> (i32, i32, i32, i32) {
     (16 + i as i32 * 34, 216, 28, 28)
 }
 
-/// Room windows on the select screen (x, y, w, h).
-pub fn room_rect(i: usize) -> (i32, i32, i32, i32) {
-    let (hall, k) = (i / 8, i % 8);
-    (28 + k as i32 * 44, 92 + hall as i32 * 84, 34, 40)
-}
-
 impl Game {
-    pub fn new(save_path: Option<PathBuf>) -> Result<Self, String> {
+    /// (hall index, position in hall, rooms in hall) for room `i`.
+    fn room_pos(&self, i: usize) -> (usize, usize, usize) {
+        let hall = self.levels[i].hall;
+        let k = self.levels[..i].iter().filter(|l| l.hall == hall).count();
+        let n = self.levels.iter().filter(|l| l.hall == hall).count();
+        ((hall as usize).saturating_sub(1), k, n)
+    }
+
+    /// Room windows on the select screen (x, y, w, h), centered per hall.
+    pub fn room_rect(&self, i: usize) -> (i32, i32, i32, i32) {
+        let (hall, k, n) = self.room_pos(i);
+        let x0 = 200 - (n as i32 * 40 - 8) / 2;
+        (x0 + k as i32 * 40, 92 + hall as i32 * 84, 32, 40)
+    }
+
+    pub fn new(save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Result<Self, String> {
         let levels = levels::all()?;
         let mut solved = vec![false; levels.len()];
         if let Some(text) = save_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()) {
@@ -147,7 +166,14 @@ impl Game {
             }
         }
         let sel = solved.iter().position(|s| !s).unwrap_or(0);
+        let layouts = vec![Layout::default(); levels.len()];
         Ok(Self {
+            layouts,
+            log_path,
+            room_started: 0,
+            runs: 0,
+            hints_used: 0,
+            hint: 0,
             levels,
             solved,
             screen: Screen::Select,
@@ -165,7 +191,6 @@ impl Game {
             fast: false,
             made: None,
             trails: Vec::new(),
-            show_note: false,
             show_help: false,
             stroke: None,
             act_held: false,
@@ -202,9 +227,10 @@ impl Game {
     }
 
     pub fn open_level(&mut self, i: usize) {
+        self.leave_room();
         self.cur = i;
         self.screen = Screen::Play;
-        self.layout = Layout::default();
+        self.layout = self.layouts[i];
         self.undo.clear();
         self.tool = 0;
         self.cursor = (1, self.levels[i].crates[0].y);
@@ -213,11 +239,43 @@ impl Game {
         self.deliver = None;
         self.made = None;
         self.trails.clear();
-        self.show_note = false;
+        self.hint = 0;
         self.stroke = None;
         self.message = None;
+        self.room_started = self.ticks;
+        self.runs = 0;
+        self.hints_used = 0;
         let hall = self.levels[i].hall;
         self.set_palette(hall);
+        let name = self.levels[i].name.to_uppercase();
+        self.log(&format!("{} {name}: opened{}", self.levels[i].id, if self.solved[i] { " (solved before)" } else { "" }));
+    }
+
+    /// Keeps the room's work and notes how the visit went.
+    fn leave_room(&mut self) {
+        if self.screen != Screen::Play {
+            return;
+        }
+        self.layouts[self.cur] = self.layout;
+        let secs = (self.ticks - self.room_started) / 15;
+        let state = if self.phase == Phase::Solved { "solved" } else if self.solved[self.cur] { "solved earlier" } else { "unsolved" };
+        let line = format!("{} left after {}m{:02}s, {} runs, {state}, hints {}", self.level().id, secs / 60, secs % 60, self.runs, self.hints_used);
+        self.log(&line);
+    }
+
+    pub fn end_session(&mut self) {
+        self.leave_room();
+        let done = self.solved.iter().filter(|s| **s).count();
+        self.log(&format!("session end: {done} of {} rooms solved", self.levels.len()));
+    }
+
+    pub fn log(&self, line: &str) {
+        if let Some(p) = &self.log_path {
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+                let t = self.ticks / 15;
+                let _ = writeln!(f, "[{:02}:{:02}] {line}", t / 60, t % 60);
+            }
+        }
     }
 
     fn save(&self) {
@@ -289,7 +347,14 @@ impl Game {
         match k {
             Key::Left => self.sel = (self.sel + n - 1) % n,
             Key::Right => self.sel = (self.sel + 1) % n,
-            Key::Up | Key::Down => self.sel = (self.sel + 8) % n,
+            Key::Up | Key::Down => {
+                // Same position in the other hall.
+                let (hall, k, _) = self.room_pos(self.sel);
+                let other: Vec<usize> = (0..n).filter(|&i| self.room_pos(i).0 != hall).collect();
+                if let Some(&i) = other.get(k.min(other.len().saturating_sub(1))) {
+                    self.sel = i;
+                }
+            }
             Key::Run | Key::Act => {
                 self.sfx.push(Sfx::Place);
                 self.open_level(self.sel);
@@ -344,12 +409,27 @@ impl Game {
                 let n = self.level().tray.len();
                 self.pick_tool((self.tool + 1) % n);
             }
-            Key::Note => self.show_note = !self.show_note,
+            Key::Hint => {
+                self.hint = (self.hint + 1) % 3;
+                self.hints_used = self.hints_used.max(self.hint);
+                let text = match self.hint {
+                    1 => "HINT: THE KEY PARTS ARE GHOSTED IN",
+                    2 => "HINT: THE WHOLE SOLUTION IS GHOSTED IN",
+                    _ => "HINTS OFF",
+                };
+                self.say(text, MSG_INFO);
+                self.sfx.push(Sfx::Tick);
+                if self.hint > 0 {
+                    let line = format!("{} hint {} after {}s", self.level().id, self.hint, (self.ticks - self.room_started) / 15);
+                    self.log(&line);
+                }
+            }
             Key::Fast => self.fast = !self.fast,
             Key::Back => {
                 if self.phase.running() {
                     self.stop_run();
                 } else {
+                    self.leave_room();
                     self.screen = Screen::Select;
                     self.sel = self.cur;
                     self.stroke = None;
@@ -388,6 +468,15 @@ impl Game {
             Key::Remove => {
                 let (b, x, y) = self.cursor_cell();
                 self.remove_at(b, x, y);
+            }
+            Key::Clear => {
+                if self.layout == Layout::default() {
+                    return self.deny("NOTHING TO CLEAR");
+                }
+                self.push_undo();
+                self.layout = Layout::default();
+                self.sfx.push(Sfx::Remove);
+                self.say("CLEARED - BACKSPACE BRINGS IT BACK", MSG_INFO);
             }
             Key::Undo => {
                 if let Some(l) = self.undo.pop() {
@@ -440,7 +529,7 @@ impl Game {
     pub fn mouse_move(&mut self, px: i32, py: i32) {
         match self.screen {
             Screen::Select => {
-                if let Some(i) = (0..self.levels.len()).find(|&i| in_rect(room_rect(i), px, py)) {
+                if let Some(i) = (0..self.levels.len()).find(|&i| in_rect(self.room_rect(i), px, py)) {
                     if i != self.sel {
                         self.sel = i;
                         self.sfx.push(Sfx::Tick);
@@ -483,7 +572,7 @@ impl Game {
         match self.screen {
             Screen::Select => {
                 if down && left {
-                    if let Some(i) = (0..self.levels.len()).find(|&i| in_rect(room_rect(i), px, py)) {
+                    if let Some(i) = (0..self.levels.len()).find(|&i| in_rect(self.room_rect(i), px, py)) {
                         self.sel = i;
                         self.sfx.push(Sfx::Place);
                         self.open_level(i);
@@ -539,12 +628,23 @@ impl Game {
     }
 
     fn act_at(&mut self, b: Board, x: i32, y: i32) {
-        let tool = self.level().tray[self.tool].tool;
+        let mut tool = self.level().tray[self.tool].tool;
         if !tool.allowed(b) {
-            return self.deny(match tool {
-                Tool::Arrow => "ARROWS GO ON THE FLOOR (RIGHT)",
-                _ => "BELTS AND ZIPPERS GO ON THE LEFT",
-            });
+            // Pick up something that fits this board instead of refusing: the part already
+            // there (so Space turns it), or the first part on the shelf that fits.
+            let here = self.layout.get(b, x, y).and_then(Tool::of);
+            let fits = (0..self.level().tray.len())
+                .find(|&i| Some(self.level().tray[i].tool) == here)
+                .or_else(|| (0..self.level().tray.len()).find(|&i| self.level().tray[i].tool.allowed(b) && self.tray_left(i) != Some(0)));
+            match fits {
+                Some(i) => {
+                    self.tool = i;
+                    tool = self.level().tray[i].tool;
+                }
+                None => {
+                    return self.deny(if b == Board::Right { "NOTHING ON THE SHELF GOES ON THE FLOOR" } else { "NOTHING ON THE SHELF GOES HERE" });
+                }
+            }
         }
         if tool == Tool::Belt {
             return self.begin_stroke(x, y);
@@ -682,6 +782,9 @@ impl Game {
         self.deliver = None;
         self.sfx.push(Sfx::RunStart);
         let reuse = self.made.as_ref().is_some_and(|(_, left)| *left == self.layout.left);
+        self.runs += 1;
+        let line = format!("{} run {}{}", self.level().id, self.runs, if reuse { " (re-deliver)" } else { "" });
+        self.log(&line);
         if reuse {
             // The left board hasn't changed since it last finished: re-deliver straight away.
             self.make = None;
@@ -751,6 +854,8 @@ impl Game {
                     if let MakeState::Jam(j, x, y) = state {
                         self.phase = Phase::Jammed(j, x, y);
                         self.say(&format!("JAM: {}", j.text()), MSG_BAD);
+                        let line = format!("{} run {}: jam {} at left {x},{y}", self.level().id, self.runs, j.text());
+                        self.log(&line);
                         self.anim = (1, 1);
                         return;
                     }
@@ -784,11 +889,16 @@ impl Game {
                             self.save();
                             self.say("SOLVED", MSG_GOOD);
                             self.anim = (1, 1);
+                            let secs = (self.ticks - self.room_started) / 15;
+                            let line = format!("{} run {}: SOLVED, {}m{:02}s in room, hints {}", self.level().id, self.runs, secs / 60, secs % 60, self.hints_used);
+                            self.log(&line);
                             return;
                         }
                         DeliverState::Failed(f, x, y) => {
                             self.phase = Phase::Failed(f, x, y);
                             self.say(f.text(), MSG_BAD);
+                            let line = format!("{} run {}: {} at floor {x},{y}", self.level().id, self.runs, f.text());
+                            self.log(&line);
                             self.anim = (1, 1);
                             return;
                         }
@@ -851,7 +961,7 @@ mod tests {
 
     #[test]
     fn keyboard_belt_drawing_solves_first_coat() {
-        let mut g = Game::new(None).unwrap();
+        let mut g = Game::new(None, None).unwrap();
         g.open_level(0);
         // Hold Space at (1,3) and walk E, N, E, E into the booth, then lay the far side.
         g.cursor = (1, 3);
@@ -875,7 +985,7 @@ mod tests {
 
     #[test]
     fn backtracking_erases_and_tapping_a_belt_turns_it() {
-        let mut g = Game::new(None).unwrap();
+        let mut g = Game::new(None, None).unwrap();
         g.open_level(0);
         g.cursor = (1, 5);
         g.key(Key::Act);
@@ -895,7 +1005,7 @@ mod tests {
 
     #[test]
     fn tray_limits_and_board_rules_are_enforced() {
-        let mut g = Game::new(None).unwrap();
+        let mut g = Game::new(None, None).unwrap();
         g.open_level(2); // Slide: one arrow
         g.pick_tool(1);
         g.cursor = (8 + 5, 2);
@@ -914,7 +1024,7 @@ mod tests {
 
     #[test]
     fn right_only_edits_re_deliver_without_making_again() {
-        let mut g = Game::new(None).unwrap();
+        let mut g = Game::new(None, None).unwrap();
         g.open_level(2);
         g.layout = Layout::default();
         g.key(Key::Run);
@@ -929,5 +1039,72 @@ mod tests {
         assert_eq!(g.phase, Phase::Lock(3), "skips Make");
         tick_until_stopped(&mut g);
         assert_eq!(g.phase, Phase::Solved);
+    }
+
+    #[test]
+    fn acting_on_the_floor_with_the_belt_picked_grabs_an_arrow() {
+        let mut g = Game::new(None, None).unwrap();
+        g.open_level(2); // Slide
+        assert_eq!(g.tool, 0);
+        g.cursor = (8 + 5, 2);
+        g.key(Key::Act);
+        assert_eq!(g.layout.get(Board::Right, 5, 2), Some(Cell::Arrow(Dir::E)));
+        // The shelf is empty now, but Space on the placed arrow still turns it.
+        g.tool = 0;
+        g.key(Key::Act);
+        assert_eq!(g.layout.get(Board::Right, 5, 2), Some(Cell::Arrow(Dir::S)));
+    }
+
+    #[test]
+    fn work_survives_leaving_a_room_and_clear_can_be_undone() {
+        let mut g = Game::new(None, None).unwrap();
+        g.open_level(0);
+        g.cursor = (1, 3);
+        g.key(Key::Act);
+        g.key(Key::ActUp);
+        g.key(Key::Back);
+        assert_eq!(g.screen, Screen::Select);
+        g.open_level(1);
+        assert_eq!(g.layout, Layout::default());
+        g.open_level(0);
+        assert_eq!(g.layout.get(Board::Left, 1, 3), Some(Cell::Belt(Dir::E)));
+        g.key(Key::Clear);
+        assert_eq!(g.layout, Layout::default());
+        g.key(Key::Undo);
+        assert_eq!(g.layout.get(Board::Left, 1, 3), Some(Cell::Belt(Dir::E)));
+    }
+
+    #[test]
+    fn hints_cycle_and_the_playtest_log_records_the_visit() {
+        let log = std::env::temp_dir().join(format!("chuteworks_test_{}.log", std::process::id()));
+        let _ = std::fs::remove_file(&log);
+        let mut g = Game::new(None, Some(log.clone())).unwrap();
+        g.open_level(4);
+        for want in [1, 2, 0] {
+            g.key(Key::Hint);
+            assert_eq!(g.hint, want);
+        }
+        g.layout = Layout::from_solution(g.level());
+        g.key(Key::Run);
+        tick_until_stopped(&mut g);
+        g.end_session();
+        let text = std::fs::read_to_string(&log).unwrap();
+        let _ = std::fs::remove_file(&log);
+        for want in ["1-5 THROUGH THE BOOTH: opened", "1-5 hint 1", "1-5 run 1: SOLVED", "hints 2", "session end: 1 of 17"] {
+            assert!(text.contains(want), "missing {want:?} in:\n{text}");
+        }
+    }
+
+    #[test]
+    fn up_and_down_hop_between_halls_of_different_sizes() {
+        let mut g = Game::new(None, None).unwrap();
+        g.sel = 7; // 1-8, last room of hall 1
+        g.key(Key::Down);
+        assert_eq!(g.levels[g.sel].id, "2-8");
+        g.sel = 16; // 2-9 has no room below it in hall 1
+        g.key(Key::Up);
+        assert_eq!(g.levels[g.sel].id, "1-8");
+        let rightmost = g.room_rect(16);
+        assert!(rightmost.0 + rightmost.2 <= 392, "nine rooms fit the screen");
     }
 }

@@ -1,6 +1,6 @@
 # Chuteworks: prototype of halls 1 and 2
 
-A playable slice of the design in [`docs/design.md`](docs/design.md): **The Paint Shop** and **The Switchyard**, 8 rooms each. You lay belts and machines on the left board, press Enter, and the factory fills the glass chutes between the boards. Then the chutes take turns dropping items onto the right board, where they slide into bins. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching.
+A playable slice of the design in [`docs/design.md`](docs/design.md): **The Paint Shop** (8 rooms) and **The Switchyard** (9 rooms). You lay belts and machines on the left board, press Enter, and the factory fills the glass chutes between the boards. Then the chutes take turns dropping items onto the right board, where they slide into bins. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching.
 
 ![Through the Booth, delivering](screenshots/04_through_the_booth_delivering.png)
 
@@ -14,22 +14,23 @@ cargo run --release
 cargo run --release -- --windowed
 ```
 
-Progress is saved to `chuteworks_save.txt` in the working directory (gitignored).
+Progress is saved to `chuteworks_save.txt` in the working directory. Each session also appends to `chuteworks_playtest.log`: rooms opened and left, every run and how it ended, hints, and time per room. Both files are gitignored.
 
 ## Controls
 
 | Key | Action |
 | :-- | :-- |
 | Arrows / WASD | Move the cursor. It crosses from the left board to the right board |
-| Space / left click | Place the picked part. With the belt, hold and move to draw; back up to erase; tap a belt to turn it |
+| Space / left click | Place the picked part. With the belt, hold and move to draw; back up to erase; tap a belt to turn it. On a board the picked part can't go on, it picks one that can |
 | R / mouse wheel | Turn the part under the cursor |
 | T | Flip a switch lever, or which side a zipper takes first |
 | X / Delete / right click | Remove |
 | 1-9, Q, E / click the shelf | Pick a part |
 | Backspace / U | Undo |
+| C | Clear the room (Backspace brings it back) |
 | Enter | Run, stop, or go to the next room |
 | F | Fast |
-| H | The foreman's note for this room |
+| H | Hint: once ghosts the key parts of a solution in green, twice the whole solution, three times off |
 | Tab | Jump to the other board |
 | F1 | Keys |
 | F2 | CRT scanlines on/off |
@@ -43,6 +44,8 @@ Progress is saved to `chuteworks_save.txt` in the working directory (gitignored)
 - **Speed never matters.** What reaches each chute, and in what order, depends only on the layout.
 - Change only the right board after a run and Enter re-delivers the same chute contents without making them again.
 - Jams and failures stop the run and mark the tile (red brackets) with a short reason. The chalk dots on the floor show where each item went.
+- Each room's note is always shown under the shelf, and the shelf explains the picked part. F1 lists every key and rule, including what the dots on items mean.
+- Leaving a room keeps your work for the rest of the session.
 
 ## Rooms
 
@@ -60,10 +63,11 @@ Progress is saved to `chuteworks_save.txt` in the working directory (gitignored)
 | 2-2 Split Before You Paint | Split first, then make the halves different |
 | 2-3 Flip-Flop | The same switch on the floor |
 | 2-4 Turn Taking | Two chutes weave for free |
-| 2-5 Wrong Foot | The top chute goes first; weave it yourself to start differently |
-| 2-6 Swap Pairs | A switch into a zipper that starts on the other side swaps each pair |
-| 2-7 Other Board | The floor can split and paint too |
-| 2-8 Blue Goes First | Split, paint, then weave in the order the floor needs |
+| 2-5 Zipper | A zipper joins two lines, taking from each side in turn |
+| 2-6 Wrong Foot | The top chute goes first; weave it yourself to start differently |
+| 2-7 Swap Pairs | A switch into a zipper that starts on the other side swaps each pair |
+| 2-8 Other Board | The floor can split and paint too |
+| 2-9 Blue Goes First | Split, paint, then weave in the order the floor needs |
 
 ## Files
 
@@ -77,7 +81,7 @@ Progress is saved to `chuteworks_save.txt` in the working directory (gitignored)
 cargo test
 ```
 
-The tests run every room's stored solution to a win and check that an empty board doesn't win. They check that solutions use exactly the shelf, on free tiles of allowed boards. They play the planned wrong first attempts (straight lines in *Through the Booth*, one color per chute in *Wrong Foot*, crossing in the red booth in *Mud*, splitting on the belts in *Other Board*) and check each fails the intended way. They also drive the editor through key presses.
+The tests run every room's stored solution to a win and check that an empty board doesn't win. They check that solutions use exactly the shelf, on free tiles of allowed boards. They play the planned wrong first attempts (straight lines in *Through the Booth*, one color per chute in *Wrong Foot*, crossing in the red booth in *Mud*, splitting on the belts in *Other Board*) and check each fails the intended way. They also drive the editor through key presses, including hints, clearing, kept work and the playtest log.
 
 ```bash
 cargo run --release -- --export-screenshots screenshots

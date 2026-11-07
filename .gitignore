@@ -3,6 +3,7 @@
 **/bestiary_save.cfg
 **/starpond_best.txt
 **/chuteworks_save.txt
+**/chuteworks_playtest.log
 
 # Exclude all song & audio files
 **/assets/music/

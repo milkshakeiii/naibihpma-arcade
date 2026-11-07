@@ -2,7 +2,7 @@
 
 use crate::model::Level;
 
-const SOURCES: [(&str, &str); 16] = [
+const SOURCES: [(&str, &str); 17] = [
     ("1-1", include_str!("../levels/1-1_first_coat.lvl")),
     ("1-2", include_str!("../levels/1-2_two_coats.lvl")),
     ("1-3", include_str!("../levels/1-3_slide.lvl")),
@@ -15,10 +15,11 @@ const SOURCES: [(&str, &str); 16] = [
     ("2-2", include_str!("../levels/2-2_split_before_you_paint.lvl")),
     ("2-3", include_str!("../levels/2-3_flip_flop.lvl")),
     ("2-4", include_str!("../levels/2-4_turn_taking.lvl")),
-    ("2-5", include_str!("../levels/2-5_wrong_foot.lvl")),
-    ("2-6", include_str!("../levels/2-6_swap_pairs.lvl")),
-    ("2-7", include_str!("../levels/2-7_other_board.lvl")),
-    ("2-8", include_str!("../levels/2-8_blue_goes_first.lvl")),
+    ("2-5", include_str!("../levels/2-5_zipper.lvl")),
+    ("2-6", include_str!("../levels/2-6_wrong_foot.lvl")),
+    ("2-7", include_str!("../levels/2-7_swap_pairs.lvl")),
+    ("2-8", include_str!("../levels/2-8_other_board.lvl")),
+    ("2-9", include_str!("../levels/2-9_blue_goes_first.lvl")),
 ];
 
 pub const HALL_NAMES: [&str; 2] = ["THE PAINT SHOP", "THE SWITCHYARD"];
@@ -102,7 +103,7 @@ mod tests {
 
     #[test]
     fn wrong_foot_one_color_per_chute_sends_blue_up_first() {
-        let lv = get("2-5");
+        let lv = get("2-6");
         let mut l = Layout::default();
         for x in 1..8 {
             l.set(Board::Left, x, 1, Some(Cell::Belt(Dir::E)));
@@ -119,7 +120,7 @@ mod tests {
 
     #[test]
     fn other_board_splitting_on_the_belts_has_nowhere_to_go() {
-        let lv = get("2-7");
+        let lv = get("2-8");
         let mut l = Layout::default();
         l.set(Board::Left, 1, 3, Some(Cell::Belt(Dir::E)));
         l.set(Board::Left, 2, 3, Some(Cell::Switch(Dir::N)));

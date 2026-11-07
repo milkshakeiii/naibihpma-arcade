@@ -18,7 +18,8 @@ pub enum Jam {
     OffBoard,
     ChuteFull,
     Mud,
-    WrongWay,
+    SwitchSide,
+    ZipperSide,
     Stuck,
     Loop,
 }
@@ -26,12 +27,13 @@ pub enum Jam {
 impl Jam {
     pub fn text(self) -> &'static str {
         match self {
-            Jam::DeadEnd => "DEAD END",
-            Jam::Merge => "LINES CAN'T MERGE",
-            Jam::OffBoard => "OFF THE BOARD",
+            Jam::DeadEnd => "DEAD END: THE LINE LEADS NOWHERE",
+            Jam::Merge => "LINES CAN'T MERGE OR TOUCH",
+            Jam::OffBoard => "OFF THE BOARD: NO CHUTE THERE",
             Jam::ChuteFull => "CHUTE IS FULL",
             Jam::Mud => "MUD! THREE COATS",
-            Jam::WrongWay => "WRONG WAY IN",
+            Jam::SwitchSide => "FEED A SWITCH FROM THE SIDE",
+            Jam::ZipperSide => "FEED A ZIPPER ON ITS TOOTHED SIDES",
             Jam::Stuck => "STUCK",
             Jam::Loop => "GOING IN CIRCLES",
         }
@@ -279,7 +281,7 @@ impl MakeSim {
             }
             Cell::Switch(_) => {
                 if self.lever[t].vertical() == d.vertical() {
-                    Enter::Jam(Jam::WrongWay, tx, ty)
+                    Enter::Jam(Jam::SwitchSide, tx, ty)
                 } else if self.belt_in[t].is_some_and(|s| s != side) {
                     Enter::Jam(Jam::Merge, tx, ty)
                 } else if self.occ[t].is_some() {
@@ -290,7 +292,7 @@ impl MakeSim {
             }
             Cell::Zipper(out, _) => {
                 if side == out || side == out.opposite() {
-                    Enter::Jam(Jam::WrongWay, tx, ty)
+                    Enter::Jam(Jam::ZipperSide, tx, ty)
                 } else if self.zip[t][side.index()].is_some() {
                     Enter::Wait
                 } else {

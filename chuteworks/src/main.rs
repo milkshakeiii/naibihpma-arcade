@@ -40,15 +40,18 @@ fn main() {
         export_screenshots(&dir);
         return;
     }
-    let mut game = match Game::new(Some(PathBuf::from("chuteworks_save.txt"))) {
+    let mut game = match Game::new(Some(PathBuf::from("chuteworks_save.txt")), Some(PathBuf::from("chuteworks_playtest.log"))) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("level error: {e}");
             return;
         }
     };
+    let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    game.log(&format!("=== session start (unix time {unix}) ==="));
     let audio = Audio::new();
     run_window(&mut game, &audio, args.iter().any(|a| a == "--windowed"));
+    game.end_session();
 }
 
 fn key_down(vk: i32) -> bool {
@@ -88,7 +91,8 @@ fn polls() -> Vec<Poll> {
         Poll::new(&[VK_RETURN], Key::Run, false),
         Poll::new(&[VK_BACK, 'U' as i32], Key::Undo, false),
         Poll::new(&['F' as i32], Key::Fast, false),
-        Poll::new(&['H' as i32], Key::Note, false),
+        Poll::new(&['H' as i32], Key::Hint, false),
+        Poll::new(&['C' as i32], Key::Clear, false),
         Poll::new(&[VK_F1], Key::Help, false),
         Poll::new(&[VK_ESCAPE], Key::Back, false),
         Poll::new(&[VK_TAB], Key::Tab, false),
@@ -303,7 +307,7 @@ fn export_screenshots(dir: &Path) {
     let sprites = Sprites::new();
     let pals = [palette::build(1), palette::build(2)];
     let mut fb = Framebuffer::new();
-    let mut g = Game::new(None).expect("levels");
+    let mut g = Game::new(None, None).expect("levels");
     let save = |g: &Game, fb: &mut Framebuffer, name: &str| {
         render::draw(g, &sprites, fb);
         let p = &pals[(g.hall().max(1) - 1).min(1) as usize];
@@ -331,7 +335,6 @@ fn export_screenshots(dir: &Path) {
         g.layout.set(Board::Left, x, y, Some(Cell::Belt(d)));
     }
     g.cursor = (5, 2);
-    g.show_note = true;
     save(&g, &mut fb, "02_first_coat_building.png");
 
     let lv = find(&g, "1-5");
@@ -351,6 +354,7 @@ fn export_screenshots(dir: &Path) {
 
     // The natural first try: straight lines, so grey reaches the orange bin.
     g.open_level(lv);
+    g.layout = Layout::default();
     for x in 1..8 {
         g.layout.set(Board::Left, x, 1, Some(Cell::Belt(Dir::E)));
         g.layout.set(Board::Left, x, 6, Some(Cell::Belt(Dir::E)));
@@ -359,7 +363,7 @@ fn export_screenshots(dir: &Path) {
     run_until(&mut g, &|g| !g.phase.running());
     save(&g, &mut fb, "05_through_the_booth_first_try.png");
 
-    let wf = find(&g, "2-5");
+    let wf = find(&g, "2-6");
     g.open_level(wf);
     g.hall_pal = (2, 2, 16);
     g.layout = Layout::from_solution(&g.levels[wf]);
@@ -377,6 +381,7 @@ fn export_screenshots(dir: &Path) {
 
     let mud = find(&g, "1-6");
     g.open_level(mud);
+    g.layout = Layout::default();
     for x in 1..8 {
         g.layout.set(Board::Left, x, 1, Some(Cell::Belt(Dir::E)));
     }
@@ -388,7 +393,7 @@ fn export_screenshots(dir: &Path) {
     run_until(&mut g, &|g| !g.phase.running());
     save(&g, &mut fb, "08_mud_jam.png");
 
-    let bf = find(&g, "2-8");
+    let bf = find(&g, "2-9");
     g.open_level(bf);
     g.layout = Layout::from_solution(&g.levels[bf]);
     g.cursor = (13, 3);
@@ -396,7 +401,15 @@ fn export_screenshots(dir: &Path) {
     run_until(&mut g, &|g| !g.phase.running());
     save(&g, &mut fb, "09_blue_goes_first_solved.png");
 
+    // Stuck in Through the Booth: the first hint ghosts the tiles around the booth.
+    g.open_level(lv);
+    g.layout = Layout::default();
+    g.hall_pal = (1, 1, 16);
+    g.key(game::Key::Hint);
+    g.cursor = (1, 1);
+    save(&g, &mut fb, "10_through_the_booth_hint.png");
+
     g.show_help = true;
-    save(&g, &mut fb, "10_keys.png");
+    save(&g, &mut fb, "11_keys.png");
     println!("exported screenshots to {}", dir.display());
 }
