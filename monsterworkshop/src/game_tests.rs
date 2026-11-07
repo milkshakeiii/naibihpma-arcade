@@ -2252,3 +2252,42 @@ fn a_choice_board_says_what_a_workshop_makes_when_its_goods_could_make_several()
     assert!(goals.iter().any(|gl| matches!(gl, Goal::Activate(Thing::Choice { recipe, .. }) if *recipe == forceps)), "the loop recorded forceps: {goals:?}");
     assert!(work(&mut g, spot, &["copper_ingot", "charcoal"]).contains(&"forceps".to_string()), "the board says forceps");
 }
+
+/// Open ground for players' own workshops (Henry, 2026-11-06): each wild screen of the hills keeps
+/// at least its share of clear patches five tiles wide and three deep (a workbench's footprint and
+/// the row its maker stands on), on grass or stony ground a kit unpacks on. The worked sites (the
+/// Copper Cut, Charcoal Wood, Alum Springs) are dense by design; the screens not built yet are
+/// held to theirs once they're on the map.
+#[test]
+fn the_hills_wild_screens_keep_open_ground_for_players_own_workshops() {
+    let g = Game::new();
+    let w = &g.world;
+    let open = |x: i32, y: i32| matches!(w.tile(x, y), Tile::Grass | Tile::Gravel) && w.plant_at(x, y).is_none() && !w.in_town(x, y);
+    let screens = [
+        ("THE CLIFF LIFT", (150, 32), 4),
+        ("HEMP HOLLOW", (150, 48), 2),
+        ("IRON BROOK", (150, 64), 2),
+        ("THE TIN GULCH", (250, 32), 2),
+        ("THE GREAT FURNACE", (175, 64), 4),
+        ("THE DEEP DRIFT", (200, 64), 3),
+        ("SLAG SLOPES", (225, 64), 6),
+        ("THE HIGH SCREE", (250, 64), 6),
+    ];
+    for (name, (x0, y0), want) in screens {
+        if crate::world::area_name(x0, y0) != name {
+            continue;
+        }
+        let mut used = std::collections::HashSet::new();
+        let mut plots = 0;
+        for y in y0..y0 + 14 {
+            for x in x0..x0 + 21 {
+                let cells: Vec<(i32, i32)> = (0..5).flat_map(|i| (0..3).map(move |j| (x + i, y + j))).collect();
+                if cells.iter().all(|&(cx, cy)| open(cx, cy) && !used.contains(&(cx, cy))) {
+                    used.extend(cells);
+                    plots += 1;
+                }
+            }
+        }
+        assert!(plots >= want, "{name} has room for {plots} of players' workshops, not {want}");
+    }
+}

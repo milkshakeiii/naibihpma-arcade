@@ -55,6 +55,8 @@ struct Region {
     province: &'static str,
     /// Its look: its province's palette and building materials.
     style: Style,
+    /// A town: nobody builds in it, so it stays fixed and easy to read.
+    town: bool,
     /// Where its northwest corner lies in the world, in tiles. Between regions is hedge.
     at: (i32, i32),
     /// Building names, each placed by one tile of the building's top wall (region coordinates).
@@ -335,6 +337,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/pinewater.map"),
         province: "",
         style: Style::Cloth,
+        town: true,
         at: (0, 0),
         racks: &[],
         folk: &[],
@@ -350,6 +353,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/wilderness.map"),
         province: "",
         style: Style::Cloth,
+        town: false,
         at: (50, 0),
         racks: &[],
         folk: &[],
@@ -365,6 +369,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/tanglemere.map"),
         province: "",
         style: Style::Cloth,
+        town: true,
         at: (125, 0),
         // The outfitter's: the plain pieces along the back wall, given for renown, and Old Thimble
         // between them; by the door, things to work with; outside, along the path, things for
@@ -398,6 +403,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/temple_town.map"),
         province: "",
         style: Style::Cloth,
+        town: true,
         at: (75, 32),
         // The temple's teachings, a scroll for each talent along its top wall; patience and the
         // lucky charm by the drum and the altar candle, and Old Quiet who keeps them; the work
@@ -432,6 +438,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/high_pass.map"),
         province: "THE HILLS",
         style: Style::Cloth,
+        town: false,
         at: (125, 32),
         racks: &[],
         folk: &[],
@@ -451,6 +458,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/cliff_lift.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: false,
         at: (150, 32),
         racks: &[],
         folk: &[],
@@ -470,6 +478,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/copper_cut.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: false,
         at: (200, 32),
         racks: &[],
         folk: &[],
@@ -489,6 +498,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/verdigris.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: true,
         at: (175, 32),
         racks: &[],
         folk: &[],
@@ -506,6 +516,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/hemp_hollow.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: false,
         at: (150, 48),
         racks: &[],
         folk: &[],
@@ -524,6 +535,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/charcoal_wood.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: false,
         at: (175, 48),
         racks: &[],
         folk: &[],
@@ -543,6 +555,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/bellows.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: true,
         at: (200, 48),
         racks: &[((19, 8), "buckled_belt")],
         folk: &[],
@@ -560,6 +573,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/iron_brook.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: false,
         at: (150, 64),
         racks: &[],
         folk: &[],
@@ -578,6 +592,7 @@ const REGIONS: [Region; 13] = [
         map: include_str!("../data/alum_springs.map"),
         province: "THE HILLS",
         style: Style::Hills,
+        town: false,
         at: (225, 48),
         racks: &[],
         folk: &[],
@@ -1228,6 +1243,11 @@ pub struct World {
     pub provinces: Vec<((i32, i32, i32, i32), &'static str)>,
     /// Each region's box and its look.
     pub looks: Vec<((i32, i32, i32, i32), Style)>,
+    /// Each town's box: nobody builds there.
+    pub towns: Vec<(i32, i32, i32, i32)>,
+    /// The map's own ground, before anything was built on it: what a workshop or bin from a kit
+    /// leaves when it falls apart.
+    pub ground: Vec<Tile>,
     /// Every bell hung in the temple, first first.
     pub bells: Vec<Hung>,
     /// The last id given to an item.
@@ -1275,11 +1295,15 @@ impl World {
         let (mut bridge, mut wagon_at, mut pumpkin_at) = (Vec::new(), Vec::new(), Vec::new());
         let (mut mouths, mut parts) = (Vec::new(), Vec::new());
         let (mut gates, mut provinces, mut racks, mut looks) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut towns = Vec::new();
         let (mut vine_feet, mut items) = (Vec::new(), Vec::new());
         for (ox, oy, region, rows) in placed {
             let rw = rows[0].len() as i32;
             provinces.push(((ox, oy, rw, rows.len() as i32), region.province));
             looks.push(((ox, oy, rw, rows.len() as i32), region.style));
+            if region.town {
+                towns.push((ox, oy, rw, rows.len() as i32));
+            }
             let (first_board, mut gate_tiles) = (boards.len(), Vec::new());
             let (mut sign_texts, mut board_specs) = (region.signs.iter(), region.boards.iter());
             let (mut supply_specs, mut worker_specs) = (region.supplies.iter(), region.workers.iter());
@@ -1483,7 +1507,8 @@ impl World {
                 material: String::new(),
             })
             .collect();
-        Self { w, h, tiles, items, plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, racks, gates, lifts, choices, provinces, looks, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
+        let ground = tiles.clone();
+        Self { w, h, tiles, items, plants, bins, shops, particles: Vec::new(), boards, footbridge, bridge, wagons, signs, labels, starts, stands, townsfolk, plaques, workers, supplies, props, racks, gates, lifts, choices, provinces, looks, towns, ground, bells: Vec::new(), last_item_id: 0, seed: 0x9E37_79B9 }
     }
 
     /// Where a search for a way about these tiles looks: the box around them, `SEARCH_MARGIN`
@@ -1507,6 +1532,11 @@ impl World {
     }
 
     /// The look of the region this tile is in: the first province's outside every region.
+    /// Whether a tile is in a town, where nobody builds.
+    pub fn in_town(&self, x: i32, y: i32) -> bool {
+        self.towns.iter().any(|&(rx, ry, rw, rh)| (rx..rx + rw).contains(&x) && (ry..ry + rh).contains(&y))
+    }
+
     pub fn style_at(&self, x: i32, y: i32) -> Style {
         self.looks.iter().find(|&&((rx, ry, rw, rh), _)| (rx..rx + rw).contains(&x) && (ry..ry + rh).contains(&y)).map_or(Style::Cloth, |&(_, s)| s)
     }

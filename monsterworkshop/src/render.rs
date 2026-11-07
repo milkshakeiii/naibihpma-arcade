@@ -823,6 +823,9 @@ fn ground(g: &Game, tx: i32, ty: i32) -> Tile {
             t => t,
         },
         Tile::Tree | Tile::Sign | Tile::Rack => under(),
+        // A workshop's spot, pads, pegs and mat outdoors: on the stony ground, if that's where
+        // it stands.
+        Tile::Peg | Tile::Pad | Tile::OutMat | Tile::Spot if !indoors(g, tx, ty) && gravel() => Tile::Gravel,
         Tile::Gate => Tile::Path,
         t => t,
     }

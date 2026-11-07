@@ -315,3 +315,40 @@ fn bins_and_wagons_from_kits_are_saved_too() {
     assert_eq!((back.world.tile(MEADOW.0, MEADOW.1), back.world.bins[b].accepts.clone()), (Tile::Bin, vec!["oak_log".to_string()]));
     assert_eq!((back.world.wagons.len(), back.world.wagons[wagons].material.as_str()), (wagons + 1, "HEMLOCK"));
 }
+
+/// Nobody builds in a town, the hills' towns included (each region says whether it's one). Out
+/// on the hills' stony ground a kit unpacks, and when its workshop falls apart the ground is
+/// stony again.
+#[test]
+fn nobody_builds_in_the_hills_towns_and_stony_ground_takes_a_kit() {
+    let g = Game::new();
+    for (name, at) in [("VERDIGRIS", (175, 32)), ("BELLOWS", (200, 48)), ("PINEWATER", (0, 0)), ("TANGLEMERE", (125, 0)), ("TEMPLE TOWN", (75, 32))] {
+        let open = (at.1 + 1..at.1 + 15).flat_map(|y| (at.0 + 2..at.0 + 23).map(move |x| (x, y))).find(|&(x, y)| {
+            g.world.tile(x, y) == Tile::Grass && g.world.plant_at(x, y).is_none() && g.world.tile(x, y - 1).walkable()
+        });
+        let (x, y) = open.unwrap_or_else(|| panic!("open grass in {name}"));
+        assert_eq!(area_name(x, y), name);
+        let mut g = Game::new();
+        g.world.items.push(Item::new(x, y, bench_kit(&g, "hemlock_log", 0.7)));
+        stand(&mut g, (x, y - 1), Dir::Down);
+        let k = g.world.items.len() - 1;
+        let why = g.footprint(g.communes[0].controlled, k).and_then(|fp| fp.why);
+        assert_eq!(why.as_deref(), Some("NOBODY BUILDS IN TOWN. TAKE IT OUT INTO THE WILDS."), "{name}");
+    }
+
+    // The meadow made stony, as the hills' ground is.
+    let mut g = Game::new();
+    let w = g.world.w;
+    for x in 62..=70 {
+        for y in 9..=13 {
+            let i = (y * w + x) as usize;
+            (g.world.tiles[i], g.world.ground[i]) = (Tile::Gravel, Tile::Gravel);
+        }
+    }
+    let s = bench_in_the_meadow(&mut g);
+    let f = g.world.shops[s].frontier.as_mut().unwrap();
+    (f.worked, f.idle) = (LIFETIME_TICKS, FALL_APART_TICKS - 1);
+    g.run_ticks(2);
+    assert!(g.world.shops[s].frontier.as_ref().unwrap().fallen);
+    assert_eq!((g.world.tile(64, 11), g.world.tile(66, 11), g.world.tile(66, 12)), (Tile::Gravel, Tile::Gravel, Tile::Gravel), "stony again");
+}

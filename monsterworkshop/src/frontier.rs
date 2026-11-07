@@ -23,7 +23,7 @@
 use crate::econ::{ItemData, Share};
 use crate::game::{Game, Sfx, UseRes};
 use crate::workshops::ThingKit;
-use crate::world::{area_name, Bin, Dir, FrontierBin, PKind, Shop, ShopKind, Tile, Wagon, TOWN_WAGON_POWER};
+use crate::world::{Bin, Dir, FrontierBin, PKind, Shop, ShopKind, Tile, Wagon, TOWN_WAGON_POWER};
 use serde::{Deserialize, Serialize};
 
 /// Ticks of work a kit's workshop lasts: about an hour at 15 ticks a second.
@@ -205,18 +205,18 @@ impl Game {
                 Some("NO ROOM HERE.")
             } else if wagon {
                 // A vehicle, not a building: anywhere a train can stand.
-                if !matches!(w.tile(t.0, t.1), Tile::Grass | Tile::Path) || w.plant_at(t.0, t.1).is_some() {
+                if !matches!(w.tile(t.0, t.1), Tile::Grass | Tile::Gravel | Tile::Path) || w.plant_at(t.0, t.1).is_some() {
                     Some("NO ROOM HERE.")
                 } else if (t != spot && w.item_at(t.0, t.1).is_some()) || self.monster_at(t.0, t.1).is_some() || w.cart_at(t.0, t.1) || self.applicant_at(t.0, t.1) {
                     Some("SOMETHING'S IN THE WAY.")
                 } else {
                     None
                 }
-            } else if matches!(area_name(t.0, t.1), "PINEWATER" | "TANGLEMERE" | "TEMPLE TOWN") {
+            } else if w.in_town(t.0, t.1) {
                 Some("NOBODY BUILDS IN TOWN. TAKE IT OUT INTO THE WILDS.")
             } else if w.tile(t.0, t.1) == Tile::Path {
                 Some("NOT ON THE ROAD.")
-            } else if w.tile(t.0, t.1) != Tile::Grass || w.plant_at(t.0, t.1).is_some() || w.bin_at(t.0, t.1).is_some() || w.board_at(t.0, t.1).is_some() {
+            } else if !matches!(w.tile(t.0, t.1), Tile::Grass | Tile::Gravel) || w.plant_at(t.0, t.1).is_some() || w.bin_at(t.0, t.1).is_some() || w.board_at(t.0, t.1).is_some() {
                 Some("NO ROOM HERE.")
             } else if (t != spot && w.item_at(t.0, t.1).is_some()) || self.monster_at(t.0, t.1).is_some() || w.cart_at(t.0, t.1) || self.applicant_at(t.0, t.1) {
                 Some("SOMETHING'S IN THE WAY.")
@@ -363,8 +363,8 @@ impl Game {
         }
     }
 
-    /// Worn-out workshop `s` falls apart: its ground is grass again, and what waited inside is
-    /// set out where it stood, where there's room.
+    /// Worn-out workshop `s` falls apart: its ground is as the map had it again (grass, or the
+    /// hills' stony ground), and what waited inside is set out where it stood, where there's room.
     fn fall_apart(&mut self, s: usize) {
         let tiles: Vec<(i32, i32)> = {
             let shop = &self.world.shops[s];
@@ -373,7 +373,7 @@ impl Game {
         let pending = std::mem::take(&mut self.world.shops[s].pending);
         let w = self.world.w;
         for &(x, y) in &tiles {
-            self.world.tiles[(y * w + x) as usize] = Tile::Grass;
+            self.world.tiles[(y * w + x) as usize] = self.world.ground[(y * w + x) as usize];
             self.world.burst(x, y, PKind::Dust, 2);
         }
         let free: Vec<(i32, i32)> = tiles.iter().copied().filter(|&(x, y)| self.world.item_at(x, y).is_none()).collect();
@@ -387,12 +387,12 @@ impl Game {
         }
     }
 
-    /// Bin `b` falls apart: its ground is grass again, and its goods are set out around it, ring
+    /// Bin `b` falls apart: its ground is as the map had it again, and its goods are set out around it, ring
     /// by ring outwards from where it stood, on open ground.
     fn bin_falls_apart(&mut self, b: usize) {
         let bin = self.world.bins.remove(b);
         let w = self.world.w;
-        self.world.tiles[(bin.y * w + bin.x) as usize] = Tile::Grass;
+        self.world.tiles[(bin.y * w + bin.x) as usize] = self.world.ground[(bin.y * w + bin.x) as usize];
         self.world.burst(bin.x, bin.y, PKind::Dust, 3);
         let mut goods = bin.stock.into_iter().peekable();
         for r in 0..8 {
@@ -403,7 +403,7 @@ impl Game {
                     if !ring || !inside || goods.peek().is_none() {
                         continue;
                     }
-                    let open = matches!(self.world.tile(x, y), Tile::Grass | Tile::Path) && self.world.item_at(x, y).is_none() && self.world.plant_at(x, y).is_none() && self.monster_at(x, y).is_none() && !self.world.cart_at(x, y);
+                    let open = matches!(self.world.tile(x, y), Tile::Grass | Tile::Gravel | Tile::Path) && self.world.item_at(x, y).is_none() && self.world.plant_at(x, y).is_none() && self.monster_at(x, y).is_none() && !self.world.cart_at(x, y);
                     if open {
                         let data = goods.next().expect("peeked");
                         self.world.items.push(crate::world::Item::new(x, y, data));
