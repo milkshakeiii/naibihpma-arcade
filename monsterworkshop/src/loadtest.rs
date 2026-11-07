@@ -37,27 +37,37 @@ pub const FULL: Busy = Busy { copies: 7, players: 50, chains: 5, shuttlers: 400 
 
 /// The whole fabric chain as Henry recorded it, in the Pinewater whose northwest corner is
 /// `(ox, oy)`: harvest and bin two bolls, two bolls from the chute through the workbench, the
-/// slivers to the spinnery, the thread to the loom, the fabric to the cloth store.
+/// slivers to the spinnery, the thread to the loom, the fabric to the cloth store. The field, bin
+/// and workbench are where he recorded them; the spinnery, loom house and cloth store are the
+/// nearest down the chain, so it runs in the live village and in the copy the tests walk alike.
 pub fn fabric_chain(g: &Game, (ox, oy): (i32, i32)) -> Routine {
     let at = |(x, y): (i32, i32)| (x + ox, y + oy);
-    let mv = |good: &str, from, to| Goal::Move { good: good.into(), from: at(from), to: at(to) };
-    let work = |spot| {
-        let (x, y) = at(spot);
-        Goal::Activate(Thing::Shop(g.world.shop_at_spot(x, y).expect("a work spot")))
+    let mv = |good: &str, from, to| Goal::Move { good: good.into(), from, to };
+    let work = |(x, y): (i32, i32)| Goal::Activate(Thing::Shop(g.world.shop_at_spot(x, y).expect("a work spot")));
+    let dist = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs() + (a.1 - b.1).abs();
+    // The workshop of a kind nearest where the last one's goods come out: its pad, spot and mat.
+    let next = |kind: &str, from: (i32, i32)| {
+        let s = g.world.shops.iter().filter(|s| s.kind.id() == kind && s.owner.is_none()).min_by_key(|s| dist(s.pads[0], from)).unwrap_or_else(|| panic!("a {kind}"));
+        (s.pads[0], s.spot, s.outs[0])
     };
+    let slivers = at((15, 9));
+    let (spin_pad, wheel, thread) = next("spinnery", slivers);
+    let (loom_pad, loom, fabric) = next("loom_house", thread);
+    let cloth = g.data.good("fabric");
+    let store = g.world.bins.iter().filter(|b| b.takes(cloth)).map(|b| (b.x, b.y)).min_by_key(|&b| dist(b, fabric)).expect("a cloth store");
     let goals = vec![
         Goal::Activate(Thing::Plant { at: at((8, 8)), facing: Dir::Right }),
-        mv("cotton_bolls", (9, 8), (12, 8)),
-        mv("cotton_bolls", (9, 8), (12, 8)),
-        mv("cotton_bolls", (12, 9), (13, 9)),
-        work((14, 9)),
-        mv("cotton_bolls", (12, 9), (13, 9)),
-        work((14, 9)),
-        mv("cotton_slivers", (15, 9), (30, 9)),
-        work((30, 8)),
-        mv("thread", (31, 9), (44, 21)),
-        work((43, 21)),
-        mv("fabric", (44, 22), (44, 28)),
+        mv("cotton_bolls", at((9, 8)), at((12, 8))),
+        mv("cotton_bolls", at((9, 8)), at((12, 8))),
+        mv("cotton_bolls", at((12, 9)), at((13, 9))),
+        work(at((14, 9))),
+        mv("cotton_bolls", at((12, 9)), at((13, 9))),
+        work(at((14, 9))),
+        mv("cotton_slivers", slivers, spin_pad),
+        work(wheel),
+        mv("thread", thread, loom_pad),
+        work(loom),
+        mv("fabric", fabric, store),
     ];
     Routine { flag: at((8, 10)), goals }
 }
@@ -280,6 +290,25 @@ mod tests {
     fn ms(d: &[Duration]) -> (f64, f64) {
         let total: Duration = d.iter().sum();
         (total.as_secs_f64() * 1000.0 / d.len().max(1) as f64, d.iter().max().map_or(0.0, |m| m.as_secs_f64() * 1000.0))
+    }
+
+    /// The fabric chain finds its spinnery, loom house and cloth store: where Henry recorded them
+    /// in the copy of the village the tests walk, and the north road's in the live one, whose
+    /// first chain moved there (2026-11-07; `--server --busy` panicked on the old tiles).
+    #[test]
+    fn the_fabric_chain_finds_its_workshops_in_either_village() {
+        let spots = |g: &Game| -> Vec<(i32, i32)> {
+            fabric_chain(g, (0, 0)).goals[7..]
+                .iter()
+                .flat_map(|goal| match goal {
+                    Goal::Move { from, to, .. } => vec![*from, *to],
+                    Goal::Activate(Thing::Shop(s)) => vec![g.world.shops[*s].spot],
+                    other => panic!("{other:?}"),
+                })
+                .collect()
+        };
+        assert_eq!(spots(&Game::new()), [(15, 9), (30, 9), (30, 8), (31, 9), (44, 21), (43, 21), (44, 22), (44, 28)]);
+        assert_eq!(spots(&Game::live()), [(15, 9), (31, 7), (31, 6), (32, 7), (42, 7), (41, 7), (43, 7), (47, 8)]);
     }
 
     #[test]

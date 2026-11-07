@@ -486,7 +486,9 @@ fn export_screenshots(dir: &Path) {
     g.run_ticks(15);
     save(&g, "04_workbench.png");
     g.run_ticks(40);
-    g.script(&format!("{}UR", "R".repeat(15)));
+    // The slivers east along the north road to below the spinnery's door, then round below them
+    // and up through the door onto its pad; in by the other door, past the out mat, to the wheel.
+    g.script(&format!("{}DRUURUUL", "R".repeat(16)));
     g.communes[0].inspecting = true;
     save(&g, "05_spinnery_forecast.png");
     g.communes[0].card_page = 1;
@@ -496,12 +498,16 @@ fn export_screenshots(dir: &Path) {
     use_now(&mut g);
     g.run_ticks(84);
     save(&g, "06_thread_and_popup.png");
-    g.script(&format!("D{}UR{}LD", "R".repeat(13), "D".repeat(12)));
+    // The thread out the spinnery's door and east along the road. The loom house's garden fence
+    // is below its pad's door, so the thread goes one past the other door, back, up onto the out
+    // mat, and across onto the pad from inside (the way a loop's plan takes it); then the loom.
+    g.script(&format!("RDDLD{}DRRULDLUULUURRDLULLD", "R".repeat(12)));
     use_now(&mut g);
     g.run_ticks(200);
     save(&g, "07_loom_house.png");
     g.run_ticks(600);
-    g.script(&format!("R{}", "D".repeat(6)));
+    // The fabric out the other door, east along the road, and up into the cloth store by the gate.
+    g.script("URRDDLDRRRRDRU");
     g.run_ticks(4);
     save(&g, "08_cloth_store_renown.png");
     g.monsters[g.communes[0].controlled].facing = game::Dir::Left;
@@ -565,17 +571,18 @@ fn export_screenshots(dir: &Path) {
     // Rope at the gate bench, and a pull out of a corner.
     let mut thread = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric");
     thread.good = "thread".into();
-    g.world.items.push(world::Item::new(40, 8, thread.clone()));
-    g.world.items.push(world::Item::new(41, 8, thread));
-    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (42, 8, game::Dir::Down);
+    g.world.items.push(world::Item::new(45, 10, thread.clone()));
+    g.world.items.push(world::Item::new(46, 10, thread));
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (47, 10, game::Dir::Down);
     g.run_ticks(2);
     g.communes[0].inspecting = true;
     save(&g, "20_gate_bench.png");
     g.communes[0].inspecting = false;
     let mut stuck = g.world.bins.iter().flat_map(|b| &b.stock).find(|d| d.good == "fabric").cloned().expect("fabric");
     stuck.quality = 0.8;
-    g.world.items.push(world::Item::new(1, 1, stuck));
-    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (2, 1, game::Dir::Left);
+    // Against the north hedge with a pine behind it, by the first field.
+    g.world.items.push(world::Item::new(4, 1, stuck));
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (5, 1, game::Dir::Left);
     g.script("L");
     save(&g, "21_stuck.png");
     let mut inp = Input { pull: true, ..Input::default() };
@@ -647,16 +654,17 @@ fn export_screenshots(dir: &Path) {
     g.run_ticks(3);
     save(&g, "31_bridge.png");
 
-    // A loop's next thread brought up ready beside the loom, still busy with the last one.
+    // A loop's next thread brought up ready beside the loom, still busy with the last one: the
+    // south street's loom house, whose doors open onto the street.
     let mut lg = Game::new();
     lg.monsters[0].bubble = None;
-    lg.world.items.push(world::Item::new(44, 21, good("thread", &["cotton"])));
-    (lg.monsters[0].x, lg.monsters[0].y, lg.monsters[0].facing) = (43, 21, game::Dir::Right);
+    lg.world.items.push(world::Item::new(42, 19, good("thread", &["cotton"])));
+    (lg.monsters[0].x, lg.monsters[0].y, lg.monsters[0].facing) = (41, 19, game::Dir::Right);
     use_now(&mut lg);
-    lg.world.items.push(world::Item::new(44, 17, good("thread", &["cotton"])));
+    lg.world.items.push(world::Item::new(42, 17, good("thread", &["cotton"])));
     let m = &mut lg.monsters[1];
-    (m.x, m.y, m.facing) = (44, 16, game::Dir::Down);
-    m.routine = Some(game::Routine { flag: (44, 16), goals: vec![game::Goal::Move { good: "thread".into(), from: (44, 17), to: (44, 21) }] });
+    (m.x, m.y, m.facing) = (42, 16, game::Dir::Down);
+    m.routine = Some(game::Routine { flag: (42, 16), goals: vec![game::Goal::Move { good: "thread".into(), from: (42, 17), to: (42, 19) }] });
     (m.pc, m.playing) = (0, true);
     for _ in 0..300 {
         if lg.monsters[1].bubble.is_some() {
@@ -697,10 +705,10 @@ fn export_screenshots(dir: &Path) {
     let mut tg = Game::new();
     tg.monsters[0].bubble = None;
     tg.world.items.push(world::Item::new(13, 8, good("cotton_gin", &[])));
-    tg.world.items.push(world::Item::new(17, 10, good("cotton_bow", &[])));
-    tg.world.items.push(world::Item::new(19, 10, good("cotton_gin", &[])));
-    tg.world.items.push(world::Item::new(21, 10, good("spinning_wheel", &[])));
-    tg.world.items.push(world::Item::new(23, 10, good("waist_loom", &[])));
+    tg.world.items.push(world::Item::new(13, 10, good("cotton_bow", &[])));
+    tg.world.items.push(world::Item::new(15, 10, good("cotton_gin", &[])));
+    tg.world.items.push(world::Item::new(17, 10, good("spinning_wheel", &[])));
+    tg.world.items.push(world::Item::new(19, 10, good("waist_loom", &[])));
     (tg.monsters[0].x, tg.monsters[0].y) = (16, 12);
     tg.run_ticks(2);
     render::draw(&tg, 0, &sprites, &mut fb);
@@ -737,6 +745,9 @@ fn export_screenshots(dir: &Path) {
     fg.communes[0].inspecting = true;
     shot(&fg, "39_frontier_kiln.png");
     // The character sheet, a stone hammer in one hand, then its loop.
+    // The rest of this game's shots set Mogg down without a tick between: the bridge's area
+    // banner would hang over every place he's set down.
+    g.communes[0].banner = None;
     let c = g.communes[0].controlled;
     let mut hammer = g.world.items.first().map(|it| it.data.clone()).unwrap_or_else(|| fg.world.items[0].data.clone());
     (hammer.good, hammer.carried_tags, hammer.quality) = ("stone_hammer".into(), vec!["oak".into()], 0.7);
@@ -760,10 +771,10 @@ fn export_screenshots(dir: &Path) {
     (g.communes[0].sheet, g.communes[0].sheet_page) = (false, 0);
     // Old Sawgrass, asked what could be made from two logs and a rope lying by his bench.
     (g.monsters[c].playing, g.monsters[c].x, g.monsters[c].y, g.monsters[c].facing) = (false, 28, 28, game::Dir::Left);
-    for (x, id) in [(36, "hemlock_log"), (37, "hemlock_log"), (38, "rope")] {
+    for (x, id) in [(39, "hemlock_log"), (40, "hemlock_log"), (41, "rope")] {
         let mut d = g.world.items.first().map(|it| it.data.clone()).unwrap_or_else(|| fg.world.items[0].data.clone());
         (d.good, d.carried_tags) = (id.into(), Vec::new());
-        g.world.items.push(world::Item::new(x, 20, d));
+        g.world.items.push(world::Item::new(x, 28, d));
     }
     shot(&g, "43_old_sawgrass.png");
     // The builders' bench's card: a few of what else it makes, on its third page.
@@ -844,9 +855,9 @@ fn export_screenshots(dir: &Path) {
     sg.monsters[1].skills.specific.insert("thread".into(), 0.3);
     let mut slivers = plain_work(&sg, sg.monsters[1].id, "cotton_slivers", &["cotton"], 1, &["cotton_bolls"]);
     slivers.quality = 0.7;
-    sg.world.items.push(world::Item::new(30, 9, slivers));
+    sg.world.items.push(world::Item::new(31, 7, slivers));
     sg.communes[0].controlled = 1;
-    (sg.monsters[1].x, sg.monsters[1].y) = (30, 8);
+    (sg.monsters[1].x, sg.monsters[1].y) = (31, 6);
     for k in ["spinning", "textiles", "weaving"] {
         sg.monsters[1].skills.applied.insert(k.into(), 0.4);
     }
@@ -876,13 +887,14 @@ fn export_screenshots(dir: &Path) {
         let d = [game::Dir::Down, game::Dir::Left, game::Dir::Right, game::Dir::Up].into_iter().find(|d| open(&wg, (sx - d.delta().0, sy - d.delta().1))).expect("open ground by the stand");
         (wg.monsters[wc].x, wg.monsters[wc].y, wg.monsters[wc].facing) = (sx - d.delta().0, sy - d.delta().1, d);
         wg.monsters[wc].bubble = None;
-        shot(&wg, &format!("{}_{}_secret.png", 62 + 2 * n, w.name.to_lowercase().replace(' ', "_")));
+        // All under 62, so however many there are they never share a number with the shots after.
+        shot(&wg, &format!("62_{n:02}a_{}_secret.png", w.name.to_lowercase().replace(' ', "_")));
         let j = wg.monsters.iter().position(|m| m.worker == Some(n)).expect("their monster");
         let (jx, jy) = (wg.monsters[j].x, wg.monsters[j].y);
         let d = [game::Dir::Left, game::Dir::Right, game::Dir::Down, game::Dir::Up].into_iter().find(|d| open(&wg, (jx - d.delta().0, jy - d.delta().1))).expect("open ground by them");
         (wg.monsters[wc].x, wg.monsters[wc].y, wg.monsters[wc].facing) = (jx - d.delta().0, jy - d.delta().1, d);
         wg.communes[0].idea_turn = (0..12).find(|&t| { wg.communes[0].idea_turn = t; wg.worker_says(j, 0).iter().any(|l| l.contains("SCROLL NEARBY")) }).expect("a word about the scroll");
-        shot(&wg, &format!("{}_{}_card.png", 63 + 2 * n, w.name.to_lowercase().replace(' ', "_")));
+        shot(&wg, &format!("62_{n:02}b_{}_card.png", w.name.to_lowercase().replace(' ', "_")));
     }
     // Things for hauling, on stands outside the outfitter along the path; then a goblin and a
     // cyclops with all three on, a pole in hand.
@@ -928,9 +940,9 @@ fn export_screenshots(dir: &Path) {
     shot(&wsg, "70_work_song_stand.png");
     let mut ng = Game::new();
     let slivers = plain_work(&ng, ng.monsters[1].id, "cotton_slivers", &["cotton"], 1, &["cotton_bolls"]);
-    ng.world.items.push(world::Item::new(30, 9, slivers));
+    ng.world.items.push(world::Item::new(31, 7, slivers));
     ng.communes[0].controlled = 1;
-    (ng.monsters[1].x, ng.monsters[1].y, ng.monsters[1].facing) = (30, 8, game::Dir::Down);
+    (ng.monsters[1].x, ng.monsters[1].y, ng.monsters[1].facing) = (31, 6, game::Dir::Down);
     ng.monsters[1].gear = vec!["work_song".into()];
     ng.press(0, Input { use_pressed: true, ..Input::default() });
     for _ in 0..24 {

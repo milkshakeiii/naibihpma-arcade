@@ -1464,7 +1464,7 @@ impl World {
                     }
                     match ch {
                         'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None, name: None }),
-                        'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None, name: None }),
+                        'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None, name: Some("THE CLOTH STORE".into()) }),
                         'ȋ' => bins.push(Bin { x, y, accepts: vec!["ingot".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None, name: None }),
                         // Verdigris East's tool bins: anyone pushes a spare in, and any loop takes
                         // one from the chute when its own wears out.

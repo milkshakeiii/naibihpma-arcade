@@ -260,7 +260,8 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
         match (held.and_then(crate::game::Held::tool), piece) {
             (Some(d), _) => {
                 t(fb, 26, y, &g.good_name(&d.good), TEXT);
-                t(fb, 26, y + 9, &format!("QUALITY {:.2}, DURABILITY {}/{}", d.quality, d.durability_left(&g.data), d.durability(&g.data)), TEXT_DIM);
+                // Short enough to stay clear of the abilities and skills column, at 1000/1000.
+                t(fb, 26, y + 9, &format!("QUALITY {:.2}, {}/{} LEFT", d.quality, d.durability_left(&g.data), d.durability(&g.data)), TEXT_DIM);
             }
             (None, Some(p)) => {
                 t(fb, 26, y, &p.name.to_uppercase(), TEXT);
@@ -299,7 +300,8 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
     let next = crate::gear::SEASONED_AT.get(seasoned as usize).map_or(String::new(), |at| format!("{}AT {at}", if seasoned > 0 { "AGAIN " } else { "" }));
     below.push(match seasoned {
         0 => (format!("SEASONED {next}"), TEXT_DIM),
-        n => (format!("SEASONED: +{n} TO ALL{}", if next.is_empty() { String::new() } else { format!(", {next}") }), TEXT_GOOD),
+        // "SEASONED +1 TO ALL, +2 AT 5000": clear of the skills column.
+        n => (format!("SEASONED +{n} TO ALL{}", crate::gear::SEASONED_AT.get(n as usize).map_or(String::new(), |at| format!(", +{} AT {at}", n + 1))), TEXT_GOOD),
     });
     for (n, (text, col)) in below.iter().enumerate() {
         let ly = y + 2 + n as i32 * 11;
@@ -1235,10 +1237,19 @@ fn draw_building_labels(g: &Game, fb: &mut Framebuffer, v: &View) {
     // Town workshops' buildings; frontier ones are open-air, with no walls to put a name on.
     // One out in the open (a charcoal mound, the smith's own forge) has no wall to put a name on.
     for s in g.world.shops.iter().filter(|s| s.kind.is_building() && s.frontier.is_none() && indoors(g, s.spot.0, s.spot.1)) {
-        // Up from the work spot to the building's top wall; a door in that wall counts too.
+        // Up from the work spot to the building's top wall; a door in that wall counts too. With
+        // the spot right under it, whoever works there would stand over the name (the south
+        // street's loom house), so then down to the bottom wall instead.
+        let wall = |y: i32| matches!(g.world.tile(s.spot.0, y), Tile::Wall | Tile::Door);
         let (sx, mut wy) = s.spot;
-        while wy > 0 && !matches!(g.world.tile(sx, wy), Tile::Wall | Tile::Door) {
+        while wy > 0 && !wall(wy) {
             wy -= 1;
+        }
+        if wy == s.spot.1 - 1 {
+            wy = s.spot.1;
+            while wy < g.world.h - 1 && !wall(wy) {
+                wy += 1;
+            }
         }
         named.push(((sx, wy), s.kind.label()));
     }
