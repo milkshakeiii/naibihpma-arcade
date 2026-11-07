@@ -117,29 +117,45 @@ fn a_piece_needs_a_free_slot_and_only_the_best_bonus_to_an_ability_counts() {
     assert!(has_line(&crate::inspect::card(&g, 0), "MOGG'S SPECTACLES GIVE AS MUCH INT: ONLY THE BEST COUNTS."));
 }
 
+/// Any monster takes any tool, and has on what its slots hold: there's no body or mind capacity
+/// (Henry, 2026-11-07). What it holds past what it moves at full speed slows every step, a little
+/// too much a little, and that's said when the tool is looked at, taken and walked with.
 #[test]
-fn body_and_mind_capacity_limit_what_a_monster_can_have_on() {
+fn what_a_monster_holds_past_what_it_moves_slows_its_steps() {
     let mut g = Game::new();
-    // Bruna, a cyclops (body 100), holding a pick and a shovel (84 of it).
-    let b = 1;
-    g.monsters[b].hands = vec![Some(Held::Tool(tool("pick"))), Some(Held::Tool(tool("shovel")))];
-    assert!((g.body_used(b) - 84.0).abs() < 1.0, "{}", g.body_used(b));
-    assert_eq!(g.piece_refusal(b, g.data.piece("belt_of_strength")).as_deref(), Some("THAT'S MORE THAN MY BODY CAN TAKE."));
-    assert_eq!(g.piece_refusal(b, g.data.piece("cloth_gloves")), None, "gloves (10) still fit");
-    // What a monster has on counts against its tools too.
-    g.monsters[b].hands = vec![None, None];
-    g.monsters[b].gear = vec!["belt_of_strength".into(), "boots_of_endurance".into()];
-    assert!((g.body_used(b) - 80.0).abs() < 1e-9);
-    let mut sfx = Vec::new();
-    g.monsters[b].facing = Dir::Right;
-    let (x, y) = (g.monsters[b].x + 1, g.monsters[b].y);
-    g.world.items.retain(|it| (it.x, it.y) != (x, y));
-    g.world.items.push(crate::world::Item::new(x, y, tool("pick")));
-    let it = g.world.item_at(x, y).expect("the pick ahead");
-    assert!(matches!(g.take_tool(b, it, &mut sfx), UseRes::Wait(why) if why == "THAT'S MORE THAN I CAN HOLD."));
-    // Mogg, a goblin, has a mind of 50: two pieces of 40 don't both fit.
+    // Mogg, a goblin, and Bruna, a cyclops. A copper pot weighs a whole ingot.
+    let pot = crate::econ::plain(&g.data, "metal_pot", "copper_ingot");
+    let heavy = crate::econ::weight(g.data.good("metal_pot"), &pot);
+    assert!(heavy > g.move_capacity(0) && heavy <= g.move_capacity(1), "{heavy:.0}: more than Mogg moves at full speed ({:.0}), not Bruna ({:.0})", g.move_capacity(0), g.move_capacity(1));
+    let open = |g: &Game, x: i32, y: i32| g.world.tile(x, y) == crate::world::Tile::Grass && g.monster_at(x, y).is_none() && g.world.item_at(x, y).is_none();
+    let (x, y) = (1..30).flat_map(|y| (1..45).map(move |x| (x, y))).find(|&(x, y)| (0..7).all(|k| open(&g, x + k, y))).expect("open ground");
+    (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (x, y, Dir::Right);
+    g.world.items.push(crate::world::Item::new(x + 1, y, pot.clone()));
+    let card = crate::inspect::card(&g, 0);
+    assert!(card.lines().any(|l| l.text.starts_with("IN HAND, IT WOULD SLOW MOGG TO")), "its card says so first");
+    let it = g.world.item_at(x + 1, y).expect("the pot ahead");
+    assert!(matches!(g.take_tool(0, it, &mut Vec::new()), UseRes::Done), "a goblin takes it all the same");
+    let said = g.monsters[0].bubble.as_ref().map_or(String::new(), |b| b.text.clone());
+    assert!(said.contains("HEAVY: MOGG GOES AT"), "{said}");
+    // Each step takes that many times as long, the part ticks carried on to the next.
+    let pace = g.laden(0);
+    assert!(pace > 2.0, "{pace}");
+    let mut total = 0;
+    for _ in 0..4 {
+        let mut right = Input::default();
+        (right.pressed[3], right.held[3]) = (true, true);
+        g.press(0, right);
+        total += g.monsters[0].slide.map_or(0, |s| s.total as u32);
+        assert!(g.status(0).0.contains("WHAT IT HOLDS SLOWS IT"), "{}", g.status(0).0);
+        g.run_ticks(40);
+    }
+    assert!((total as f64 - 4.0 * crate::game::WALK_TICKS as f64 * pace).abs() <= 1.0, "4 steps, {total} ticks at {pace:.2}");
+    // A cyclops holds it at full speed.
+    g.monsters[1].hands = vec![Some(Held::Tool(pot)), None];
+    assert_eq!(g.laden(1), 1.0);
+    // What a monster has on is limited by its slots alone: a goblin's mind once refused these.
     g.monsters[0].gear = vec!["headband_of_intellect".into()];
-    assert_eq!(g.piece_refusal(0, g.data.piece("periapt_of_wisdom")).as_deref(), Some("THAT'S MORE THAN MY MIND CAN TAKE."));
+    assert_eq!(g.piece_refusal(0, g.data.piece("periapt_of_wisdom")), None);
 }
 
 #[test]
@@ -776,7 +792,7 @@ fn a_backpack_carries_more_a_feathered_cap_pulls_harder_and_a_shoulder_pole_push
     assert_eq!(g.wagon_ticks(0, w), crate::game::PUSH_TICKS, "and not one in a feathered cap");
     g.monsters[0].gear.clear();
     // A shoulder pole: a good that slowed its pusher goes at full speed; it takes a hand.
-    let push = g.push_capacity(0);
+    let push = g.move_capacity(0);
     let heavy = g.data.goods.iter().filter(|r| r.raw_material_density.is_some()).map(|r| tool(&r.id)).find(|d| {
         let wt = crate::econ::weight(g.data.good(&d.good), d);
         wt > push && wt <= push * 1.5
@@ -785,12 +801,12 @@ fn a_backpack_carries_more_a_feathered_cap_pulls_harder_and_a_shoulder_pole_push
     assert!(g.push_ticks(0, &heavy) > crate::game::PUSH_TICKS, "{} slows Mogg", heavy.good);
     g.monsters[0].hands[0] = Some(Held::Piece("shoulder_pole".into()));
     assert_eq!(g.push_ticks(0, &heavy), crate::game::PUSH_TICKS, "but not with a shoulder pole");
-    // A good's card says what the one looking pushes at full speed, and what helps.
+    // A good's card says what the one looking moves at full speed, and what helps.
     (g.monsters[0].x, g.monsters[0].y, g.monsters[0].facing) = (start.0, start.1, Dir::Right);
     g.world.items.push(crate::world::Item::new(start.0 + 1, start.1, heavy));
     let card = crate::inspect::card(&g, 0);
     let lines: Vec<&String> = card.lines().map(|l| &l.text).collect();
-    assert!(has_line(&card, &format!("MOGG PUSHES {:.0} AT FULL SPEED.", push * 1.5)) && has_line(&card, "SHOULDER POLE: +50% PUSHING POWER"), "{lines:?}");
+    assert!(has_line(&card, &format!("MOGG MOVES {:.0} AT FULL SPEED.", push * 1.5)) && has_line(&card, "SHOULDER POLE: +50% HAULING POWER"), "{lines:?}");
     // A backpack is worn beside a cloak, in a worn slot of its own; then all three are full.
     g.monsters[0].gear = vec!["cloak_of_charisma".into(), "headband".into()];
     assert_eq!(g.piece_refusal(0, g.data.piece("backpack")), None);
@@ -842,7 +858,7 @@ fn heavy_goods_slow_a_push_three_ticks_for_each_half_over_and_a_shoulder_pole_li
         let mut right = Input::default();
         (right.pressed[3], right.held[3]) = (true, true);
         g.press(0, right);
-        let want = heavy_ticks(crate::econ::weight(g.data.good(good), &tool(good)), g.push_capacity(0));
+        let want = heavy_ticks(crate::econ::weight(g.data.good(good), &tool(good)), g.move_capacity(0));
         assert_eq!(g.monsters[0].slide.map(|s| s.total), Some(want), "{good}");
         (want, g.status(0).0)
     };
@@ -962,15 +978,16 @@ fn each_monster_type_has_its_small_ability() {
     let mut g = Game::new();
     let as_kind = |g: &mut Game, kind: &str| g.monsters[0].kind = kind.to_string();
     as_kind(&mut g, "goblin");
-    let (forgets, pushes, pulls) = (g.monsters[0].knack(&g.data, "spinning").forgetting, g.push_capacity(0), g.pull_capacity(0, 0));
+    let (forgets, pushes, pulls) = (g.monsters[0].knack(&g.data, "spinning").forgetting, g.move_capacity(0), g.pull_capacity(0, 0));
     as_kind(&mut g, "elf");
     assert!((g.monsters[0].knack(&g.data, "spinning").forgetting / forgets - 0.5).abs() < 1e-9);
     as_kind(&mut g, "cyclops");
-    assert!((g.push_capacity(0) / pushes - 1.5).abs() < 1e-9);
+    assert!((g.move_capacity(0) / pushes - 1.5).abs() < 1e-9);
     as_kind(&mut g, "orc");
     let st = g.monsters[0].abilities(&g.data);
     assert!((g.pull_capacity(0, 0) / pulls - st.str as f64 / st.cha as f64).abs() < 1e-9);
-    assert_eq!(crate::inspect::ability_uses(&g, crate::data::STR, g.monsters[0].leads_by(&g.data)).split(", ").take(2).collect::<Vec<_>>(), vec!["PUSHING", "LEADING WAGONS"]);
+    assert_eq!(crate::inspect::ability_uses(&g, crate::data::STR, g.monsters[0].leads_by(&g.data)).split(", ").take(2).collect::<Vec<_>>(), vec!["HAULING", "LEADING WAGONS"]);
+    assert!(crate::inspect::ability_uses(&g, crate::data::CON, g.monsters[0].leads_by(&g.data)).starts_with("HAULING"), "CON hauls too");
     assert!(!crate::inspect::ability_uses(&g, crate::data::CHA, g.monsters[0].leads_by(&g.data)).contains("WAGONS"));
     // A monster's card and a newcomer's at the hall say what its type does; so does a seam's
     // card, for a goblin.

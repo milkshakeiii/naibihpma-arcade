@@ -1990,26 +1990,44 @@ fn space_beside_tools_takes_one_not_yet_in_hand() {
     assert!(said(&g, c).contains("ALREADY"), "a second is no use: {}", said(&g, c));
 }
 
-/// Whatever a plant in play asks for in hand, a goblin and a cyclops can hold together, made
-/// of anything (a pick from copper weighed more than a goblin can carry, 2026-11-03).
+/// Whatever a plant in play asks for in hand, a cyclops holds at full speed, made of the heaviest
+/// thing it could be made of (Henry, 2026-11-07: cyclopes are strong). Any monster can hold any
+/// tool, and a tool weighs as its material, so a goblin may go slower with heavy ones; but the
+/// iron pick and shovel the trader gives, a goblin holds at full speed.
 #[test]
-fn the_tools_a_plant_asks_for_fit_together_in_a_goblins_and_a_cyclopss_hands() {
-    let g = Game::new();
-    for p in &g.world.plants {
-        let groups = &g.data.good(&p.good).tools_required_tags;
-        let weight: f64 = groups
+fn a_cyclops_holds_what_any_plant_asks_for_at_full_speed() {
+    let mut g = Game::new();
+    let (goblin, cyclops) = (0, 1);
+    for (i, kind) in [(goblin, "goblin"), (cyclops, "cyclops")] {
+        assert_eq!(g.monsters[i].kind, kind);
+        g.monsters[i].stats = g.data.monster_types[kind].stats.clone();
+    }
+    let plants: std::collections::BTreeSet<String> = g.world.plants.iter().map(|p| p.good.clone()).collect();
+    for good in &plants {
+        let groups = g.data.good(good).tools_required_tags.clone();
+        let tools: Vec<crate::econ::ItemData> = groups
             .iter()
             .filter(|t| !t.is_empty())
             .map(|t| {
                 let tool = g.data.goods.iter().find(|x| crate::data::matches(&x.type_tags, t)).expect("a good for the tool");
-                ["copper_ingot", "oak_log", "limestone"].iter().map(|from| crate::econ::weight(tool, &crate::econ::plain(&g.data, &tool.id, from))).fold(0.0, f64::max)
+                let of = |m: &crate::data::GoodType| tool.input_goods_tags_carryover.iter().any(|c| c.iter().any(|v| m.type_tags.contains(v)));
+                let mut from: Vec<&str> = g.data.goods.iter().filter(|m| m.raw_material_density.is_some() && of(m)).map(|m| m.id.as_str()).collect();
+                if from.is_empty() {
+                    from.push(tool.id.as_str());
+                }
+                let made = |f: &&str| crate::econ::plain(&g.data, &tool.id, f);
+                let heft = |d: &crate::econ::ItemData| crate::econ::weight(tool, d);
+                from.iter().map(made).max_by(|a, b| heft(a).total_cmp(&heft(b))).expect("something to make it of")
             })
-            .sum();
-        for kind in ["goblin", "cyclops"] {
-            let cap = g.data.monster_types[kind].body_cap as f64;
-            assert!(weight <= cap, "a {kind} can't hold what the {} asks for: {weight} of {cap}", p.good);
-        }
+            .collect();
+        g.monsters[cyclops].hands = tools.iter().map(|d| Some(Held::Tool(d.clone()))).collect();
+        assert_eq!(g.laden(cyclops), 1.0, "a cyclops slows holding what the {good} asks for: {:.0} of {:.0}", g.held_weight(cyclops), g.move_capacity(cyclops));
     }
+    let traded = |id: &str| crate::econ::trade(g.data.good(id), &[], &g.data);
+    g.monsters[goblin].hands = vec![Some(Held::Tool(traded("trade_pick"))), Some(Held::Tool(traded("trade_shovel")))];
+    assert_eq!(g.laden(goblin), 1.0, "a goblin holds the trader's pick and shovel: {:.0} of {:.0}", g.held_weight(goblin), g.move_capacity(goblin));
+    let iron = crate::econ::weight(g.data.good("pick"), &crate::econ::plain(&g.data, "pick", "pig_iron_ingot"));
+    assert!((crate::econ::weight(g.data.good("pick"), &traded("trade_pick")) - iron).abs() < 1e-9, "the trader's pick is iron");
 }
 
 /// A loop delivering to an order that's filled and resting waits, saying so plainly, rather than

@@ -47,10 +47,41 @@ impl Game {
         self.world.wagons[w].power * by * (1.0 + m.skills.applied("wagon_driving")) * m.knack(&self.data, "wagon_driving").pull
     }
 
-    /// How much weight monster `i` pushes a good at full speed: a shoulder pole pushes more.
-    pub(crate) fn push_capacity(&self, i: usize) -> f64 {
+    /// How much weight monster `i` moves at full speed, pushed or held: by the mean of its STR
+    /// and CON (Henry, 2026-11-07: STR alone did too much and CON too little) and its hauling;
+    /// a shoulder pole and a cyclops's strong back move more.
+    pub(crate) fn move_capacity(&self, i: usize) -> f64 {
         let m = &self.monsters[i];
-        10.0 * m.abilities(&self.data).str as f64 * (1.0 + m.skills.applied("hauling")) * m.knack(&self.data, "hauling").push
+        let st = m.abilities(&self.data);
+        10.0 * (st.str as f64 + st.con as f64) / 2.0 * (1.0 + m.skills.applied("hauling")) * m.knack(&self.data, "hauling").push
+    }
+
+    /// How many times as long each step takes for what monster `i` holds: 1 up to what it
+    /// moves at full speed, then as much again for every half that beyond it, as a push slows
+    /// for a heavy good. Any monster can hold any tool (Henry, 2026-11-07); a heavy one slows it.
+    pub(crate) fn laden(&self, i: usize) -> f64 {
+        let (held, cap) = (self.held_weight(i), self.move_capacity(i));
+        if held <= cap || cap <= 0.0 {
+            return 1.0;
+        }
+        1.0 + 2.0 * (held - cap) / cap
+    }
+
+    /// What a monster says when what it holds slows it: how fast it goes now.
+    pub(crate) fn laden_note(&self, i: usize) -> String {
+        format!("HEAVY: {} GOES AT {:.0}% SPEED.", self.monsters[i].name, 100.0 / self.laden(i))
+    }
+
+    /// A step of `base` ticks, slowed by what monster `i` holds: the whole ticks it takes now
+    /// and what's left over for its next step.
+    pub(crate) fn paced(&self, i: usize, base: u8) -> (u8, f64) {
+        let pace = self.laden(i);
+        if pace <= 1.0 {
+            return (base, 0.0);
+        }
+        let exact = base as f64 * pace + self.monsters[i].lag;
+        let ticks = exact.floor().clamp(base as f64, PULL_TICKS.max(base) as f64);
+        (ticks as u8, (exact - ticks).clamp(0.0, 1.0))
     }
 
     /// Whoever leads wagon `w`, or led it last (parked, it's theirs still).
@@ -77,7 +108,7 @@ impl Game {
 
     /// Ticks to push a good: anything heavier than the monster moves easily goes slower.
     pub(crate) fn push_ticks(&self, i: usize, item: &ItemData) -> u8 {
-        heavy_ticks(econ::weight(self.data.good(&item.good), item), self.push_capacity(i))
+        heavy_ticks(econ::weight(self.data.good(&item.good), item), self.move_capacity(i))
     }
 
     /// Practice at hauling or wagon driving: the move's own game time.

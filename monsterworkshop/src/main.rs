@@ -743,6 +743,11 @@ fn export_screenshots(dir: &Path) {
     g.monsters[c].hands[0] = Some(game::Held::Tool(hammer));
     g.communes[0].sheet = true;
     shot(&g, "40_character_sheet.png");
+    // A copper pot in the other hand: more than a goblin moves at full speed, so it says how slow.
+    let held = g.monsters[c].hands[1].take();
+    g.monsters[c].hands[1] = Some(game::Held::Tool(econ::plain(&g.data, "metal_pot", "copper_ingot")));
+    shot(&g, "40b_character_sheet_heavy_pot.png");
+    g.monsters[c].hands[1] = held;
     // Its loop: the whole fabric chain, partway round.
     g.monsters[c].routine = Some(loadtest::fabric_chain(&g, (0, 0)));
     (g.monsters[c].pc, g.monsters[c].playing) = (4, true);

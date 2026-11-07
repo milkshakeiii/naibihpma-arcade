@@ -454,8 +454,15 @@ fn item_card(g: &Game, item: &ItemData, at: (i32, i32), c: usize) -> Card {
         details.push(line("BURNS AS FUEL.", TEXT_DIM));
     }
     details.push(line(format!("WEIGHS {:.1}", econ::weight(gt, item)), TEXT).icon(Icon::Weight));
-    details.push(line(format!("{} PUSHES {:.0} AT FULL SPEED.", g.monsters[c].name, g.push_capacity(c)), TEXT_DIM));
-    details.extend(hauling(g, c, |d| d.push, "PUSHING POWER", ""));
+    details.push(line(format!("{} MOVES {:.0} AT FULL SPEED.", g.monsters[c].name, g.move_capacity(c)), TEXT_DIM));
+    // A tool too heavy to hold at full speed says so before it's taken.
+    if g.data.holdable(gt) {
+        let (held, cap) = (g.held_weight(c) + econ::weight(gt, item), g.move_capacity(c));
+        if held > cap {
+            details.push(line(format!("IN HAND, IT WOULD SLOW {} TO {:.0}% SPEED.", g.monsters[c].name, 100.0 / (1.0 + 2.0 * (held - cap) / cap)), TEXT_WARN).icon(Icon::Warn));
+        }
+    }
+    details.extend(hauling(g, c, |d| d.push, "HAULING POWER", ""));
     details.push(if item.depth == 0 {
         line("RAW MATERIAL", TEXT_DIM)
     } else {
@@ -496,7 +503,8 @@ fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
     if does.more > 0 {
         first.push(line(format!("+{} YIELD, WHERE HOW MANY VARIES", does.more), TEXT_GOOD));
         does.more = 0;
-    }    if does.wear != 0 && does.time == 0 {
+    }
+    if does.wear != 0 && does.time == 0 {
         first.push(line(format!("{}, IN HAND OR ON A PEG", does.text().join(", ")), TEXT_GOOD));
     } else {
         first.extend(does.text().into_iter().map(|t| line(t, TEXT_GOOD)));
@@ -509,19 +517,13 @@ fn rack_card(g: &Game, r: usize, c: usize, k: usize) -> Card {
         (None, None) => first.push(line("EARN MORE RENOWN TO HAVE IT.", TEXT_DIM)),
     }
     let ty = &g.data.monster_types[m.kind.as_str()];
-    let cost = match (p.body, p.mind) {
-        (0, mind) => format!("MIND {mind}"),
-        (body, 0) => format!("BODY {body}"),
-        (body, mind) => format!("BODY {body}, MIND {mind}"),
-    };
     let mut details = vec![line(p.about.clone(), TEXT)];
     // A working townsperson's secret: whose it is.
     if let Some(w) = g.world.workers.iter().find(|w| w.secret.0 == (rack.x, rack.y)) {
         details.push(line(format!("WRITTEN DOWN BY {} THE {}.", w.name, w.title), TEXT_DIM));
     }
     details.extend([
-        line(format!("{}. IT TAKES {cost} OF WHAT A MONSTER CAN HAVE ON.", p.slot.label()), TEXT_DIM),
-        line(format!("{}: {} {} OF {} SLOTS, BODY {:.0} OF {}, MIND {} OF {}.", m.name, p.slot.label(), g.gear_in(c, p.slot).len(), ty.slots.of(p.slot), g.body_used(c), ty.body_cap, g.mind_used(c), ty.mind_cap), TEXT_DIM),
+        line(format!("{}: {} {} OF {} SLOTS.", m.name, p.slot.label(), g.gear_in(c, p.slot).len(), ty.slots.of(p.slot)), TEXT_DIM),
     ]);
     Card::two(p.name.to_uppercase(), first, details, (rack.x, rack.y))
 }
@@ -568,7 +570,8 @@ pub(crate) fn ability_uses(g: &Game, a: usize, leads_by: usize) -> String {
     let mut top: Vec<(&str, usize)> = count.into_iter().collect();
     top.sort_by_key(|&(skill, n)| (std::cmp::Reverse(n), skill));
     // Leading wagons goes by CHA, or by what the monster leads by (an orc's STR).
-    let mut uses: Vec<String> = if a == crate::data::STR { vec!["PUSHING".into()] } else { Vec::new() };
+    // Hauling, pushed or held, goes by the mean of STR and CON.
+    let mut uses: Vec<String> = if a == crate::data::STR || a == crate::data::CON { vec!["HAULING".into()] } else { Vec::new() };
     if a == leads_by {
         uses.push("LEADING WAGONS".into());
     }

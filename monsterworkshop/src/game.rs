@@ -300,6 +300,13 @@ pub struct Monster {
     /// What the last finished job taught, for skill popups.
     #[serde(skip)]
     pub learned: Option<(String, Learned, u16)>,
+    /// What its steps have run over their whole ticks while what it holds slows it, carried to
+    /// the next: a little too much weighs a little, not a whole tick a tile at once.
+    #[serde(skip)]
+    pub lag: f64,
+    /// Its last step pushed a good.
+    #[serde(skip)]
+    pub pushing: bool,
 }
 
 /// What a hand holds: a gathering tool, or a piece of equipment carried (a towel, a magnifying
@@ -414,6 +421,8 @@ impl Monster {
             earned: 0.0,
             gear: Vec::new(),
             learned: None,
+            lag: 0.0,
+            pushing: false,
         }
     }
 
@@ -1608,7 +1617,9 @@ impl Game {
         // Leading a wagon, every step goes at the wagon's pace.
         let pull = wagon.map_or(0, |w| self.wagon_ticks(i, w));
         let id = self.monsters[i].id;
-        let mut ticks = WALK_TICKS.max(pull);
+        // What it holds slows every step, walking or pushing.
+        let (walk, mut lag) = self.paced(i, WALK_TICKS);
+        let mut ticks = walk.max(pull);
         let mut pushed = None;
         if let Some(it) = self.world.item_at(tx, ty) {
             let good = self.world.items[it].good().to_string();
@@ -1619,7 +1630,9 @@ impl Game {
                 return StepRes::Blocked(format!("THAT'S {name}'S."));
             }
             let (bx, by) = (tx + dx, ty + dy);
-            ticks = self.push_ticks(i, &self.world.items[it].data).max(pull);
+            let push;
+            (push, lag) = self.paced(i, self.push_ticks(i, &self.world.items[it].data));
+            ticks = push.max(pull);
             if let Some(msg) = self.wont_take((bx, by), &good) {
                 return StepRes::Blocked(msg);
             }
@@ -1690,6 +1703,8 @@ impl Game {
         m.y = ty;
         m.slide = Some(Slide { dir: d, left: ticks, total: ticks });
         m.bump = None;
+        m.lag = lag;
+        m.pushing = pushed.is_some();
         if let Some(w) = wagon {
             self.follow(w, (x, y), ticks);
         }
@@ -1781,13 +1796,14 @@ impl Game {
         self.world.item_at(m.x + dx, m.y + dy).filter(|&it| self.owned_by_other(i, it).is_none() && self.data.try_good(self.world.items[it].good()).is_some_and(|g| self.data.holdable(g)))
     }
 
-    /// What monster `i` holds weighs against its body's capacity.
+    /// What the tools in monster `i`'s hands weigh: more than it moves at full speed slows it
+    /// (`Game::laden`).
     pub(crate) fn held_weight(&self, i: usize) -> f64 {
         crate::econ::total(self.monsters[i].tools().map(|d| crate::econ::weight(self.data.good(&d.good), d)))
     }
 
-    /// Monster `i` takes tool `it` from the ground into a free hand, if it has one and can
-    /// carry it with what it holds already.
+    /// Monster `i` takes tool `it` from the ground into a free hand, if it has one. Any monster
+    /// can hold any tool; more than it moves at full speed slows it, and it says so.
     pub(crate) fn take_tool(&mut self, i: usize, it: usize, sfx: &mut Vec<Sfx>) -> UseRes {
         // A second of the same is no use: gathering takes one of each.
         let good = self.world.items[it].good().to_string();
@@ -1799,16 +1815,13 @@ impl Game {
             sfx.push(Sfx::Deny);
             return UseRes::Wait("MY HANDS ARE FULL.".into());
         };
-        let data = &self.world.items[it].data;
-        let cap = self.data.monster_types[self.monsters[i].kind.as_str()].body_cap as f64;
-        // What it has on weighs on its body too.
-        if self.body_used(i) + crate::econ::weight(self.data.good(&data.good), data) > cap {
-            sfx.push(Sfx::Deny);
-            return UseRes::Wait("THAT'S MORE THAN I CAN HOLD.".into());
-        }
+        let was = self.laden(i);
         let data = self.world.items.remove(it).data;
-        let text = format!("{} TAKES THE {}.", self.monsters[i].name, self.good_name(&data.good));
+        let mut text = format!("{} TAKES THE {}.", self.monsters[i].name, self.good_name(&data.good));
         self.monsters[i].hands[hand] = Some(Held::Tool(data));
+        if self.laden(i) > was.max(1.0) {
+            text = format!("{text} {}", self.laden_note(i));
+        }
         self.say(i, &text, false);
         sfx.push(Sfx::Pop);
         UseRes::Done
@@ -2195,10 +2208,13 @@ impl Game {
             (if slow { "LEADING THE WAGON. THE LOAD SLOWS IT".to_string() } else { "LEADING THE WAGON".to_string() }, false)
         } else if m.slide.is_some_and(|s| s.total == PULL_TICKS) {
             ("PULLING. HEAVY GOING".to_string(), false)
-        } else if !m.playing && m.slide.is_some_and(|s| s.total >= HEAVY_GOING_TICKS && s.total != PULL_TICKS) && self.led_wagon(i).is_none() {
+        } else if !m.playing && m.pushing && m.slide.is_some_and(|s| s.total >= HEAVY_GOING_TICKS && s.total != PULL_TICKS) && self.led_wagon(i).is_none() {
             // A good heavier than it pushes easily (a loop's pushes don't say, or its status
             // would flicker with every step).
             ("PUSHING. HEAVY GOING".to_string(), false)
+        } else if !m.playing && m.slide.is_some() && self.laden(i) > 1.0 {
+            // Walking with more in its hands than it moves at full speed.
+            (format!("WHAT IT HOLDS SLOWS IT: {:.0}% SPEED", 100.0 / self.laden(i)), false)
         } else if let Some(r) = &m.rec {
             (format!("RECORDING ({} GOALS){}", r.goals.len(), if m.homing { ". HEADING BACK TO THE FLAG" } else { "" }), false)
         } else if m.playing && m.wait >= WAIT_BEFORE_SAYING {

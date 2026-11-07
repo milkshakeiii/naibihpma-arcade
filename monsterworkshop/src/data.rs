@@ -69,6 +69,10 @@ pub struct GoodType {
     /// another good.
     #[serde(default)]
     pub makes: Option<String>,
+    /// For a trade, what the good it gives is made of (the trader's pick is iron), so it weighs
+    /// as that.
+    #[serde(default)]
+    pub made_of: Option<String>,
 }
 
 /// A good's own variety: its name (one of its type tags), the categories it's a variety of,
@@ -195,8 +199,6 @@ pub struct MonsterType {
     pub name: String,
     pub cost: u32,
     pub stats: Stats,
-    pub body_cap: u32,
-    pub mind_cap: u32,
     /// How many of each kind of slot it has for equipment.
     pub slots: Slots,
     /// Its unique ability, if it has one (a troll hasn't yet).
@@ -251,11 +253,6 @@ pub struct Piece {
     /// How it's drawn, on a monster (gloves on the hands, a belt at the waist) and on its rack.
     /// Pieces don't compete by what they are (Henry): any fits a free slot of its own.
     pub look: String,
-    /// What it costs of the monster's body and mind capacity.
-    #[serde(default)]
-    pub body: u32,
-    #[serde(default)]
-    pub mind: u32,
     /// The renown it's given at.
     pub renown: u32,
     /// What it adds to abilities ("dex": 1).
@@ -362,7 +359,7 @@ impl Does {
             (q, n) if q == n => out.push(format!("{q:+}% QUALITY OR YIELD")),
             (q, n) => out.extend([format!("{q:+}% QUALITY"), format!("{n:+}% YIELD")]),
         }
-        for (v, what) in [(self.time, "TIME"), (self.learning, "LEARNING"), (self.forgetting, "FORGETTING"), (self.value, "VALUE"), (self.room, "WAGON ROOM"), (self.pull, "PULLING POWER"), (self.push, "PUSHING POWER")] {
+        for (v, what) in [(self.time, "TIME"), (self.learning, "LEARNING"), (self.forgetting, "FORGETTING"), (self.value, "VALUE"), (self.room, "WAGON ROOM"), (self.pull, "PULLING POWER"), (self.push, "HAULING POWER")] {
             if v != 0 {
                 out.push(format!("{v:+}% {what}"));
             }
@@ -522,7 +519,7 @@ impl Data {
         // A trader's trades are recipes too, each named for the good it gives.
         for t in crate::workshops::trades() {
             let gives = goods.iter().find(|g| g.id == t.makes).unwrap_or_else(|| panic!("a trade makes {}, which isn't a good", t.makes));
-            let trade = serde_json::json!({ "id": t.id, "name": gives.name, "type_tags": [], "has_quality": false, "primary_applied_skill": "", "input_goods_tags_required": t.wants, "makes": t.makes });
+            let trade = serde_json::json!({ "id": t.id, "name": gives.name, "type_tags": [], "has_quality": false, "primary_applied_skill": "", "input_goods_tags_required": t.wants, "makes": t.makes, "made_of": t.of });
             goods.push(serde_json::from_value(trade).expect("a trade as a recipe"));
         }
         let mut varieties = gather_varieties(&goods);

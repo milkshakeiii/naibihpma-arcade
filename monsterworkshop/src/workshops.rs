@@ -86,6 +86,9 @@ pub struct Trade {
     pub id: &'static str,
     pub makes: &'static str,
     pub wants: Vec<Vec<&'static str>>,
+    /// What the good it gives is made of, where it has no weight of its own.
+    #[serde(default)]
+    pub of: Option<String>,
 }
 
 /// Every trader's trades, for the data to make recipes of.

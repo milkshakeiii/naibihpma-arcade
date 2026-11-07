@@ -213,8 +213,8 @@
         { "id": "trade_oil", "makes": "oil", "wants": [["thread"], ["thread"]] },
         { "id": "trade_mortar", "makes": "mortar", "wants": [["thread"]] },
         { "id": "trade_red_clay", "makes": "red_clay", "wants": [["rope"]] },
-        { "id": "trade_pick", "makes": "pick", "wants": [["rope"], ["rope"]] },
-        { "id": "trade_shovel", "makes": "shovel", "wants": [["rope"], ["thread"]] }
+        { "id": "trade_pick", "makes": "pick", "of": "pig_iron_ingot", "wants": [["rope"], ["rope"]] },
+        { "id": "trade_shovel", "makes": "shovel", "of": "pig_iron_ingot", "wants": [["rope"], ["thread"]] }
       ]
     }
   ],

@@ -365,6 +365,29 @@ fn used_up_inputs_count_toward_value_but_not_weight() {
     assert!(dyed.value > fabric.value, "and still adds value");
 }
 
+/// A refined material weighs as itself, and so does what's made of it (Henry, 2026-11-07):
+/// copper ore smelted is copper, and a knife forged from it weighs a tenth of the ingot, a pot all
+/// of it, the coal burned for them nothing.
+#[test]
+fn what_is_made_of_a_metal_weighs_as_the_metal() {
+    let d = Data::load();
+    let st = stats(&d, "cyclops");
+    let made = |id: &str, inputs: Vec<&ItemData>| {
+        let g = d.good(id);
+        produce(&craft(g, &st, &skilled(g, 0.5, &[]), inputs, vec![], None), &d, &mut Rng::new(3)).remove(0)
+    };
+    let (ore, coal, coke) = (item(&d, "copper_ore", 1.0, &[]), item(&d, "coal", 1.0, &[]), item(&d, "coke", 1.0, &[]));
+    let ingot = made("copper_ingot", vec![&ore, &ore, &coal]);
+    let w = |it: &ItemData| weight(d.good(&it.good), it);
+    let copper = d.good("copper_ingot").raw_material_density.expect("copper's density");
+    assert!(close(w(&ingot), copper * d.good("copper_ingot").storage_volume));
+    let knife = made("knife", vec![&ingot, &coal]);
+    assert!(close(w(&knife), w(&ingot) / 10.0), "a knife, a tenth of an ingot: {}", w(&knife));
+    let pot = made("metal_pot", vec![&ingot, &coke]);
+    assert!(close(w(&pot), w(&ingot)), "a pot, the whole ingot: {}", w(&pot));
+    assert!(knife.raw.iter().any(|r| r.spent && r.good == "coal"), "the coal is in its history, burned");
+}
+
 #[test]
 fn nothing_adds_up_to_zero_not_minus_zero() {
     assert_eq!(format!("{:.0}", total([])), "0", "an empty hand weighs 0");

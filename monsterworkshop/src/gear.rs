@@ -113,16 +113,6 @@ pub enum SheetLine {
 }
 
 impl Game {
-    /// What monster `i` has of its body's capacity used: the tools in its hands and what it has on.
-    pub(crate) fn body_used(&self, i: usize) -> f64 {
-        self.held_weight(i) + self.monsters[i].pieces().filter_map(|id| self.data.try_piece(id)).map(|p| p.body as f64).sum::<f64>()
-    }
-
-    /// What monster `i` has of its mind's capacity used.
-    pub(crate) fn mind_used(&self, i: usize) -> u32 {
-        self.monsters[i].pieces().filter_map(|id| self.data.try_piece(id)).map(|p| p.mind).sum()
-    }
-
     /// Monster `i`'s pieces in `slot`, in the order it was given them.
     pub(crate) fn gear_in(&self, i: usize, slot: Slot) -> Vec<&Piece> {
         self.monsters[i].pieces().filter_map(|id| self.data.try_piece(id)).filter(|p| p.slot == slot).collect()
@@ -187,12 +177,6 @@ impl Game {
         if piece.slot != Slot::Hand && self.gear_in(i, piece.slot).len() >= room {
             let slots = if room == 1 { format!("MY {} SLOT IS", piece.slot.label()) } else { format!("ALL {room} OF MY {} SLOTS ARE", piece.slot.label()) };
             return Some(format!("{slots} FULL. TAKE SOMETHING OFF ON MY SHEET (C)."));
-        }
-        if self.body_used(i) + piece.body as f64 > ty.body_cap as f64 {
-            return Some("THAT'S MORE THAN MY BODY CAN TAKE.".into());
-        }
-        if self.mind_used(i) + piece.mind > ty.mind_cap {
-            return Some("THAT'S MORE THAN MY MIND CAN TAKE.".into());
         }
         None
     }

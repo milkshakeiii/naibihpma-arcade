@@ -283,10 +283,15 @@ fn sheet_monster(g: &Game, sp: &Sprites, fb: &mut Framebuffer, i: usize, chosen:
         // belt's third hand and every slot full above the capacities.
         y += if held.is_some() || piece.is_some() { 19 } else { 11 };
     }
-    // Its capacities, what it has earned and how seasoned it is, a line each, as many as fit
-    // above the keys: with every slot full and renown earned, how seasoned it is waits (Henry).
-    let ty = &g.data.monster_types[m.kind.as_str()];
-    let mut below = vec![(format!("BODY {:.0} OF {}   MIND {} OF {}", g.body_used(i), ty.body_cap, g.mind_used(i), ty.mind_cap), TEXT)];
+    // What it holds against what it moves at full speed, what it has earned and how seasoned it
+    // is, a line each, as many as fit above the keys: with every slot full and renown earned, how
+    // seasoned it is waits (Henry).
+    let (held, cap) = (g.held_weight(i), g.move_capacity(i));
+    let mut below = vec![if g.laden(i) > 1.0 {
+        (format!("HOLDS {held:.0} OF {cap:.0}: {:.0}% SPEED", 100.0 / g.laden(i)), TEXT_WARN)
+    } else {
+        (format!("HOLDS {held:.0} OF {cap:.0} AT FULL SPEED"), TEXT)
+    }];
     if m.earned > 0.0 {
         below.push((format!("EARNED {} RENOWN", m.earned.floor()), TEXT));
     }
@@ -1556,8 +1561,8 @@ fn draw_prop(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, (px, py): (
     let (x, y) = v.px(px, py);
     let joins = |id: &str, dx: i32, dy: i32| g.world.prop_at(px + dx, py + dy).is_some_and(|(_, p)| p.0 == id || (id == "rails" && p.0 == "mine_cart"));
     match k.id {
-        "cliff" | "lift_vine" | "pit_wall" => {
-            let cliff = |dx: i32, dy: i32| ["cliff", "lift_vine", "pit_wall"].iter().any(|id| joins(id, dx, dy));
+        "cliff" | "lift_vine" | "pit_wall" | "gulch_wall" => {
+            let cliff = |dx: i32, dy: i32| ["cliff", "lift_vine", "pit_wall", "gulch_wall"].iter().any(|id| joins(id, dx, dy));
             draw_cliff(fb, x, y, (px, py), [cliff(0, -1), cliff(0, 1), cliff(-1, 0), cliff(1, 0)]);
             if k.id == "lift_vine" && (joins("lift_vine", -1, 0) || joins("lift_vine", 1, 0)) {
                 draw_vine_across(fb, x, y, (px, py));

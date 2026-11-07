@@ -434,10 +434,11 @@ pub fn carried_tags(recipe: &GoodType, inputs: &[&ItemData], data: &Data) -> Vec
 
 /// All raw materials behind the inputs, and the refinement depth of the output.
 /// Inputs with these tags are used up in the making.
-const SPENT: [&str; 4] = ["fuel", "lye", "lime", "dye"];
+/// Heat and coke are burned as fuel is (a knife weighs as its metal, not its coal).
+const SPENT: [&str; 6] = ["fuel", "heat", "coke", "lye", "lime", "dye"];
 
 /// Every raw material behind the inputs, and the refinement depth of the output. Inputs that
-/// fill a fuel, lye, lime or dye slot of the recipe are marked spent.
+/// fill a fuel, heat, coke, lye, lime or dye slot of the recipe are marked spent.
 pub fn lineage(recipe: &GoodType, inputs: &[&ItemData]) -> (Vec<RawMaterial>, u32) {
     let groups: Vec<&Vec<String>> = recipe.input_groups().map(|(_, g)| g).collect();
     let raw = inputs
@@ -578,6 +579,11 @@ pub fn produce(c: &Craft, data: &Data, rng: &mut Rng) -> Vec<ItemData> {
         let (mut raw, depth) = lineage(c.recipe, &c.inputs);
         let share = 1.0 / (c.recipe.quantity.max(1) as f64).sqrt();
         raw.iter_mut().for_each(|r| r.base_value *= share);
+        // A refined material weighs as itself, and so does what's made of it: copper ore
+        // smelted is copper, and a knife forged from it weighs as copper, not as ore.
+        if let Some(d) = c.recipe.raw_material_density {
+            raw.iter_mut().filter(|r| !r.spent).for_each(|r| r.density = d);
+        }
         (raw, depth)
     };
     let shares = output_shares(c);
@@ -613,7 +619,9 @@ pub const TRADE_QUALITY: f64 = 1.0;
 pub fn trade(recipe: &GoodType, inputs: &[&ItemData], data: &Data) -> ItemData {
     let gives = data.good(recipe.output());
     let given: Vec<&RawMaterial> = inputs.iter().flat_map(|i| &i.raw).collect();
-    let density = gives.raw_material_density.unwrap_or_else(|| total(given.iter().map(|r| r.density)) / given.len().max(1) as f64);
+    // Made of something (the trader's pick is iron): it weighs as that.
+    let of = recipe.made_of.as_deref().map(|m| data.good(m));
+    let density = gives.raw_material_density.or(of.and_then(|m| m.raw_material_density)).unwrap_or_else(|| total(given.iter().map(|r| r.density)) / given.len().max(1) as f64);
     let raw = vec![RawMaterial { good: gives.id.clone(), base_value: total(given.iter().map(|r| r.base_value)), density, spent: false }];
     let mut shares = Vec::new();
     for s in inputs.iter().flat_map(|i| &i.shares) {
