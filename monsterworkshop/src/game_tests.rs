@@ -2291,3 +2291,44 @@ fn the_hills_wild_screens_keep_open_ground_for_players_own_workshops() {
         assert!(plots >= want, "{name} has room for {plots} of players' workshops, not {want}");
     }
 }
+
+/// Every gatherable grows on at least two screens (Henry, 2026-11-06): its home, where most of it
+/// is, and a satellite or two elsewhere, so no single field or seam is everyone's only source. Tin
+/// is the one exception: the hills boast that nowhere else has it. A satellite planned for a hills
+/// screen not built yet is named here; it stands in until the screen is built, and is checked once
+/// it is. Plants a working townsperson gathers for themself don't count.
+#[test]
+fn every_gatherable_grows_on_more_than_one_screen() {
+    let g = Game::new();
+    let w = &g.world;
+    let only_here = ["tin_ore"];
+    let unbuilt = [("THE TIN GULCH", (250, 32)), ("THE GREAT FURNACE", (175, 64)), ("THE DEEP DRIFT", (200, 64)), ("SLAG SLOPES", (225, 64)), ("THE HIGH SCREE", (250, 64))];
+    let to_come = [
+        ("granite", "THE HIGH SCREE"),
+        ("hemp_stalks", "THE GREAT FURNACE"),
+        ("hemp_stalks", "THE HIGH SCREE"),
+        ("juniper_sticks", "THE HIGH SCREE"),
+        ("iron_ore", "THE GREAT FURNACE"),
+        ("iron_ore", "THE TIN GULCH"),
+        ("pyrite", "SLAG SLOPES"),
+        ("alum_found", "THE TIN GULCH"),
+        ("green_vitriol_found", "THE TIN GULCH"),
+        ("silver_ore", "SLAG SLOPES"),
+    ];
+    let built = |name: &str| unbuilt.iter().find(|u| u.0 == name).is_none_or(|&(_, (x, y))| crate::world::area_name(x, y) == name);
+    let mut screens: std::collections::BTreeMap<&str, std::collections::BTreeSet<(i32, i32)>> = Default::default();
+    let mut areas: std::collections::BTreeMap<&str, std::collections::BTreeSet<&str>> = Default::default();
+    for p in w.plants.iter().filter(|p| p.owner.is_none()) {
+        screens.entry(&p.good).or_default().insert((p.x.div_euclid(SCREEN_W), p.y.div_euclid(SCREEN_H)));
+        areas.entry(&p.good).or_default().insert(crate::world::area_name(p.x, p.y));
+    }
+    for (good, on) in &screens {
+        let waiting = to_come.iter().any(|&(g, screen)| g == *good && !built(screen));
+        assert!(on.len() >= 2 || only_here.contains(good) || waiting, "{good} grows only on {:?}: it needs a satellite", areas[good]);
+    }
+    for (good, screen) in to_come {
+        if built(screen) {
+            assert!(areas.get(good).is_some_and(|a| a.contains(screen)), "{screen} is built without its {good}");
+        }
+    }
+}

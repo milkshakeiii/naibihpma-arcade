@@ -55,6 +55,40 @@ Henry: don't be shy with varieties. A material's name and color carrying into wh
 
 **The cards list only what the world has.** A workshop making a tool ranks the materials the world has (something grows them, or a workshop or trader gives them), not every one in the data: a tub lists oak and hemlock until more woods are planted.
 
+## Satellites: nothing from one place only (agreed 2026-11-06)
+Henry: with all of a good in one field or seam on one screen, gathering it is too simple and a bottleneck. So every gatherable grows in more than one place, placed by judgment, not by formula:
+- **Its home** keeps most of it: the field, cut or wood the screen is built round.
+- **A satellite** of two to four spots a screen or two away, on another road where it can be.
+- **Sometimes a tiny second satellite** five or six screens away: a spot or two.
+- **Sometimes across the world,** where an expatriate industry puts it: Temple Town's copper seam (the hills in miniature) now; later its clay bank and hives, the Kiln Banks' mulberries and tapped pines, the Salt Coast potters' clay.
+- **Tin is the exception:** the hills boast that nowhere else has it.
+- **Never beside where it's used:** the haul is part of the game. Limestone was first put by Tanglemere's kiln, and Henry found that too easy.
+- **Never at the cost of open ground:** a satellite doesn't take a wild screen below its minimum (Open ground, under the Ore Hills). Towns can hold them: gathering in town is fine, building isn't.
+
+| Good | Home | Satellites |
+| :-- | :-- | :-- |
+| Cotton | Pinewater's field (18) | 3 wild bushes by the road in Thatch Hills; 2 by a shed in Tanglemere, the far one; Pinewater's second field with its rework |
+| Oak | Thatch Hills south (6) | 2 in Tinless, by the bridge's log bin |
+| Rhododendron | Thatch Hills north (4) | 2 among Dye Meadows' trees |
+| Limestone | Thatch Hills south (4) | 2 on Tinless's west bank, by the road out of Pinewater: further from Tanglemere's kiln than its home, never beside it (the haul is the point) |
+| Arrow bamboo | Dye Meadows south (9) | 3 on the river bank in Tinless |
+| Pumpkin | Pinewater (3) | 2 in a Temple Town garden |
+| Coal | Temple Town (6) | 2 in a notch of the High Pass's cliff |
+| Copper ore | the Copper Cut (27) | 2 in Temple Town beside the coal, its expatriate copper seam |
+| Granite | the Cliff Lift (5) | 2 in the High Pass's rocks; 3 on the High Scree, the far one |
+| Juniper | Charcoal Wood (3) | 2 in the High Pass; the High Scree's junipers |
+| Pine resin | Charcoal Wood (2) | 2 of Iron Brook's pines; the Kiln Banks' pines, across the world |
+| Hemp | Hemp Hollow (12) | by the brook at the Great Furnace; the High Scree's wild hemp, the far one |
+| Iron ore | Iron Brook (12) | 3 by the brook at the Great Furnace; a seam or two in the Tin Gulch, where the Rust Brook rises, the far one |
+| Pyrite | Alum Springs (6) | scattered on Slag Slopes |
+| Alum, green vitriol | Alum Springs (5 each) | a spring of each in the Tin Gulch |
+| Silver ore | the Deep Drift | 2 on Slag Slopes |
+| Tin ore | the Tin Gulch | none: the boast |
+
+Elder, hemlock, ramie, indigofera and pine already grew on several screens. The satellites on built screens went in on 2026-11-06; the rest come with their screens.
+- **Kept so:** a test holds every gatherable to two screens at least (tin aside, and plants a working townsperson gathers for themself don't count). It names the satellites planned for hills screens not built yet and checks each once its screen is. A new good's satellite comes in the same change as its home. The far and cross-world ones are judgment, not tested.
+- **Coal has no home in the hills yet:** the hills plan lists it among what's mined there, but no screen carries it, so Temple Town's seams (Old Soot's, for the bell) are still its main source. The Deep Drift or Slag Slopes could take it when they're built.
+
 ## 1. The Cloth Reaches (today's Pinewater and Tanglemere: the first province)
 River lowland with cotton fields, meadows, pine and oak woods, a tangled lake. The book's chapters on clothing materials and dyes, plus lime.
 - **Grows:** cotton bolls ✓, ramie ✓, indigofera ✓, limestone ✓, the four woods ✓, arrow bamboo ✓; pigweed indigo T, scholartree buds T, woad A.

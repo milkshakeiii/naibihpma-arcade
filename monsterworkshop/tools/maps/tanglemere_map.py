@@ -110,6 +110,9 @@ put(44, 11, 'ï')
 many('¶', (45, 11), (46, 11))
 fill(45, 12, 46, 12, '÷')
 put(38, 11, '§')
+put(38, 12, 'ŭ')                           # baskets, sacks and crates by the outfitter's hauling things
+put(38, 13, 'ş')
+put(38, 14, '[')
 many('Y', (48, 2), (48, 5), (48, 7), (48, 11), (48, 12), (48, 14))
 
 # --- Southwest: the kiln, and the lake's west shore. ---
@@ -159,6 +162,7 @@ for y in (19, 21, 23, 25):
     for x in (43, 45, 47):
         put(x, y, 'n')                     # the indigofera
 put(44, 22, 'ŝ')
+many('f', (37, 19), (37, 21))              # two cotton bushes by the shed, off the path
 fill(40, 24, 41, 24, '-')
 fill(40, 25, 41, 25, '≈')
 many('@', (34, 16), (34, 17), (35, 18), (36, 25), (37, 25), (36, 26))
