@@ -108,10 +108,74 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "miners_shed" => vec![miners_shed()],
         "tool_rack" => vec![tool_rack()],
         "tool_lean_to" => vec![tool_lean_to()],
+        "prospector_tent" => vec![prospector_tent()],
+        "campfire" => vec![campfire()],
         "windlass" => vec![windlass()],
         "spoil_heap" => vec![spoil_heap()],
         _ => Vec::new(),
     }
+}
+
+/// The prospector's tent: canvas over a ridgepole, lit down its left, a patch on it, its flap
+/// tied back on the dark inside, the pole's ends showing and guy ropes pegged out.
+fn prospector_tent() -> Sprite {
+    let mut s = Sprite::blank(32, 32);
+    for y in 4..=29 {
+        let half = 2 + (y - 4) * 13 / 25;
+        for x in 16 - half..16 + half {
+            let c = if x < 16 { COTTON + 2 } else { COTTON + 1 };
+            s.set(x, y, if (y - 4) % 6 == 5 { COTTON } else { c });
+        }
+    }
+    rect(&mut s, 15, 3, 16, 29, COTTON);
+    // A patch, stitched on.
+    rect(&mut s, 20, 12, 23, 15, MAT + 1);
+    rect(&mut s, 20, 12, 23, 12, MAT + 2);
+    // The way in: dark inside, the flap tied back to the left.
+    for y in 17..=29 {
+        let half = (y - 15) / 2;
+        rect(&mut s, 16 - half, y, 16 + half, y, HUD_SHADOW);
+    }
+    for y in 19..=29 {
+        let w = (y - 17) / 3;
+        rect(&mut s, 16 - (y - 15) / 2 - w - 1, y, 16 - (y - 15) / 2 - 1, y, COTTON + 2);
+    }
+    rect(&mut s, 9, 21, 10, 22, WOOD);
+    // The ridgepole's ends, and the ropes out to their pegs.
+    rect(&mut s, 15, 0, 16, 3, WOOD + 2);
+    for k in 0..=12 {
+        s.set(15 - k, 2 + k * 2, WOOD);
+        s.set(16 + k, 2 + k * 2, WOOD);
+    }
+    rect(&mut s, 2, 27, 3, 29, WOOD + 2);
+    rect(&mut s, 28, 27, 29, 29, WOOD + 2);
+    rect(&mut s, 4, 30, 27, 31, HUD_SHADOW);
+    s.outline()
+}
+
+/// A campfire in a ring of stones, crossed logs burning under a kettle hung from a tripod.
+fn campfire() -> Sprite {
+    let mut s = Sprite::blank(16, 16);
+    for (x, y) in [(2, 12), (4, 14), (7, 15), (10, 15), (13, 14), (14, 12), (4, 10), (12, 10)] {
+        rect(&mut s, x, y, x + 1, y, STONE[1]);
+        s.set(x, y - 1, STONE[2]);
+    }
+    for k in 0..=6 {
+        s.set(4 + k, 13 - k / 2, WOOD + 1);
+        s.set(11 - k, 13 - k / 2, WOOD);
+    }
+    for (y, half, c) in [(12, 3, SPARK), (11, 3, SPARK), (10, 2, SPARK + 1), (9, 2, SPARK + 1), (8, 1, SPARK + 2), (7, 1, SPARK + 2)] {
+        rect(&mut s, 8 - half, y, 7 + half, y, c);
+    }
+    // The tripod, and the kettle on its chain.
+    for k in 0..=12 {
+        s.set(8 - k / 2, k, WOOD + 2);
+        s.set(8 + k / 2, k, WOOD + 2);
+    }
+    rect(&mut s, 8, 1, 8, 3, HUD_MID);
+    rect(&mut s, 6, 4, 10, 6, HUD_FILL);
+    rect(&mut s, 6, 4, 10, 4, HUD_MID);
+    s.outline()
 }
 
 /// The hillside: grey boulders packed tight, a few mossy, in three arrangements.

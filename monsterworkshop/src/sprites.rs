@@ -1504,6 +1504,8 @@ enum Look {
     Seam,
     /// A spring in a ring of stone, crusted with what it leaves: alum, green vitriol.
     Spring,
+    /// Heavy black sand on a gravel bar by the water, to be washed: tin.
+    Placer,
 }
 
 impl Look {
@@ -1563,6 +1565,7 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
         (Look::Stalks, _) => stalks(&mut s, &[5, 10], [5, 10, 14][stage as usize], false),
         (Look::Seam, _) => seam(&mut s, stage, bloom),
         (Look::Spring, _) => spring(&mut s, stage, bloom),
+        (Look::Placer, _) => placer(&mut s, stage, bloom),
         (_, 0) => {
             for y in 12..=15 {
                 s.set(8, y, LEAF);
@@ -1576,7 +1579,7 @@ fn make_wild(look: Look, bloom: Option<(u8, u8)>, stage: u8) -> Sprite {
         (_, 1) => shrub(&mut s, 4, 3, dark),
         _ => shrub(&mut s, 6, 5, dark),
     }
-    if stage == 2 && look != Look::Seam && look != Look::Spring {
+    if stage == 2 && !matches!(look, Look::Seam | Look::Spring | Look::Placer) {
         if let Some((a, b)) = bloom {
             for (x, y) in [(5, 7), (10, 6), (8, 9), (4, 11), (12, 10), (7, 5)] {
                 s.set(x, y, b);
@@ -1671,6 +1674,40 @@ fn spring(s: &mut Sprite, stage: u8, crust: Option<(u8, u8)>) {
         for (x, y, k) in [(12, 13, c), (13, 13, hi), (13, 12, c), (11, 14, c), (3, 6, hi), (4, 6, c)] {
             s.set(x, y, k);
         }
+    }
+}
+
+/// Tin sand on a bar of pale pebbles: a heap of it, black and glinting, when it's ready; a thin
+/// spread while it washes down again; and a scraped hollow once it's been dug.
+fn placer(s: &mut Sprite, stage: u8, sand: Option<(u8, u8)>) {
+    let (dark, glint) = sand.unwrap_or((HUD_SHADOW, COTTON + 2));
+    let inside = |x: i32, y: i32, cx: f64, cy: f64, rx: f64, ry: f64| {
+        let (dx, dy) = ((x as f64 - cx) / rx, (y as f64 - cy) / ry);
+        dx * dx + dy * dy <= 1.0
+    };
+    for (x, y) in [(1, 14), (2, 15), (5, 15), (11, 15), (14, 14), (13, 15), (2, 10), (14, 10)] {
+        s.set(x, y, STONE[1]);
+    }
+    for y in 6..=15 {
+        for x in 0..=15 {
+            let c = match stage {
+                2 if inside(x, y, 7.5, 11.0, 6.5, 3.6) => {
+                    if inside(x, y, 6.5, 9.6, 3.6, 1.6) { shift(dark, 1) } else { dark }
+                }
+                1 if inside(x, y, 7.5, 12.5, 5.0, 2.2) => if (x + y) % 4 == 0 { shift(dark, 1) } else { dark },
+                0 if inside(x, y, 7.5, 12.5, 5.0, 2.2) => if inside(x, y, 7.5, 12.8, 3.6, 1.2) { STONE[0] } else { STONE[1] },
+                _ => continue,
+            };
+            s.set(x, y, c);
+        }
+    }
+    let glints: &[(i32, i32)] = match stage {
+        2 => &[(4, 10), (9, 9), (11, 12), (6, 13), (8, 11), (12, 10)],
+        1 => &[(5, 12), (10, 13)],
+        _ => &[(7, 13), (9, 12)],
+    };
+    for &(x, y) in glints {
+        s.set(x, y, if stage == 0 { dark } else { glint });
     }
 }
 
@@ -2485,7 +2522,7 @@ fn make_wagon(open: bool) -> Sprite {
 
 /// Wild plants with art of their own: how each grows, and the blossoms that show it's ready
 /// (pink rhododendron and indigofera, white elder). Others grow by their type's look.
-const WILD: [(&str, Look, Option<(u8, u8)>); 15] = [
+const WILD: [(&str, Look, Option<(u8, u8)>); 16] = [
     ("hemlock_log", Look::Conifer, None),
     ("oak_log", Look::Broadleaf, None),
     ("elder_sticks", Look::Bush, Some((COTTON + 1, COTTON + 2))),
@@ -2503,6 +2540,8 @@ const WILD: [(&str, Look, Option<(u8, u8)>); 15] = [
     // Springs, crusted with what they leave: alum white, green vitriol pale green.
     ("alum_found", Look::Spring, Some((COTTON + 1, COTTON + 2))),
     ("green_vitriol_found", Look::Spring, Some((LEAF + 2, TEXT_GOOD))),
+    // Tin sand, black with a glint, heaped on a gravel bar.
+    ("tin_sand", Look::Placer, Some((HUD_SHADOW, COTTON + 2))),
     ("granite", Look::Rocks, None),
     // A tapped pine is a pine; the resin is drawn on it later.
     ("pine_resin", Look::Conifer, None),

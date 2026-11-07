@@ -37,7 +37,7 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam  `©` copper seam
 // `ĝ` granite outcrop  `ĥ` hemp  `Ƥ` pine  `ƥ` a pine tapped for resin  `ʝ` juniper  `ɨ` iron,
 // in a red bank  `ƿ` pyrite  `ȃ` a spring crusted with alum  `ʋ` a spring crusted with green
-// vitriol
+// vitriol  `ʦ` tin sand, on a gravel bar by the water
 // `0` a gate into a province past the first, shut until its board's goal is met
 // `░` paving  `╪` a jetty (planks over water)  `╬` a bridge, built  `▒` gravel: bare stony ground, as in a quarry or
 // a pit (copper seams and granite outcrops lie on it too)  `≡` stone steps  `═` duckboards  `▓` sinter,
@@ -50,7 +50,7 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 /// What Verdigris East's tool store takes for renown: finished tools, by their kind.
 const TOOL_STORE: [&str; 12] = ["hammer", "pick", "shovel", "axe", "chisel", "knife", "saw", "file", "sickle", "scythe", "billhook", "forceps"];
 
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋɨƿȃʋ═▓ȻɄȺ";
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋɨƿȃʋ═▓ȻɄȺʦ";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -213,7 +213,7 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 /// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks, the
 /// parapet and the yard wall join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 110] = [
+pub const PROPS: [PropKind; 113] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -339,6 +339,10 @@ pub const PROPS: [PropKind; 110] = [
     prop("water_trough", 'ȣ', "A WATER TROUGH", "FILLED FROM THE WELL. EVERYONE DRINKS FROM IT, AND THE CYCLOPS SPLASH.", (2, 1)),
     // Verdigris East's.
     prop("tool_lean_to", 'Ʌ', "THE TOOL SHED", "SPARE PICKS AND SHOVELS GO IN THE BINS IN FRONT. A LOOP WHOSE OWN BREAKS TAKES THE NEXT FROM A CHUTE.", (4, 2)),
+    // The Tin Gulch's.
+    prop("gulch_wall", 'Ɍ', "THE GULCH'S WALL", "GREY ROCK, STREAKED RUST WHERE THE WATER SEEPS OUT. THE TIN WASHED DOWN OUT OF IT, A GRAIN AT A TIME.", (1, 1)),
+    prop("prospector_tent", 'Ⱦ', "THE PROSPECTOR'S TENT", "PATCHED CANVAS ON A RIDGEPOLE. WHOEVER PITCHED IT IS UP THE GULCH, WASHING SAND.", (2, 2)),
+    prop("campfire", 'ȹ', "A CAMPFIRE", "A KETTLE ON A TRIPOD OVER IT. THE GULCH IS COLD ONCE THE SUN IS OFF THE WATER.", (1, 1)),
 ];
 
 
@@ -381,7 +385,7 @@ fn regions() -> impl Iterator<Item = &'static Region> {
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 14] = [
+const REGIONS: [Region; 15] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
@@ -672,6 +676,25 @@ const REGIONS: [Region; 14] = [
         supplies: &[],
         workers: &[],
     },
+    // The Tin Gulch, at the high road's east end: the only tin in the world, washed out of the
+    // Rust Brook's gravel where it rises in a narrow gorge, and a prospector's camp at its mouth.
+    // Wild, open to Verdigris East. Nothing makes a basket yet, so one lies by the tent.
+    Region {
+        map: include_str!("../data/tin_gulch.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        town: false,
+        at: (250, 32),
+        racks: &[],
+        folk: &[],
+        vines: &[],
+        goods: &[((7, 3), "basket", "juniper_sticks")],
+        labels: &[],
+        signs: &[("VERDIGRIS EAST", Dir::Left)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
 ];
 
 /// Pinewater's wagonwright, after Xi Zhong, who legend says made the first cart. He fetches his
@@ -764,7 +787,7 @@ pub const SUPPLY_TICKS: u32 = 60;
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it, then the hills row by row, each west to east (the last
 /// one a tile lies past is its name, so the order matters).
-const AREAS: [(i32, i32, &str); 16] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS"), (150, 64, "IRON BROOK"), (225, 32, "VERDIGRIS EAST"), (225, 48, "ALUM SPRINGS")];
+const AREAS: [(i32, i32, &str); 17] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS"), (150, 64, "IRON BROOK"), (225, 32, "VERDIGRIS EAST"), (250, 32, "THE TIN GULCH"), (225, 48, "ALUM SPRINGS")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 /// A test checks it against the regions, since a region further south makes the world taller.
@@ -798,6 +821,7 @@ fn plant_good(ch: char) -> Option<&'static str> {
         'ƿ' => "pyrite",
         'ȃ' => "alum_found",
         'ʋ' => "green_vitriol_found",
+        'ʦ' => "tin_sand",
         _ => return None,
     })
 }
@@ -1405,7 +1429,7 @@ impl World {
                         'Y' => Tile::Tree,
                         '0' => Tile::Gate,
                         '░' => Tile::Paving,
-                    '▒' | '©' | 'ĝ' | 'ɨ' | 'ƿ' => Tile::Gravel,
+                    '▒' | '©' | 'ĝ' | 'ɨ' | 'ƿ' | 'ʦ' => Tile::Gravel,
                     // Springs well up out of their own sinter.
                     '▓' | 'ȃ' | 'ʋ' => Tile::Sinter,
                     '≡' => Tile::Stair,

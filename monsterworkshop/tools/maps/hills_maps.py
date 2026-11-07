@@ -444,7 +444,48 @@ put(e, '@', (20, 5), (22, 13))
 put(e, 's', (1, 3), (22, 3), (7, 13))   # COPPER CUT north of the road, clear of the shed's roof
 assert all(e[y][8] == ',' and e[y][9] == ',' for y in range(5, 16)), "the ramp joins Alum Springs' on its columns"
 
-for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b), ('iron_brook', i), ('alum_springs', a), ('verdigris_east', e)]:
+# --- The Tin Gulch, the functional draft: the high road's east end. Wild, open to Verdigris East
+# (whose hedge stands on its own side); the world's edge north and east is the gulch's rock; the
+# heights' edge along the bottom, two rows of cliff as under the Copper Cut. The road ends at the
+# gulch's mouth, by a prospector's camp, with open ground to build on. East of it the gorge: the
+# Rust Brook rises at its head under the east wall, runs west along it, then turns south and falls
+# through the cliff toward the foundry. Tin sand on the gravel bars along both banks (the only tin
+# in the world), a bridge to the far one. Where the brook rises, two iron seams in a red bank and
+# a spring of each mineral on a patch of sinter: the satellites of Iron Brook and Alum Springs.
+t = blank()
+box(t, '.', 0, 1, 0, 13)         # open to Verdigris East
+box(t, 'Ɍ', 0, 0, 24, 0)         # the world's edge, the gulch's rock
+box(t, 'Ɍ', 23, 0, 24, 13)
+box(t, 'Λ', 0, 14, 24, 15)       # the heights' edge
+box(t, ',', 0, 4, 11, 4)         # the high road, to the gulch's mouth
+# The gorge: its north wall, its south wall, the gravel floor between.
+box(t, 'Ɍ', 12, 1, 22, 1)
+box(t, 'Ɍ', 13, 2, 22, 2)
+box(t, 'Ɍ', 15, 3, 22, 3)
+box(t, 'Ɍ', 14, 10, 22, 13)
+box(t, '▒', 12, 3, 14, 3)
+box(t, '▒', 12, 4, 22, 9)
+box(t, 'w', 12, 6, 22, 7)        # the Rust Brook, rising at the gorge's head,
+box(t, 'w', 12, 8, 13, 15)       # turning south and falling through the cliff
+box(t, '╬', 17, 6, 17, 7)        # a bridge to the far bank
+put(t, 'ʦ', (13, 5), (14, 5), (16, 5), (18, 5), (19, 5))   # tin sand on the bars,
+put(t, 'ʦ', (14, 8), (15, 8), (19, 8), (20, 8))
+put(t, 'ʦ', (11, 10))
+put(t, 'ɨ', (21, 8), (22, 8))    # iron in a red bank where the brook rises,
+box(t, '▓', 20, 4, 22, 5)        # and a spring of each mineral on its sinter
+put(t, 'ȃ', (21, 5))
+put(t, 'ʋ', (22, 5))
+put(t, 'ɵ', (15, 7), (20, 6), (12, 9), (13, 12))
+# The prospector's camp at the mouth, north of the road; a basket lies by the tent (the region's
+# goods).
+box(t, 'Ⱦ', 8, 1, 9, 2)
+put(t, 'ȹ', (10, 3))
+put(t, 'Y', (1, 1), (3, 1), (2, 2), (11, 2))
+put(t, '@', (5, 1), (6, 3), (1, 12), (10, 13), (4, 13))
+put(t, 's', (1, 3))
+assert t[4][0] == ',' and all(t[y][12] in 'wɵ' and t[y][13] in 'wɵ' for y in range(6, 16)), "the road comes in from Verdigris East; the brook falls south"
+
+for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b), ('iron_brook', i), ('alum_springs', a), ('verdigris_east', e), ('tin_gulch', t)]:
     rows = [''.join(r) for r in g]
     assert all(len(r) == W for r in rows)
     (DATA / f'{name}.map').write_text('\n'.join(rows) + '\n', encoding='utf-8', newline='\n')

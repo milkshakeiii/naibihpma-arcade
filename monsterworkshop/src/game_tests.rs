@@ -2201,7 +2201,7 @@ fn the_hills_walk_the_long_way_round_from_the_way_in_to_the_copper_cut() {
         far
     };
     let far = walk("");
-    for place in ["HEMP HOLLOW", "CHARCOAL WOOD", "VERDIGRIS", "COPPER CUT", "VERDIGRIS EAST", "ALUM SPRINGS"] {
+    for place in ["HEMP HOLLOW", "CHARCOAL WOOD", "VERDIGRIS", "COPPER CUT", "VERDIGRIS EAST", "THE TIN GULCH", "ALUM SPRINGS"] {
         assert!(far.keys().any(|p| area(p) == place), "{place} is reachable from the way in");
     }
     let by_vine = lift.vine.len() as u32 + 1;
@@ -2410,7 +2410,7 @@ fn verdigris_east_shares_spare_tools_and_takes_finished_ones_for_renown() {
 fn every_gatherable_grows_on_more_than_one_screen() {
     let g = Game::live();
     let w = &g.world;
-    let only_here = ["tin_ore"];
+    let only_here = ["tin_sand"];
     let unbuilt = [("THE TIN GULCH", (250, 32)), ("THE GREAT FURNACE", (175, 64)), ("THE DEEP DRIFT", (200, 64)), ("SLAG SLOPES", (225, 64)), ("THE HIGH SCREE", (250, 64))];
     let to_come = [
         ("granite", "THE HIGH SCREE"),
