@@ -1972,7 +1972,8 @@ fn a_loop_takes_a_spare_tool_when_its_own_breaks_and_leaves_spares_be_otherwise(
 fn space_beside_tools_takes_one_not_yet_in_hand() {
     let mut g = crate::temple_test_game();
     let c = g.communes[0].controlled;
-    let chute = |g: &Game, tool: &str| g.world.bins.iter().find(|b| b.accepts == [tool]).and_then(|b| b.mouth).expect("a tool bin");
+    // The test world's own, built from kits (Verdigris East has a pick bin and a shovel bin too).
+    let chute = |g: &Game, tool: &str| g.world.bins.iter().find(|b| b.accepts == [tool] && b.frontier.is_some()).and_then(|b| b.mouth).expect("a tool bin");
     g.run_ticks(10);
     let (p, s) = (chute(&g, "pick"), chute(&g, "shovel"));
     assert_eq!((p.1, s.0 - p.0), (s.1, 2), "the chutes, a tile apart");
@@ -2158,7 +2159,8 @@ fn the_cliff_lift_vine_carries_goods_up_and_waits_for_room_at_the_top() {
 
 /// The hills walk as one (2026-11-05): from the way in, the long way round by Hemp Hollow and
 /// Charcoal Wood, up the Stone Stair into Verdigris, to the lift vine's head and on to the Copper
-/// Cut; and no other way, since the cliff keeps the way in's low ground from the heights.
+/// Cut and Verdigris East, or on through Bellows to Alum Springs and up its ramp; and no other way,
+/// since the cliff keeps the way in's low ground from the heights.
 #[test]
 fn the_hills_walk_the_long_way_round_from_the_way_in_to_the_copper_cut() {
     let g = Game::new();
@@ -2181,7 +2183,7 @@ fn the_hills_walk_the_long_way_round_from_the_way_in_to_the_copper_cut() {
         far
     };
     let far = walk("");
-    for place in ["HEMP HOLLOW", "CHARCOAL WOOD", "VERDIGRIS", "COPPER CUT"] {
+    for place in ["HEMP HOLLOW", "CHARCOAL WOOD", "VERDIGRIS", "COPPER CUT", "VERDIGRIS EAST", "ALUM SPRINGS"] {
         assert!(far.keys().any(|p| area(p) == place), "{place} is reachable from the way in");
     }
     let by_vine = lift.vine.len() as u32 + 1;
@@ -2352,6 +2354,33 @@ fn pinewater_has_a_cloth_chain_along_each_street() {
     for gap in [(48, 9), (48, 27)] {
         assert!(seen.contains(&gap), "the road out east at {gap:?}");
     }
+}
+
+/// Verdigris East's tool yard (Henry, 2026-11-06): a pick bin and a shovel bin, where anyone
+/// pushes a spare in and a loop whose own breaks takes the next from the chute, paying nothing; and
+/// beside them the tool store, the plan's tool drop-off, taking any finished tool for renown.
+#[test]
+fn verdigris_east_shares_spare_tools_and_takes_finished_ones_for_renown() {
+    let g = Game::new();
+    let east: Vec<usize> = (0..g.world.bins.len()).filter(|&b| crate::world::area_name(g.world.bins[b].x, g.world.bins[b].y) == "VERDIGRIS EAST").collect();
+    for tool in ["pick", "shovel"] {
+        let bin = east.iter().map(|&b| &g.world.bins[b]).find(|b| b.accepts == [tool]).unwrap_or_else(|| panic!("a {tool} bin"));
+        assert!(!bin.scores, "a spare {tool} pays nothing");
+        let (mx, my) = bin.mouth.expect("a chute");
+        assert!(g.world.item_floor(mx, my), "the {tool} chute sets them out");
+        let pushed_in = crate::world::DIRS.iter().any(|d| {
+            let (dx, dy) = d.delta();
+            let (at, behind) = ((bin.x + dx, bin.y + dy), (bin.x + 2 * dx, bin.y + 2 * dy));
+            at != (mx, my) && g.world.item_floor(at.0, at.1) && g.world.walkable(behind.0, behind.1)
+        });
+        assert!(pushed_in, "a spare {tool} can be pushed in");
+    }
+    let store = east.iter().copied().find(|&b| g.world.bins[b].scores).expect("the tool store");
+    assert_eq!(g.bin_name(store), "THE TOOL STORE");
+    for tool in ["pick", "shovel", "metal_axe", "knife", "saw", "stone_hammer", "sickle"] {
+        assert!(g.world.bins[store].takes(g.data.good(tool)), "it takes a {tool}");
+    }
+    assert!(!g.world.bins[store].takes(g.data.good("copper_ingot")), "ingots go to the assay office");
 }
 
 /// Every gatherable grows on at least two screens (Henry, 2026-11-06): its home, where most of it

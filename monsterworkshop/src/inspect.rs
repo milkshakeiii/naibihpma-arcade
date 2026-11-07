@@ -765,14 +765,19 @@ pub(crate) fn plant_name(data: &crate::data::Data, good: &str) -> String {
 fn bin_card(g: &Game, b: usize) -> Card {
     let bin = &g.world.bins[b];
     let name = g.bin_name(b);
-    let mut lines: Vec<Line> = bin
-        .accepts
-        .iter()
-        .map(|a| {
-            let of = |d: &&crate::econ::ItemData| d.good == *a || g.data.try_good(&d.good).is_some_and(|gt| gt.type_tags.contains(a));
-            line(format!("{} {}", bin.stock.iter().filter(of).count(), g.good_name(a)), TEXT).icon(Icon::Good(a.clone()))
-        })
-        .collect();
+    // A store taking many kinds says what it takes in a line, and how many it has, not a line each.
+    let mut lines: Vec<Line> = if bin.accepts.len() > 4 {
+        let kinds: Vec<String> = bin.accepts.iter().map(|a| g.good_name(a)).collect();
+        vec![line(format!("{} IN IT", bin.stock.len()), TEXT), line(format!("IT TAKES ANY {}.", kinds.join(", ")), TEXT_DIM)]
+    } else {
+        bin.accepts
+            .iter()
+            .map(|a| {
+                let of = |d: &&crate::econ::ItemData| d.good == *a || g.data.try_good(&d.good).is_some_and(|gt| gt.type_tags.contains(a));
+                line(format!("{} {}", bin.stock.iter().filter(of).count(), g.good_name(a)), TEXT).icon(Icon::Good(a.clone()))
+            })
+            .collect()
+    };
     if !bin.stock.is_empty() && bin.stock.iter().all(|d| g.data.try_good(&d.good).is_some_and(|gt| gt.has_quality)) {
         let qs: Vec<f64> = bin.stock.iter().map(|i| i.quality).collect();
         let avg = qs.iter().sum::<f64>() / qs.len() as f64;

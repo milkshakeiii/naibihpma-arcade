@@ -383,7 +383,68 @@ put(a, '¥', (3, 13), (7, 13), (18, 13), (19, 13), (11, 14), (5, 14))
 put(a, 's', (9, 10), (1, 12))
 assert all(a[y][8] == ',' for y in range(0, 12)), 'the ramp runs from the heights to the road'
 
-for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b), ('iron_brook', i), ('alum_springs', a)]:
+# --- Verdigris East, from variant 1 (tools/briefs/hills_verdigris_east.txt): hedged round as a
+# village (the Copper Cut west and the Tin Gulch east are wild, open to it); the high road through
+# it; a parapet along the heights' edge, open where the ramp comes up from Alum Springs, on its
+# columns (the model had moved the stair east, with the square and its well beside it). The tool
+# yard by the road from the Copper Cut: a tool shed with the pick and shovel bins before it, their
+# chutes below, where anyone pushes a spare in and any loop takes one when its own breaks (Henry:
+# bins and chutes, two kinds); and the tool store, the plan's tool drop-off, taking any finished
+# tool for renown. Houses with yards, woodpiles and barrels; a cobbled square with a
+# well at the ramp's top; a garden with washing; a green with flower beds and a bench; pines.
+e = blank()
+box(e, ',', 0, 4, 24, 4)         # the high road
+box(e, ',', 8, 5, 9, 15)         # the ramp down to the springs
+box(e, 'ɐ', 1, 14, 7, 14)        # the parapet along the heights' edge
+box(e, 'ɐ', 10, 14, 23, 14)
+box(e, 'ȼ', 2, 1, 4, 3)          # houses north of the road, their doors on it,
+box(e, 'ȼ', 7, 1, 9, 3)
+box(e, 'ȼ', 12, 1, 14, 3)
+put(e, 'i', (5, 3), (10, 3), (15, 3))    # with barrels and woodpiles between them
+put(e, '+', (6, 2), (16, 3))
+put(e, '@', (1, 1), (1, 2), (18, 2), (21, 1), (21, 3))
+put(e, '*', (19, 1), (20, 1))
+# The tool yard, on stony ground.
+box(e, '▒', 1, 5, 7, 10)
+box(e, 'Ʌ', 1, 6, 4, 7)          # the tool shed,
+put(e, 'Ȼ', (1, 8))              # the pick bin and the shovel bin before it,
+put(e, 'Ʉ', (4, 8))
+put(e, 'm', (1, 9), (4, 9))      # their chutes
+put(e, 'Ⱥ', (6, 5))              # and the tool store by the road, finished tools in for renown
+put(e, 'ǥ', (10, 5))             # a grindstone
+put(e, '!', (7, 9))
+put(e, 'x', (1, 11), (2, 11), (3, 11), (4, 11), (7, 11))
+put(e, '-', (5, 11), (6, 11))    # the yard wall with a bench in it
+put(e, 'Y', (3, 12))
+put(e, '@', (1, 13))
+# The square at the ramp's top, its well; a bench on the parapet looking out over the springs.
+box(e, '░', 10, 10, 13, 12)
+box(e, '>', 11, 11, 12, 12)
+put(e, '-', (11, 13), (12, 13))
+# Houses south of the road: a garden with washing beside the first; lanes to their doors.
+box(e, 'ȼ', 14, 6, 16, 8)
+box(e, 'x', 10, 6, 13, 6)
+box(e, 'x', 10, 7, 10, 9)
+put(e, 'x', (11, 9), (13, 9))
+put(e, ']', (11, 7), (12, 7))
+put(e, '*', (13, 7), (13, 8), (17, 7), (17, 8))
+put(e, ',', (15, 9), (15, 10), (14, 10))
+box(e, 'ȼ', 14, 10, 16, 12)
+box(e, 'ȼ', 19, 10, 21, 12)
+put(e, ']', (17, 11), (18, 11))
+put(e, 'x', (17, 12), (18, 12))
+box(e, ',', 13, 13, 20, 13)
+# A green to the east: a lane from the road, cobbles, flower beds, a bench; pines and boulders.
+box(e, '░', 18, 5, 18, 9)
+box(e, '░', 19, 7, 21, 8)
+put(e, '-', (19, 6), (20, 6))
+put(e, '*', (22, 6), (22, 7), (22, 8), (19, 9), (20, 9), (21, 9))
+put(e, 'Y', (12, 5), (13, 5), (21, 5), (22, 5), (23, 6), (23, 9), (23, 10), (23, 11), (23, 12))
+put(e, '@', (20, 5), (22, 13))
+put(e, 's', (1, 3), (22, 3), (7, 13))   # COPPER CUT north of the road, clear of the shed's roof
+assert all(e[y][8] == ',' and e[y][9] == ',' for y in range(5, 16)), "the ramp joins Alum Springs' on its columns"
+
+for name, g in [('cliff_lift', c), ('copper_cut', k), ('hemp_hollow', h), ('charcoal_wood', w), ('verdigris', v), ('bellows', b), ('iron_brook', i), ('alum_springs', a), ('verdigris_east', e)]:
     rows = [''.join(r) for r in g]
     assert all(len(r) == W for r in rows)
     (DATA / f'{name}.map').write_text('\n'.join(rows) + '\n', encoding='utf-8', newline='\n')

@@ -1825,7 +1825,10 @@ fn draw_bin(g: &Game, sp: &Sprites, fb: &mut Framebuffer, v: &View, b: &Bin) {
     for y in [y0 + 6, y0 + 10] {
         fb.rect_fill(x0 + 2, y, 12, 1, wood);
     }
-    if let Some(icon) = b.accepts.first().and_then(|a| sp.icon(a)) {
+    // What it takes, on its front: a good's own icon, or for a type of good (a tag) the first
+    // good of that type that has one (the tool store's hammer, the assay office's ingot).
+    let shows = |a: &String| sp.icon(a).or_else(|| g.data.goods.iter().filter(|gt| gt.type_tags.contains(a)).find_map(|gt| sp.icon(&gt.id)));
+    if let Some(icon) = b.accepts.first().and_then(shows) {
         fb.blit(icon, x0 + 4, y0 + 5, false);
     }
     if let Some((mx, my)) = b.mouth {

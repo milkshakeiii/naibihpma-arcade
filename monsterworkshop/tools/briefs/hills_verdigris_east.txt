@@ -1,0 +1,23 @@
+verdigris_east_225_32
+This is one screen of a top-down pixel-art village game: 25 tiles across and 16 down, each tile 16 pixels, shown four times larger. The thin dark lines are the tile grid. This screen is VERDIGRIS EAST, the eastern end of the town of the ORE HILLS, a province of rocky hills, copper mines and dark pine woods; its copper roofs have gone green in the weather. It stands on the heights, on the high road, between the copper mine to the west and a narrow gorge to the east where tin is dug. A ramp climbs the cliff from the mineral springs below and comes up through the town's parapet. It is where the miners live, and where they keep their tools: spare picks and shovels are left on shared piles by the road for anyone's work to take when theirs wears out, and finished tools are delivered for the town. Recompose the screen into a cozy, sturdy, lived-in quarter of a stone hill town, homes with small yards, the way a fine level designer and pixel artist would: think about composition, framing, clusters and open space, so it reads as a real place rather than a diagram.
+
+Rules for the picture:
+- Keep exactly this art style, palette and pixel scale, top-down view, and keep the grid lines drawn. Everything sits on the grid: every object keeps its size in tiles.
+- Use the pieces already in the picture, and add decorations generously but tastefully, about the street, the lanes and the yards. Each decoration takes whole tiles. Decorations must not look like goods lying on the ground (tools, ore, sacks, logs) or like crops, since those are things players pick up and harvest.
+- It is a village: keep the dark hedge along the top, the left and the right edges, open only where the high road leaves at the left and right. The bottom edge is the top of the cliff above the springs: a low stone parapet along it, closed except where the ramp comes up.
+- Keep the road and the ramp where they cross the edges, on the rows and columns they cross on now. In between, lanes may bend and new paths and cobbles may be laid.
+- Keep two tiles of open ground in front of each door, round the tool drop-off and round the tool piles: people come and go there with tools in hand.
+- Leave walking room: everything below must be reachable on foot from the road over open ground, one tile wide at least.
+- Draw no words or labels on the picture except the signposts' names already there.
+
+What is here, and what must stay true:
+- THE HIGH ROAD: it crosses from the left edge to the right edge on the row it does now.
+- THE RAMP comes up through the parapet at the bottom, two tiles wide, where it does now, and runs up to the road. Make its top a fine arrival into the town from the springs.
+- THE TOOL PILES: the six tool racks on the left below the road. They stand for the shared piles of spare picks and shovels, where anyone leaves a spare and anyone's work takes one; they may become a roofed tool shed open at the front, or racks under a lean-to, but keep six places for tools together near the road from the copper mine.
+- THE TOOL DROP-OFF: the small box near them by the road, where finished tools are delivered for the town.
+- SIX HOUSES: stone cottages with copper-green roofs, three north of the road with their doors on it, three south of it on lanes from the ramp. They may move a little, and lanes may change, but each keeps its door on a road, lane or path.
+- THE SIGNPOSTS: COPPER CUT by the road at the left, THE TIN GULCH by the road at the right, ALUM SPRINGS at the top of the ramp.
+
+Decorations that would suit it: small yards with low stone walls or fences, washing lines and window boxes, woodpiles and rain barrels against the houses, a well with a bucket, a grindstone and a bench by the tool piles, lanterns along the road, a bench along the parapet looking out over the springs, flower beds, pines and boulders at the town's edges.
+
+Return only the image.

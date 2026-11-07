@@ -29,7 +29,9 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // Scenery: each kind's own character, in `PROPS` below (`Q` spare wheels, `x` fence, `^` the
 // hillside...)
 // `C` cotton bin and `m` its chute  `T` cloth store (a drop-off for fabric)  `ȋ` the assay
-// office's bin (a drop-off for ingots, any metal)  `a` applicant
+// office's bin (a drop-off for ingots, any metal)  `Ȼ` `Ʉ` Verdigris East's pick
+// and shovel bins (spares in, one out of the chute)  `Ⱥ` its tool store (a drop-off for finished
+// tools)  `a` applicant
 // stand in the gathering hall  `1` `2` monster starts
 // Plants: `f` cotton  `h` hemlock  `k` oak  `e` elder  `r` rhododendron  `j` arrow bamboo
 // `q` ramie  `n` indigofera  `l` limestone outcrop  `M` coal seam  `©` copper seam
@@ -45,7 +47,10 @@ pub const SEARCH_MARGIN: (i32, i32) = (2 * SCREEN_W, 2 * SCREEN_H);
 // nearest work spot.
 
 /// Every character the map legend above gives a meaning, so no workshop kind takes one.
-pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋɨƿȃʋ═▓";
+/// What Verdigris East's tool store takes for renown: finished tools, by their kind.
+const TOOL_STORE: [&str; 12] = ["hammer", "pick", "shovel", "axe", "chisel", "knife", "saw", "file", "sickle", "scythe", "billhook", "forceps"];
+
+pub const MAP_LEGEND: &str = "#.,W_DYwFsbXUPCmTa12fhkerjqnlpgovcuHGNM0░╪©ĝ▒≡ĥƤƥʝ╬ȋɨƿȃʋ═▓ȻɄȺ";
 
 /// A region's map, plus what its text-only features say, in the order they appear.
 struct Region {
@@ -208,7 +213,7 @@ const fn water_prop(id: &'static str, ch: char, name: &'static str, about: &'sta
 /// awning over a shop's door, the hillside, the cliff and its vine, hemp's drying racks, the
 /// parapet and the yard wall join their neighbors of the same kind; the rest is drawn whole on its tiles. The map marks newer kinds with characters past
 /// plain ASCII, which ran out (2026-11-04).
-pub const PROPS: [PropKind; 109] = [
+pub const PROPS: [PropKind; 110] = [
     PropKind { shows: Some("wagon_wheel"), ..prop("wheels", 'Q', "SPARE WAGON WHEELS", "FINISHED, WAITING FOR A CART.", (1, 1)) },
     PropKind { shows: Some("wagon_kit"), ..prop("cart", 'y', "A CART, HALF BUILT", "IT'S WAITING FOR ITS WHEELS.", (1, 1)) },
     prop("fence", 'x', "A FENCE", "AROUND A YARD. WALK IN BY ITS GATE.", (1, 1)),
@@ -332,6 +337,8 @@ pub const PROPS: [PropKind; 109] = [
     prop("village_gate", 'Ȥ', "A TIMBER GATEWAY", "OVER THE STREET DOWN TO THE LOOM HOUSES. MIND YOUR HEAD, CYCLOPS.", (1, 1)),
     prop("smock_scarecrow", 'ȥ', "A SCARECROW", "IN A MADDER-RED SMOCK, PATCHED AT THE ELBOWS.", (1, 1)),
     prop("water_trough", 'ȣ', "A WATER TROUGH", "FILLED FROM THE WELL. EVERYONE DRINKS FROM IT, AND THE CYCLOPS SPLASH.", (2, 1)),
+    // Verdigris East's.
+    prop("tool_lean_to", 'Ʌ', "THE TOOL SHED", "SPARE PICKS AND SHOVELS GO IN THE BINS IN FRONT. A LOOP WHOSE OWN BREAKS TAKES THE NEXT FROM A CHUTE.", (4, 2)),
 ];
 
 
@@ -374,7 +381,7 @@ fn regions() -> impl Iterator<Item = &'static Region> {
 
 /// Each region's entities are listed after the previous region's, so adding a region never
 /// reorders what an older save refers to: the road west to east, then Temple Town south of it.
-const REGIONS: [Region; 13] = [
+const REGIONS: [Region; 14] = [
     Region {
         map: include_str!("../data/pinewater.map"),
         province: "",
@@ -646,6 +653,25 @@ const REGIONS: [Region; 13] = [
         supplies: &[],
         workers: &[],
     },
+    // Verdigris East, up the ramp from Alum Springs: houses along the high road, the tool drop-off
+    // and the shared tool piles, where anyone leaves a spare pick or shovel for any loop to take.
+    // Hedged round as a village.
+    Region {
+        map: include_str!("../data/verdigris_east.map"),
+        province: "THE HILLS",
+        style: Style::Hills,
+        town: true,
+        at: (225, 32),
+        racks: &[],
+        folk: &[],
+        vines: &[],
+        goods: &[],
+        labels: &[],
+        signs: &[("COPPER CUT", Dir::Left), ("THE TIN GULCH", Dir::Right), ("ALUM SPRINGS", Dir::Down)],
+        boards: &[],
+        supplies: &[],
+        workers: &[],
+    },
 ];
 
 /// Pinewater's wagonwright, after Xi Zhong, who legend says made the first cart. He fetches his
@@ -738,7 +764,7 @@ pub const SUPPLY_TICKS: u32 = 60;
 /// Named stretches of the world by their northwest corner, announced on arrival: the road west
 /// to east, then Temple Town south of it, then the hills row by row, each west to east (the last
 /// one a tile lies past is its name, so the order matters).
-const AREAS: [(i32, i32, &str); 15] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS"), (150, 64, "IRON BROOK"), (225, 48, "ALUM SPRINGS")];
+const AREAS: [(i32, i32, &str); 16] = [(0, 0, "PINEWATER"), (50, 0, "TINLESS"), (75, 0, "THATCH HILLS"), (100, 0, "DYE MEADOWS"), (125, 0, "TANGLEMERE"), (75, 32, "TEMPLE TOWN"), (125, 32, "THE HIGH PASS"), (150, 32, "THE CLIFF LIFT"), (175, 32, "VERDIGRIS"), (200, 32, "COPPER CUT"), (150, 48, "HEMP HOLLOW"), (175, 48, "CHARCOAL WOOD"), (200, 48, "BELLOWS"), (150, 64, "IRON BROOK"), (225, 32, "VERDIGRIS EAST"), (225, 48, "ALUM SPRINGS")];
 
 /// The world's height, the rows of regions above together: a made-up world's copies repeat it.
 /// A test checks it against the regions, since a region further south makes the world taller.
@@ -1020,6 +1046,9 @@ pub struct Bin {
     /// Built from a kit out in the wilds; a town bin is bottomless and lasts.
     #[serde(default)]
     pub frontier: Option<FrontierBin>,
+    /// Its name, where what it takes doesn't say what it is: "THE TOOL STORE".
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// What a bin got from its kit: it holds a limited room, takes one kind of good for life (the
@@ -1371,7 +1400,7 @@ impl World {
                         'p' => Tile::Pad,
                         'g' => Tile::Peg,
                         'o' => Tile::OutMat,
-                        'C' | 'T' | 'b' | 'ȋ' => Tile::Bin,
+                        'C' | 'T' | 'b' | 'ȋ' | 'Ȼ' | 'Ʉ' | 'Ⱥ' => Tile::Bin,
                         'w' | 'F' | 'X' => Tile::Water,
                         'Y' => Tile::Tree,
                         '0' => Tile::Gate,
@@ -1410,9 +1439,15 @@ impl World {
                         shops.push(Shop { kind, spot: (x, y), pads: Vec::new(), pegs: Vec::new(), outs: Vec::new(), quality: TOWN_WORKSHOP_QUALITY, job: None, pending: Vec::new(), pad_flash: Vec::new(), out_timer: 0, frontier: None, aimed: None, chosen: None, owner: None });
                     }
                     match ch {
-                        'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None }),
-                        'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None }),
-                        'ȋ' => bins.push(Bin { x, y, accepts: vec!["ingot".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None }),
+                        'C' => bins.push(Bin { x, y, accepts: vec!["cotton_bolls".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None, name: None }),
+                        'T' => bins.push(Bin { x, y, accepts: vec!["fabric".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None, name: None }),
+                        'ȋ' => bins.push(Bin { x, y, accepts: vec!["ingot".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None, name: None }),
+                        // Verdigris East's tool bins: anyone pushes a spare in, and any loop takes
+                        // one from the chute when its own wears out.
+                        'Ȼ' => bins.push(Bin { x, y, accepts: vec!["pick".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None, name: None }),
+                        'Ʉ' => bins.push(Bin { x, y, accepts: vec!["shovel".into()], stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: false, frontier: None, name: None }),
+                        // Beside them, the tool store: finished tools pushed in, for renown.
+                        'Ⱥ' => bins.push(Bin { x, y, accepts: TOOL_STORE.iter().map(|t| t.to_string()).collect(), stock: Vec::new(), mouth: None, timer: 0, bounce: 0, scores: true, frontier: None, name: Some("THE TOOL STORE".into()) }),
                         'b' => {
                             let &(title, wants, need, project) = board_specs.next().expect("a project for every board");
                             boards.push(Board { x, y, title: title.into(), wants: wants.into(), need, have: 0, project, bounce: 0, rest: 0, log: Vec::new() });

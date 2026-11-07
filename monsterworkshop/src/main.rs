@@ -186,7 +186,7 @@ pub(crate) fn temple_test_game() -> Game {
         let (x, y) = (east.0 + 2 * k as i32, east.1 + 4);
         let stock = (0..12).map(|_| plain(&g, tool, &[], 1, &["copper_ingot"])).collect();
         let frontier = world::FrontierBin { kit: "bin_kit".into(), material: "HEMLOCK".into(), room: 12.0, idle: 0, held: 12 };
-        g.world.bins.push(world::Bin { x, y, accepts: vec![tool.into()], stock, mouth: Some((x, y - 1)), timer: 0, bounce: 0, scores: false, frontier: Some(frontier) });
+        g.world.bins.push(world::Bin { x, y, accepts: vec![tool.into()], stock, mouth: Some((x, y - 1)), timer: 0, bounce: 0, scores: false, frontier: Some(frontier), name: None });
         let w = g.world.w;
         g.world.tiles[(y * w + x) as usize] = world::Tile::Bin;
     }
@@ -239,7 +239,7 @@ fn the_temple_test_world_has_whats_new_ready_to_try() {
     assert_eq!(board.need - board.have, 3, "three cloth short of opening");
     assert!(g.world.items.iter().filter(|it| it.good() == "fabric" && crate::world::area_name(it.x, it.y) == "TEMPLE TOWN" && it.x >= 75 + 40).count() >= 3, "three to push there");
     for tool in ["pick", "shovel"] {
-        let bin = g.world.bins.iter().find(|b| b.accepts == [tool]).unwrap_or_else(|| panic!("a bin of {tool}s"));
+        let bin = g.world.bins.iter().find(|b| b.accepts == [tool] && b.frontier.is_some()).unwrap_or_else(|| panic!("a bin of {tool}s"));
         assert_eq!(bin.stock.len(), 12, "twelve spare {tool}s");
         let (mx, my) = bin.mouth.expect("a chute");
         assert!(g.world.item_floor(mx, my) && g.world.item_at(mx, my).is_none(), "its chute is clear for the first {tool}");

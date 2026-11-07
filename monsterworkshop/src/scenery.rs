@@ -107,6 +107,7 @@ pub fn variants(id: &str) -> Vec<Sprite> {
         "sledge" => vec![sledge()],
         "miners_shed" => vec![miners_shed()],
         "tool_rack" => vec![tool_rack()],
+        "tool_lean_to" => vec![tool_lean_to()],
         "windlass" => vec![windlass()],
         "spoil_heap" => vec![spoil_heap()],
         _ => Vec::new(),
@@ -1165,6 +1166,42 @@ fn tool_rack() -> Sprite {
     rect(&mut s, 11, 5, 11, 15, WOOD + 2);
     rect(&mut s, 10, 15, 12, 20, HUD_MID);
     rect(&mut s, 10, 15, 10, 20, HUD_HI);
+    s.outline()
+}
+
+/// Verdigris East's tool shed: a shingled roof on two posts over a plank back wall, spare picks
+/// and shovels hung along it in turn. The pick and shovel bins stand in front.
+fn tool_lean_to() -> Sprite {
+    let mut s = Sprite::blank(64, 40);
+    rect(&mut s, 3, 10, 60, 35, WOOD + 1);
+    for x in (3..61).step_by(6) {
+        rect(&mut s, x, 10, x, 35, WOOD);
+    }
+    for (k, x) in [11, 21, 31, 41, 51].into_iter().enumerate() {
+        rect(&mut s, x, 15, x, 31, PLANK + 3);
+        if k % 2 == 0 {
+            // A pick: its head across the top of the haft, the points dropping.
+            rect(&mut s, x - 4, 14, x + 4, 15, HUD_MID);
+            rect(&mut s, x - 4, 14, x + 4, 14, HUD_HI);
+            s.set(x - 5, 16, HUD_MID);
+            s.set(x + 5, 16, HUD_MID);
+        } else {
+            // A shovel: its blade at the foot of the haft.
+            rect(&mut s, x - 2, 27, x + 2, 32, HUD_MID);
+            rect(&mut s, x - 2, 27, x - 2, 32, HUD_HI);
+        }
+    }
+    for y in 0..=9 {
+        rect(&mut s, 0, y, 63, y, if y < 3 { WOOD + 3 } else { WOOD + 2 });
+    }
+    for x in (2..63).step_by(5) {
+        rect(&mut s, x, 3, x, 9, WOOD + 1);
+    }
+    rect(&mut s, 0, 10, 63, 10, WOOD);
+    for x0 in [1, 60] {
+        rect(&mut s, x0, 10, x0 + 2, 39, WOOD + 1);
+        rect(&mut s, x0, 10, x0, 39, WOOD + 2);
+    }
     s.outline()
 }
 

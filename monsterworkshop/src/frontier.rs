@@ -256,7 +256,7 @@ impl Game {
                 let news = format!("{} IS UP!", the(&material, "BIN"));
                 let frontier = FrontierBin { kit: data.good, material, room, idle: 0, held: 0 };
                 let (x, y) = fp.spot;
-                self.world.bins.push(Bin { x, y, accepts: Vec::new(), stock: Vec::new(), mouth: fp.outs.first().copied(), timer: 0, bounce: 4, scores: false, frontier: Some(frontier) });
+                self.world.bins.push(Bin { x, y, accepts: Vec::new(), stock: Vec::new(), mouth: fp.outs.first().copied(), timer: 0, bounce: 4, scores: false, frontier: Some(frontier), name: None });
                 let w = self.world.w;
                 self.world.tiles[(y * w + x) as usize] = Tile::Bin;
                 news
@@ -307,6 +307,9 @@ impl Game {
     /// "THE COTTON BOLLS BIN" by what it takes; a new one from a kit by its wood until then.
     pub(crate) fn bin_name(&self, b: usize) -> String {
         let bin = &self.world.bins[b];
+        if let Some(name) = &bin.name {
+            return name.clone();
+        }
         match bin.accepts.first() {
             Some(a) => format!("THE {} BIN", self.good_name(a)),
             None => the(bin.frontier.as_ref().map_or("", |f| f.material.as_str()), "BIN"),
