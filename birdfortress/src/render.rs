@@ -343,6 +343,59 @@ fn draw_source(fb: &mut Framebuffer, art: &crate::art::Art, good: Good, px: i32,
     }
 }
 
+/// The fortress's shape, in pixels relative to its footprint's top-left (y may go above 0 for the
+/// crest and tower tops): 0 = outside, 1 = stone, 2 = window or gate (dark), 3 = crest.
+fn fortress_shape(x: i32, y: i32, pw: i32, ph: i32) -> u8 {
+    if x < 0 || x >= pw {
+        return 0;
+    }
+    let tw = 9;
+    let tower = x < tw || x >= pw - tw;
+    let keep_top = 6;
+    // Crest: a bird with spread wings on top of the keep, centred.
+    let cx = pw / 2;
+    let dx = (x - cx).abs();
+    if (-9..keep_top).contains(&y) && dx <= 9 {
+        // Wings rise outward in a V; a narrow body with a head on top and a fanned tail below.
+        let wing = dx >= 2 && y >= -1 - dx * 2 / 3 && y <= 1 - dx * 2 / 3;
+        let body = dx <= 1 && (-7..keep_top).contains(&y);
+        let head = dx == 0 && y == -8;
+        let tail = dx <= 2 && (3..keep_top).contains(&y);
+        let wing = wing || head || tail;
+        if wing || body {
+            return 3;
+        }
+    }
+    if tower {
+        if y < -4 || y >= ph {
+            return 0;
+        }
+        if y < 0 {
+            // Merlons.
+            let lx = if x < tw { x } else { x - (pw - tw) };
+            return if lx % 4 < 2 { 1 } else { 0 };
+        }
+        let lx = if x < tw { x } else { x - (pw - tw) };
+        if (3..6).contains(&lx) && (4..8).contains(&y) {
+            return 2;
+        }
+        return 1;
+    }
+    if y < keep_top || y >= ph {
+        return 0;
+    }
+    // Gate arch.
+    let gw = 5;
+    if dx <= gw / 2 + 1 && y >= ph - 10 && !(y == ph - 10 && dx == gw / 2 + 1) {
+        return 2;
+    }
+    // A row of slit windows.
+    if y >= keep_top + 4 && y < keep_top + 7 && (x - tw) % 6 == 3 {
+        return 2;
+    }
+    1
+}
+
 fn draw_fortress(fb: &mut Framebuffer, g: &Game) {
     let lv = g.level();
     let (fx, fy, fw, fh) = lv.fortress;
@@ -353,44 +406,65 @@ fn draw_fortress(fb: &mut Framebuffer, g: &Game) {
         None => 0,
     };
     let done = got >= total;
-    // Footing and scaffold posts.
-    fb.rect_fill(px, py + ph - 2, pw, 2, ROCK_DK);
-    let wall_h = ph - 4;
-    let filled = wall_h * got / total;
-    for y in 0..filled {
-        let yy = py + ph - 2 - 1 - y;
-        let row = y / 3;
-        for x in 2..pw - 2 {
-            let mortar = y % 3 == 2 || (x + if row % 2 == 0 { 0 } else { 3 }) % 6 == 0;
-            fb.pset(px + x, yy, if mortar { ROCK_DK } else if y % 3 == 0 { ROCK_HI } else { ROCK });
+    // Stone rises from the ground as goods arrive; the rest is a faint blueprint.
+    let top = -9;
+    let span = ph - top;
+    let built_from = ph - span * got / total;
+    for y in top..ph {
+        for x in 0..pw {
+            let s = fortress_shape(x, y, pw, ph);
+            if s == 0 {
+                continue;
+            }
+            let edge = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| fortress_shape(x + dx, y + dy, pw, ph) == 0);
+            let (sx, sy) = (px + x, py + y);
+            if y >= built_from {
+                let c = match s {
+                    2 => PANEL_DEEP,
+                    3 => {
+                        if done {
+                            if edge { OUTLINE } else if (x + y) % 3 == 0 { WHITE } else { GOLD }
+                        } else if edge {
+                            OUTLINE
+                        } else {
+                            ROCK_HI
+                        }
+                    }
+                    _ => {
+                        if edge {
+                            OUTLINE
+                        } else {
+                            let row = (y - top) / 3;
+                            let mortar = (y - top) % 3 == 2 || (x + if row % 2 == 0 { 0 } else { 3 }) % 6 == 0;
+                            if mortar { ROCK_DK } else if (y - top) % 3 == 0 { ROCK_HI } else { ROCK }
+                        }
+                    }
+                };
+                fb.pset(sx, sy, c);
+            } else if edge && (x + y) % 2 == 0 {
+                // Blueprint outline: a dotted ghost of what's to come.
+                fb.pset(sx, sy, ACCENT_HI);
+            }
         }
-        fb.pset(px + 1, yy, OUTLINE);
-        fb.pset(px + pw - 2, yy, OUTLINE);
     }
-    if done {
-        // Crenellations and the banner.
-        let top = py + 2;
-        for x in (2..pw - 2).step_by(4) {
-            fb.rect_fill(px + x, top - 2, 2, 2, ROCK);
+    // Scaffold while it's going up.
+    if !done {
+        for x in [1, pw - 2] {
+            fb.rect_fill(px + x, py + built_from.max(0) - 2, 1, ph - built_from.max(0) + 2, WOOD_DK);
         }
-        fb.rect_fill(px + pw / 2, top - 14, 1, 12, WOOD_DK);
-        fb.rect_fill(px + pw / 2 + 1, top - 14, 7, 4, BANNER);
-        fb.rect_fill(px + pw / 2 + 1, top - 14, 7, 1, GOLD);
+        if built_from < ph {
+            fb.rect_fill(px, py + built_from.max(top) - 1, pw, 1, WOOD);
+        }
     } else {
-        for x in [0, pw - 1] {
-            fb.rect_fill(px + x, py, 1, ph - 2, WOOD_DK);
+        // Banners on both towers.
+        for bx in [3, pw - 6] {
+            fb.rect_fill(px + bx, py - 12, 1, 8, WOOD_DK);
+            fb.rect_fill(px + bx + 1, py - 12, 4, 3, BANNER);
         }
-        for k in 0..fw {
-            fb.rect_fill(px + k * TILE + TILE - 1, py + 2, 1, ph - 4, WOOD);
-        }
-        for y in (py + 2..py + ph - 2).step_by(8) {
-            fb.rect_fill(px, y, pw, 1, WOOD);
-        }
-        fb.rect_fill(px, py, pw, 1, WOOD_HI);
     }
-    // Needs, above.
+    // What it still wants, above.
     let mut x = px;
-    let y = py - 10;
+    let y = py - 20;
     for (gd, n) in &lv.need {
         let have = g.sim.as_ref().map(|s| s.delivered(*gd)).unwrap_or(0).min(*n);
         let spr = g.art.good(*gd);

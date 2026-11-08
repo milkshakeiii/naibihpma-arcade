@@ -582,6 +582,30 @@ pub fn shots(levels: &[Level], dir: &str) {
             snap(&mut g, &format!("{:02}_{}_result", 4 + k * 3, levels[*idx].id));
         }
     }
+    // The fortress going up, then finished.
+    g.enter_level(0);
+    g.overlay = crate::game::Overlay::None;
+    g.layout = Layout::from_text("R TRIBBLE s0 F TWIG 3");
+    g.rebuild();
+    g.speed = 0;
+    g.event(Ev::Key(Key::Space));
+    for _ in 0..400 {
+        g.tick();
+        if g.sim.as_ref().is_some_and(|s| s.delivered_total() >= 2) {
+            break;
+        }
+    }
+    g.running = false;
+    snap(&mut g, "30_fortress_rising");
+    g.running = true;
+    for _ in 0..400 {
+        if !g.running {
+            break;
+        }
+        g.tick();
+    }
+    g.overlay = crate::game::Overlay::None;
+    snap(&mut g, "31_fortress_done");
     g.event(Ev::Key(Key::Help));
     for p in 0..crate::game::HELP_PAGES {
         g.help_page = p;
