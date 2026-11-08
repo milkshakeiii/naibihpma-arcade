@@ -231,6 +231,24 @@ fn draw_tile(fb: &mut Framebuffer, w: &World, x: i32, y: i32) {
                 fb.rect_fill(px + 3, py + ry, 4, 1, WOOD_HI);
             }
         }
+        Tile::Cloud => {
+            // A puffy bank: bright scalloped top, softer dithered underside.
+            let left = w.tile(x - 1, y) == Tile::Cloud;
+            let right = w.tile(x + 1, y) == Tile::Cloud;
+            for yy in 0..6 {
+                for xx in 0..TILE {
+                    let bump = [1, 0, 0, 1, 2, 1, 0, 0, 1, 2][((xx + x * 3) % 10) as usize];
+                    let edge = (!left && xx < 2 - yy.min(2)) || (!right && xx > TILE - 3 + yy.min(2));
+                    if yy < bump || edge {
+                        continue;
+                    }
+                    let c = if yy == bump { WHITE } else if yy < 4 { ACCENT_HI } else if (xx + yy) % 2 == 0 { ACCENT } else { 0 };
+                    if c != 0 {
+                        fb.pset(px + xx, py + yy, c);
+                    }
+                }
+            }
+        }
         Tile::Air => {}
     }
     if w.is_plank(x, y) {
@@ -698,26 +716,187 @@ fn tool_icon(fb: &mut Framebuffer, g: &Game, t: Tool, r: Rect) {
 
 pub fn tool_label(t: Tool) -> String {
     match t {
-        Tool::Select => "SELECT: CLICK SOMETHING TO SEE ITS ROUTES. RIGHT-CLICK ERASES.".into(),
-        Tool::Species(s) => format!("{} ({} SEEDS): {}", s.name(), s.cost(), s.blurb()),
-        Tool::Build(k) => format!("{} ({} SEEDS): {}", k.name(), k.cost(), k.blurb()),
-        Tool::Infra(i) => format!("{}: {}", i.name(), i.blurb()),
-        Tool::Erase => "ERASE (X): CLICK SOMETHING YOU BUILT TO REMOVE IT.".into(),
+        Tool::Select => "Select. Click a place to see its routes. Right-click takes away what you built.".into(),
+        Tool::Species(s) => format!("{}. {}", s.title(), s.blurb()),
+        Tool::Build(k) => format!("{}. {}", k.title(), k.blurb()),
+        Tool::Infra(i) => format!("{}. {}", i.title(), i.blurb()),
+        Tool::Erase => "Erase. Click something you built to take it away.".into(),
     }
 }
+
+// ----- Small graphics -----------------------------------------------------------------------------
+
+/// A number next to an icon; returns the x after it.
+fn icon_num(fb: &mut Framebuffer, icon: &Sprite, x: i32, y: i32, n: &str, col: u8) -> i32 {
+    fb.blit(icon, x, y + (8 - icon.h) / 2, false);
+    let tx = x + icon.w + 2;
+    fb.text(n, tx, y, col, None, 1);
+    tx + Framebuffer::text_width(n, 1)
+}
+
+/// A good's icon with "xN" after it; returns the x after it.
+fn good_count(fb: &mut Framebuffer, g: &Game, good: Good, n: i32, x: i32, y: i32, col: u8) -> i32 {
+    let s = g.art.good(good);
+    fb.blit(s, x, y + (8 - s.h) / 2, false);
+    if n > 1 {
+        let t = format!("x{n}");
+        fb.text(&t, x + s.w + 1, y, col, None, 1);
+        return x + s.w + 2 + Framebuffer::text_width(&t, 1);
+    }
+    x + s.w + 1
+}
+
+/// A small right arrow, 7 wide.
+fn arrow(fb: &mut Framebuffer, x: i32, y: i32, col: u8) {
+    fb.rect_fill(x, y + 3, 5, 1, col);
+    fb.pset(x + 4, y + 2, col);
+    fb.pset(x + 4, y + 4, col);
+    fb.pset(x + 3, y + 1, col);
+    fb.pset(x + 3, y + 5, col);
+}
+
+/// A recipe as icons: inputs, arrow, output. Returns the x after it.
+fn recipe(fb: &mut Framebuffer, g: &Game, k: Kind, x: i32, y: i32) -> i32 {
+    let Some(r) = k.recipe() else { return x };
+    let mut cx = x;
+    for (i, (good, n)) in r.inputs.iter().enumerate() {
+        if i > 0 {
+            fb.text("+", cx, y, TEXT_DIM, None, 1);
+            cx += 7;
+        }
+        cx = good_count(fb, g, *good, *n, cx, y, TEXT) + 2;
+    }
+    arrow(fb, cx, y, GOLD);
+    cx += 9;
+    cx = good_count(fb, g, r.output, 1, cx, y, TEXT);
+    fb.text(&format!("{}t", r.ticks), cx + 4, y, TEXT_DIM, None, 1);
+    cx + 4 + Framebuffer::text_width(&format!("{}t", r.ticks), 1)
+}
+
+/// The jump table of a creature drawn as columns of blocks: one column per load.
+fn jump_table(fb: &mut Framebuffer, g: &Game, s: Species, x: i32, y: i32) {
+    let loads: [(Option<Good>, Weight); 4] = [(None, Weight::Empty), (Some(Good::Berry), Weight::Light), (Some(Good::Twig), Weight::Medium), (Some(Good::Stone), Weight::Heavy)];
+    fb.text("jump", x, y + 12, TEXT_DIM, None, 1);
+    fb.text("pace", x, y + 24, TEXT_DIM, None, 1);
+    for (k, (good, w)) in loads.iter().enumerate() {
+        let cx = x + 30 + k as i32 * 22;
+        match good {
+            Some(gd) => {
+                let sp = g.art.good(*gd);
+                fb.blit(sp, cx + (8 - sp.w) / 2, y, false);
+            }
+            None => fb.blit(&g.art.empty, cx + 1, y + 1, false),
+        }
+        let j = s.jump(*w);
+        for b in 0..j {
+            fb.rect_fill(cx, y + 18 - b * 4, 8, 3, GOOD);
+        }
+        if j == 0 {
+            fb.text("x", cx + 1, y + 13, BAD, None, 1);
+        }
+        let p = s.pace(*w);
+        fb.text(&format!("{p}"), cx + 1, y + 24, if p >= 4 { BAD } else { TEXT }, None, 1);
+    }
+    let climbs = if s.climbs_vine() { "climbs vines" } else { "" };
+    if !climbs.is_empty() {
+        fb.text(climbs, x + 120, y + 24, ACCENT, None, 1);
+    }
+}
+
+/// The card that pops up above a tool button: pictures first, a few words after.
+fn tool_card(fb: &mut Framebuffer, g: &Game, t: Tool, anchor_x: i32) {
+    let (w, h) = match t {
+        Tool::Species(_) => (204, 62),
+        _ => (204, 40),
+    };
+    let x = (anchor_x - w / 2).clamp(2, 398 - w);
+    let y = VIEW_H - h - 2;
+    ui::panel(fb, Rect::new(x, y, w, h));
+    let ix = x + 6;
+    match t {
+        Tool::Species(s) => {
+            let spr = g.art.creature(s, 0);
+            fb.blit(spr, ix, y + 13 - spr.h, false);
+            fb.text(s.title(), ix + 14, y + 5, GOLD, None, 1);
+            icon_num(fb, &g.art.seed, x + w - 30, y + 5, &format!("{}", s.cost()), TEXT);
+            jump_table(fb, g, s, ix, y + 15);
+            fb.text(s.blurb(), ix, y + h - 10, TEXT_DIM, None, 1);
+        }
+        Tool::Build(k) => {
+            fb.text(k.title(), ix, y + 5, GOLD, None, 1);
+            icon_num(fb, &g.art.seed, x + w - 30, y + 5, &format!("{}", k.cost()), TEXT);
+            if k == Kind::Depot {
+                for i in 0..6 {
+                    fb.rect_fill(ix + i * 6, y + 18, 4, 4, good_color(GOODS[i as usize % 4]));
+                }
+                fb.text("any 6 goods", ix + 40, y + 16, TEXT, None, 1);
+            } else {
+                recipe(fb, g, k, ix, y + 16);
+            }
+            fb.text(k.blurb(), ix, y + 28, TEXT_DIM, None, 1);
+        }
+        Tool::Infra(i) => {
+            fb.text(i.title(), ix, y + 5, GOLD, None, 1);
+            let price = match i {
+                Infra::Spring => "2".to_string(),
+                Infra::Ladder => "1 a rung".to_string(),
+                Infra::Plank => "2 a tile".to_string(),
+            };
+            icon_num(fb, &g.art.seed, x + w - 60, y + 5, &price, TEXT);
+            fb.text_wrapped(i.blurb(), ix, y + 16, w - 12, 10, TEXT_DIM, None);
+        }
+        Tool::Select | Tool::Erase => {
+            fb.text_wrapped(&tool_label(t), ix, y + 6, w - 12, 10, TEXT, None);
+        }
+    }
+}
+
+/// A cream speech bubble with a pointer toward (ax, ay).
+pub fn bubble(fb: &mut Framebuffer, text: &str, ax: i32, ay: i32) {
+    let lines = crate::framebuffer::wrap(text, 30);
+    let w = lines.iter().map(|l| Framebuffer::text_width(l, 1)).max().unwrap_or(0) + 12;
+    let h = lines.len() as i32 * 10 + 8;
+    let above = ay > h + 16;
+    let x = (ax - w / 2).clamp(2, 398 - w);
+    let y = if above { ay - h - 8 } else { ay + 10 };
+    fb.rect_fill(x, y, w, h, OUTLINE);
+    fb.rect_fill(x + 1, y + 1, w - 2, h - 2, EGG);
+    fb.rect_fill(x + 1, y + h - 2, w - 2, 1, CLAY);
+    // Pointer.
+    let px = ax.clamp(x + 6, x + w - 7);
+    for k in 0..6 {
+        let yy = if above { y + h - 1 + k } else { y - k };
+        let half = 5 - k;
+        if half > 0 {
+            fb.rect_fill(px - half + 1, yy, half * 2 - 1, 1, EGG);
+            fb.pset(px - half, yy, OUTLINE);
+            fb.pset(px + half, yy, OUTLINE);
+        } else {
+            fb.pset(px, yy, OUTLINE);
+        }
+    }
+    for (i, l) in lines.iter().enumerate() {
+        fb.text(l, x + 6, y + 5 + i as i32 * 10, PANEL_DEEP, None, 1);
+    }
+}
+
+// ----- Panel, header, card --------------------------------------------------------------------------
 
 fn draw_panel(fb: &mut Framebuffer, g: &Game) {
     ui::panel(fb, Rect::new(0, VIEW_H, 400, 300 - VIEW_H));
     let (mx, my) = g.mouse;
     let tools = g.tools();
     let mut hover_label: Option<String> = None;
+    let mut hover_tool: Option<(Tool, i32)> = None;
     for (i, &t) in tools.iter().enumerate() {
         let r = tool_rect(i);
         let hover = r.contains(mx, my);
         ui::button_face(fb, r, hover, g.tool == t);
         tool_icon(fb, g, t, r);
         if hover {
-            hover_label = Some(format!("[{}] {}", if t == Tool::Erase { "X".to_string() } else { (i + 1).to_string() }, tool_label(t)));
+            let key = if t == Tool::Erase { "X".to_string() } else { (i + 1).to_string() };
+            hover_label = Some(format!("Key {key}. {}", tool_label(t)));
+            hover_tool = Some((t, r.x + r.w / 2));
         }
     }
     // Run controls.
@@ -739,17 +918,17 @@ fn draw_panel(fb: &mut Framebuffer, g: &Game) {
         fb.rect_fill(cx - 3 + k, cy - 3 + k, 1, 7 - 2 * k, TEXT);
     }
     fb.rect_fill(cx + 2, cy - 3, 2, 7, TEXT);
-    ui::button(fb, R_SPEED, &format!("X{}", SPEEDS[g.speed]), hov(R_SPEED), false);
+    ui::button(fb, R_SPEED, &format!("x{}", SPEEDS[g.speed]), hov(R_SPEED), false);
     ui::button_face(fb, R_RESET, hov(R_RESET), false);
     fb.rect_fill(R_RESET.x + 6, R_RESET.y + 6, 8, 8, if g.sim.is_some() { BAD } else { TEXT_FAINT });
     if hov(R_RUN) {
-        hover_label = Some("RUN / PAUSE [SPACE]".into());
+        hover_label = Some("Run or pause. Space does it too.".into());
     } else if hov(R_STEP) {
-        hover_label = Some("ADVANCE ONE TICK [S]".into());
+        hover_label = Some("One tick at a time. Key S.".into());
     } else if hov(R_SPEED) {
-        hover_label = Some("SPEED: TICKS PER FRAME [TAB]".into());
+        hover_label = Some("Speed: ticks per frame. Tab does it too.".into());
     } else if hov(R_RESET) {
-        hover_label = Some("RESET THE RUN TO TICK 0 [R]".into());
+        hover_label = Some("Back to tick 0. Key R.".into());
     }
     // Status.
     ui::inset(fb, R_STATUS);
@@ -758,98 +937,123 @@ fn draw_panel(fb: &mut Framebuffer, g: &Game) {
         None => g.status_line(),
     };
     fb.text_wrapped(&text, R_STATUS.x + 4, R_STATUS.y + 3, R_STATUS.w - 8, 10, if bad { BAD } else { TEXT }, None);
-    // Metrics.
+    // Scores: now, against the goal, and your best.
     ui::inset(fb, R_METRICS);
     let rec = g.save.rec(&g.level().id);
     let ticks = g.sim.as_ref().map(|s| s.tick).unwrap_or(0);
     let cost = crate::world::layout_cost(g.level(), &g.layout);
     let crew = g.layout.crew();
     let tg = g.level().targets;
-    let rows = [("TICKS", ticks, rec.ticks, tg.ticks), ("COST", cost, rec.cost, tg.cost), ("CREW", crew, rec.crew, tg.crew)];
-    for (k, (name, v, best, _goal)) in rows.iter().enumerate() {
+    let rows = [(&g.art.clock, ticks, rec.ticks, tg.ticks), (&g.art.seed, cost, rec.cost, tg.cost), (&g.art.paw, crew, rec.crew, tg.crew)];
+    for (k, (icon, v, best, goal)) in rows.iter().enumerate() {
         let y = R_METRICS.y + 3 + k as i32 * 10;
-        fb.text(name, R_METRICS.x + 4, y, TEXT_DIM, None, 1);
-        fb.text(&format!("{v:>5}"), R_METRICS.x + 36, y, TEXT, None, 1);
+        fb.blit(icon, R_METRICS.x + 4, y, false);
+        let live_ok = *v <= *goal && (k != 0 || g.sim.as_ref().is_some_and(|s| matches!(s.outcome, Outcome::Done(_))));
+        fb.text(&format!("{v:>4}"), R_METRICS.x + 13, y, if live_ok { GOOD } else { TEXT }, None, 1);
+        fb.text(&format!("goal {goal}"), R_METRICS.x + 42, y, TEXT_DIM, None, 1);
         if let Some(b) = best {
-            fb.text(&format!("BEST{b:>5}"), R_METRICS.x + 70, y, GOLD, None, 1);
+            ui::star(fb, R_METRICS.x + 112, y, *b <= *goal);
+        }
+    }
+    if let Some((t, ax)) = hover_tool {
+        if matches!(g.overlay, Overlay::None) {
+            tool_card(fb, g, t, ax);
         }
     }
 }
 
+/// The site's goals as icon chips: met ones are gold with a star.
+fn goal_chips(fb: &mut Framebuffer, g: &Game, x: i32, y: i32) -> i32 {
+    let lv = g.level();
+    let rec = g.save.rec(&lv.id);
+    let tg = lv.targets;
+    let mut cx = x;
+    for (icon, goal, best) in [(&g.art.clock, tg.ticks, rec.ticks), (&g.art.seed, tg.cost, rec.cost), (&g.art.paw, tg.crew, rec.crew)] {
+        let met = best.is_some_and(|b| b <= goal);
+        cx = icon_num(fb, icon, cx, y, &format!("{goal}"), if met { GOLD } else { TEXT }) + 6;
+    }
+    if tg.combo_ticks > 0 {
+        ui::star(fb, cx, y, rec.combo);
+        cx += 9;
+        cx = icon_num(fb, &g.art.clock, cx, y, &format!("{}", tg.combo_ticks), if rec.combo { GOLD } else { TEXT }) + 2;
+        cx = icon_num(fb, &g.art.seed, cx, y, &format!("{}", tg.combo_cost), if rec.combo { GOLD } else { TEXT });
+    }
+    cx
+}
+
 fn draw_header(fb: &mut Framebuffer, g: &Game) {
     let lv = g.level();
-    fb.text(&format!("{} {}", lv.id, lv.name), 3, 3, TEXT, Some(OUTLINE), 1);
+    let title = format!("{} {}", lv.id, lv.name);
+    fb.rect_checker(0, 0, 400, 12, SHADOW, 0);
+    fb.text(&title, 3, 3, TEXT, Some(OUTLINE), 1);
+    goal_chips(fb, g, 12 + Framebuffer::text_width(&title, 1), 3);
     let (mx, my) = g.mouse;
     ui::button(fb, R_HELP, "?", R_HELP.contains(mx, my), false);
-    ui::button(fb, R_ROUTES, "PATHS", R_ROUTES.contains(mx, my), g.show_routes);
-    ui::button(fb, R_MENU, "MENU", R_MENU.contains(mx, my), false);
-    if let Some(sim) = &g.sim {
-        if g.running {
-            fb.text(&format!("TICK {}", sim.tick), 230, 3, TEXT, Some(OUTLINE), 1);
-        } else if sim.outcome == Outcome::Running {
-            fb.text(&format!("PAUSED AT {}", sim.tick), 230, 3, GOLD, Some(OUTLINE), 1);
-        }
-    }
+    ui::button(fb, R_ROUTES, "Paths", R_ROUTES.contains(mx, my), g.show_routes);
+    ui::button(fb, R_MENU, "Menu", R_MENU.contains(mx, my), false);
 }
 
 fn draw_card(fb: &mut Framebuffer, g: &Game) {
     let Some(card) = g.card_rect() else { return };
     let Some(n) = g.selected else { return };
     ui::panel(fb, card);
-    fb.text(&g.node_name(n), card.x + 4, card.y + 4, GOLD, None, 1);
-    // What's inside right now.
+    fb.text(&cap(&g.node_name(n)), card.x + 4, card.y + 4, GOLD, None, 1);
     let mut x = card.x + 4;
     let y = card.y + 14;
     let lv = g.level();
-    let stock_line: Vec<(Good, String)> = match (&g.sim, n) {
+    // What's inside right now (or, before a run, what this place does).
+    let mut items: Vec<(Good, String)> = Vec::new();
+    match (&g.sim, n) {
         (Some(sim), _) => {
-            let st = sim.node(n);
-            GOODS
-                .iter()
-                .filter_map(|&gd| {
-                    let s = st?;
+            if let Some(st) = sim.node(n) {
+                for gd in GOODS {
                     if let NodeRef::Source(_) = n {
-                        if s.max <= 0 {
-                            return (s.good == Some(gd)).then(|| (gd, "ENDLESS".to_string()));
+                        if st.max <= 0 && st.good == Some(gd) {
+                            items.push((gd, "endless".into()));
+                        } else if st.good == Some(gd) {
+                            items.push((gd, format!("{} left", st.stock[gd.index()])));
                         }
-                    }
-                    if n == NodeRef::Fortress {
+                    } else if n == NodeRef::Fortress {
                         let need = lv.need_of(gd);
-                        return (need > 0).then(|| (gd, format!("{}/{need}", s.stock[gd.index()])));
+                        if need > 0 {
+                            items.push((gd, format!("{}/{need}", st.stock[gd.index()])));
+                        }
+                    } else if st.stock[gd.index()] > 0 {
+                        items.push((gd, format!("{}", st.stock[gd.index()])));
                     }
-                    (s.stock[gd.index()] > 0).then(|| (gd, format!("{}", s.stock[gd.index()])))
-                })
-                .collect()
+                }
+            }
         }
         (None, NodeRef::Source(i)) => {
             let s = &lv.sources[i];
-            vec![(s.good, if s.infinite() { "ENDLESS".into() } else if s.regrow > 0 { format!("{} +1/{}T", s.max, s.regrow) } else { format!("{} ONLY", s.max) })]
+            items.push((s.good, if s.infinite() { "endless".into() } else if s.regrow > 0 { format!("{}, +1 every {}t", s.max, s.regrow) } else { format!("only {}", s.max) }));
         }
-        (None, NodeRef::Fortress) => lv.need.iter().map(|(gd, c)| (*gd, format!("0/{c}"))).collect(),
-        (None, NodeRef::Building(id)) => match g.layout.building(id).and_then(|b| b.kind.recipe()) {
-            Some(r) => {
-                let mut v: Vec<(Good, String)> = r.inputs.iter().map(|(gd, c)| (*gd, format!("{c}"))).collect();
-                v.push((r.output, format!("> 1 IN {}T", r.ticks)));
-                v
+        (None, NodeRef::Fortress) => items = lv.need.iter().map(|(gd, c)| (*gd, format!("0/{c}"))).collect(),
+        (None, NodeRef::Building(id)) => {
+            if let Some(b) = g.layout.building(id) {
+                if b.kind.recipe().is_some() {
+                    recipe(fb, g, b.kind, x, y);
+                } else {
+                    fb.text("holds any 6 goods", x, y, TEXT_DIM, None, 1);
+                }
             }
-            None => vec![],
-        },
-    };
-    if stock_line.is_empty() {
-        fb.text(if g.sim.is_some() { "EMPTY" } else { "HOLDS 6 OF ANYTHING" }, x, y, TEXT_FAINT, None, 1);
+        }
     }
-    for (gd, t) in stock_line {
+    if items.is_empty() && g.sim.is_some() {
+        fb.text("empty", x, y, TEXT_FAINT, None, 1);
+    }
+    for (gd, t) in items {
         let s = g.art.good(gd);
         if x + s.w + 4 + Framebuffer::text_width(&t, 1) > card.x + card.w - 2 {
             break;
         }
         fb.blit(s, x, y + (8 - s.h) / 2, false);
-        fb.text(&t, x + s.w + 1, y, TEXT, None, 1);
-        x += s.w + 6 + Framebuffer::text_width(&t, 1);
+        fb.text(&t, x + s.w + 2, y, TEXT, None, 1);
+        x += s.w + 8 + Framebuffer::text_width(&t, 1);
     }
     let routes = g.card_routes();
     if routes.is_empty() {
-        fb.text("NO ROUTES. PICK A CREATURE.", card.x + 4, card.y + 27, TEXT_FAINT, None, 1);
+        fb.text("No routes yet.", card.x + 4, card.y + 27, TEXT_FAINT, None, 1);
     }
     let (mx, my) = g.mouse;
     for (i, ri) in routes.into_iter().enumerate() {
@@ -863,29 +1067,37 @@ fn draw_card(fb: &mut Framebuffer, g: &Game) {
         fb.text(&format!("{}", r.count), row.x + 13, row.y + 3, TEXT, None, 1);
         let gs = g.art.good(r.cargo);
         fb.blit(gs, cargo.x + (10 - gs.w) / 2, cargo.y + (10 - gs.h) / 2, false);
-        let (arrow, other) = if r.from == n { (">", r.to) } else { ("<", r.from) };
+        let (to_here, other) = if r.from == n { (false, r.to) } else { (true, r.from) };
         let mut name = g.node_name(other);
-        name.truncate(8);
-        fb.text(&format!("{arrow}{name}"), row.x + 36, row.y + 3, TEXT_DIM, None, 1);
-        match g.plans.get(ri).and_then(|p| if p.problem.is_none() { Some(p.cycle()) } else { None }) {
-            Some(c) => fb.text(&format!("{c:>3}"), row.x + 92, row.y + 3, TEXT_DIM, None, 1),
-            None => fb.text(" !!", row.x + 92, row.y + 3, BAD, None, 1),
+        name.truncate(7);
+        if to_here {
+            fb.text("<", row.x + 36, row.y + 3, TEXT_DIM, None, 1);
+        } else {
+            arrow(fb, row.x + 36, row.y + 2, TEXT_DIM);
         }
-        for (b, lab) in [(minus, "-"), (plus, "+"), (del, "X")] {
+        fb.text(&name, row.x + 44, row.y + 3, TEXT_DIM, None, 1);
+        match g.plans.get(ri).and_then(|p| if p.problem.is_none() { Some(p.cycle()) } else { None }) {
+            Some(c) => fb.text(&format!("{c:>3}"), row.x + 94, row.y + 3, TEXT_DIM, None, 1),
+            None => fb.text(" !!", row.x + 94, row.y + 3, BAD, None, 1),
+        }
+        for (b, lab) in [(minus, "-"), (plus, "+"), (del, "x")] {
             let h = b.contains(mx, my);
             ui::button_face(fb, b, h, false);
-            fb.text(lab, b.x + 2, b.y + 2, if lab == "X" { BAD } else if h { PANEL_DEEP } else { TEXT }, None, 1);
+            fb.text(lab, b.x + 2, b.y + 1, if lab == "x" { BAD } else if h { PANEL_DEEP } else { TEXT }, None, 1);
         }
     }
-    // Tooltip line for the hovered row.
+    // A one-line explanation for the hovered row.
     for (i, ri) in g.card_routes().into_iter().enumerate() {
-        let (row, cargo, ..) = g.card_row(card, i);
+        let (row, cargo, minus, plus, del) = g.card_row(card, i);
         if row.contains(mx, my) {
             let r = g.layout.routes[ri];
             let tip = match g.plans.get(ri).and_then(|p| p.problem.clone()) {
-                Some(p) => p.text().to_string(),
-                None if cargo.contains(mx, my) => "CLICK TO CHANGE WHAT IT CARRIES".to_string(),
-                None => format!("{} X{} CARRY {}: {} TICKS A TRIP", r.species.name(), r.count, r.cargo.name(), g.plans[ri].cycle()),
+                Some(p) => cap(p.text()),
+                None if cargo.contains(mx, my) => "Click to change what this route carries.".to_string(),
+                None if minus.contains(mx, my) => "One fewer.".to_string(),
+                None if plus.contains(mx, my) => "One more.".to_string(),
+                None if del.contains(mx, my) => "Fire this whole crew.".to_string(),
+                None => format!("{} {}, {} ticks a round trip.", r.count, if r.count == 1 { r.species.title().to_lowercase() } else { r.species.plural().to_string() }, g.plans[ri].cycle()),
             };
             let w = Framebuffer::text_width(&tip, 1) + 6;
             let tx = (card.x + card.w / 2 - w / 2).clamp(1, 399 - w);
@@ -896,31 +1108,97 @@ fn draw_card(fb: &mut Framebuffer, g: &Game) {
     }
 }
 
-fn draw_rule(fb: &mut Framebuffer, g: &Game) {
+// ----- Site card, results ---------------------------------------------------------------------------
+
+/// What a "new" token on the site card looks like: an icon, a name and a line.
+fn new_thing(fb: &mut Framebuffer, g: &Game, token: &str, x: i32, y: i32) {
+    let frame = Rect::new(x, y, 20, 20);
+    ui::inset(fb, frame);
+    let (name, line): (String, String) = if let Some(s) = Species::from_name(token) {
+        tool_icon(fb, g, Tool::Species(s), frame);
+        (s.title().into(), s.blurb().into())
+    } else if let Some(k) = Kind::from_name(token) {
+        tool_icon(fb, g, Tool::Build(k), frame);
+        (k.title().into(), k.blurb().into())
+    } else if let Some(i) = Infra::from_name(token) {
+        tool_icon(fb, g, Tool::Infra(i), frame);
+        (i.title().into(), i.blurb().into())
+    } else if let Some(gd) = Good::from_name(token) {
+        let s = g.art.good(gd);
+        fb.blit(s, x + (20 - s.w) / 2, y + (20 - s.h) / 2, false);
+        let line = match gd {
+            Good::Berry => "Light. Tribbles hardly notice it.",
+            Good::Twig => "Medium. Slows a tribble right down.",
+            Good::Stone => "Heavy. Nobody jumps far with one.",
+            Good::Egg => "Fragile: never dropped more than a tile.",
+            Good::Clay => "Medium, like a twig.",
+            _ => "",
+        };
+        (cap(gd.word()), line.into())
+    } else {
+        // Terrain: draw a sample tile.
+        let (tile, line) = match token {
+            "VINE" => (Tile::Vine, "Apes climb vines, carrying anything."),
+            "WATER" => (Tile::Water, "Nobody swims. Jump it or bridge it."),
+            "CLOUD" => (Tile::Cloud, "Holds you only if you carry light or nothing."),
+            "BRAMBLE" => (Tile::Bramble, "Solid, but nothing can be built on it."),
+            _ => (Tile::Air, ""),
+        };
+        let mut w = crate::world::World::new(g.level(), &crate::layout::Layout::default());
+        w.tiles = vec![tile; (w.w * w.h) as usize];
+        let mut tmp = Framebuffer::new();
+        draw_tile(&mut tmp, &w, 1, 1);
+        for yy in 0..TILE {
+            for xx in 0..TILE {
+                let c = tmp.get(TILE + xx, TILE + yy);
+                if c != 0 {
+                    fb.pset(x + 5 + xx, y + 5 + yy, c);
+                }
+            }
+        }
+        (cap(&token.to_lowercase()), line.into())
+    };
+    let line = match token {
+        "LADDER" => "Apes climb with anything, others light only.".to_string(),
+        "PLANK" => "A board to stand on or jump up through.".to_string(),
+        "SPRING" => "Jump 2 higher from it, even with a stone.".to_string(),
+        _ => line,
+    };
+    fb.text(&name, x + 26, y + 2, GOLD, None, 1);
+    fb.text(&line, x + 26, y + 12, TEXT, None, 1);
+}
+
+/// The card shown on arriving at a site: what it wants, what's new, what to aim for.
+fn draw_site_card(fb: &mut Framebuffer, g: &Game) {
     let lv = g.level();
     ui::dim(fb, Rect::new(0, 0, 400, VIEW_H));
-    let lines = crate::framebuffer::wrap(&lv.rule, 46);
-    let h = 70 + lines.len() as i32 * 10;
-    let r = Rect::new(52, (VIEW_H - h) / 2, 296, h);
+    let intro = crate::framebuffer::wrap(&lv.rule, 50);
+    let news = lv.new.len() as i32;
+    let h = 64 + intro.len() as i32 * 10 + news * 24;
+    let r = Rect::new(40, ((VIEW_H - h) / 2).max(2), 320, h);
     ui::panel(fb, r);
-    fb.text(&format!("{}  {}", lv.id, lv.name), r.x + 8, r.y + 7, GOLD, None, 1);
-    for (i, l) in lines.iter().enumerate() {
-        fb.text(l, r.x + 8, r.y + 22 + i as i32 * 10, TEXT, None, 1);
+    fb.text(&lv.id, r.x + 8, r.y + 6, TEXT_DIM, None, 1);
+    fb.text(&lv.name, r.x + 32, r.y + 6, GOLD, Some(OUTLINE), 1);
+    let mut y = r.y + 20;
+    for l in &intro {
+        fb.text(l, r.x + 8, y, TEXT, None, 1);
+        y += 10;
     }
-    let y = r.y + 26 + lines.len() as i32 * 10;
-    let need: Vec<String> = lv.need.iter().map(|(gd, c)| format!("{c} {}", if *c == 1 { gd.name() } else { gd.plural() })).collect();
-    fb.text(&format!("BUILD THE FORTRESS: {}", need.join(", ")), r.x + 8, y, ACCENT, None, 1);
-    let rec = g.save.rec(&lv.id);
-    let tg = lv.targets;
-    let star = |v: Option<i32>, t: i32| v.is_some_and(|v| v <= t);
-    let mut sx = r.x + 8;
-    for (name, v, t) in [("TICKS", rec.ticks, tg.ticks), ("COST", rec.cost, tg.cost), ("CREW", rec.crew, tg.crew)] {
-        ui::star(fb, sx, y + 12, star(v, t));
-        let s = format!("{name} <={t}");
-        fb.text(&s, sx + 9, y + 12, TEXT_DIM, None, 1);
-        sx += 18 + Framebuffer::text_width(&s, 1);
+    y += 4;
+    for t in &lv.new {
+        new_thing(fb, g, t, r.x + 8, y);
+        y += 24;
     }
-    fb.text_centered("CLICK OR PRESS SPACE", r.x + r.w / 2, r.y + r.h - 12, TEXT_FAINT, None, 1);
+    // Wants.
+    fb.text("Wants", r.x + 8, y + 1, TEXT_DIM, None, 1);
+    let mut x = r.x + 50;
+    for (gd, n) in &lv.need {
+        x = good_count(fb, g, *gd, *n, x, y + 1, TEXT) + 8;
+    }
+    y += 14;
+    fb.text("Goals", r.x + 8, y + 1, TEXT_DIM, None, 1);
+    goal_chips(fb, g, r.x + 50, y + 1);
+    fb.text_centered("Click to start", r.x + r.w / 2, r.y + r.h - 11, ACCENT_HI, None, 1);
 }
 
 fn draw_results(fb: &mut Framebuffer, g: &Game) {
@@ -928,44 +1206,50 @@ fn draw_results(fb: &mut Framebuffer, g: &Game) {
     let (mx, my) = g.mouse;
     let b = result_buttons();
     match &g.overlay {
-        Overlay::Results { ticks, cost, crew, best } => {
+        Overlay::Results { ticks, cost, crew, best, combo } => {
             ui::dim(fb, Rect::new(0, 0, 400, VIEW_H));
             ui::panel(fb, r);
-            fb.text_centered("THE FORTRESS STANDS!", r.x + r.w / 2, r.y + 8, GOLD, Some(OUTLINE), 1);
+            fb.text_centered("The fortress stands!", r.x + r.w / 2, r.y + 7, GOLD, Some(OUTLINE), 1);
             let lv = g.level();
             let rec = g.save.rec(&lv.id);
             let tg = lv.targets;
-            fb.text("SCORE", r.x + 52, r.y + 24, TEXT_DIM, None, 1);
-            fb.text("BEST", r.x + 100, r.y + 24, TEXT_DIM, None, 1);
-            fb.text("GOAL", r.x + 142, r.y + 24, TEXT_DIM, None, 1);
-            fb.text("OTHER SOLUTIONS", r.x + 232, r.y + 24, TEXT_DIM, None, 1);
+            fb.text("this run", r.x + 30, r.y + 22, TEXT_DIM, None, 1);
+            fb.text("best", r.x + 88, r.y + 22, TEXT_DIM, None, 1);
+            fb.text("goal", r.x + 130, r.y + 22, TEXT_DIM, None, 1);
+            fb.text("everyone else", r.x + 236, r.y + 22, TEXT_DIM, None, 1);
             let histo = g.histos.iter().find(|(id, _)| *id == lv.id).map(|(_, h)| h);
-            let rows = [("TICKS", *ticks, rec.ticks, tg.ticks, best[0]), ("COST", *cost, rec.cost, tg.cost, best[1]), ("CREW", *crew, rec.crew, tg.crew, best[2])];
-            for (k, (name, v, b2, goal, nb)) in rows.iter().enumerate() {
-                let y = r.y + 42 + k as i32 * 24;
-                fb.text(name, r.x + 8, y, TEXT, None, 1);
-                fb.text(&format!("{v:>5}"), r.x + 46, y, if *nb { GOOD } else { TEXT }, None, 1);
-                fb.text(&format!("{:>5}", b2.unwrap_or(*v)), r.x + 88, y, GOLD, None, 1);
-                fb.text(&format!("<={goal}"), r.x + 138, y, TEXT_DIM, None, 1);
-                ui::star(fb, r.x + 180, y, b2.unwrap_or(*v) <= *goal);
+            let rows = [(&g.art.clock, *ticks, rec.ticks, tg.ticks, best[0]), (&g.art.seed, *cost, rec.cost, tg.cost, best[1]), (&g.art.paw, *crew, rec.crew, tg.crew, best[2])];
+            for (k, (icon, v, b2, goal, nb)) in rows.iter().enumerate() {
+                let y = r.y + 36 + k as i32 * 20;
+                fb.blit(icon, r.x + 12, y, false);
+                fb.text(&format!("{v:>5}"), r.x + 30, y, if *nb { GOOD } else { TEXT }, None, 1);
+                fb.text(&format!("{:>5}", b2.unwrap_or(*v)), r.x + 76, y, GOLD, None, 1);
+                fb.text(&format!("{goal}"), r.x + 132, y, TEXT_DIM, None, 1);
+                ui::star(fb, r.x + 160, y, b2.unwrap_or(*v) <= *goal);
                 if *nb {
-                    fb.text("NEW", r.x + 192, y, GOOD, None, 1);
+                    fb.text("new best", r.x + 172, y, GOOD, None, 1);
                 }
                 if let Some((lo, hi, bins)) = histo.and_then(|h| h.m.get(k)) {
-                    draw_histo(fb, r.x + 230, y - 6, *lo, *hi, bins, *v);
+                    draw_histo(fb, r.x + 236, y - 6, *lo, *hi, bins, *v);
                 }
             }
-            fb.text_centered("EACH SCORE IS KEPT ON ITS OWN. TRY ANOTHER SHAPE.", r.x + r.w / 2, r.y + 120, TEXT_FAINT, None, 1);
+            if tg.combo_ticks > 0 {
+                let y = r.y + 98;
+                ui::star(fb, r.x + 12, y, rec.combo);
+                let t = format!("Both at once: {} ticks or less and {} seeds or less", tg.combo_ticks, tg.combo_cost);
+                fb.text(&t, r.x + 24, y, if *combo { GOLD } else { TEXT }, None, 1);
+            }
+            fb.text_centered("Every star is its own puzzle.", r.x + r.w / 2, r.y + 116, TEXT_DIM, None, 1);
             let last = g.cur + 1 >= g.levels.len();
-            for (k, lab) in [(0, if last { "CLOSE" } else { "NEXT SITE" }), (1, "KEEP TUNING"), (2, "MENU")] {
+            for (k, lab) in [(0, if last { "Close" } else { "Next site" }), (1, "Keep tuning"), (2, "Menu")] {
                 ui::button(fb, b[k], lab, b[k].contains(mx, my), false);
             }
         }
         Overlay::Failed(msg) => {
             ui::panel(fb, Rect::new(r.x, r.y + 40, r.w, 80));
-            fb.text_centered("THE COLONY GROUND TO A HALT", r.x + r.w / 2, r.y + 48, BAD, Some(OUTLINE), 1);
+            fb.text_centered("The colony ground to a halt", r.x + r.w / 2, r.y + 48, BAD, Some(OUTLINE), 1);
             fb.text_wrapped(msg, r.x + 10, r.y + 62, r.w - 20, 10, TEXT, None);
-            for (k, lab) in [(0, "RESET"), (1, "LOOK"), (2, "MENU")] {
+            for (k, lab) in [(0, "Reset"), (1, "Look"), (2, "Menu")] {
                 ui::button(fb, b[k], lab, b[k].contains(mx, my), false);
             }
         }
@@ -1020,7 +1304,7 @@ fn draw_reach(fb: &mut Framebuffer, g: &Game) {
     for y in 0..w.h {
         for x in 0..w.w {
             let i = w.idx(x, y);
-            if seen[i] && w.standable(x, y) {
+            if seen[i] && w.standable_w(x, y, load.weight) {
                 let (px, py) = (x * TILE + 4, y * TILE + 8);
                 fb.rect_fill(px, py + 1, 2, 1, OUTLINE);
                 fb.rect_fill(px, py, 2, 1, if home[i] { GOLD } else { BAD });
@@ -1030,7 +1314,7 @@ fn draw_reach(fb: &mut Framebuffer, g: &Game) {
 }
 
 fn draw_play(g: &Game, fb: &mut Framebuffer) {
-    draw_sky(fb, VIEW_H);
+    g.gallery.backdrop(g.level().chapter).draw(fb, &BACKDROP, VIEW_H);
     draw_terrain(fb, &g.world);
     draw_reach(fb, g);
     draw_nodes(fb, g);
@@ -1049,75 +1333,47 @@ fn draw_play(g: &Game, fb: &mut Framebuffer) {
     draw_card(fb, g);
     draw_panel(fb, g);
     match g.overlay {
-        Overlay::Rule => draw_rule(fb, g),
+        Overlay::Rule => draw_site_card(fb, g),
         Overlay::Results { .. } | Overlay::Failed(_) => draw_results(fb, g),
-        Overlay::None => {}
+        Overlay::None => {
+            if let Some((t, x, y)) = g.coach() {
+                bubble(fb, &t, x, y);
+            } else if let Some(b) = &g.tip {
+                bubble(fb, &b.text, b.x, b.y);
+            }
+        }
     }
 }
 
 // ----- Menus -------------------------------------------------------------------------------------
 
-fn draw_title(g: &Game, fb: &mut Framebuffer) {
-    draw_sky(fb, 300);
-    // Ground strip with a little colony at work.
-    fb.rect_fill(0, 262, 400, 38, SOIL);
-    fb.rect_fill(0, 262, 400, 3, GRASS);
-    fb.rect_fill(0, 262, 400, 1, GRASS_HI);
-    for k in 0..40 {
-        let h = hash(k, 7);
-        fb.pset(k * 10 + (h % 9) as i32, 270 + ((h >> 5) % 25) as i32, SOIL_DK);
-    }
-    // Fortress.
-    for y in 0..36 {
-        for x in 0..40 {
-            let mortar = y % 3 == 2 || (x + if (y / 3) % 2 == 0 { 0 } else { 3 }) % 6 == 0;
-            fb.pset(300 + x, 226 + y, if mortar { ROCK_DK } else { ROCK });
-        }
-    }
-    for x in (0..40).step_by(6) {
-        fb.rect_fill(300 + x, 222, 3, 4, ROCK);
-    }
-    fb.rect_fill(320, 204, 1, 18, WOOD_DK);
-    fb.rect_fill(321, 204, 9, 5, BANNER);
-    fb.rect_fill(321, 204, 9, 1, GOLD);
-    // Walkers shuttling.
-    let f = g.frame as i32;
-    for (k, s) in SPECIES.iter().enumerate() {
-        let period = 220 + k as i32 * 40;
-        let t = (f * (2 + k as i32) / 2 + k as i32 * 70) % (period * 2);
-        let (x, flip, carry) = if t < period { (40 + t, false, true) } else { (40 + period * 2 - t, true, false) };
-        let cargo = if carry { Some([Good::Berry, Good::Twig, Good::Stone][k]) } else { None };
-        blit_creature(fb, g, *s, ((f / 3) % 2) as usize, x, 252, flip, cargo);
-    }
-    fb.text_centered("BIRD FORTRESS", 202, 52, OUTLINE, None, 4);
-    fb.text_centered("BIRD FORTRESS", 200, 50, GOLD, None, 4);
-    fb.text_centered("A LOGISTICS PUZZLE FOR TRIBBLES, DODOS AND APES", 200, 92, TEXT, Some(OUTLINE), 1);
-    let lines = [
-        "EVERY CREATURE SEES A DIFFERENT MAP,",
-        "AND IT CHANGES WITH WHAT IT CARRIES.",
-        "",
-        "LAY OUT DEPOTS, WORKSHOPS AND SPRINGBOARDS,",
-        "SEND YOUR CREWS ON THEIR ROUTES, AND WATCH.",
-        "THEN DO IT FASTER, CHEAPER, OR WITH FEWER PAWS.",
-    ];
-    for (i, l) in lines.iter().enumerate() {
-        fb.text_centered(l, 200, 114 + i as i32 * 10, TEXT_DIM, Some(OUTLINE), 1);
-    }
-    fb.text_centered("CLICK OR PRESS ENTER", 200, 186, ACCENT_HI, Some(OUTLINE), 1);
-    fb.text_centered("F1 RULES   F2 SCANLINES   F3 MUSIC   ESC QUIT", 200, 200, TEXT_FAINT, Some(OUTLINE), 1);
+fn title_slots() -> Vec<u8> {
+    (0..TITLE_SLOTS as u8).map(|k| TITLE_FIRST + k).collect()
 }
 
+fn draw_title(g: &Game, fb: &mut Framebuffer) {
+    g.gallery.title.draw(fb, &title_slots(), 300);
+    fb.text_centered("BIRD FORTRESS", 202, 12, OUTLINE, None, 3);
+    fb.text_centered("BIRD FORTRESS", 200, 10, GOLD, None, 3);
+    fb.rect_checker(0, 262, 400, 38, SHADOW, 0);
+    fb.rect_checker(0, 262, 400, 38, PANEL_DEEP, 1);
+    fb.text_centered("Every creature sees a different map.", 200, 266, TEXT, Some(OUTLINE), 1);
+    fb.text_centered("Click to begin", 200, 278, ACCENT_HI, Some(OUTLINE), 1);
+    fb.text_centered("F1 rules   F2 scanlines   F3 music   Esc quit", 200, 290, TEXT_DIM, Some(OUTLINE), 1);
+}
+
+pub const CHAPTER_NAMES: [&str; 5] = ["Meadow", "Quarry", "Canopy", "Bastion", "Skyreach"];
+
 fn draw_select(g: &Game, fb: &mut Framebuffer) {
-    draw_sky(fb, 300);
+    g.gallery.title.draw(fb, &title_slots(), 300);
     ui::dim(fb, Rect::new(0, 0, 400, 300));
-    fb.text_centered("CHOOSE A BUILDING SITE", 200, 6, GOLD, Some(OUTLINE), 2);
-    let names = ["I. MEADOW", "II. QUARRY", "III. CANOPY", "IV. BASTION"];
+    fb.text_centered("Choose a site", 200, 8, GOLD, Some(OUTLINE), 2);
     let (mx, my) = g.mouse;
     let mut stars = 0;
     let mut total = 0;
     for (c, list) in g.chapters().into_iter().enumerate() {
-        let x = 6 + c as i32 * 98;
-        fb.text_centered(names.get(c).copied().unwrap_or("?"), x + 47, 32, TEXT, Some(OUTLINE), 1);
+        let r0 = select_rect(c, 0);
+        fb.text_centered(CHAPTER_NAMES.get(c).copied().unwrap_or("?"), r0.x + r0.w / 2, 32, TEXT, Some(OUTLINE), 1);
         for (i, li) in list.into_iter().enumerate() {
             let r = select_rect(c, i);
             let lv = &g.levels[li];
@@ -1125,76 +1381,81 @@ fn draw_select(g: &Game, fb: &mut Framebuffer) {
             let open = g.unlocked(li);
             if open {
                 let col = ui::button_face(fb, r, r.contains(mx, my), false);
-                fb.text(&lv.id, r.x + 4, r.y + 3, if rec.solved { GOOD } else { col }, None, 1);
+                fb.text(&lv.id, r.x + 3, r.y + 3, if rec.solved { GOOD } else { col }, None, 1);
                 let mut name = lv.name.clone();
-                name.truncate(15);
-                fb.text(&name, r.x + 4, r.y + 15, col, None, 1);
+                name.truncate(12);
+                fb.text(&name, r.x + 3, r.y + 15, col, None, 1);
             } else {
                 ui::button_off(fb, r, "");
-                fb.text(&lv.id, r.x + 4, r.y + 3, TEXT_FAINT, None, 1);
-                fb.text("LOCKED", r.x + 4, r.y + 15, TEXT_FAINT, None, 1);
+                fb.text(&lv.id, r.x + 3, r.y + 3, TEXT_FAINT, None, 1);
+                fb.text("locked", r.x + 3, r.y + 15, TEXT_FAINT, None, 1);
             }
             let tg = lv.targets;
-            for (k, (v, t)) in [(rec.ticks, tg.ticks), (rec.cost, tg.cost), (rec.crew, tg.crew)].iter().enumerate() {
-                let got = v.is_some_and(|v| v <= *t);
-                if got {
-                    stars += 1;
+            let got = [rec.ticks.is_some_and(|v| v <= tg.ticks), rec.cost.is_some_and(|v| v <= tg.cost), rec.crew.is_some_and(|v| v <= tg.crew), rec.combo];
+            for (k, s) in got.iter().enumerate() {
+                if k == 3 && tg.combo_ticks == 0 {
+                    continue;
                 }
+                stars += *s as i32;
                 total += 1;
-                ui::star(fb, r.x + 62 + k as i32 * 9, r.y + 3, got);
+                ui::star(fb, r.x + 38 + k as i32 * 9, r.y + 3, *s);
             }
         }
     }
-    fb.text_centered(&format!("STARS {stars}/{total}   SOLVED {}/{}", g.levels.iter().filter(|l| g.save.rec(&l.id).solved).count(), g.levels.len()), 200, 262, TEXT_DIM, Some(OUTLINE), 1);
-    ui::button(fb, R_SEL_HELP, "RULES", R_SEL_HELP.contains(mx, my), false);
-    ui::button(fb, R_SEL_QUIT, "QUIT", R_SEL_QUIT.contains(mx, my), false);
+    let solved = g.levels.iter().filter(|l| g.save.rec(&l.id).solved).count();
+    fb.text_centered(&format!("Stars {stars} of {total}    Sites done {solved} of {}", g.levels.len()), 200, 262, TEXT, Some(OUTLINE), 1);
+    ui::button(fb, R_SEL_HELP, "Rules", R_SEL_HELP.contains(mx, my), false);
+    ui::button(fb, R_SEL_QUIT, "Quit", R_SEL_QUIT.contains(mx, my), false);
 }
 
 fn draw_help(g: &Game, fb: &mut Framebuffer) {
-    fb.clear(PANEL_DEEP);
-    ui::panel(fb, Rect::new(0, 0, 400, 300));
-    ui::inset(fb, Rect::new(6, 22, 388, 250));
-    let titles = ["HOW IT WORKS", "THE CREATURES", "MOVING AROUND", "GOODS AND WORKSHOPS", "CONTROLS"];
-    fb.text_centered(&format!("RULES {}/{}: {}", g.help_page + 1, HELP_PAGES, titles[g.help_page]), 200, 7, GOLD, Some(OUTLINE), 1);
-    let (x, mut y) = (14, 30);
+    g.gallery.backdrop(1).draw(fb, &BACKDROP, 300);
+    ui::panel(fb, Rect::new(4, 4, 392, 292));
+    ui::inset(fb, Rect::new(10, 22, 380, 250));
+    let titles = ["Routes", "Creatures", "Moving", "Goods and workshops", "Keys"];
+    fb.text_centered(&format!("Rules {} of {}: {}", g.help_page + 1, HELP_PAGES, titles[g.help_page]), 200, 9, GOLD, Some(OUTLINE), 1);
+    let (x, mut y) = (18, 30);
     let mut para = |fb: &mut Framebuffer, s: &str, col: u8, y: &mut i32| {
-        let n = fb.text_wrapped(s, x, *y, 372, 10, col, None);
-        *y += n * 10 + 4;
+        let n = fb.text_wrapped(s, x, *y, 364, 10, col, None);
+        *y += n * 10 + 5;
     };
     match g.help_page {
         0 => {
-            para(fb, "EACH SITE ASKS FOR GOODS AT ITS FORTRESS. YOU NEVER CARRY ANYTHING YOURSELF: YOU HIRE CREWS.", TEXT, &mut y);
-            para(fb, "A ROUTE IS A CREATURE SHUTTLING BETWEEN TWO PLACES: IT PICKS UP ONE GOOD, CARRIES IT TO THE DROP-OFF, HANDS IT OVER AND WALKS BACK EMPTY. IT ALWAYS TAKES THE FASTEST WAY IT CAN MANAGE, AND THE WAY BACK MAY BE A DIFFERENT ONE.", TEXT, &mut y);
-            para(fb, "TO MAKE A ROUTE: PICK A CREATURE BELOW, CLICK WHERE IT PICKS UP (A SOURCE, A DEPOT OR A WORKSHOP), THEN WHERE IT DROPS OFF. CLICK A PLACE TO SEE ITS ROUTES, ADD OR REMOVE CREATURES, OR CHANGE THE CARGO.", TEXT, &mut y);
-            para(fb, "EVERY PLACE HAS ONE DOCK (THE FORTRESS HAS TWO). TAKING OR HANDING OVER A GOOD USES IT FOR 2 TICKS, SO CROWDS QUEUE. A CREATURE ONLY PICKS UP WHEN ITS DROP-OFF HAS ROOM.", TEXT, &mut y);
-            para(fb, "WHEN THE FORTRESS HAS EVERYTHING, YOU ARE SCORED THREE WAYS: TICKS TAKEN, SEEDS SPENT (CREATURES AND BUILDINGS) AND CREW SIZE. EACH BEST IS KEPT ON ITS OWN, AND EACH SITE HAS A GOAL FOR EACH.", ACCENT, &mut y);
+            // A route, drawn: pickup, loaded trip, drop-off, trip back.
+            let (ax, bx, ry) = (60, 300, 60);
+            draw_source(fb, &g.art, Good::Twig, ax, ry, 4);
+            for k in 0..3 {
+                fb.rect_fill(bx + k * 8, ry - 10 + k * 2, 8, 20 - k * 2, ROCK);
+            }
+            fb.text("pickup", ax - 8, ry + 13, TEXT_DIM, None, 1);
+            fb.text("drop-off", bx - 8, ry + 13, TEXT_DIM, None, 1);
+            for k in (ax + 16..bx - 6).step_by(3) {
+                fb.pset(k, ry - 2, GOLD);
+                fb.pset(k, ry + 8, ACCENT);
+            }
+            blit_creature(fb, g, Species::Tribble, 0, 150, ry - 4, false, Some(Good::Twig));
+            blit_creature(fb, g, Species::Tribble, 1, 210, ry + 6, true, None);
+            y = 100;
+            para(fb, "A route is a creature going back and forth between two places. It picks up one thing, carries it over, hands it over and comes back empty.", TEXT, &mut y);
+            para(fb, "Gold dots show the trip there, blue dots the trip back. Loaded and empty, a creature can jump different heights, so the way back is often different.", TEXT, &mut y);
+            para(fb, "Pick a creature, click where it picks up, then where it drops off. Click a place to add or remove creatures.", TEXT, &mut y);
+            para(fb, "Each place has one dock (the fortress has two). Picking up or handing over takes 2 ticks, so a crowd queues.", TEXT_DIM, &mut y);
         }
         1 => {
-            fb.text("LOAD:", x, y, TEXT_DIM, None, 1);
-            for (k, w) in WEIGHTS.iter().enumerate() {
-                fb.text(w.name(), x + 96 + k as i32 * 66, y, TEXT_DIM, None, 1);
-            }
-            y += 14;
             for s in SPECIES {
                 let spr = g.art.creature(s, 0);
                 fb.blit(spr, x, y + 10 - spr.h, false);
-                fb.text(&format!("{} {}S", s.name(), s.cost()), x + 12, y + 2, TEXT, None, 1);
-                for (k, w) in WEIGHTS.iter().enumerate() {
-                    let j = s.jump(*w);
-                    let t = format!("J{} P{}", j, s.pace(*w));
-                    fb.text(&t, x + 96 + k as i32 * 66, y + 2, if j == 0 { BAD } else { TEXT }, None, 1);
-                }
-                y += 16;
-                fb.text_wrapped(s.blurb(), x + 12, y, 360, 10, TEXT_DIM, None);
-                y += 22;
+                fb.text(s.title(), x + 14, y + 1, GOLD, None, 1);
+                icon_num(fb, &g.art.seed, x + 70, y + 1, &format!("{}", s.cost()), TEXT);
+                fb.text(s.blurb(), x + 110, y + 1, TEXT_DIM, None, 1);
+                jump_table(fb, g, s, x + 14, y + 12);
+                y += 56;
             }
-            para(fb, "J = HOW MANY TILES UP A JUMP RISES. P = TICKS PER TILE WALKED. CLIMBING TAKES TWICE AS LONG. FALLING TAKES 1 TICK A TILE FOR EVERYONE.", ACCENT, &mut y);
-            para(fb, "APES CLIMB VINES AND LADDERS CARRYING ANYTHING. TRIBBLES AND DODOS USE LADDERS ONLY WHEN EMPTY OR CARRYING SOMETHING LIGHT, AND NEVER VINES.", TEXT, &mut y);
+            para(fb, "Green bars: how many tiles up a jump goes, for each load. Pace: ticks per tile walked. Climbing is twice as slow. Falling is quick for everyone.", TEXT, &mut y);
         }
         2 => {
-            para(fb, "WALK: ONE TILE SIDEWAYS ALONG THE GROUND. WALK OFF AN EDGE AND YOU FALL STRAIGHT DOWN, AS FAR AS IT GOES.", TEXT, &mut y);
-            para(fb, "JUMP: RISE UP TO J TILES, MOVE UP TO J+1 TILES SIDEWAYS AT THE TOP, THEN FALL. A JUMP STOPS AS SOON AS IT IS ABOVE SOMETHING TO STAND ON, AND NOTHING SOLID MAY BE IN THE WAY.", TEXT, &mut y);
-            // A little diagram: a jump-2 arc onto a ledge.
+            para(fb, "Walk along the ground. Step off an edge and you fall, as far as it goes.", TEXT, &mut y);
+            para(fb, "A jump rises up to its height, carries sideways up to one tile more than that, then falls. It lands on the first ledge it passes over.", TEXT, &mut y);
             let (dx, dy) = (150, y);
             for k in 0..8 {
                 fb.rect_fill(dx + k * 8, dy + 32, 8, 8, SOIL);
@@ -1206,68 +1467,80 @@ fn draw_help(g: &Game, fb: &mut Framebuffer) {
             fb.line(dx + 12, dy + 12, dx + 44, dy + 12, GOLD);
             fb.blit(g.art.creature(Species::Dodo, 0), dx + 8, dy + 22, false);
             fb.blit(g.art.creature(Species::Dodo, 2), dx + 44, dy + 6, false);
-            fb.text("RISE 2", dx - 40, dy + 16, TEXT_DIM, None, 1);
-            fb.text("ACROSS", dx + 72, dy + 6, TEXT_DIM, None, 1);
             y += 46;
-            para(fb, "SPRINGBOARD: A JUMP FROM ONE RISES 2 HIGHER, EVEN FOR A TRIBBLE UNDER A STONE.", TEXT, &mut y);
-            para(fb, "BRANCHES, LEDGES AND PLANKS ARE ONE-WAY: JUMP UP THROUGH THEM FROM BELOW, LAND ON THEM FROM ABOVE. WATER CAN'T BE ENTERED.", TEXT, &mut y);
-            para(fb, "FRAGILE GOODS (EGGS, POTS) BREAK IF THEIR CARRIER FALLS MORE THAN 1 TILE, SO CREATURES CARRYING THEM WON'T.", BAD, &mut y);
+            let rows: [(Tool, &str); 3] = [
+                (Tool::Infra(Infra::Spring), "Springboard: jump 2 higher from it, even with a stone."),
+                (Tool::Infra(Infra::Ladder), "Ladder: apes climb it with anything, others only light."),
+                (Tool::Infra(Infra::Plank), "Plank, branch, ledge: stand on it, jump up through it."),
+            ];
+            for (t, line) in rows {
+                let f = Rect::new(x, y, 20, 20);
+                ui::button_face(fb, f, false, false);
+                tool_icon(fb, g, t, f);
+                fb.text(line, x + 26, y + 6, TEXT, None, 1);
+                y += 23;
+            }
+            para(fb, "Eggs and pots are fragile: whoever carries one never falls more than a tile. Clouds hold up light loads only. Nobody swims.", BAD, &mut y);
         }
         3 => {
+            let mut col = 0;
             for gd in GOODS {
+                let cx = x + col * 186;
                 let s = g.art.good(gd);
-                fb.blit(s, x, y + (8 - s.h) / 2, false);
-                let fr = if gd.fragile() { ", FRAGILE" } else { "" };
-                fb.text(&format!("{}: {}{}", gd.name(), gd.weight().name(), fr), x + 12, y, TEXT, None, 1);
-                y += 11;
+                fb.blit(s, cx, y + (8 - s.h) / 2, false);
+                let fr = if gd.fragile() { ", fragile" } else { "" };
+                fb.text(&format!("{}: {}{fr}", cap(gd.word()), gd.weight().word()), cx + 12, y, TEXT, None, 1);
+                col += 1;
+                if col == 2 {
+                    col = 0;
+                    y += 12;
+                }
             }
-            y += 4;
+            y += 10;
             for k in KINDS {
-                fb.text(&format!("{} ({}S)", k.name(), k.cost()), x, y, GOLD, None, 1);
-                fb.text_wrapped(k.blurb(), x + 90, y, 280, 10, TEXT, None);
-                y += 22;
+                let f = Rect::new(x, y, 20, 20);
+                ui::button_face(fb, f, false, false);
+                tool_icon(fb, g, Tool::Build(k), f);
+                fb.text(k.title(), x + 26, y + 1, GOLD, None, 1);
+                icon_num(fb, &g.art.seed, x + 80, y + 1, &format!("{}", k.cost()), TEXT);
+                if k == Kind::Depot {
+                    fb.text("holds any 6 goods", x + 26, y + 11, TEXT_DIM, None, 1);
+                } else {
+                    recipe(fb, g, k, x + 26, y + 11);
+                }
+                y += 25;
             }
-            para(fb, "A WORKSHOP HOLDS UP TO 4 OF EACH INPUT AND 3 OF ITS PRODUCT. IT STARTS A NEW BATCH BY ITSELF WHENEVER IT HAS THE INPUTS.", TEXT_DIM, &mut y);
-            para(fb, "SOURCES: SOME ARE ENDLESS, SOME HOLD A FEW AND REGROW, SOME RUN OUT. HOVER ONE TO SEE.", TEXT_DIM, &mut y);
+            para(fb, "A workshop starts by itself whenever it has what it needs. It holds 4 of each input and 3 of what it makes.", TEXT_DIM, &mut y);
         }
         _ => {
             let rows = [
-                ("LEFT CLICK", "USE THE TOOL / SELECT"),
-                ("RIGHT CLICK", "CANCEL, OR ERASE WHAT'S UNDER IT"),
-                ("1-9", "PICK A TOOL FROM THE BAR"),
-                ("X", "ERASE TOOL"),
-                ("SPACE", "RUN / PAUSE"),
-                ("S", "ONE TICK AT A TIME"),
-                ("TAB / F", "SPEED: 1, 2, 4, 8 OR 32 TICKS A FRAME"),
-                ("R", "RESET THE RUN"),
-                ("Z / BACKSPACE", "UNDO"),
-                ("V", "SHOW EVERY ROUTE'S PATH OR ONLY THE SELECTED"),
-                ("I", "THE SITE'S NOTE AGAIN"),
-                ("ESC", "CANCEL, DESELECT, THEN BACK TO THE MAP"),
-                ("F1", "THESE RULES"),
-                ("F2", "SCANLINES ON/OFF"),
-                ("F3", "MUSIC LEVEL"),
+                ("Left click", "use the tool, or pick a place"),
+                ("Right click", "take away what you built, or cancel"),
+                ("1 to 9", "pick a tool"),
+                ("X", "the eraser"),
+                ("Space", "run or pause"),
+                ("S", "one tick at a time"),
+                ("Tab", "speed"),
+                ("R", "back to tick 0"),
+                ("Z", "undo"),
+                ("V", "show every path, or only the chosen place's"),
+                ("I", "the site card again"),
+                ("Esc", "cancel, then back to the map"),
+                ("F1 F2 F3", "rules, scanlines, music"),
             ];
             for (k, v) in rows {
                 fb.text(k, x, y, GOLD, None, 1);
-                fb.text(v, x + 96, y, TEXT, None, 1);
-                y += 11;
+                fb.text(v, x + 90, y, TEXT, None, 1);
+                y += 12;
             }
-            y += 6;
-            para(fb, "ROUTE PATHS: BRIGHT DOTS ARE THE LOADED TRIP, DARK DOTS THE WAY BACK. A RED X MEANS A ROUTE THAT CAN'T RUN.", TEXT_DIM, &mut y);
         }
     }
     let (mx, my) = g.mouse;
     if g.help_page > 0 {
-        ui::button(fb, R_HELP_PREV, "< PREV", R_HELP_PREV.contains(mx, my), false);
+        ui::button(fb, R_HELP_PREV, "< Back", R_HELP_PREV.contains(mx, my), false);
     }
     if g.help_page + 1 < HELP_PAGES {
-        ui::button(fb, R_HELP_NEXT, "NEXT >", R_HELP_NEXT.contains(mx, my), false);
+        ui::button(fb, R_HELP_NEXT, "Next >", R_HELP_NEXT.contains(mx, my), false);
     }
-    ui::button(fb, R_HELP_CLOSE, "CLOSE", R_HELP_CLOSE.contains(mx, my), false);
-}
-
-#[allow(dead_code)]
-pub fn sprite_center(s: &Sprite) -> (i32, i32) {
-    (s.w / 2, s.h / 2)
+    ui::button(fb, R_HELP_CLOSE, "Close", R_HELP_CLOSE.contains(mx, my), false);
 }

@@ -44,7 +44,7 @@ pub fn fall(world: &World, s: Species, w: Weight, x: i32, y0: i32) -> Option<(i3
         if !world.passable(x, y) {
             return None;
         }
-        if world.standable(x, y) || world.climbable(x, y, s, w) {
+        if world.standable_w(x, y, w) || world.climbable(x, y, s, w) {
             return Some((y, y - y0));
         }
         y += 1;
@@ -66,7 +66,7 @@ pub fn moves(world: &World, s: Species, load: Load, x: i32, y: i32, out: &mut Ve
     let w = load.weight;
     let p = s.pace(w);
     let max_fall = if load.fragile { FRAGILE_FALL } else { i32::MAX };
-    let standing = world.standable(x, y);
+    let standing = world.standable_w(x, y, w);
     let hanging = world.climbable(x, y, s, w);
     if !standing && !hanging {
         return;
@@ -77,7 +77,7 @@ pub fn moves(world: &World, s: Species, load: Load, x: i32, y: i32, out: &mut Ve
         if !world.passable(nx, y) {
             continue;
         }
-        if world.standable(nx, y) || world.climbable(nx, y, s, w) {
+        if world.standable_w(nx, y, w) || world.climbable(nx, y, s, w) {
             out.push(vec![Step { x: nx, y, t: p, m: Move::Walk }]);
         } else if let Some((_, dist)) = fall(world, s, w, nx, y) {
             if dist <= max_fall {
@@ -93,7 +93,7 @@ pub fn moves(world: &World, s: Species, load: Load, x: i32, y: i32, out: &mut Ve
             let ny = y + d;
             if world.climbable(x, ny, s, w) {
                 out.push(vec![Step { x, y: ny, t: 2 * p, m: Move::Climb }]);
-            } else if d == 1 && world.passable(x, ny) && !world.standable(x, y) {
+            } else if d == 1 && world.passable(x, ny) && !world.standable_w(x, y, w) {
                 // Let go of the bottom of a hanging vine.
                 if let Some((_, dist)) = fall(world, s, w, x, ny) {
                     if dist + 1 <= max_fall {
@@ -125,7 +125,7 @@ pub fn moves(world: &World, s: Species, load: Load, x: i32, y: i32, out: &mut Ve
                 }
                 let mut v: Vec<Step> = (1..=h).map(|k| Step { x, y: y - k, t: p, m: Move::Rise }).collect();
                 v.extend((1..=r).map(|k| Step { x: x + d * k, y: cy, t: p, m: Move::Leap }));
-                if world.standable(cx, cy) || world.climbable(cx, cy, s, w) {
+                if world.standable_w(cx, cy, w) || world.climbable(cx, cy, s, w) {
                     out.push(v);
                     break;
                 }

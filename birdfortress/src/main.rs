@@ -8,6 +8,7 @@ mod layout;
 mod level;
 mod palette;
 mod path;
+mod picture;
 mod render;
 mod rules;
 mod save;
@@ -44,6 +45,9 @@ pub const BOOK: &str = concat!(
     include_str!("levels/ch3.txt"),
     "\n",
     include_str!("levels/ch4.txt"),
+    "
+",
+    include_str!("levels/ch5.txt"),
 );
 
 /// The pixel-art pointer as an OS cursor, rebuilt when the integer scale or pointer changes. Like

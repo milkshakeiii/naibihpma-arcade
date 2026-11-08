@@ -25,6 +25,8 @@ pub enum Tile {
     Water,
     /// A ladder that came with the level.
     Ladder,
+    /// A cloud bank: stand on it carrying nothing or something light; heavier loads fall through.
+    Cloud,
 }
 
 impl Tile {
@@ -42,6 +44,24 @@ impl Tile {
     pub fn open(self) -> bool {
         matches!(self, Tile::Air | Tile::Leaves)
     }
+    /// What hovering this tile says.
+    pub fn label(self) -> &'static str {
+        match self {
+            Tile::Air => "",
+            Tile::Earth => "Earth.",
+            Tile::Rock => "Rock.",
+            Tile::Bramble => "Bramble. Nothing can be built on it.",
+            Tile::Branch => "Branch. Stand on it, or jump up through it.",
+            Tile::Ledge => "Thin ledge. Like a branch, but nothing can be built on it.",
+            Tile::Trunk => "Tree trunk. Creatures pass in front of it.",
+            Tile::Leaves => "Leaves.",
+            Tile::Vine => "Vine. Apes climb it, with anything.",
+            Tile::Water => "Water. Nobody swims.",
+            Tile::Ladder => "Ladder.",
+            Tile::Cloud => "Cloud. It holds you up only if you carry nothing, or something light.",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Tile::Air => "AIR",
@@ -55,6 +75,7 @@ impl Tile {
             Tile::Vine => "VINE (APES CLIMB)",
             Tile::Water => "WATER",
             Tile::Ladder => "LADDER",
+            Tile::Cloud => "CLOUD (HOLDS LIGHT LOADS ONLY)",
         }
     }
 }
@@ -76,12 +97,12 @@ impl Source {
     }
     pub fn label(&self) -> &'static str {
         match self.good {
-            Good::Berry => "BERRY BUSH",
-            Good::Twig => "TWIG PILE",
-            Good::Stone => "QUARRY",
-            Good::Clay => "CLAY BANK",
-            Good::Egg => "EGG NEST",
-            _ => "SOURCE",
+            Good::Berry => "berry bush",
+            Good::Twig => "twig pile",
+            Good::Stone => "quarry",
+            Good::Clay => "clay bank",
+            Good::Egg => "nest",
+            _ => "source",
         }
     }
 }
@@ -91,6 +112,9 @@ pub struct Targets {
     pub ticks: i32,
     pub cost: i32,
     pub crew: i32,
+    /// The combo goal: both at once in a single run (0 = none).
+    pub combo_ticks: i32,
+    pub combo_cost: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +135,8 @@ pub struct Level {
     pub infra: Vec<Infra>,
     /// The rule card shown on entering: teaches rules, never the solution.
     pub rule: String,
+    /// What this site introduces, shown with its icon on the site card.
+    pub new: Vec<String>,
     pub targets: Targets,
     /// A known solution in layout text form (used by tests and the balance harness).
     pub reference: String,
@@ -171,7 +197,14 @@ pub fn parse_book(text: &str) -> Vec<Level> {
         let (id, name) = head.split_once(' ').unwrap_or((head, ""));
         let mut lv = Level {
             id: id.to_string(),
-            name: name.trim().to_string(),
+            name: name.split_whitespace().map(|w| {
+                let lower = w.to_lowercase();
+                let mut c = lower.chars();
+                match c.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                    None => String::new(),
+                }
+            }).collect::<Vec<_>>().join(" "),
             chapter,
             w: MAP_W,
             h: MAP_H,
@@ -184,6 +217,7 @@ pub fn parse_book(text: &str) -> Vec<Level> {
             kinds: Vec::new(),
             infra: Vec::new(),
             rule: String::new(),
+            new: Vec::new(),
             targets: Targets::default(),
             reference: String::new(),
         };
@@ -233,7 +267,15 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                         }
                     }
                 }
-                "rule" => {
+                "new" => lv.new.extend(val.split_whitespace().map(|w| w.to_ascii_uppercase())),
+                "combo" => {
+                    let n: Vec<i32> = val.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+                    if n.len() == 2 {
+                        lv.targets.combo_ticks = n[0];
+                        lv.targets.combo_cost = n[1];
+                    }
+                }
+                "rule" | "intro" => {
                     if !lv.rule.is_empty() {
                         lv.rule.push('\n');
                     }
@@ -242,7 +284,9 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                 "targets" => {
                     let n: Vec<i32> = val.split_whitespace().filter_map(|s| s.parse().ok()).collect();
                     if n.len() == 3 {
-                        lv.targets = Targets { ticks: n[0], cost: n[1], crew: n[2] };
+                        lv.targets.ticks = n[0];
+                        lv.targets.cost = n[1];
+                        lv.targets.crew = n[2];
                     }
                 }
                 "ref" => {
@@ -279,6 +323,7 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                     'v' => Tile::Vine,
                     '~' => Tile::Water,
                     'H' => Tile::Ladder,
+                    '@' => Tile::Cloud,
                     _ => Tile::Air,
                 };
                 lv.tiles[(y * MAP_W + x) as usize] = t;

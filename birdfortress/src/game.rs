@@ -40,7 +40,7 @@ pub enum Screen {
 pub enum Overlay {
     None,
     Rule,
-    Results { ticks: i32, cost: i32, crew: i32, best: [bool; 3] },
+    Results { ticks: i32, cost: i32, crew: i32, best: [bool; 3], combo: bool },
     Failed(String),
 }
 
@@ -67,7 +67,7 @@ pub fn result_buttons() -> [Rect; 3] {
 }
 
 pub fn select_rect(chapter: usize, i: usize) -> Rect {
-    Rect::new(6 + chapter as i32 * 98, 46 + i as i32 * 30, 94, 27)
+    Rect::new(4 + chapter as i32 * 79, 46 + i as i32 * 30, 76, 27)
 }
 
 pub const R_SEL_HELP: Rect = Rect::new(120, 276, 76, 16);
@@ -80,6 +80,8 @@ pub struct Game {
     pub levels: Vec<Level>,
     pub art: Art,
     pub pal: Pal,
+    pub title_pal: Pal,
+    pub gallery: crate::picture::Gallery,
     pub save: Save,
     pub log: Log,
     pub audio: Option<Audio>,
@@ -111,6 +113,7 @@ pub struct Game {
     pub sparks: Vec<(i32, i32, i32, u8)>,
     pub level_start: std::time::Instant,
     pub histos: Vec<(String, crate::harness::Histo)>,
+    pub tip: Option<Bubble>,
 }
 
 impl Game {
@@ -121,6 +124,8 @@ impl Game {
             levels,
             art: Art::new(),
             pal: palette::game(),
+            title_pal: palette::game(),
+            gallery: crate::picture::Gallery::new(),
             save,
             log,
             audio,
@@ -151,7 +156,10 @@ impl Game {
             sparks: Vec::new(),
             level_start: std::time::Instant::now(),
             histos: crate::harness::parse_histos(include_str!("levels/histo.txt")),
+            tip: None,
         };
+        let slots: Vec<u8> = (0..palette::TITLE_SLOTS as u8).map(|k| palette::TITLE_FIRST + k).collect();
+        palette::load_slots(&mut g.title_pal, &slots, &g.gallery.title.colours);
         g.music(Track::Menu);
         g
     }
@@ -226,6 +234,7 @@ impl Game {
         self.level_start = std::time::Instant::now();
         let (id, name, ch) = (self.level().id.clone(), self.level().name.clone(), self.level().chapter);
         self.log.line(&format!("enter {id} {name} (layout: {})", if rec.layout.is_empty() { "empty" } else { "saved" }));
+        palette::load_slots(&mut self.pal, &palette::BACKDROP, &self.gallery.backdrop(ch).colours);
         self.music(Track::for_chapter(ch));
     }
 
@@ -271,10 +280,10 @@ impl Game {
                 }
             }
             self.rebuild();
-            self.say("UNDONE", false);
+            self.say("Undone.", false);
             self.sfx(Sfx::Erase);
         } else {
-            self.say("NOTHING TO UNDO", true);
+            self.say("Nothing to undo.", true);
         }
     }
 
@@ -291,12 +300,57 @@ impl Game {
         self.world.node_at(tx, ty)
     }
 
+    /// A place's name in running text: "twig pile", "fortress", "depot".
     pub fn node_name(&self, n: NodeRef) -> String {
         match n {
             NodeRef::Source(i) => self.level().sources[i].label().to_string(),
-            NodeRef::Fortress => "FORTRESS".into(),
-            NodeRef::Building(id) => self.layout.building(id).map(|b| b.kind.name().to_string()).unwrap_or_default(),
+            NodeRef::Fortress => "fortress".into(),
+            NodeRef::Building(id) => self.layout.building(id).map(|b| b.kind.title().to_lowercase()).unwrap_or_default(),
         }
+    }
+
+    /// Centre of a place on screen, in pixels.
+    pub fn node_px(&self, n: NodeRef) -> (i32, i32) {
+        let (x, y, w, h) = self.node_box(n);
+        (x * TILE + w * TILE / 2, y * TILE + h * TILE / 2)
+    }
+
+    /// Shows a one-time tip bubble pointing at `at`, unless it was seen before or another is up.
+    pub fn tip(&mut self, key: &str, text: &str, at: (i32, i32)) {
+        if self.save.seen(key) || self.tip.is_some() {
+            return;
+        }
+        self.save.tips.push(key.to_string());
+        self.tip = Some(Bubble { text: text.to_string(), x: at.0, y: at.1, until: self.frame + 180 });
+        self.log.line(&format!("tip {key}"));
+    }
+
+    /// The guided first site: what to do next, and where to look.
+    pub fn coach(&self) -> Option<(String, i32, i32)> {
+        if self.screen != Screen::Play || !matches!(self.overlay, Overlay::None) || self.level().id != "1-1" {
+            return None;
+        }
+        if self.save.rec("1-1").solved {
+            return None;
+        }
+        if self.layout.routes.is_empty() {
+            let tools = self.tools();
+            if self.tool != Tool::Species(Species::Tribble) {
+                let i = tools.iter().position(|t| *t == Tool::Species(Species::Tribble)).unwrap_or(1);
+                let r = tool_rect(i);
+                return Some(("Hire a tribble.".into(), r.x + 10, r.y));
+            }
+            if self.from.is_none() {
+                let (x, y) = self.node_px(NodeRef::Source(0));
+                return Some(("Click the twig pile. That's where it picks up.".into(), x, y - 4));
+            }
+            let (x, y) = self.node_px(NodeRef::Fortress);
+            return Some(("Now click the fortress to drop off there.".into(), x, y - 12));
+        }
+        if self.sim.is_none() {
+            return Some(("Press run, or tap Space.".into(), R_RUN.x + 10, R_RUN.y));
+        }
+        None
     }
 
     pub fn node_offers_any(&self, n: NodeRef) -> bool {
@@ -359,7 +413,7 @@ impl Game {
             return true;
         }
         if self.layout.routes.is_empty() {
-            self.say("NO ROUTES YET: PICK A CREATURE BELOW, THEN A PICKUP AND A DROP-OFF", true);
+            self.say("No routes yet. Pick a creature below, then where it picks up and drops off.", true);
             return false;
         }
         match Sim::new(self.level(), &self.layout) {
@@ -372,7 +426,7 @@ impl Game {
             }
             Err((i, p)) => {
                 self.selected = Some(self.layout.routes[i].from);
-                self.say(&format!("A {} ROUTE CAN'T RUN: {}", self.layout.routes[i].species.name(), p.text()), true);
+                self.say(&format!("A {} route can't run: {}.", self.layout.routes[i].species.title().to_lowercase(), p.text()), true);
                 false
             }
         }
@@ -392,6 +446,7 @@ impl Game {
         if self.start_run() {
             self.running = true;
             self.tool = Tool::Select;
+            self.tip("speed", "Too slow? This speeds it up. Tab does too.", (R_SPEED.x + 12, R_SPEED.y));
             self.from = None;
             self.preview = None;
             self.sfx(Sfx::Click);
@@ -446,14 +501,44 @@ impl Game {
         for s in sounds {
             self.sfx(s);
         }
+        self.watch_run();
         if let Some(o) = finished {
             self.running = false;
             self.finish(o);
         }
     }
 
+    /// Notices things worth explaining while a run plays: a queue at a dock, an empty bush.
+    fn watch_run(&mut self) {
+        let Some(sim) = &self.sim else { return };
+        if sim.tick < 30 {
+            return;
+        }
+        let mut at_queue = None;
+        let mut at_empty = None;
+        for c in &sim.creatures {
+            if c.state != CState::WaitPickup || c.idle < 12 {
+                continue;
+            }
+            let r = &sim.routes[c.route];
+            let n = sim.node(r.from);
+            let empty = n.is_some_and(|n| n.good.is_some() && n.max > 0 && n.total() == 0);
+            if empty {
+                at_empty = Some((c.x * TILE + 5, c.y * TILE - 2));
+            } else if sim.creatures.iter().filter(|o| o.x == c.x && o.y == c.y && o.state == CState::WaitPickup).count() >= 2 {
+                at_queue = Some((c.x * TILE + 5, c.y * TILE - 2));
+            }
+        }
+        if let Some(at) = at_empty {
+            self.tip("regrow", "Picked clean. It grows back slowly, so this crew waits. Other sources could help.", at);
+        } else if let Some(at) = at_queue {
+            self.tip("queue", "Only one creature fits at a dock at a time. The rest wait their turn.", at);
+        }
+    }
+
     fn finish(&mut self, o: Outcome) {
         let id = self.level().id.clone();
+        let tg = self.level().targets;
         match o {
             Outcome::Done(_) => {
                 let sc = self.sim.as_ref().and_then(|s| s.score()).unwrap();
@@ -469,31 +554,37 @@ impl Game {
                 if best[2] {
                     rec.crew = Some(sc.crew);
                 }
+                let combo = tg.combo_ticks > 0 && sc.ticks <= tg.combo_ticks && sc.cost <= tg.combo_cost;
+                let new_combo = combo && !rec.combo;
+                if combo {
+                    rec.combo = true;
+                }
                 let first = !rec.solved;
                 rec.solved = true;
                 rec.layout = self.layout.to_text();
                 self.save.write();
                 self.log.line(&format!(
-                    "SOLVED {id} ticks {} cost {} crew {}{} after {}s | {}",
+                    "SOLVED {id} ticks {} cost {} crew {}{}{} after {}s | {}",
                     sc.ticks,
                     sc.cost,
                     sc.crew,
                     if first { " (first time)" } else { "" },
+                    if new_combo { " COMBO" } else { "" },
                     self.level_start.elapsed().as_secs(),
                     self.layout.to_text()
                 ));
-                self.overlay = Overlay::Results { ticks: sc.ticks, cost: sc.cost, crew: sc.crew, best };
+                self.overlay = Overlay::Results { ticks: sc.ticks, cost: sc.cost, crew: sc.crew, best, combo };
                 self.sfx(Sfx::Win);
             }
             Outcome::Stalled(t) => {
                 let why = self.diagnose();
                 self.log.line(&format!("stalled {id} at tick {t}: {why}"));
-                self.overlay = Overlay::Failed(format!("STALLED AT TICK {t}. {why}"));
+                self.overlay = Overlay::Failed(format!("Everyone stopped at tick {t}. {why}"));
                 self.sfx(Sfx::Stall);
             }
             Outcome::TooSlow => {
                 self.log.line(&format!("too slow {id}"));
-                self.overlay = Overlay::Failed(format!("STOPPED AFTER {} TICKS. GOODS MAY BE GOING ROUND IN CIRCLES.", sim::MAX_TICKS));
+                self.overlay = Overlay::Failed(format!("Still going after {} ticks. Goods may be going round in circles.", sim::MAX_TICKS));
                 self.sfx(Sfx::Stall);
             }
             Outcome::Running => {}
@@ -509,12 +600,12 @@ impl Game {
                 let from = sim.node(r.from);
                 let has = from.is_some_and(|n| n.stock[r.cargo.index()] > 0 || (n.max <= 0 && matches!(n.node, NodeRef::Source(_))));
                 if !has {
-                    return format!("{} WAIT AT THE {} FOR {} THAT NEVER COME.", r.species.name(), self.node_name(r.from), r.cargo.plural());
+                    return cap(&format!("{} at the {} are waiting for {} that never come.", r.species.plural(), self.node_name(r.from), r.cargo.words()));
                 }
-                return format!("THE {} HAS NO ROOM FOR MORE {}.", self.node_name(r.to), r.cargo.plural());
+                return format!("The {} has no room for more {}.", self.node_name(r.to), r.cargo.words());
             }
         }
-        "NOTHING CAN MOVE.".into()
+        "Nobody can move.".into()
     }
 
     pub fn status_line(&self) -> (String, bool) {
@@ -524,62 +615,61 @@ impl Game {
             }
         }
         if let Tool::Species(s) = self.tool {
-            if let Some(f) = self.from {
+            if self.from.is_some() {
                 if let Some((_, g, p)) = &self.preview {
                     return match &p.problem {
-                        Some(pr) => (format!("{} WITH {}: {}", s.name(), g.name(), pr.text()), true),
-                        None => (format!("{} {}: THERE {} + BACK {} + DOCKS 4 = {} TICKS A TRIP. CLICK TO ADD.", s.name(), g.name(), p.loaded.ticks, p.empty.ticks, p.cycle()), false),
+                        Some(pr) => (format!("{} with {}: {}.", s.title(), a_good(*g), pr.text()), true),
+                        None => (format!("{} with {}: {} ticks a round trip. Click to hire.", s.title(), a_good(*g), p.cycle()), false),
                     };
                 }
-                return (format!("{} PICKS UP AT THE {}. MARKS: WHERE IT CAN CARRY IT (RED: NO WAY BACK). CLICK THE DROP-OFF.", s.name(), self.node_name(f)), false);
+                return ("Now click where it drops off. Gold dots: it can carry it there. Red: no way home.".into(), false);
             }
-            let w = s.jump(Weight::Empty);
-            return (format!("{} ({} SEEDS): CLICK WHERE IT PICKS UP. EMPTY: JUMP {w}, PACE {}.", s.name(), s.cost(), s.pace(Weight::Empty)), false);
+            return (format!("Click where the {} picks up: a bush, a pile, a depot or a workshop.", s.title().to_lowercase()), false);
         }
         if let Some((tx, ty)) = self.hovered_tile() {
             if let Some(n) = self.world.node_at(tx, ty) {
                 return (self.describe_node(n), false);
             }
             match self.tool {
-                Tool::Build(k) => return (format!("{} ({} SEEDS): {}", k.name(), k.cost(), k.blurb()), false),
-                Tool::Infra(i) => return (format!("{}: {}", i.name(), i.blurb()), false),
-                Tool::Erase => return ("ERASE: CLICK A BUILDING, SPRINGBOARD, LADDER OR PLANK. (RIGHT-CLICK ALSO ERASES.)".into(), false),
+                Tool::Build(k) => return (format!("{}. {}", k.title(), k.blurb()), false),
+                Tool::Infra(i) => return (format!("{}. {}", i.title(), i.blurb()), false),
+                Tool::Erase => return ("Click something you built to take it away.".into(), false),
                 _ => {}
             }
             if let Some(sim) = &self.sim {
                 if let Some(c) = sim.creatures.iter().find(|c| c.x == tx && c.y == ty) {
                     let r = &sim.routes[c.route];
                     let what = match c.state {
-                        CState::WaitPickup => format!("WAITING AT THE {}", self.node_name(r.from)),
-                        CState::Picking(_) => "PICKING UP".into(),
-                        CState::Carry => format!("CARRYING {} TO THE {}", r.cargo.name(), self.node_name(r.to)),
-                        CState::WaitDrop => format!("WAITING FOR THE {} DOCK", self.node_name(r.to)),
-                        CState::Dropping(_) => "HANDING OVER".into(),
-                        CState::Return => format!("HEADING BACK TO THE {}", self.node_name(r.from)),
+                        CState::WaitPickup => format!("waiting at the {}", self.node_name(r.from)),
+                        CState::Picking(_) => "picking up".into(),
+                        CState::Carry => format!("carrying {} to the {}", a_good(r.cargo), self.node_name(r.to)),
+                        CState::WaitDrop => format!("waiting its turn at the {}", self.node_name(r.to)),
+                        CState::Dropping(_) => "handing it over".into(),
+                        CState::Return => format!("heading back to the {}", self.node_name(r.from)),
                     };
-                    return (format!("{}: {}", c.species.name(), what), false);
+                    return (format!("{}, {}.", c.species.title(), what), false);
                 }
             }
             if self.world.is_spring(tx, ty) {
-                return ("SPRINGBOARD: JUMPS FROM HERE GO 2 HIGHER.".into(), false);
+                return ("Springboard. Jumps from here go 2 higher.".into(), false);
             }
             if self.world.is_plank(tx, ty) {
-                return ("PLANK (ONE-WAY)".into(), false);
+                return ("Plank. Stand on it, or jump up through it.".into(), false);
             }
             let t = self.world.tile(tx, ty);
             if t != crate::level::Tile::Air {
-                return (t.name().to_string(), false);
+                return (t.label().to_string(), false);
             }
         }
         match self.tool {
-            Tool::Build(k) => (format!("{} ({} SEEDS): {}", k.name(), k.cost(), k.blurb()), false),
-            Tool::Infra(i) => (format!("{} ({} SEED{}): {}", i.name(), i.cost(), if i.cost() == 1 { "" } else { "S" }, i.blurb()), false),
-            Tool::Erase => ("ERASE: CLICK A BUILDING, SPRINGBOARD, LADDER OR PLANK.".into(), false),
+            Tool::Build(k) => (format!("{}. {}", k.title(), k.blurb()), false),
+            Tool::Infra(i) => (format!("{}. {}", i.title(), i.blurb()), false),
+            Tool::Erase => ("Click something you built to take it away.".into(), false),
             _ => {
                 if self.sim.is_some() {
-                    ("SPACE PAUSES. R RESETS. CHANGING ANYTHING RESETS THE RUN.".into(), false)
+                    ("Space pauses. Changing anything starts the run over.".into(), false)
                 } else {
-                    ("PICK A CREATURE OR A BUILDING BELOW. SPACE RUNS. F1: RULES. Z: UNDO.".into(), false)
+                    ("Pick a creature below to start a route. F1 has the rules.".into(), false)
                 }
             }
         }
@@ -590,22 +680,22 @@ impl Game {
         match n {
             NodeRef::Source(i) => {
                 let s = &lv.sources[i];
-                let w = s.good.weight().name();
-                let fr = if s.good.fragile() { " FRAGILE" } else { "" };
-                if s.infinite() {
-                    format!("{}: ENDLESS {} ({w}{fr}).", s.label(), s.good.plural())
+                let what = if s.infinite() {
+                    format!("Never runs out of {}.", s.good.words())
                 } else if s.regrow > 0 {
-                    format!("{}: {} {} ({w}{fr}). GROWS 1 BACK EVERY {} TICKS.", s.label(), s.max, s.good.plural(), s.regrow)
+                    format!("Holds {}, grows one back every {} ticks.", s.max, s.regrow)
                 } else {
-                    format!("{}: ONLY {} {} ({w}{fr}).", s.label(), s.max, s.good.plural())
-                }
+                    format!("Only {}, and no more.", s.good.count(s.max))
+                };
+                let fragile = if s.good.fragile() { " Fragile!" } else { "" };
+                format!("{}. {what} {} {} {}.{fragile}", cap(s.label()), cap(s.good.words()), if s.good == Good::Clay || s.good == Good::Wicker { "is" } else { "are" }, s.good.weight().word())
             }
             NodeRef::Fortress => {
-                let parts: Vec<String> = lv.need.iter().map(|(g, c)| format!("{c} {}", if *c == 1 { g.name() } else { g.plural() })).collect();
-                format!("FORTRESS: NEEDS {}.", parts.join(", "))
+                let parts: Vec<String> = lv.need.iter().map(|(g, c)| g.count(*c)).collect();
+                format!("The fortress wants {}.", join_and(&parts))
             }
             NodeRef::Building(id) => match self.layout.building(id) {
-                Some(b) => format!("{}: {}", b.kind.name(), b.kind.blurb()),
+                Some(b) => format!("{}. {}", b.kind.title(), b.kind.blurb()),
                 None => String::new(),
             },
         }
@@ -632,6 +722,14 @@ impl Game {
                         self.rebuild();
                         self.selected = Some(NodeRef::Building(id));
                         self.sfx(Sfx::Place);
+                        let at = (x * TILE + 10, y * TILE - 2);
+                        if let Some(r) = k.recipe() {
+                            let ins: Vec<String> = r.inputs.iter().map(|(g, n)| g.count(*n)).collect();
+                            let text = format!("Bring it {}, and send crews to take the {} away.", join_and(&ins), r.output.words());
+                            self.tip("workshop", &text, at);
+                        } else {
+                            self.tip("depot", "Now one crew can drop off here, and another pick up from here.", at);
+                        }
                     }
                     Err(e) => {
                         if let Some(n) = node {
@@ -679,7 +777,7 @@ impl Game {
                     self.selected = Some(n);
                     self.sfx(Sfx::Click);
                 } else {
-                    self.say("THE FORTRESS ONLY TAKES. PICK UP FROM A SOURCE, DEPOT OR WORKSHOP.", true);
+                    self.say("The fortress only takes. Pick up from a source, a depot or a workshop.", true);
                 }
             }
             Some(f) if f == n => {
@@ -688,8 +786,8 @@ impl Game {
             }
             Some(f) => {
                 let opts = sim::cargo_options(self.level(), &self.layout, f, n);
-                let Some(&g) = opts.first() else {
-                    let msg = format!("NOTHING THE {} GIVES IS WANTED AT THE {}.", self.node_name(f), self.node_name(n));
+                let Some(g) = self.default_cargo(f, &opts) else {
+                    let msg = format!("Nothing from the {} is wanted at the {}.", self.node_name(f), self.node_name(n));
                     self.say(&msg, true);
                     return;
                 };
@@ -697,17 +795,61 @@ impl Game {
                 self.layout.add_route(s, f, n, g, 1);
                 self.rebuild();
                 let ri = self.layout.routes.iter().position(|r| r.species == s && r.from == f && r.to == n && r.cargo == g).unwrap_or(0);
-                if let Some(p) = &self.plans[ri].problem {
-                    let msg = format!("ADDED, BUT IT CAN'T RUN: {}", p.text());
+                if let Some(p) = self.plans[ri].problem.clone() {
+                    let msg = format!("Hired, but {}.", p.text());
                     self.say(&msg, true);
+                    self.route_trouble(f, g);
                 } else {
                     self.sfx(Sfx::Place);
+                }
+                if opts.len() > 1 {
+                    let at = self.node_px(f);
+                    self.tip("cargo", "This route could carry other things too. Click the little cargo picture on the card to change it.", (at.0, at.1 - 8));
                 }
                 self.selected = Some(f);
                 self.from = None;
                 self.preview = None;
             }
         }
+    }
+
+    /// Which cargo a new route takes: from a depot, whatever is being brought to it.
+    fn default_cargo(&self, from: NodeRef, opts: &[Good]) -> Option<Good> {
+        if let NodeRef::Building(id) = from {
+            if self.layout.building(id).is_some_and(|b| b.kind == Kind::Depot) {
+                if let Some(g) = self.layout.routes.iter().filter(|r| r.to == from).map(|r| r.cargo).find(|g| opts.contains(g)) {
+                    return Some(g);
+                }
+            }
+        }
+        opts.first().copied()
+    }
+
+    /// Just-in-time hints when a route can't run: once each, most specific first.
+    fn route_trouble(&mut self, from: NodeRef, cargo: Good) {
+        let (x, y, w, _) = self.node_box(from);
+        let at = (x * TILE + w * TILE / 2, y * TILE - 6);
+        let tools = self.tools();
+        let tool_at = |t: Tool| tools.iter().position(|x| *x == t).map(|i| (tool_rect(i).x + 10, tool_rect(i).y));
+        if cargo.fragile() && !self.save.seen("fragile") {
+            self.tip("fragile", "Fragile goods break if they fall more than a tile, so the carrier won't jump down. Ladders help.", at);
+        } else if !self.save.seen("route_fail") {
+            self.tip("route_fail", "This crew can't do the whole trip. Pick the creature and click the pickup again: gold dots show where it can carry it, red where it can't get home.", at);
+        } else if let Some(p) = tool_at(Tool::Build(Kind::Depot)).filter(|_| !self.save.seen("handoff")) {
+            self.tip("handoff", "Stuck? A depot lets two different crews split one trip.", p);
+        } else if let Some(p) = tool_at(Tool::Infra(Infra::Spring)).filter(|_| !self.save.seen("spring_hint")) {
+            self.tip("spring_hint", "A springboard adds 2 to any jump made from it.", p);
+        } else if let Some(p) = tool_at(Tool::Infra(Infra::Ladder)).filter(|_| !self.save.seen("ladder_hint")) {
+            self.tip("ladder_hint", "Ladders go straight up and down. Click where the top rung should be.", p);
+        }
+    }
+
+    /// Is there something the player built at this tile?
+    fn erasable_at(&self, tx: i32, ty: i32) -> bool {
+        matches!(self.world.node_at(tx, ty), Some(NodeRef::Building(_)))
+            || self.layout.springs.contains(&(tx, ty))
+            || self.layout.planks.contains(&(tx, ty))
+            || self.layout.ladders.iter().enumerate().any(|(k, &(x, y))| x == tx && ty >= y && ty < y + self.world.ladder_lens.get(k).copied().unwrap_or(1))
     }
 
     fn erase_at(&mut self, tx: i32, ty: i32) {
@@ -744,7 +886,7 @@ impl Game {
             return;
         }
         if self.tool == Tool::Erase {
-            self.say("NOTHING OF YOURS TO ERASE THERE", true);
+            self.say("Nothing of yours there to take away.", true);
         }
     }
 
@@ -764,7 +906,7 @@ impl Game {
                 self.sfx(Sfx::Erase);
             } else if plus.contains(x, y) {
                 if self.layout.routes[ri].count >= 9 {
-                    self.say("NINE IS THE MOST ON ONE ROUTE", true);
+                    self.say("Nine is the most one route can hold.", true);
                 } else {
                     self.begin_edit();
                     self.layout.routes[ri].count += 1;
@@ -786,7 +928,7 @@ impl Game {
                     self.rebuild();
                     self.sfx(Sfx::Click);
                 } else {
-                    self.say("THIS ROUTE CAN ONLY CARRY ONE THING", true);
+                    self.say("This route can only carry the one thing.", true);
                 }
             } else {
                 continue;
@@ -804,7 +946,7 @@ impl Game {
             return;
         }
         let opts = sim::cargo_options(self.level(), &self.layout, f, n);
-        let Some(&g) = opts.first() else { return };
+        let Some(g) = self.default_cargo(f, &opts) else { return };
         let r = crate::layout::Route { species: s, from: f, to: n, cargo: g, count: 1 };
         let plan = sim::plan_route(self.level(), &self.layout, &self.world, &r);
         self.preview = Some((n, g, plan));
@@ -818,6 +960,7 @@ impl Game {
     }
 
     fn play_press(&mut self, x: i32, y: i32, right: bool) {
+        self.tip = None;
         // Overlays first.
         match self.overlay.clone() {
             Overlay::Rule => {
@@ -840,6 +983,10 @@ impl Game {
                 } else if b[1].contains(x, y) {
                     self.overlay = Overlay::None;
                     self.sfx(Sfx::Click);
+                    if solved && self.level().id == "1-1" {
+                        let at = self.node_px(NodeRef::Source(0));
+                        self.tip("more_crew", "Faster? Click the twig pile, then + to hire more tribbles.", (at.0, at.1 - 6));
+                    }
                 } else if b[2].contains(x, y) {
                     self.overlay = Overlay::None;
                     self.leave_level();
@@ -892,10 +1039,10 @@ impl Game {
             if self.from.is_some() {
                 self.from = None;
                 self.preview = None;
+            } else if self.erasable_at(tx, ty) {
+                self.erase_at(tx, ty);
             } else if self.tool != Tool::Select {
                 self.tool = Tool::Select;
-            } else {
-                self.erase_at(tx, ty);
             }
             return;
         }
@@ -1073,6 +1220,9 @@ impl App for Game {
         if self.screen == Screen::Play && self.running {
             self.advance(SPEEDS[self.speed]);
         }
+        if self.tip.as_ref().is_some_and(|t| self.frame > t.until) {
+            self.tip = None;
+        }
         for s in self.sparks.iter_mut() {
             s.1 -= 1;
             s.2 -= 1;
@@ -1085,6 +1235,9 @@ impl App for Game {
     }
 
     fn palette(&self) -> &Pal {
+        if matches!(self.screen, Screen::Title | Screen::Select) {
+            return &self.title_pal;
+        }
         &self.pal
     }
 
@@ -1111,7 +1264,7 @@ impl App for Game {
         if let Some(a) = self.audio.as_mut() {
             a.set_level(lvl);
         }
-        self.say(&format!("MUSIC: {}", crate::audio::MUSIC_LEVEL_NAMES[lvl]), false);
+        self.say(&format!("Music: {}", crate::audio::MUSIC_LEVEL_NAMES[lvl].to_lowercase()), false);
     }
 
     fn quit(&self) -> bool {
@@ -1128,6 +1281,40 @@ impl Drop for Game {
         self.save.write();
         self.log.line("=== session end");
     }
+}
+
+/// "a twig", "an egg", "some clay".
+pub fn a_good(g: Good) -> String {
+    match g {
+        Good::Clay | Good::Wicker => format!("some {}", g.word()),
+        Good::Egg => "an egg".into(),
+        _ => format!("a {}", g.word()),
+    }
+}
+
+pub fn cap(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+pub fn join_and(parts: &[String]) -> String {
+    match parts.len() {
+        0 => String::new(),
+        1 => parts[0].clone(),
+        n => format!("{} and {}", parts[..n - 1].join(", "), parts[n - 1]),
+    }
+}
+
+/// A speech bubble pointing at a spot on screen.
+#[derive(Clone, Debug)]
+pub struct Bubble {
+    pub text: String,
+    pub x: i32,
+    pub y: i32,
+    pub until: u32,
 }
 
 #[cfg(test)]

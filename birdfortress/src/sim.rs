@@ -25,10 +25,10 @@ pub enum RouteProblem {
 impl RouteProblem {
     pub fn text(&self) -> &'static str {
         match self {
-            RouteProblem::NoOffer => "NOTHING TO PICK UP THERE",
-            RouteProblem::NoTake => "THE DROP-OFF DOESN'T WANT IT",
-            RouteProblem::NoWayThere => "CAN'T GET THERE CARRYING IT",
-            RouteProblem::NoWayBack => "CAN'T GET BACK EMPTY",
+            RouteProblem::NoOffer => "there's nothing to pick up there",
+            RouteProblem::NoTake => "the drop-off doesn't want that",
+            RouteProblem::NoWayThere => "it can't get there carrying that",
+            RouteProblem::NoWayBack => "it can't get back empty-handed",
         }
     }
 }

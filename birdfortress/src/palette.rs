@@ -28,14 +28,16 @@ pub const LEAF_HI: u8 = 25;
 pub const VINE: u8 = 26;
 /// Water: four cycling shades.
 pub const WATER: u8 = 27;
-pub const FOAM: u8 = 31;
+/// Water foam shares the pale accent.
+pub const FOAM: u8 = ACCENT_HI;
 pub const TRIB_DK: u8 = 32;
 pub const TRIB: u8 = 33;
 pub const TRIB_HI: u8 = 34;
 pub const DODO_DK: u8 = 35;
 pub const DODO: u8 = 36;
 pub const DODO_HI: u8 = 37;
-pub const BEAK: u8 = 38;
+/// Dodo beaks share the gold.
+pub const BEAK: u8 = GOLD;
 pub const APE_DK: u8 = 39;
 pub const APE: u8 = 40;
 pub const APE_FACE: u8 = 41;
@@ -44,7 +46,7 @@ pub const CLAY: u8 = 43;
 pub const EGG: u8 = 44;
 pub const BRICK: u8 = 45;
 pub const POT: u8 = 46;
-pub const SPRING: u8 = 47;
+pub const SPRING: u8 = GOLD;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -63,6 +65,20 @@ pub const BANNER: u8 = 60;
 pub const GOLD: u8 = 61;
 pub const SHADOW: u8 = 62;
 pub const WHITE: u8 = 63;
+
+/// The ten slots a chapter's painted backdrop uses (the old sky and hill slots plus three freed
+/// ones). Their colours are swapped in per chapter.
+pub const BACKDROP: [u8; 10] = [2, 3, 4, 5, 6, 7, 8, 31, 38, 47];
+/// The title painting uses every slot below the UI block except the outline.
+pub const TITLE_FIRST: u8 = 2;
+pub const TITLE_SLOTS: usize = 46;
+
+/// Loads a painting's colours into the given slots.
+pub fn load_slots(p: &mut Pal, slots: &[u8], colours: &[Rgb]) {
+    for (s, c) in slots.iter().zip(colours) {
+        set(p, *s, *c);
+    }
+}
 
 #[inline]
 pub fn argb((r, g, b): Rgb) -> u32 {
@@ -105,14 +121,12 @@ pub fn game() -> Pal {
     for (i, c) in WATER_SHADES.into_iter().enumerate() {
         set(&mut p, WATER + i as u8, c);
     }
-    set(&mut p, FOAM, (188, 220, 236));
     set(&mut p, TRIB_DK, (164, 84, 92));
     set(&mut p, TRIB, (228, 140, 140));
     set(&mut p, TRIB_HI, (252, 200, 188));
     set(&mut p, DODO_DK, (64, 80, 112));
     set(&mut p, DODO, (112, 132, 168));
     set(&mut p, DODO_HI, (176, 192, 216));
-    set(&mut p, BEAK, (240, 184, 64));
     set(&mut p, APE_DK, (68, 40, 32));
     set(&mut p, APE, (120, 76, 52));
     set(&mut p, APE_FACE, (212, 168, 124));
@@ -121,7 +135,6 @@ pub fn game() -> Pal {
     set(&mut p, EGG, (244, 236, 212));
     set(&mut p, BRICK, (176, 64, 44));
     set(&mut p, POT, (220, 132, 76));
-    set(&mut p, SPRING, (232, 200, 72));
 
     set(&mut p, PANEL_LO, (52, 40, 32));
     set(&mut p, PANEL, (88, 68, 48));

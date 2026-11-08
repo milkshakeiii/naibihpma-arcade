@@ -59,6 +59,12 @@ pub struct Art {
     pub goods: Vec<Sprite>,
     pub pointer: Sprite,
     pub hand: Sprite,
+    /// Score icons: ticks, seeds, crew.
+    pub clock: Sprite,
+    pub seed: Sprite,
+    pub paw: Sprite,
+    /// "Carrying nothing", for the load columns of a creature card.
+    pub empty: Sprite,
 }
 
 impl Art {
@@ -124,7 +130,11 @@ impl Art {
             "....kWWWWk..",
             "....kkkkkk..",
         ]);
-        Art { creatures: vec![tribble, dodo, ape], goods, pointer, hand }
+        let clock = art(&[".kkkkk.", "kWWkWWk", "kWWkWWk", "kWWkkWk", "kWWWWWk", "kWWWWWk", ".kkkkk."]);
+        let seed = art(&["...k...", "..kwk..", ".kOOOk.", "kOOOOOk", "kooooOk", ".kooOk.", "..kkk.."]);
+        let paw = art(&[".k.k.k.", "kPkPkPk", ".k.k.k.", "..kkk..", ".kPPPk.", ".kPPPk.", "..kkk.."]);
+        let empty = art(&[".h.h.", "h...h", ".....", "h...h", ".h.h."]);
+        Art { creatures: vec![tribble, dodo, ape], goods, pointer, hand, clock, seed, paw, empty }
     }
 
     pub fn creature(&self, s: Species, frame: usize) -> &Sprite {

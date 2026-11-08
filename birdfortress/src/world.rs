@@ -136,8 +136,18 @@ impl World {
         self.solid(x, y + 1) || self.platform(x, y + 1)
     }
 
+    pub fn cloud(&self, x: i32, y: i32) -> bool {
+        self.inside(x, y) && self.tile(x, y) == Tile::Cloud
+    }
+
+    /// Ground anyone can stand on (clouds excluded: they depend on the load).
     pub fn standable(&self, x: i32, y: i32) -> bool {
-        self.passable(x, y) && !self.platform(x, y) && self.floor_below(x, y)
+        self.passable(x, y) && !self.platform(x, y) && !self.cloud(x, y) && self.floor_below(x, y)
+    }
+
+    /// Standable for a creature carrying this weight: clouds hold empty and light loads.
+    pub fn standable_w(&self, x: i32, y: i32, w: Weight) -> bool {
+        self.standable(x, y) || (self.passable(x, y) && !self.platform(x, y) && !self.cloud(x, y) && w <= Weight::Light && self.cloud(x, y + 1))
     }
 
     pub fn climbable(&self, x: i32, y: i32, s: Species, w: Weight) -> bool {
@@ -193,13 +203,13 @@ impl World {
         for dy in 0..2 {
             for dx in 0..2 {
                 if !self.free(x + dx, y + dy) {
-                    return Err("NO ROOM HERE");
+                    return Err("No room here.");
                 }
             }
         }
         for dx in 0..2 {
             if !self.inside(x + dx, y + 2) || !self.tile(x + dx, y + 2).buildable_top() {
-                return Err("NEEDS SOLID GROUND OR A BRANCH UNDER BOTH HALVES");
+                return Err("It needs earth, rock or a branch under both halves.");
             }
         }
         Ok(())
@@ -207,22 +217,22 @@ impl World {
 
     pub fn can_spring(&self, x: i32, y: i32) -> Result<(), &'static str> {
         if !self.free(x, y) {
-            return Err("NO ROOM HERE");
+            return Err("No room here.");
         }
         if !self.floor_below(x, y) {
-            return Err("A SPRINGBOARD SITS ON THE GROUND");
+            return Err("A springboard has to sit on the ground.");
         }
         Ok(())
     }
 
     pub fn can_ladder(&self, x: i32, y: i32) -> Result<i32, &'static str> {
         if !self.free(x, y) {
-            return Err("NO ROOM HERE");
+            return Err("No room here.");
         }
-        let len = self.ladder_len(x, y).ok_or("A LADDER MUST HANG 2 TO 12 TILES DOWN TO A FLOOR")?;
+        let len = self.ladder_len(x, y).ok_or("Click the top rung. A ladder hangs 2 to 12 tiles down to a floor.")?;
         for k in 0..len {
             if !self.free(x, y + k) {
-                return Err("SOMETHING IS IN THE LADDER'S WAY");
+                return Err("Something is in the ladder's way.");
             }
         }
         Ok(len)
@@ -230,11 +240,11 @@ impl World {
 
     pub fn can_plank(&self, x: i32, y: i32) -> Result<(), &'static str> {
         if !self.free(x, y) {
-            return Err("NO ROOM HERE");
+            return Err("No room here.");
         }
         let touches = |xx: i32| self.inside(xx, y) && (self.solid(xx, y) || self.platform(xx, y));
         if !touches(x - 1) && !touches(x + 1) {
-            return Err("A PLANK MUST TOUCH GROUND OR ANOTHER PLANK SIDEWAYS");
+            return Err("A plank has to touch ground or another plank, side by side.");
         }
         Ok(())
     }

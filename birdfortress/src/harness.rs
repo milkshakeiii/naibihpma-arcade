@@ -108,6 +108,7 @@ pub fn tile_char(lv: &Level, w: &World, x: i32, y: i32) -> char {
         Tile::Vine => 'v',
         Tile::Water => '~',
         Tile::Ladder => 'H',
+        Tile::Cloud => '@',
         Tile::Air => '.',
     }
 }
@@ -480,6 +481,14 @@ pub fn cli(args: &[String], levels: &[Level]) -> bool {
                 let b: Vec<String> = bins.iter().map(|n| n.to_string()).collect();
                 text.push_str(&format!("histo {} {} {} {} {}\n", lv.id, name, lo, hi, b.join(" ")));
             }
+            // The ticks-cost frontier, for choosing the combo goal.
+            let mut front: Vec<(i32, i32)> = rep.all.iter().map(|a| (a.0, a.1)).collect();
+            front.sort();
+            front.dedup();
+            let front: Vec<(i32, i32)> = front.iter().copied().filter(|&(t, c)| !rep.all.iter().any(|a| a.0 <= t && a.1 <= c && (a.0, a.1) != (t, c))).collect();
+            for (t, c) in &front {
+                text.push_str(&format!("front {} {} {}\n", lv.id, t, c));
+            }
             let b = |m: usize| rep.best[m].as_ref().map(|(s, _)| [s.ticks, s.cost, s.crew][m]).unwrap_or(0);
             text.push_str(&format!("best {} {} {} {}\n", lv.id, b(0), b(1), b(2)));
             for m in 0..3 {
@@ -518,7 +527,22 @@ pub fn shots(levels: &[Level], dir: &str) {
     snap(&mut g, "00_title");
     g.event(Ev::Key(Key::Enter));
     snap(&mut g, "01_select");
-    for (k, idx) in [0usize, 3, 7, 12, levels.len() - 1].iter().enumerate() {
+    // The guided first site, and the picture cards over tool buttons.
+    g.enter_level(0);
+    g.overlay = crate::game::Overlay::None;
+    g.mouse = (200, 100);
+    snap(&mut g, "01b_coach");
+    if let Some(i) = levels.iter().position(|l| l.id == "2-4") {
+        g.enter_level(i);
+        g.overlay = crate::game::Overlay::None;
+        for (k, name) in [(2usize, "01c_card_dodo"), (5, "01d_card_mason"), (7, "01e_card_ladder")] {
+            let r = crate::game::tool_rect(k);
+            g.mouse = (r.x + 5, r.y + 5);
+            snap(&mut g, name);
+        }
+    }
+    let at = |id: &str| levels.iter().position(|l| l.id == id).unwrap_or(0);
+    for (k, idx) in [at("1-1"), at("1-4"), at("2-2"), at("3-2"), at("4-3"), at("5-1"), at("5-2")].iter().enumerate() {
         if *idx >= levels.len() {
             continue;
         }
@@ -547,7 +571,7 @@ pub fn shots(levels: &[Level], dir: &str) {
             g.tick();
         }
         snap(&mut g, &format!("{:02}_{}_run", 4 + k * 3, levels[*idx].id));
-        if k == 1 || k == 4 {
+        if k == 1 || k == 4 || k == 5 {
             g.speed = 4;
             for _ in 0..2000 {
                 if !g.running {
@@ -572,7 +596,7 @@ mod tests {
     #[test]
     fn every_level_parses_and_its_reference_solves() {
         let levels = crate::level::parse_book(crate::BOOK);
-        assert_eq!(levels.len(), 19);
+        assert_eq!(levels.len(), 22);
         for lv in &levels {
             assert!(lv.fortress.2 > 0, "{} has no fortress", lv.id);
             assert!(!lv.rule.is_empty(), "{} has no rule card", lv.id);

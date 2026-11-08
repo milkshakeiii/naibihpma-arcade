@@ -21,6 +21,15 @@ pub enum Weight {
 pub const WEIGHTS: [Weight; 4] = [Weight::Empty, Weight::Light, Weight::Medium, Weight::Heavy];
 
 impl Weight {
+    pub fn word(self) -> &'static str {
+        match self {
+            Weight::Empty => "nothing",
+            Weight::Light => "light",
+            Weight::Medium => "medium",
+            Weight::Heavy => "heavy",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Weight::Empty => "EMPTY",
@@ -85,6 +94,37 @@ impl Good {
         }
     }
 
+    /// Lowercase display word ("twig") and plural ("twigs").
+    pub fn word(self) -> &'static str {
+        match self {
+            Good::Berry => "berry",
+            Good::Twig => "twig",
+            Good::Stone => "stone",
+            Good::Clay => "clay",
+            Good::Egg => "egg",
+            Good::Brick => "brick",
+            Good::Wicker => "wicker",
+            Good::Pot => "pot",
+        }
+    }
+
+    pub fn words(self) -> &'static str {
+        match self {
+            Good::Berry => "berries",
+            Good::Twig => "twigs",
+            Good::Stone => "stones",
+            Good::Clay => "clay",
+            Good::Egg => "eggs",
+            Good::Brick => "bricks",
+            Good::Wicker => "wicker",
+            Good::Pot => "pots",
+        }
+    }
+
+    pub fn count(self, n: i32) -> String {
+        format!("{n} {}", if n == 1 { self.word() } else { self.words() })
+    }
+
     pub fn index(self) -> usize {
         self as usize
     }
@@ -123,6 +163,23 @@ impl Species {
             Species::Tribble => "TRIBBLE",
             Species::Dodo => "DODO",
             Species::Ape => "APE",
+        }
+    }
+
+    /// Display name, in normal case.
+    pub fn title(self) -> &'static str {
+        match self {
+            Species::Tribble => "Tribble",
+            Species::Dodo => "Dodo",
+            Species::Ape => "Ape",
+        }
+    }
+
+    pub fn plural(self) -> &'static str {
+        match self {
+            Species::Tribble => "tribbles",
+            Species::Dodo => "dodos",
+            Species::Ape => "apes",
         }
     }
 
@@ -180,9 +237,9 @@ impl Species {
 
     pub fn blurb(self) -> &'static str {
         match self {
-            Species::Tribble => "CHEAP AND QUICK. LEAPS HIGH WHEN LIGHT, BUT A TWIG BOGS IT DOWN AND A STONE NEARLY STOPS IT.",
-            Species::Dodo => "STEADY. KEEPS ITS JUMP WITH A TWIG ON ITS BACK.",
-            Species::Ape => "STRONG AND DEAR. CLIMBS VINES AND LADDERS WITH ANY LOAD.",
+            Species::Tribble => "Cheap, bouncy, hates weight.",
+            Species::Dodo => "Steady. Doesn't mind a twig.",
+            Species::Ape => "Strong. Climbs vines, ladders.",
         }
     }
 }
@@ -224,6 +281,15 @@ impl Kind {
         }
     }
 
+    pub fn title(self) -> &'static str {
+        match self {
+            Kind::Depot => "Depot",
+            Kind::Mason => "Mason",
+            Kind::Weaver => "Weaver",
+            Kind::Kiln => "Kiln",
+        }
+    }
+
     pub fn from_name(s: &str) -> Option<Kind> {
         KINDS.iter().copied().find(|g| g.name().eq_ignore_ascii_case(s))
     }
@@ -248,10 +314,10 @@ impl Kind {
 
     pub fn blurb(self) -> &'static str {
         match self {
-            Kind::Depot => "HOLDS UP TO 6 GOODS OF ANY KIND. A HANDOFF POINT BETWEEN ROUTES.",
-            Kind::Mason => "DRESSES 1 STONE INTO 1 BRICK IN 8 TICKS.",
-            Kind::Weaver => "WEAVES 2 TWIGS INTO 1 WICKER IN 10 TICKS.",
-            Kind::Kiln => "FIRES 1 CLAY WITH 1 TWIG INTO 1 POT IN 12 TICKS.",
+            Kind::Depot => "Holds 6 goods. Drop off here, pick up later.",
+            Kind::Mason => "Turns a stone into a brick.",
+            Kind::Weaver => "Turns two twigs into light wicker.",
+            Kind::Kiln => "Fires clay and a twig into a pot.",
         }
     }
 }
@@ -283,6 +349,14 @@ impl Infra {
         }
     }
 
+    pub fn title(self) -> &'static str {
+        match self {
+            Infra::Spring => "Springboard",
+            Infra::Ladder => "Ladder",
+            Infra::Plank => "Plank",
+        }
+    }
+
     pub fn from_name(s: &str) -> Option<Infra> {
         INFRAS.iter().copied().find(|g| g.name().eq_ignore_ascii_case(s) || g.short().eq_ignore_ascii_case(s))
     }
@@ -298,9 +372,9 @@ impl Infra {
 
     pub fn blurb(self) -> &'static str {
         match self {
-            Infra::Spring => "ANYONE WHO JUMPS FROM IT JUMPS 2 HIGHER, EVEN UNDER A STONE.",
-            Infra::Ladder => "HANGS DOWN TO THE GROUND. 1 SEED PER RUNG. APES CLIMB IT WITH ANYTHING, OTHERS ONLY LIGHT.",
-            Infra::Plank => "A ONE-WAY BOARD: JUMP UP THROUGH IT, STAND ON IT. MUST TOUCH GROUND OR ANOTHER PLANK.",
+            Infra::Spring => "Jump 2 higher from here, even under a stone.",
+            Infra::Ladder => "Click the top rung. It hangs to the floor. Apes climb with anything, others only light.",
+            Infra::Plank => "A board to stand on or jump up through. It has to touch ground or another plank.",
         }
     }
 }

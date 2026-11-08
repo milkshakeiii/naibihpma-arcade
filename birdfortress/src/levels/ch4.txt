@@ -6,9 +6,9 @@ build DEPOT MASON WEAVER SPRING LADDER PLANK
 src TWIG 3 20
 src T 3 0
 targets 90 18 4
+combo 145 29
+intro Two rivers, each with a stepping stone.
 ref B MASON 4 18;B WEAVER 33 18;R TRIBBLE s1 b0 STONE 1;R DODO b0 F BRICK 1;R DODO s2 b1 TWIG 1;R TRIBBLE b1 F WICKER 1
-rule TWO RIVERS, EACH WITH A STEPPING STONE. BRICKS AND WICKER FOR THE FORTRESS ON THE HILL.
-rule NO NEW RULES HERE. EVERYTHING YOU HAVE LEARNED IS ON THE TABLE.
 map
 ........................................
 ........................................
@@ -42,9 +42,9 @@ build DEPOT KILN LADDER SPRING
 src EGG 2 35
 src TWIG 3 20
 targets 75 37 4
+combo 200 39
+intro Eggs and pots may go up any way they like. Coming down is the hard part.
 ref L 9 6;L 12 11;S 19 21;S 21 17;S 23 13;R TRIBBLE s0 F EGG 2;R TRIBBLE s1 F EGG 1;B KILN 16 20;R DODO s2 b0 CLAY 1;R DODO s3 b0 TWIG 1;R TRIBBLE b0 F POT 1
-rule NESTS IN A TALL TREE, CLAY AND TWIGS ON THE GROUND, AND THE FORTRESS ON A CRAG.
-rule EGGS AND POTS MAY CLIMB AND JUMP UP AS THEY LIKE. COMING DOWN IS THE HARD PART.
 map
 ........................................
 ........................................
@@ -71,16 +71,16 @@ map
 ########################################
 ########################################
 
-@ 4-3 BIRD FORTRESS
+@ 4-3 THE FORTRESS
 need 3 BRICK 3 WICKER 2 POT
 species TRIBBLE DODO APE
 build DEPOT MASON WEAVER KILN SPRING LADDER PLANK
 src TWIG 3 18
 src T 4 0
 targets 175 38 7
+combo 180 50
+intro The fortress itself. Bricks, wicker and pots.
 ref P 7 20;P 8 20;P 9 20;P 10 20;P 27 20;P 28 20;P 29 20;P 30 20;B MASON 2 18;R TRIBBLE s2 b0 STONE 1;R APE b0 F BRICK 1;B WEAVER 36 13;S 33 14;S 32 19;R DODO s0 b1 TWIG 1;R TRIBBLE b1 F WICKER 1;B KILN 14 18;R DODO s3 b2 CLAY 1;R TRIBBLE s1 b2 TWIG 1;R TRIBBLE b2 F POT 1
-rule THE LAST SITE: THE BIRD FORTRESS ITSELF. STONE AND CLAY ACROSS ONE STREAM, TWIGS ACROSS THE OTHER.
-rule THERE IS NO SINGLE RIGHT WAY. GO FOR THE STARS ONE AT A TIME.
 map
 ........................................
 ........................................

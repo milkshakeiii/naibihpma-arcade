@@ -21,35 +21,38 @@ const SFX_PEAK: f32 = 19000.0;
 
 const ALBUMS: &str = r"C:\Users\User\Desktop\albums";
 
-/// Every piece of music the game uses, all from the player's albums (s1, Abstract Objects).
+/// Every piece of music the game uses, all from the player's album s5, Virtual History: one era
+/// per chapter, with A Myth for the menus.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Track {
-    /// s1-04 Delta: beatless, for the menus.
     Menu,
-    Alpha,
-    Beta,
-    Epsilon,
-    Zeta,
+    Prehistory,
+    IronAge,
+    GoldenAge,
+    SpaceAge,
+    Posthistory,
 }
 
 impl Track {
     fn file(self) -> (&'static str, &'static str) {
-        const S1: &str = r"s1_abstractobjects\mastered";
+        const S5: &str = r"s5_virtualhistory\Virtual_History-Mastered";
         match self {
-            Track::Menu => (S1, "4_delta_master.wav"),
-            Track::Alpha => (S1, "1_alpha_master.wav"),
-            Track::Beta => (S1, "2_beta_master.wav"),
-            Track::Epsilon => (S1, "5_epsilon_master.wav"),
-            Track::Zeta => (S1, "6_zeta_master.wav"),
+            Track::Menu => (S5, "5_AMyth-Mastered-v1.wav"),
+            Track::Prehistory => (S5, "1_Prehistory-Mastered-v2.wav"),
+            Track::IronAge => (S5, "2_IronAge-Mastered-v2.wav"),
+            Track::GoldenAge => (S5, "3_GoldenAge-Mastered-v2.wav"),
+            Track::SpaceAge => (S5, "4_SpaceAge-Mastered-v1.wav"),
+            Track::Posthistory => (S5, "6_Posthistory-Mastered-v2.wav"),
         }
     }
 
     pub fn for_chapter(ch: usize) -> Track {
         match ch {
-            1 => Track::Alpha,
-            2 => Track::Beta,
-            3 => Track::Epsilon,
-            _ => Track::Zeta,
+            1 => Track::Prehistory,
+            2 => Track::IronAge,
+            3 => Track::GoldenAge,
+            4 => Track::SpaceAge,
+            _ => Track::Posthistory,
         }
     }
 
@@ -517,7 +520,8 @@ mod tests {
 
     #[test]
     fn every_track_names_a_wav() {
-        for t in [Track::Menu, Track::Alpha, Track::Beta, Track::Epsilon, Track::Zeta] {
+        for t in [Track::Menu, Track::Prehistory, Track::IronAge, Track::GoldenAge, Track::SpaceAge, Track::Posthistory] {
+            assert!(t.path().is_some() || !std::path::Path::new(ALBUMS).exists(), "{t:?} not found");
             assert!(t.file().1.ends_with(".wav"));
         }
     }
