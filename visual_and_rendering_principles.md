@@ -63,3 +63,19 @@ To prevent uneven `3px`/`4px` pixel widths and scrolling shimmer on modern flat-
 
 - **15 FPS Simulation & Render Tick (`66.667 ms`):** All physics, AI, animations, camera steps, and frame blits advance in discrete `15 Hz` ticks, preserving the crisp, deliberate frame cadence of early-1990s DOS shareware games.
 - **250 Hz Input Edge Polling (`4 ms`):** Between `15 FPS` ticks, the main loop polls keyboard state every `4 ms` and latches rising-edge presses (`InputState`) until the next tick fires, ensuring quick taps are never missed.
+
+---
+
+## 7. The Mouse Pointer Is the One Exception to 15 FPS
+
+A pointer drawn into the framebuffer moves in `66.667 ms` jumps, and at that rate the mouse feels broken (first found playtesting Chuteworks, 2026-11-07). The fix is never a faster tick: everything else keeps the DOS cadence, and the pointer is special-cased the way DOS mouse drivers drew the cursor independently of the game.
+
+- **Pixel-Art Hardware Cursor:** The pointer is an OS hardware cursor built from the game's own pointer sprite (reference implementation: `make_cursor` in `misenspace/src/main.rs` on the `chuteworks-prototype` branch):
+  1. A `32bpp` top-down `CreateDIBSection` of `(w·N) × (h·N)`, each logical sprite pixel filled as an exact `N×N` block of its palette color (`& 0xFC` quantized). Index `0` gets alpha `0`, every other pixel alpha `255`; alpha here is only a 1-bit transparency mask, never blending.
+  2. An all-zero monochrome `CreateBitmap` mask of the same size, padded to 16-bit rows.
+  3. `CreateIconIndirect` with `fIcon = 0` and the hotspot at the pointer's tip (pixel `0,0` of the arrow sprite); both bitmaps are deleted afterwards.
+- **Shown by the OS:** `WM_SETCURSOR` with `LOWORD(lparam) == HTCLIENT` sets the stored cursor and returns `1`; outside the client area Windows keeps its own cursor. The pointer is never also drawn into the framebuffer.
+- **Rebuilt on Scale Change:** When the integer scale `N` changes (window moved to another monitor, resolution change), build a new cursor, swap it in, `SetCursor` it if the window is in the foreground, then `DestroyIcon` the old one, so the pointer's pixels always match the `N×N` blocks around it.
+- **Polled with the Keyboard at 250 Hz:** Position (`GetCursorPos` + `ScreenToClient`) and buttons are read in the same `4 ms` loop, with press and release edges latched until the tick. Physical coordinates map to logical ones as `(p − viewport_offset) / N`, using the offset and `N` from the last present. `WM_MOUSEWHEEL` deltas accumulate in an atomic and drain on the tick. A drag that paints tiles walks every tile between successive samples so fast strokes leave no gaps.
+- **Responses Stay Discrete:** Hover highlights, tooltips and clicks resolve on the next `15 FPS` frame; only the pointer itself tracks the hand.
+- **Buttons as Well as Keys:** Anything the mouse can drive also gets an on-screen button (e.g., run/pause, restart and speed for playback), each with a keyboard shortcut.
