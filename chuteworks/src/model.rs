@@ -95,6 +95,19 @@ pub fn parse_color(s: &str) -> Option<Color> {
     })
 }
 
+pub fn color_name(c: Color) -> &'static str {
+    match c {
+        GREY => "GREY",
+        RED => "RED",
+        YELLOW => "YELLOW",
+        BLUE => "BLUE",
+        3 => "ORANGE",
+        5 => "PURPLE",
+        6 => "GREEN",
+        _ => "MUD",
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Board {
     Left,

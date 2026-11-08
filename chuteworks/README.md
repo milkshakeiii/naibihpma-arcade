@@ -1,6 +1,6 @@
 # Chuteworks: prototype of halls 1 and 2
 
-A playable slice of the design in [`docs/design.md`](docs/design.md): **The Paint Shop** (8 rooms) and **The Switchyard** (9 rooms). You lay belts and machines on the left board, press Enter, and the factory fills the glass chutes between the boards. Then the chutes take turns dropping items onto the right board, where they slide into bins. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching.
+A playable slice of the design in [`docs/design.md`](docs/design.md): **The Paint Shop** (8 rooms) and **The Switchyard** (9 rooms). You lay belts and machines on the left board, press Enter, and the factory fills the glass chutes between the boards. Then the chutes take turns dropping items onto the right board, where they slide into bins. Rendering follows [`../AGENTS.md`](../AGENTS.md): 400x300 indexed 64-color VGA palette, exact integer scaling, F2 scanlines, 15 FPS ticks with 250 Hz input latching. The one exception is the mouse pointer: like a DOS mouse driver's, it is a hardware cursor (the same pixel art, scaled by the same integer N) that moves independently of the 15 FPS frames.
 
 ![Through the Booth, delivering](screenshots/04_through_the_booth_delivering.png)
 
@@ -28,8 +28,9 @@ Progress is saved to `chuteworks_save.txt` in the working directory. Each sessio
 | 1-9, Q, E / click the shelf | Pick a part |
 | Backspace / U | Undo |
 | C | Clear the room (Backspace brings it back) |
-| Enter | Run, stop, or go to the next room |
-| F | Fast |
+| Enter / RUN button | Run, stop, or go to the next room |
+| R during a run / RESTART button | Play the run again from the start |
+| F / speed button | Run speed 1x, 2x, 4x |
 | H | Hint: once ghosts the key parts of a solution in green, twice the whole solution, three times off |
 | Tab | Jump to the other board |
 | F1 | Keys |
@@ -44,7 +45,7 @@ Progress is saved to `chuteworks_save.txt` in the working directory. Each sessio
 - **Speed never matters.** What reaches each chute, and in what order, depends only on the layout.
 - Change only the right board after a run and Enter re-delivers the same chute contents without making them again.
 - Jams and failures stop the run and mark the tile (red brackets) with a short reason. The chalk dots on the floor show where each item went.
-- Each room's note is always shown under the shelf, and the shelf explains the picked part. F1 lists every key and rule, including what the dots on items mean.
+- Each room's note is always shown under the shelf, the shelf explains the picked part, and the line above the note names whatever is under the cursor. F1 lists every key and rule, including what the dots on items mean.
 - Leaving a room keeps your work for the rest of the session.
 
 ## Rooms

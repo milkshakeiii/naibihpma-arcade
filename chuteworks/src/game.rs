@@ -21,7 +21,10 @@ pub enum Key {
     Remove,
     Run,
     Undo,
+    /// Cycles the run speed: 1x, 2x, 4x.
     Fast,
+    /// Runs again from the very start (Make included).
+    Restart,
     /// Cycles hints: off, key parts ghosted, whole solution ghosted.
     Hint,
     Clear,
@@ -101,7 +104,8 @@ pub struct Game {
     sub: u32,
     /// Animation progress within the current beat: (num, den).
     pub anim: (i32, i32),
-    pub fast: bool,
+    /// Run speed multiplier: 1, 2 or 4.
+    pub speed: u8,
     /// Chute contents from the last finished Make, and the left board that made them.
     pub made: Option<(Vec<Vec<Color>>, [Option<Cell>; 64])>,
     pub trails: Vec<Vec<(i32, i32)>>,
@@ -120,19 +124,30 @@ pub struct Game {
     last_dir: Dir,
     last_arrow: Dir,
     pub message: Option<(String, u8)>,
+    /// Tick when an info message fades; run results stay until the next action.
+    message_until: u64,
     pub crt: bool,
     pub ticks: u64,
     pub hall_pal: (u8, u8, u8),
     pub sfx: Vec<Sfx>,
     pub quit: bool,
-    /// Mouse position in logical pixels; hidden again when the keyboard moves the cursor.
-    pub pointer: Option<(i32, i32)>,
     save_path: Option<PathBuf>,
 }
 
 pub const MSG_INFO: u8 = 0;
 pub const MSG_BAD: u8 = 1;
 pub const MSG_GOOD: u8 = 2;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Button {
+    Run,
+    Restart,
+    Speed,
+}
+
+/// The playback buttons in the top right (x, y, w, h).
+pub const BUTTONS: [(Button, (i32, i32, i32, i32)); 3] =
+    [(Button::Run, (246, 6, 44, 20)), (Button::Restart, (294, 6, 56, 20)), (Button::Speed, (354, 6, 38, 20))];
 
 /// Tray slot rectangles on the shelf (x, y, w, h).
 pub fn tray_slot_rect(i: usize) -> (i32, i32, i32, i32) {
@@ -188,7 +203,7 @@ impl Game {
             deliver: None,
             sub: 0,
             anim: (1, 1),
-            fast: false,
+            speed: 1,
             made: None,
             trails: Vec::new(),
             show_help: false,
@@ -198,12 +213,12 @@ impl Game {
             last_dir: Dir::E,
             last_arrow: Dir::E,
             message: None,
+            message_until: 0,
             crt: true,
             ticks: 0,
             hall_pal: (1, 1, 16),
             sfx: Vec::new(),
             quit: false,
-            pointer: None,
             save_path,
         })
     }
@@ -287,10 +302,12 @@ impl Game {
 
     fn say(&mut self, text: &str, kind: u8) {
         self.message = Some((text.to_string(), kind));
+        self.message_until = if kind == MSG_INFO { self.ticks + 45 } else { u64::MAX };
     }
 
     fn deny(&mut self, text: &str) {
         self.say(text, MSG_BAD);
+        self.message_until = self.ticks + 45;
         self.sfx.push(Sfx::Deny);
     }
 
@@ -382,7 +399,6 @@ impl Game {
                 };
                 let (cx, cy) = self.cursor;
                 let next = ((cx + dx).clamp(0, 15), (cy + dy).clamp(0, 7));
-                self.pointer = None;
                 if next != self.cursor {
                     self.cursor = next;
                     self.sfx.push(Sfx::Tick);
@@ -424,7 +440,17 @@ impl Game {
                     self.log(&line);
                 }
             }
-            Key::Fast => self.fast = !self.fast,
+            Key::Fast => {
+                self.speed = match self.speed {
+                    1 => 2,
+                    2 => 4,
+                    _ => 1,
+                };
+                self.sfx.push(Sfx::Tick);
+                let text = format!("SPEED {}X", self.speed);
+                self.say(&text, MSG_INFO);
+            }
+            Key::Restart => self.restart(),
             Key::Back => {
                 if self.phase.running() {
                     self.stop_run();
@@ -447,6 +473,7 @@ impl Game {
                 p if p.running() => self.stop_run(),
                 _ => self.start_run(),
             },
+            Key::Rotate if self.phase.running() || self.phase == Phase::Solved => self.restart(),
             Key::ActUp => {
                 self.act_held = false;
                 self.end_stroke();
@@ -588,6 +615,13 @@ impl Game {
                     return;
                 }
                 if left {
+                    if let Some(&(b, _)) = BUTTONS.iter().find(|(_, r)| in_rect(*r, px, py)) {
+                        return self.key(match b {
+                            Button::Run => Key::Run,
+                            Button::Restart => Key::Restart,
+                            Button::Speed => Key::Fast,
+                        });
+                    }
                     if let Some(i) = (0..self.level().tray.len()).find(|&i| in_rect(tray_slot_rect(i), px, py)) {
                         return self.pick_tool(i);
                     }
@@ -797,6 +831,16 @@ impl Game {
         }
     }
 
+    /// Plays the whole run again from the start, making the chutes afresh.
+    pub fn restart(&mut self) {
+        if self.phase == Phase::Edit {
+            return self.start_run();
+        }
+        self.made = None;
+        self.start_run();
+        self.say("RESTARTED", MSG_INFO);
+    }
+
     fn stop_run(&mut self) {
         self.phase = Phase::Edit;
         self.make = None;
@@ -806,11 +850,9 @@ impl Game {
     }
 
     fn beat_ticks(&self) -> u32 {
-        match (self.phase, self.fast) {
-            (Phase::Make, false) => 4,
-            (Phase::Make, true) => 2,
-            (_, false) => 2,
-            (_, true) => 1,
+        match self.phase {
+            Phase::Make => 4 / self.speed.max(1) as u32,
+            _ => (2 / self.speed.max(1) as u32).max(1),
         }
     }
 
@@ -831,6 +873,9 @@ impl Game {
 
     pub fn update(&mut self) {
         self.ticks += 1;
+        if self.ticks > self.message_until {
+            self.message = None;
+        }
         if self.hall_pal.2 < 16 {
             self.hall_pal.2 = (self.hall_pal.2 + 2).min(16);
         }
@@ -842,7 +887,7 @@ impl Game {
                     if m.state == MakeState::Done {
                         m.step_settle();
                         self.made = Some((m.chutes.clone(), self.layout.left));
-                        self.phase = Phase::Lock(if self.fast { 4 } else { 8 });
+                        self.phase = Phase::Lock(8 / self.speed.max(1) as u32);
                         self.sfx.push(Sfx::Lock);
                         self.anim = (1, 1);
                         return;
@@ -875,7 +920,12 @@ impl Game {
                 }
             }
             Phase::Deliver => {
-                if self.sub == 0 {
+                // At 4x the floor takes two beats per frame.
+                let reps = if self.speed >= 4 { 2 } else { 1 };
+                for _ in 0..reps {
+                    if self.sub != 0 || self.phase != Phase::Deliver {
+                        break;
+                    }
                     let d = self.deliver.as_mut().unwrap();
                     d.step();
                     let evs: Vec<Ev> = d.events.drain(..).collect();
@@ -1106,5 +1156,42 @@ mod tests {
         assert_eq!(g.levels[g.sel].id, "1-8");
         let rightmost = g.room_rect(16);
         assert!(rightmost.0 + rightmost.2 <= 392, "nine rooms fit the screen");
+    }
+
+    #[test]
+    fn playback_buttons_restart_and_speed_up_runs() {
+        let mut g = Game::new(None, None).unwrap();
+        g.open_level(4);
+        g.layout = Layout::from_solution(g.level());
+        let click = |g: &mut Game, b: Button| {
+            let (_, (x, y, _, _)) = BUTTONS.iter().find(|(k, _)| *k == b).copied().unwrap();
+            g.mouse_button(true, true, x + 2, y + 2);
+            g.mouse_button(true, false, x + 2, y + 2);
+        };
+        click(&mut g, Button::Run);
+        assert_eq!(g.phase, Phase::Make);
+        tick_until_stopped(&mut g);
+        let slow = g.ticks;
+        // Restart replays the whole run, Make included, even with the same left board.
+        click(&mut g, Button::Restart);
+        assert_eq!(g.phase, Phase::Make);
+        click(&mut g, Button::Speed);
+        click(&mut g, Button::Speed);
+        assert_eq!(g.speed, 4);
+        let start = g.ticks;
+        tick_until_stopped(&mut g);
+        assert_eq!(g.phase, Phase::Solved);
+        assert!((g.ticks - start) * 3 < slow, "4x run took {} ticks vs {slow} at 1x", g.ticks - start);
+        // R during a run restarts it instead of turning a part.
+        click(&mut g, Button::Speed);
+        assert_eq!(g.speed, 1);
+        g.key(Key::Restart);
+        for _ in 0..12 {
+            g.update();
+        }
+        assert!(g.make.as_ref().is_some_and(|m| m.beat > 1));
+        g.key(Key::Rotate);
+        assert_eq!(g.phase, Phase::Make);
+        assert_eq!(g.make.as_ref().map(|m| m.beat), Some(0), "restarted from the first beat");
     }
 }

@@ -19,19 +19,56 @@ use std::mem::{size_of, zeroed};
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
-use winapi::shared::windef::{HDC, HWND, POINT, RECT};
+use winapi::shared::windef::{HCURSOR, HDC, HWND, POINT, RECT};
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::wingdi::{
-    GetStockObject, PatBlt, SetStretchBltMode, StretchDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLACKNESS, BLACK_BRUSH,
-    COLORONCOLOR, DIB_RGB_COLORS, SRCCOPY,
+    CreateBitmap, CreateDIBSection, DeleteObject, GetStockObject, PatBlt, SetStretchBltMode, StretchDIBits, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, BLACKNESS, BLACK_BRUSH, COLORONCOLOR, DIB_RGB_COLORS, SRCCOPY,
 };
 use winapi::um::winuser::*;
 
 static WHEEL: AtomicI32 = AtomicI32::new(0);
+/// The pixel-art mouse pointer as an OS cursor (HCURSOR), rebuilt whenever the integer scale
+/// changes. Like a DOS mouse driver, it moves on its own, independent of the 15 FPS frames.
+static CURSOR: AtomicUsize = AtomicUsize::new(0);
+
+/// Builds a hardware cursor from the pointer sprite with every logical pixel an exact NxN block.
+unsafe fn make_cursor(spr: &sprites::Sprite, pal: &[u32; 64], n: i32) -> HCURSOR {
+    let (w, h) = (spr.w * n, spr.h * n);
+    let mut bmi: BITMAPINFO = zeroed();
+    bmi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    let screen = GetDC(null_mut());
+    let mut bits: *mut winapi::ctypes::c_void = null_mut();
+    let color = CreateDIBSection(screen, &bmi, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+    ReleaseDC(null_mut(), screen);
+    if color.is_null() || bits.is_null() {
+        return null_mut();
+    }
+    let px = bits as *mut u32;
+    for y in 0..h {
+        for x in 0..w {
+            let c = spr.px[((y / n) * spr.w + x / n) as usize];
+            *px.add((y * w + x) as usize) = if c == 0 { 0 } else { pal[c as usize] | 0xFF00_0000 };
+        }
+    }
+    let stride = ((w + 15) / 16 * 2) as usize;
+    let mask_bits = vec![0u8; stride * h as usize];
+    let mask = CreateBitmap(w, h, 1, 1, mask_bits.as_ptr() as *const _);
+    let mut info = ICONINFO { fIcon: 0, xHotspot: 0, yHotspot: 0, hbmMask: mask, hbmColor: color };
+    let cursor = CreateIconIndirect(&mut info);
+    DeleteObject(color as _);
+    DeleteObject(mask as _);
+    cursor
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -158,7 +195,7 @@ fn run_window(game: &mut Game, audio: &Audio, windowed: bool) {
         let (mut lmb, mut rmb) = (false, false);
         let mut last_mouse = (-1, -1);
         // Viewport mapping from the last present: (offset x, offset y, scale).
-        let mut view = (0i32, 0i32, 1i32);
+        let mut view = (0i32, 0i32, 0i32);
 
         let tick = Duration::from_micros(66_667);
         let mut next_tick = Instant::now();
@@ -209,12 +246,12 @@ fn run_window(game: &mut Game, audio: &Audio, windowed: bool) {
                 GetCursorPos(&mut pt);
                 ScreenToClient(hwnd, &mut pt);
                 let (ox, oy, s) = view;
+                let s = s.max(1);
                 let (lx, ly) = ((pt.x - ox).div_euclid(s), (pt.y - oy).div_euclid(s));
                 let in_view = (0..400).contains(&lx) && (0..300).contains(&ly);
                 if in_view && (lx, ly) != last_mouse {
                     last_mouse = (lx, ly);
                     game.mouse_move(lx, ly);
-                    game.pointer = Some((lx, ly));
                 }
                 for (vk, held, left) in [(VK_LBUTTON, &mut lmb, true), (VK_RBUTTON, &mut rmb, false)] {
                     let down = key_down(vk);
@@ -265,6 +302,16 @@ fn run_window(game: &mut Game, audio: &Audio, windowed: bool) {
             let (dw, dh) = fb.present(&mut scaled, scale, from, to, mix, game.crt);
             let (dw, dh) = (dw as i32, dh as i32);
             let (dx, dy) = ((cw - dw) / 2, (ch - dh) / 2);
+            if scale as i32 != view.2 || CURSOR.load(Ordering::Relaxed) == 0 {
+                let new = make_cursor(&sprites.pointer, &pals[0], scale as i32);
+                let old = CURSOR.swap(new as usize, Ordering::Relaxed);
+                if !new.is_null() && GetForegroundWindow() == hwnd {
+                    SetCursor(new);
+                }
+                if old != 0 {
+                    DestroyIcon(old as _);
+                }
+            }
             view = (dx, dy, scale as i32);
             bmi.bmiHeader.biWidth = dw;
             bmi.bmiHeader.biHeight = -dh;
@@ -292,9 +339,9 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
             WHEEL.fetch_add(GET_WHEEL_DELTA_WPARAM(wparam) as i32, Ordering::Relaxed);
             0
         }
-        // The game draws its own pixel pointer inside the client area.
+        // Inside the client area the pointer is the game's own pixel-art cursor.
         WM_SETCURSOR if (lparam & 0xFFFF) as isize == HTCLIENT => {
-            SetCursor(null_mut());
+            SetCursor(CURSOR.load(Ordering::Relaxed) as HCURSOR);
             1
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),

@@ -17,9 +17,6 @@ pub fn draw(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
     if g.show_help {
         draw_help(fb);
     }
-    if let Some((x, y)) = g.pointer {
-        fb.blit(&s.pointer, x, y, false);
-    }
 }
 
 fn draw_room(fb: &mut Framebuffer) {
@@ -293,7 +290,7 @@ fn feeds(g: &Game, x: i32, y: i32, d: Dir, depth: u8) -> bool {
 
 fn belt_phase(g: &Game) -> i32 {
     if g.phase == Phase::Make {
-        (g.ticks as i32 * if g.fast { 3 } else { 2 }) % 6
+        (g.ticks as i32 * (g.speed as i32 + 1)) % 6
     } else {
         0
     }
@@ -492,9 +489,7 @@ fn draw_play(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
         brackets(fb, mx - 2, my - 2, TILE + 4, TILE + 4, BAD, 2);
     }
 
-    // Header.
-    fb.text(HALL_NAMES[(lv.hall as usize - 1).min(1)], 14, 8, TEXT_DIM, None, 1);
-    fb.text(&format!("{}  {}", lv.id, lv.name), 14, 19, TEXT, Some(OUTLINE), 1);
+    // Header: hall and state, room name, and the playback buttons.
     let (state, lamp) = match g.phase {
         Phase::Edit => ("BUILD", GOOD_DIM),
         Phase::Make => ("MAKING", GOOD),
@@ -504,13 +499,32 @@ fn draw_play(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
         Phase::Failed(..) => ("STOPPED", BAD),
         Phase::Solved => ("SOLVED", GOOD),
     };
-    let label = if g.fast && g.phase.running() { format!("{state} X3") } else { state.to_string() };
-    let w = Framebuffer::text_width(&label, 1);
-    fb.text(&label, 386 - w, 19, TEXT, Some(OUTLINE), 1);
-    fb.rect_fill(386 - w - 10, 18, 7, 7, OUTLINE);
-    fb.rect_fill(386 - w - 9, 19, 5, 5, lamp);
-    if g.solved[g.cur] && g.phase != Phase::Solved {
-        fb.text("SOLVED BEFORE", 386 - Framebuffer::text_width("SOLVED BEFORE", 1), 8, GOOD_DIM, None, 1);
+    fb.rect_fill(14, 8, 7, 7, OUTLINE);
+    fb.rect_fill(15, 9, 5, 5, lamp);
+    fb.text(&format!("{} - {state}", HALL_NAMES[(lv.hall as usize - 1).min(1)]), 25, 8, TEXT_DIM, None, 1);
+    let solved_mark = if g.solved[g.cur] { "  (SOLVED)" } else { "" };
+    fb.text(&format!("{}  {}{solved_mark}", lv.id, lv.name), 14, 19, TEXT, Some(OUTLINE), 1);
+    for (b, (x, y, w, h)) in BUTTONS {
+        let (label, lit) = match b {
+            Button::Run => (if g.phase.running() { "STOP" } else { "RUN" }, g.phase.running()),
+            Button::Restart => ("RESTART", g.phase != Phase::Edit),
+            Button::Speed => (["1X", "2X", "", "4X"][(g.speed.clamp(1, 4) - 1) as usize], g.speed > 1),
+        };
+        fb.rect_bevel(x, y, w, h, if lit { BENCH + 2 } else { BENCH + 1 }, BENCH + 3, BENCH);
+        let col = if b == Button::Restart && g.phase == Phase::Edit { TEXT_DIM } else { TEXT };
+        let tw = Framebuffer::text_width(label, 1);
+        let icon_w = if b == Button::Speed { 10 } else { 0 };
+        let tx = x + (w - tw - icon_w) / 2 + icon_w;
+        if b == Button::Speed {
+            // Fast-forward chevrons.
+            for k in 0..2 {
+                for i in 0..4 {
+                    fb.pset(tx - 10 + k * 4 + i / 2, y + 7 + i, col);
+                    fb.pset(tx - 10 + k * 4 + i / 2, y + 13 - i, col);
+                }
+            }
+        }
+        fb.text(label, tx, y + 6, col, Some(OUTLINE), 1);
     }
 
     draw_tray(g, fb);
@@ -523,6 +537,8 @@ fn draw_play(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
             _ => ACCENT_HI,
         };
         fb.text_centered(text, 200, 261, col, Some(OUTLINE), 1);
+    } else if let Some(text) = look(g) {
+        fb.text_centered(&text, 200, 261, TEXT_DIM, Some(OUTLINE), 1);
     }
     for (i, line) in wrap(&lv.note.to_uppercase(), 64).iter().take(3).enumerate() {
         fb.text_centered(line, 200, 272 + i as i32 * 9, TEXT, Some(OUTLINE), 1);
@@ -578,7 +594,36 @@ fn draw_tray(g: &Game, fb: &mut Framebuffer) {
     fb.text(tool.name(), tx, 215, TEXT, Some(OUTLINE), 1);
     fb.text(hint[0], tx, 225, TEXT_DIM, Some(OUTLINE), 1);
     fb.text(hint[1], tx, 234, TEXT_DIM, Some(OUTLINE), 1);
-    fb.text("ENTER RUN  BKSP UNDO  H HINT  F1 KEYS", tx, 245, ACCENT, Some(OUTLINE), 1);
+    let keys = if g.phase.running() { "ENTER STOP  R RESTART  F SPEED" } else { "ENTER RUN  BKSP UNDO  H HINT  F1 KEYS" };
+    fb.text(keys, tx, 245, ACCENT, Some(OUTLINE), 1);
+}
+
+/// What the piece under the cursor is and does.
+fn look(g: &Game) -> Option<String> {
+    let (b, x, y) = g.cursor_cell();
+    let lv = g.level();
+    let bolted = if g.is_fixed(b, x, y) && !matches!(lv.fixed(b, x, y), Cell::Wall | Cell::Crate(_) | Cell::Bin(_)) { " (BOLTED)" } else { "" };
+    let chute = lv.chutes.iter().position(|&r| r == y).map(|k| k + 1);
+    let text = match g.cell(b, x, y) {
+        Cell::Crate(_) => "CRATE: SENDS OUT ITS ITEMS, THE ONE BY THE MOUTH FIRST".to_string(),
+        Cell::Belt(_) => format!("BELT: CARRIES ITEMS ONE TILE A BEAT{bolted}"),
+        Cell::Booth(c) => format!("{} BOOTH: PAINTS ITEMS GOING STRAIGHT THROUGH{bolted}", color_name(c)),
+        Cell::Switch(_) if b == Board::Left => format!("SWITCH: DEALS ITEMS TO ITS LEVER SIDES IN TURN{bolted}"),
+        Cell::Switch(_) => format!("SWITCH: TURNS EACH ITEM TOWARD ITS LEVER, THEN FLIPS{bolted}"),
+        Cell::Zipper(..) => format!("ZIPPER: TAKES FROM ITS TOOTHED SIDES IN TURN{bolted}"),
+        Cell::Arrow(_) => format!("ARROW: TURNS WHATEVER SLIDES ONTO IT{bolted}"),
+        Cell::Bin(i) => {
+            let bin = lv.bins[i as usize];
+            format!("BIN: WANTS {} {}", bin.need, color_name(bin.want))
+        }
+        Cell::Wall => "WALL".to_string(),
+        Cell::Floor => match (b, x, chute) {
+            (Board::Left, 7, Some(k)) => format!("A BELT LEAVING THIS EDGE FILLS CHUTE {k}"),
+            (Board::Right, 0, Some(k)) => format!("CHUTE {k} DROPS ITEMS HERE, SLIDING RIGHT"),
+            _ => return None,
+        },
+    };
+    Some(text)
 }
 
 /// Hint 1 ghosts the key parts: every non-belt piece, or for belt-only rooms the belt tiles
@@ -657,7 +702,7 @@ fn draw_help(fb: &mut Framebuffer) {
         ("1-9  Q  E", "PICK A PART FROM THE SHELF"),
         ("BACKSPACE   C", "UNDO    CLEAR THE ROOM"),
         ("ENTER", "RUN / STOP / NEXT ROOM"),
-        ("F", "FAST"),
+        ("F  /  R IN A RUN", "SPEED 1X 2X 4X / RESTART"),
         ("H", "HINT (AGAIN: MORE, THEN OFF)"),
         ("TAB / F2", "OTHER BOARD / SCANLINES"),
         ("ESC", "BACK TO THE HALLS"),
