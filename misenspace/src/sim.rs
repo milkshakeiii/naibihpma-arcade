@@ -715,26 +715,9 @@ pub mod lab {
         let mut k = r.kitchen;
         for (y, row) in rows.iter().enumerate() {
             for (x, tok) in row.split_whitespace().enumerate() {
-                let b = tok.as_bytes();
-                let d = match b[1] {
-                    b'^' => Dir::N,
-                    b'>' => Dir::E,
-                    b'v' => Dir::S,
-                    _ => Dir::W,
-                };
-                let cell = match b[0] {
-                    b'.' => continue,
-                    b'B' => KCell::Belt(d),
-                    b'A' => KCell::Arm(d),
-                    b'S' => KCell::Machine(Machine::Slicer, d),
-                    b'O' => KCell::Machine(Machine::Oven, d),
-                    b'T' => KCell::Counter(Item::Toast, d),
-                    b'W' => KCell::Counter(Item::Bowl, d),
-                    b'P' => KCell::Counter(Item::BeanPlate, d),
-                    b'C' => KCell::Chute,
-                    _ => panic!("bad token {tok}"),
-                };
-                k[idx(x as i32, y as i32)] = cell;
+                if let Some(c) = kitchen_token(tok) {
+                    k[idx(x as i32, y as i32)] = c;
+                }
             }
         }
         k
@@ -934,6 +917,63 @@ pub mod tests {
         let r = object25();
         let s = play(&r, &reference_kitchen(&r));
         assert_eq!(s.stars(), 3, "fed {}/{} hungry {}", s.fed, s.total_guests(), s.hungry);
+    }
+
+    /// Plays a lesson with the intended build until its goal is met.
+    fn lesson_fed(r: &Restaurant, rows: [&str; 8]) -> u32 {
+        let mut s = Sim::new(r, &kitchen_from(r, rows));
+        while !s.over() && s.fed < r.goal_fed.unwrap() {
+            s.step();
+        }
+        s.fed
+    }
+
+    #[test]
+    fn each_lesson_can_be_finished_with_its_intended_build() {
+        let r = lesson_first_bowl();
+        let fed = lesson_fed(&r, [
+            ".. .. .. .. .. .. .. ..",
+            ".. B> .. B> Bv .. .. ..",
+            ".. .. .. .. Bv .. .. ..",
+            ".. B> B> B> .. .. .. ..",
+            ".. .. .. .. Bv .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+        ]);
+        assert!(fed >= 3, "lesson 1 fed {fed}");
+        let r = lesson_two_tables();
+        let fed = lesson_fed(&r, [
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. B> B> .. Bv",
+            ".. .. .. .. .. B^ .. Bv",
+            ".. .. .. .. .. B^ .. Bv",
+            ".. .. .. .. B> B^ .. Bv",
+            ".. .. .. .. .. B^ .. B<",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+        ]);
+        assert!(fed >= 6, "lesson 2 fed {fed}");
+        let r = lesson_arms();
+        let fed = lesson_fed(&r, [
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. A^ .. .. A^ ..",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+            ".. .. .. .. .. .. .. ..",
+        ]);
+        assert!(fed >= 5, "lesson 3 fed {fed}");
+    }
+
+    #[test]
+    fn lessons_are_not_already_solved() {
+        for r in [lesson_first_bowl(), lesson_two_tables(), lesson_arms()] {
+            let s = play(&r, &r.kitchen);
+            assert_eq!(s.fed, 0, "{} feeds guests with nothing built", r.name);
+        }
     }
 
     #[test]

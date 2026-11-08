@@ -27,6 +27,8 @@ pub enum Key {
     Clear,
     Help,
     Back,
+    NextLevel,
+    PrevLevel,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -121,14 +123,40 @@ pub struct Game {
     pub best: u32,
     pub nights: u32,
     save_path: Option<PathBuf>,
+    /// The lessons, then the canteen.
+    pub levels: Vec<Restaurant>,
+    pub level: usize,
+    /// What the player built in each level, kept when moving between them.
+    layouts: Vec<[Option<KCell>; 64]>,
+    /// The current lesson step (== steps.len() once they're all done).
+    pub step: usize,
+    /// Levels unlocked by finishing lessons.
+    pub unlocked: usize,
+    /// The lesson's goal was met (the card says so).
+    pub lesson_done: bool,
 }
 
 impl Game {
     pub fn new(save_path: Option<PathBuf>) -> Self {
-        let r = object25();
-        let best = save_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| t.trim().parse().ok()).unwrap_or(0);
+        let levels = levels();
+        // Save file: "<levels unlocked> <best stars in the canteen>".
+        let saved: Vec<u32> = save_path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|t| t.split_whitespace().filter_map(|w| w.parse().ok()).collect())
+            .unwrap_or_default();
+        let unlocked = (*saved.first().unwrap_or(&0) as usize).min(levels.len() - 1);
+        let best = *saved.get(1).unwrap_or(&0);
+        let level = unlocked;
+        let r = levels[level].clone();
         let sim = Sim::new(&r, &r.kitchen);
         let mut g = Self {
+            layouts: vec![[None; 64]; levels.len()],
+            levels,
+            level,
+            step: 0,
+            unlocked,
+            lesson_done: false,
             r,
             layout: [None; 64],
             sim,
@@ -155,9 +183,56 @@ impl Game {
             nights: 0,
             save_path,
         };
-        g.say("PREP: BUILD THE KITCHEN, THEN PRESS ENTER TO OPEN THE DOORS", MSG_INFO);
-        g.message_until = u64::MAX;
+        g.cursor = (1, 1);
         g
+    }
+
+    /// Moves to level `i`, keeping what was built in the level being left.
+    pub fn load_level(&mut self, i: usize) {
+        let i = i.min(self.levels.len() - 1);
+        self.layouts[self.level] = self.layout;
+        self.level = i;
+        self.r = self.levels[i].clone();
+        self.layout = self.layouts[i];
+        self.undo.clear();
+        self.stroke = None;
+        self.tool = 0;
+        self.speed = 1;
+        self.sim = Sim::new(&self.r, &self.kitchen());
+        self.phase = Phase::Prep;
+        self.step = 0;
+        self.lesson_done = false;
+        self.pops.clear();
+        self.message = None;
+        self.anim = (1, 1);
+        self.sfx.push(Sfx::Open);
+    }
+
+    fn save(&self) {
+        if let Some(p) = &self.save_path {
+            let _ = std::fs::write(p, format!("{} {}", self.unlocked, self.best));
+        }
+    }
+
+    /// Has the condition that finishes a lesson step been met?
+    pub fn cond_met(&self, c: Cond) -> bool {
+        let k = self.kitchen();
+        match c {
+            Cond::Running => self.phase != Phase::Prep,
+            Cond::Seated => self.sim.fed > 0 || self.sim.guests.iter().any(|g| matches!(g.state, GState::Waiting | GState::Eating)),
+            Cond::Belt(x, y, d) => k[idx(x, y)] == KCell::Belt(d),
+            Cond::Arm(x, y, d) => k[idx(x, y)] == KCell::Arm(d),
+            Cond::Part(x, y, item) => {
+                let i = idx(x, y);
+                self.sim.parts[i][item.index()] > 0 || self.sim.out[i].is_some() || self.sim.fed > 0
+            }
+            Cond::Fed(n) => self.sim.fed >= n,
+        }
+    }
+
+    /// The lesson step currently shown, if any.
+    pub fn current_step(&self) -> Option<&Step> {
+        self.r.steps.get(self.step)
     }
 
     pub fn kitchen(&self) -> [KCell; 64] {
@@ -307,6 +382,16 @@ impl Game {
                     self.deny("NOTHING TO UNDO");
                 }
             }
+            Key::NextLevel => {
+                if self.level + 1 < self.levels.len() {
+                    self.load_level(self.level + 1);
+                }
+            }
+            Key::PrevLevel => {
+                if self.level > 0 {
+                    self.load_level(self.level - 1);
+                }
+            }
             Key::Help => {}
         }
     }
@@ -327,6 +412,8 @@ impl Game {
                 self.phase = Phase::Running;
                 self.sub = 0;
             }
+            // A finished lesson moves on; anything else plays another evening.
+            Phase::Closed if self.lesson_done && self.level + 1 < self.levels.len() => self.load_level(self.level + 1),
             Phase::Closed => self.restart(),
         }
     }
@@ -335,6 +422,8 @@ impl Game {
     pub fn restart(&mut self) {
         self.sim = Sim::new(&self.r, &self.kitchen());
         self.phase = Phase::Prep;
+        self.step = 0;
+        self.lesson_done = false;
         self.pops.clear();
         self.anim = (1, 1);
         self.sfx.push(Sfx::Remove);
@@ -586,6 +675,16 @@ impl Game {
             p.ttl = p.ttl.saturating_sub(1);
         }
         self.pops.retain(|p| p.ttl > 0);
+        // Lesson steps move on as soon as what they ask for is true.
+        while let Some(st) = self.current_step() {
+            if !self.cond_met(st.done) {
+                break;
+            }
+            self.step += 1;
+            if self.step > 1 || self.phase != Phase::Prep {
+                self.sfx.push(Sfx::Bake);
+            }
+        }
         if self.phase != Phase::Running {
             self.anim = (1, 1);
             return;
@@ -601,16 +700,17 @@ impl Game {
                     self.pops.push(Pop { x, y: y - 14, coins: g.paid, ttl: 24 });
                 }
             }
-            if self.sim.over() {
+            let goal_met = self.r.goal_fed.is_some_and(|n| self.sim.fed >= n);
+            if goal_met || self.sim.over() {
                 self.phase = Phase::Closed;
                 self.nights += 1;
-                let stars = self.sim.stars();
-                if stars > self.best {
-                    self.best = stars;
-                    if let Some(p) = &self.save_path {
-                        let _ = std::fs::write(p, stars.to_string());
-                    }
+                if goal_met {
+                    self.lesson_done = true;
+                    self.unlocked = self.unlocked.max(self.level + 1).min(self.levels.len() - 1);
+                } else if !self.r.is_lesson() {
+                    self.best = self.best.max(self.sim.stars());
                 }
+                self.save();
                 self.sfx.push(Sfx::Closed);
                 self.anim = (1, 1);
                 return;
@@ -649,6 +749,7 @@ mod tests {
     #[test]
     fn building_the_reference_by_placement_and_serving_an_evening() {
         let mut g = Game::new(None);
+        g.load_level(3);
         let k = crate::sim::lab::reference_kitchen(&g.r);
         for i in 0..64 {
             if k[i] != g.r.kitchen[i] {
@@ -671,6 +772,7 @@ mod tests {
     #[test]
     fn belts_draw_by_holding_act_and_chutes_only_go_under_tables() {
         let mut g = Game::new(None);
+        g.load_level(3);
         g.cursor = (1, 1);
         g.key(Key::Act);
         g.key(Key::Right);
@@ -692,6 +794,7 @@ mod tests {
     #[test]
     fn building_during_service_changes_the_live_kitchen() {
         let mut g = Game::new(None);
+        g.load_level(3);
         g.key(Key::Run);
         for _ in 0..40 {
             g.update();
@@ -700,5 +803,49 @@ mod tests {
         g.key(Key::Act);
         g.key(Key::ActUp);
         assert!(matches!(g.sim.cells[idx(1, 0)], KCell::Belt(_)));
+    }
+
+    #[test]
+    fn lesson_one_walks_through_its_steps_by_playing_it() {
+        let mut g = Game::new(None);
+        assert_eq!(g.level, 0, "a new player starts with the first lesson");
+        let draw = |g: &mut Game, from: (i32, i32), moves: &[Key]| {
+            g.cursor = from;
+            g.key(Key::Act);
+            for &k in moves {
+                g.key(k);
+            }
+            g.key(Key::ActUp);
+        };
+        let tick = |g: &mut Game, n: usize| {
+            for _ in 0..n {
+                g.update();
+            }
+        };
+        g.key(Key::Run);
+        tick(&mut g, 1);
+        assert_eq!(g.step, 1, "doors open");
+        tick(&mut g, 80);
+        assert_eq!(g.step, 2, "a guest sat down");
+        draw(&mut g, (1, 1), &[]);
+        tick(&mut g, 1);
+        assert_eq!(g.step, 3, "belt at B2");
+        draw(&mut g, (3, 1), &[Key::Right, Key::Down, Key::Down]);
+        tick(&mut g, 40);
+        assert_eq!(g.step, 4, "bread reached the counter");
+        draw(&mut g, (1, 3), &[Key::Right, Key::Right, Key::Right]);
+        tick(&mut g, 40);
+        assert_eq!(g.step, 5, "moss reached the counter");
+        g.cursor = (4, 4);
+        g.key(Key::Act);
+        g.key(Key::ActUp);
+        g.key(Key::Rotate);
+        assert_eq!(g.layout[idx(4, 4)], Some(KCell::Belt(Dir::S)));
+        g.speed = 4;
+        tick(&mut g, 2000);
+        assert!(g.lesson_done, "step {} fed {}", g.step, g.sim.fed);
+        assert_eq!(g.unlocked, 1);
+        g.key(Key::Run);
+        assert_eq!(g.level, 1, "Enter moves on to the next lesson");
     }
 }

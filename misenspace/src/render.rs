@@ -15,6 +15,7 @@ pub fn draw(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
     draw_kitchen(g, s, fb);
     draw_rail(g, s, fb);
     draw_dining(g, s, fb);
+    draw_step_marks(g, fb);
     draw_cursor(g, fb);
     draw_bottom(g, s, fb);
     if g.phase == Phase::Closed {
@@ -166,7 +167,24 @@ fn feeds_belt(g: &Game, x: i32, y: i32, d: Dir) -> bool {
     }
 }
 
+/// Pieces that come with the station (in lessons) wear bolts and can't be moved.
+fn draw_bolts(g: &Game, fb: &mut Framebuffer, x: i32, y: i32) {
+    let fixed_piece = matches!(g.r.kitchen[idx(x, y)], KCell::Belt(_) | KCell::Arm(_) | KCell::Machine(..) | KCell::Counter(..) | KCell::Chute);
+    if fixed_piece {
+        let (px, py) = cell_px(Board::Kitchen, x, y);
+        for (bx, by) in [(px + 1, py + 1), (px + 17, py + 1), (px + 1, py + 17), (px + 17, py + 17)] {
+            fb.rect_fill(bx, by, 2, 2, OUTLINE);
+            fb.pset(bx, by, METAL + 3);
+        }
+    }
+}
+
 fn draw_kcell(g: &Game, s: &Sprites, fb: &mut Framebuffer, x: i32, y: i32) {
+    draw_kcell_body(g, s, fb, x, y);
+    draw_bolts(g, fb, x, y);
+}
+
+fn draw_kcell_body(g: &Game, s: &Sprites, fb: &mut Framebuffer, x: i32, y: i32) {
     let (px, py) = cell_px(Board::Kitchen, x, y);
     let (cx, cy) = (px + 10, py + 10);
     let i = idx(x, y);
@@ -573,7 +591,8 @@ fn draw_header(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
     fb.text(&g.sim.coins.to_string(), x + 9, 7, GOLD + 2, Some(OUTLINE), 1);
     x += 40;
     fb.blit(&s.heart, x, 7, false);
-    fb.text(&format!("{}/{}", g.sim.fed, g.sim.total_guests()), x + 10, 7, TEXT, Some(OUTLINE), 1);
+    let of = g.r.goal_fed.unwrap_or(g.sim.total_guests());
+    fb.text(&format!("{}/{}", g.sim.fed, of), x + 10, 7, TEXT, Some(OUTLINE), 1);
     x = 136;
     fb.blit(&s.cloud, x - 1, 17, false);
     fb.text(&g.sim.hungry.to_string(), x + 11, 18, if g.sim.hungry > 0 { RED } else { TEXT_DIM }, Some(OUTLINE), 1);
@@ -747,11 +766,26 @@ fn draw_bottom(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
     } else if let Some(text) = look(g) {
         fb.text_centered(&text, 200, 252, TEXT_DIM, Some(OUTLINE), 1);
     }
+    // A lesson step takes the lower lines while there is one; otherwise the tool hint and
+    // the restaurant's note.
+    if let Some(st) = g.current_step() {
+        for (k, l) in wrap(st.text, 64).iter().take(3).enumerate() {
+            fb.text_centered(l, 200, 262 + k as i32 * 9, ACCENT_HI, Some(OUTLINE), 1);
+        }
+        let footer = format!("STEP {} OF {}  -  N SKIPS TO THE NEXT LEVEL  -  F1 ALL THE RULES", g.step + 1, g.r.steps.len());
+        fb.text_centered(&footer, 200, 291, TEXT_DIM, None, 1);
+        return;
+    }
     fb.text_centered(tool_hint(g.r.shelf[g.tool].0), 200, 264, TEXT, Some(OUTLINE), 1);
-    let note = g.r.note;
+    for (k, l) in wrap(g.r.note, 64).iter().take(2).enumerate() {
+        fb.text_centered(l, 200, 276 + k as i32 * 9, TEXT_DIM, None, 1);
+    }
+}
+
+fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut lines = vec![String::new()];
-    for w in note.split_whitespace() {
-        if lines.last().unwrap().len() + w.len() + 1 > 64 {
+    for w in text.split_whitespace() {
+        if !lines.last().unwrap().is_empty() && lines.last().unwrap().len() + w.len() + 1 > width {
             lines.push(String::new());
         }
         let l = lines.last_mut().unwrap();
@@ -760,8 +794,19 @@ fn draw_bottom(g: &Game, s: &Sprites, fb: &mut Framebuffer) {
         }
         l.push_str(w);
     }
-    for (k, l) in lines.iter().take(2).enumerate() {
-        fb.text_centered(l, 200, 276 + k as i32 * 9, TEXT_DIM, None, 1);
+    lines
+}
+
+/// The squares the current lesson step points at, in steady bright brackets (no flashing).
+fn draw_step_marks(g: &Game, fb: &mut Framebuffer) {
+    let Some(st) = g.current_step() else { return };
+    for &(x, y) in st.show {
+        let (px, py) = cell_px(Board::Kitchen, x, y);
+        brackets(fb, px - 2, py - 2, TILE + 4, TILE + 4, ACCENT_HI, 2);
+        if g.r.table_at(x, y) {
+            let (dx, dy) = cell_px(Board::Dining, x, y);
+            brackets(fb, dx - 2, dy - 2, TILE + 4, TILE + 4, ACCENT_HI, 2);
+        }
     }
 }
 
@@ -800,6 +845,20 @@ fn star(fb: &mut Framebuffer, cx: i32, cy: i32, lit: bool) {
 
 fn draw_tally(g: &Game, fb: &mut Framebuffer) {
     fb.rect_checker(LB_X, BOARD_Y, RB_X + BOARD_PX - LB_X, BOARD_PX, OUTLINE);
+    if g.r.is_lesson() {
+        let (x, y, w, h) = (100, 80, 200, 76);
+        fb.rect_bevel(x, y, w, h, FRAME + 2, METAL + 3, FRAME);
+        if g.lesson_done {
+            fb.text_centered("LESSON DONE!", 200, y + 10, GOOD, Some(OUTLINE), 2);
+            fb.text_centered(&format!("FED {} - COINS {}", g.sim.fed, g.sim.coins), 200, y + 34, TEXT, Some(OUTLINE), 1);
+            let next = if g.level + 2 >= g.levels.len() { "ENTER: ON TO THE CANTEEN" } else { "ENTER: NEXT LESSON" };
+            fb.text_centered(next, 200, y + 52, ACCENT_HI, Some(OUTLINE), 1);
+        } else {
+            fb.text_centered("NOT QUITE", 200, y + 10, ACCENT_HI, Some(OUTLINE), 2);
+            fb.text_centered("ENTER: TRY THE EVENING AGAIN", 200, y + 42, TEXT, Some(OUTLINE), 1);
+        }
+        return;
+    }
     let (x, y, w, h) = (110, 66, 180, 112);
     fb.rect_bevel(x, y, w, h, FRAME + 2, METAL + 3, FRAME);
     fb.text_centered("CLOSING TIME", 200, y + 8, ACCENT_HI, Some(OUTLINE), 2);
@@ -835,7 +894,7 @@ fn draw_help(fb: &mut Framebuffer) {
     for (k, r) in rules.iter().enumerate() {
         fb.text_centered(r, 200, 50 + k as i32 * 10, TEXT, None, 1);
     }
-    let keys: [(&str, &str); 11] = [
+    let keys: [(&str, &str); 12] = [
         ("ARROWS / WASD", "MOVE (ACROSS BOTH ROOMS)"),
         ("SPACE / CLICK", "PLACE - HOLD + MOVE DRAWS BELTS"),
         ("R / WHEEL", "TURN"),
@@ -846,6 +905,7 @@ fn draw_help(fb: &mut Framebuffer) {
         ("F5", "RESTART THE EVENING"),
         ("F", "SPEED 1X 2X 4X"),
         ("TAB  F2", "OTHER ROOM   SCANLINES"),
+        ("N  P", "NEXT / PREVIOUS LEVEL"),
         ("ESC", "PAUSE, THEN QUIT"),
     ];
     for (k, (a, b)) in keys.iter().enumerate() {

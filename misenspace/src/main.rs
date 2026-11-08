@@ -107,6 +107,8 @@ fn polls() -> Vec<Poll> {
         Poll::new(&[VK_TAB], Key::Tab, false),
         Poll::new(&['Q' as i32], Key::PrevTool, false),
         Poll::new(&['E' as i32], Key::NextTool, false),
+        Poll::new(&['N' as i32, VK_NEXT], Key::NextLevel, false),
+        Poll::new(&['P' as i32, VK_PRIOR], Key::PrevLevel, false),
     ];
     for i in 0..9 {
         p.push(Poll::new(std::slice::from_ref(&DIGITS[i]), Key::Tool(i), false));
@@ -363,7 +365,34 @@ fn export_screenshots(dir: &Path) {
         fb.save_png(&dir.join(name), &pal, &pal, 0);
     };
 
+    // The first lesson, at its third step.
+    let mut l1 = Game::new(None);
+    l1.key(Key::Run);
+    for _ in 0..400 {
+        if l1.step >= 2 {
+            break;
+        }
+        l1.update();
+    }
+    l1.cursor = (1, 1);
+    for _ in 0..6 {
+        l1.update();
+    }
+    save(&l1, &mut fb, "00_lesson_one.png");
+    for (lv, name) in [(1, "00_lesson_two.png"), (2, "00_lesson_three.png")] {
+        let mut l = Game::new(None);
+        l.load_level(lv);
+        l.key(Key::Run);
+        for _ in 0..120 {
+            l.update();
+        }
+        l.cursor = (4, 1);
+        save(&l, &mut fb, name);
+    }
+
     let mut g = Game::new(None);
+    g.load_level(3);
+    g.step = g.r.steps.len();
     g.cursor = (1, 0);
     save(&g, &mut fb, "01_prep_empty.png");
 
@@ -410,6 +439,7 @@ fn export_screenshots(dir: &Path) {
 
     // The same evening with no kitchen at all, partway in.
     let mut g2 = Game::new(None);
+    g2.load_level(3);
     g2.layout[idx(1, 0)] = Some(KCell::Belt(model::Dir::E));
     g2.restart();
     g2.key(Key::Run);
