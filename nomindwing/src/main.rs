@@ -1,0 +1,294 @@
+mod ai;
+mod design;
+mod export;
+mod framebuffer;
+mod game;
+mod geom;
+mod palette;
+mod render;
+mod rng;
+mod ui;
+mod world;
+
+use framebuffer::{Framebuffer, Sprite};
+use game::{Ev, Game, Key};
+use std::ffi::OsStr;
+use std::mem::{size_of, zeroed};
+use std::os::windows::ffi::OsStrExt;
+use std::path::PathBuf;
+use std::ptr::null_mut;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+
+use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
+use winapi::shared::windef::{HCURSOR, HDC, HWND, POINT, RECT};
+use winapi::um::libloaderapi::GetModuleHandleW;
+use winapi::um::wingdi::{
+    CreateBitmap, CreateDIBSection, DeleteObject, GetStockObject, PatBlt, SetStretchBltMode, StretchDIBits, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, BLACKNESS, BLACK_BRUSH, COLORONCOLOR, DIB_RGB_COLORS, SRCCOPY,
+};
+use winapi::um::winuser::*;
+
+/// The pixel-art pointer as an OS cursor, rebuilt when the integer scale or pointer changes. Like
+/// a DOS mouse driver's pointer, it moves independently of the 15 FPS frames.
+static CURSOR: AtomicUsize = AtomicUsize::new(0);
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--export-screenshots") {
+        let dir = args.get(i + 1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("screenshots"));
+        export::screenshots(&dir);
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--trace") {
+        let seed = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(1);
+        export::trace(seed, args.iter().any(|a| a == "--both"));
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--sim") {
+        let n = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(8);
+        export::sim(n);
+        return;
+    }
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1);
+    let mut game = Game::new(seed, Some(PathBuf::from("nomindwing_playtest.log")));
+    run_window(&mut game, args.iter().any(|a| a == "--windowed"));
+}
+
+fn key_down(vk: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
+struct Poll {
+    vks: &'static [i32],
+    key: Key,
+    held: bool,
+}
+
+fn polls() -> Vec<Poll> {
+    let p = |vks: &'static [i32], key: Key| Poll { vks, key, held: false };
+    vec![
+        p(&['1' as i32, VK_NUMPAD1], Key::Num(1)),
+        p(&['2' as i32, VK_NUMPAD2], Key::Num(2)),
+        p(&['3' as i32, VK_NUMPAD3], Key::Num(3)),
+        p(&['4' as i32, VK_NUMPAD4], Key::Num(4)),
+        p(&['5' as i32, VK_NUMPAD5], Key::Num(5)),
+        p(&[VK_TAB], Key::Tab),
+        p(&['P' as i32, VK_PAUSE], Key::Pause),
+        p(&[VK_ESCAPE], Key::Esc),
+        p(&[VK_F1], Key::Help),
+        p(&[VK_BACK], Key::Back),
+        p(&[VK_RETURN], Key::Enter),
+        p(&['R' as i32], Key::Restart),
+    ]
+}
+
+/// Builds a hardware cursor from a pointer sprite with every logical pixel an exact NxN block.
+unsafe fn make_cursor(spr: &Sprite, pal: &[u32; 64], n: i32, hot: (i32, i32)) -> HCURSOR {
+    let (w, h) = (spr.w * n, spr.h * n);
+    let mut bmi: BITMAPINFO = zeroed();
+    bmi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    let screen = GetDC(null_mut());
+    let mut bits: *mut winapi::ctypes::c_void = null_mut();
+    let color = CreateDIBSection(screen, &bmi, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+    ReleaseDC(null_mut(), screen);
+    if color.is_null() || bits.is_null() {
+        return null_mut();
+    }
+    let px = bits as *mut u32;
+    for y in 0..h {
+        for x in 0..w {
+            let c = spr.px[((y / n) * spr.w + x / n) as usize];
+            *px.add((y * w + x) as usize) = if c == 0 { 0 } else { pal[c as usize] | 0xFF00_0000 };
+        }
+    }
+    let stride = ((w + 15) / 16 * 2) as usize;
+    let mask_bits = vec![0u8; stride * h as usize];
+    let mask = CreateBitmap(w, h, 1, 1, mask_bits.as_ptr() as *const _);
+    let mut info = ICONINFO { fIcon: 0, xHotspot: (hot.0 * n + n / 2) as u32, yHotspot: (hot.1 * n + n / 2) as u32, hbmMask: mask, hbmColor: color };
+    if hot == (0, 0) {
+        info.xHotspot = 0;
+        info.yHotspot = 0;
+    }
+    let cursor = CreateIconIndirect(&mut info);
+    DeleteObject(color as _);
+    DeleteObject(mask as _);
+    cursor
+}
+
+fn run_window(game: &mut Game, windowed: bool) {
+    unsafe {
+        SetProcessDPIAware();
+        let hinstance = GetModuleHandleW(null_mut());
+        let wide = |s: &str| OsStr::new(s).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+        let class_name = wide("NoMindWingWindowClass");
+        let wc = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
+            lpfnWndProc: Some(wnd_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: hinstance,
+            hIcon: null_mut(),
+            hCursor: null_mut(),
+            hbrBackground: GetStockObject(BLACK_BRUSH as i32) as _,
+            lpszMenuName: null_mut(),
+            lpszClassName: class_name.as_ptr(),
+        };
+        RegisterClassW(&wc);
+        let (sw, sh) = (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+        let (style, x, y, w, h) = if windowed {
+            let n = Framebuffer::integer_scale_for_viewport(sw * 4 / 5, sh * 4 / 5) as i32;
+            let mut r = RECT { left: 0, top: 0, right: 400 * n, bottom: 300 * n };
+            AdjustWindowRect(&mut r, WS_OVERLAPPEDWINDOW, 0);
+            let (w, h) = (r.right - r.left, r.bottom - r.top);
+            (WS_OVERLAPPEDWINDOW | WS_VISIBLE, (sw - w) / 2, (sh - h) / 2, w, h)
+        } else {
+            (WS_POPUP | WS_VISIBLE, 0, 0, sw, sh)
+        };
+        let title = wide("NO MIND WING - TOY 1 [400x300 64-COLOR VGA | 15 FPS]");
+        let hwnd = CreateWindowExW(0, class_name.as_ptr(), title.as_ptr(), style, x, y, w, h, null_mut(), null_mut(), hinstance, null_mut());
+        if hwnd.is_null() {
+            return;
+        }
+        let hdc: HDC = GetDC(hwnd);
+        SetStretchBltMode(hdc, COLORONCOLOR);
+        let mut bmi: BITMAPINFO = zeroed();
+        bmi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        let pointers = [(ui::pointer(), (0, 0)), (ui::crosshair(), (5, 5))];
+        let mut fb = Framebuffer::new();
+        let mut scaled: Vec<u32> = Vec::new();
+        let mut polls = polls();
+        let mut e_f2 = false;
+        let (mut lmb, mut rmb) = (false, false);
+        let mut last_mouse = (-1, -1);
+        let mut view = (0i32, 0i32, 0i32);
+        let mut shown_pointer = u8::MAX;
+        let tick = Duration::from_micros(66_667);
+        let mut next_tick = Instant::now();
+        let mut msg: MSG = zeroed();
+
+        'running: loop {
+            while PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                if msg.message == WM_QUIT {
+                    break 'running;
+                }
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            // 250 Hz input: key edges apply immediately, held movement is latched for the tick.
+            if GetForegroundWindow() == hwnd {
+                for p in polls.iter_mut() {
+                    let down = p.vks.iter().any(|&vk| key_down(vk));
+                    if down && !p.held {
+                        game.event(Ev::Key(p.key));
+                    }
+                    p.held = down;
+                }
+                let any = |vks: &[i32]| vks.iter().any(|&vk| key_down(vk));
+                game.hold([any(&['W' as i32, VK_UP]), any(&['S' as i32, VK_DOWN]), any(&['A' as i32, VK_LEFT]), any(&['D' as i32, VK_RIGHT])]);
+                let f2 = key_down(VK_F2);
+                if f2 && !e_f2 {
+                    game.toggle_crt();
+                }
+                e_f2 = f2;
+
+                let mut pt = POINT { x: 0, y: 0 };
+                GetCursorPos(&mut pt);
+                ScreenToClient(hwnd, &mut pt);
+                let (ox, oy, s) = view;
+                let s = s.max(1);
+                let (lx, ly) = ((pt.x - ox).div_euclid(s), (pt.y - oy).div_euclid(s));
+                let in_view = (0..400).contains(&lx) && (0..300).contains(&ly);
+                if in_view && (lx, ly) != last_mouse {
+                    last_mouse = (lx, ly);
+                    game.event(Ev::Move(lx, ly));
+                }
+                for (vk, held, right) in [(VK_LBUTTON, &mut lmb, false), (VK_RBUTTON, &mut rmb, true)] {
+                    let down = key_down(vk);
+                    if down != *held {
+                        *held = down;
+                        if down && in_view {
+                            game.event(Ev::Press { x: lx, y: ly, right });
+                        }
+                    }
+                }
+            } else {
+                game.hold([false; 4]);
+            }
+            if game.quit {
+                break 'running;
+            }
+
+            let now = Instant::now();
+            if now < next_tick {
+                std::thread::sleep(Duration::from_millis(4));
+                continue;
+            }
+            next_tick += tick;
+            if now > next_tick + tick * 4 {
+                next_tick = now + tick;
+            }
+
+            game.tick();
+            game.draw(&mut fb);
+            let pal = *game.palette();
+            let mut rc: RECT = zeroed();
+            GetClientRect(hwnd, &mut rc);
+            let (cw, ch) = ((rc.right - rc.left).max(1), (rc.bottom - rc.top).max(1));
+            let scale = Framebuffer::integer_scale_for_viewport(cw, ch);
+            let (dw, dh) = fb.present(&mut scaled, scale, &pal, game.crt);
+            let (dw, dh) = (dw as i32, dh as i32);
+            let (dx, dy) = ((cw - dw) / 2, (ch - dh) / 2);
+            let want = game.cursor_kind();
+            if scale as i32 != view.2 || CURSOR.load(Ordering::Relaxed) == 0 || want != shown_pointer {
+                shown_pointer = want;
+                let (spr, hot) = &pointers[want as usize];
+                let new = make_cursor(spr, &pal, scale as i32, *hot);
+                let old = CURSOR.swap(new as usize, Ordering::Relaxed);
+                if !new.is_null() && GetForegroundWindow() == hwnd {
+                    SetCursor(new);
+                }
+                if old != 0 {
+                    DestroyIcon(old as _);
+                }
+            }
+            view = (dx, dy, scale as i32);
+            bmi.bmiHeader.biWidth = dw;
+            bmi.bmiHeader.biHeight = -dh;
+            if dy > 0 {
+                PatBlt(hdc, 0, 0, cw, dy, BLACKNESS);
+                PatBlt(hdc, 0, dy + dh, cw, ch - dy - dh, BLACKNESS);
+            }
+            if dx > 0 {
+                PatBlt(hdc, 0, 0, dx, ch, BLACKNESS);
+                PatBlt(hdc, dx + dw, 0, cw - dx - dw, ch, BLACKNESS);
+            }
+            StretchDIBits(hdc, dx, dy, dw, dh, 0, 0, dw, dh, scaled.as_ptr() as *const _, &bmi, DIB_RGB_COLORS, SRCCOPY);
+        }
+        ReleaseDC(hwnd, hdc);
+    }
+}
+
+unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    match msg {
+        WM_DESTROY | WM_CLOSE => {
+            PostQuitMessage(0);
+            0
+        }
+        WM_SETCURSOR if (lparam & 0xFFFF) as isize == HTCLIENT => {
+            SetCursor(CURSOR.load(Ordering::Relaxed) as HCURSOR);
+            1
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}

@@ -7,6 +7,7 @@
 **/misenspace_save.txt
 **/roguelikes_save.txt
 **/playtest_log.txt
+**/nomindwing_playtest.log
 
 # Exclude all song & audio files
 **/assets/music/
