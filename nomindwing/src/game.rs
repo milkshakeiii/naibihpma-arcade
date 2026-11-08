@@ -1,6 +1,7 @@
 //! The playable toy: input, camera, the card sidebar, overlays and the playtest log.
 
 use crate::ai::Ai;
+use crate::app::{App, Ev, Key};
 use crate::design::{cost, info, Kind, CARDS};
 use crate::framebuffer::{wrap, Framebuffer};
 use crate::geom::dist2;
@@ -28,24 +29,13 @@ pub fn card_rect(i: usize) -> Rect {
     Rect::new(306, 98 + i as i32 * 26, 90, 24)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Key {
-    Num(u8),
-    Tab,
-    Pause,
-    Esc,
-    Help,
-    Back,
-    Enter,
-    Restart,
+/// The print queue's icons: the current job first, then the queue.
+pub fn queue_rect(n: usize) -> Rect {
+    Rect::new(306 + n as i32 * 15, 240, 14, 16)
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Ev {
-    Key(Key),
-    Move(i32, i32),
-    Press { x: i32, y: i32, right: bool },
-}
+const PAUSE: Key = Key::Letter('P');
+const RESTART: Key = Key::Letter('R');
 
 pub struct Game {
     pub w: World,
@@ -155,17 +145,21 @@ impl Game {
             Ev::Move(x, y) => self.mouse = (x, y),
             Ev::Key(k) => self.key(k),
             Ev::Press { x, y, right } => self.press(x, y, right),
+            Ev::Release { .. } | Ev::Char(_) => {}
         }
     }
 
     fn key(&mut self, k: Key) {
         if self.help {
-            self.help = false;
+            // Movement keys don't dismiss the rules, so you can't fly off by accident.
+            if !matches!(k, Key::Letter('W' | 'A' | 'S' | 'D')) {
+                self.help = false;
+            }
             return;
         }
         if self.w.winner.is_some() {
             match k {
-                Key::Enter | Key::Restart => self.new_match(),
+                Key::Enter | RESTART => self.new_match(),
                 Key::Esc => self.quit = true,
                 _ => {}
             }
@@ -173,8 +167,8 @@ impl Game {
         }
         if self.paused {
             match k {
-                Key::Pause | Key::Esc | Key::Enter => self.set_paused(false),
-                Key::Restart => self.new_match(),
+                PAUSE | Key::Esc | Key::Enter => self.set_paused(false),
+                RESTART => self.new_match(),
                 _ => {}
             }
             return;
@@ -182,7 +176,7 @@ impl Game {
         match k {
             Key::Num(n) if (1..=5).contains(&n) => self.card(n as usize - 1),
             Key::Tab => self.toggle_tactical(),
-            Key::Pause => self.set_paused(true),
+            PAUSE => self.set_paused(true),
             Key::Esc => {
                 if self.targeting.is_some() {
                     self.targeting = None;
@@ -220,7 +214,11 @@ impl Game {
             return;
         }
         if right {
-            self.targeting = None;
+            if let Some(n) = (0..QUEUE_MAX).find(|&n| queue_rect(n).contains(x, y)) {
+                self.toggle_repeat(n);
+            } else {
+                self.targeting = None;
+            }
             return;
         }
         if let Some(i) = (0..CARDS.len()).find(|&i| card_rect(i).contains(x, y)) {
@@ -314,6 +312,18 @@ impl Game {
             Some(_) => self.say("THAT ROCK IS ALREADY TAKEN"),
             None => self.say("SEEDS GROW ON ROCKS"),
         }
+    }
+
+    /// Right-clicking a print-queue icon makes that card print again each time it finishes.
+    fn toggle_repeat(&mut self, n: usize) {
+        let k = self.w.king(0);
+        let Some(j) = k.job.iter().chain(k.queue.iter()).nth(n).copied() else { return };
+        if j.kind.is_seed() {
+            self.say("SEEDS NEED A NEW ROCK EACH TIME");
+            return;
+        }
+        self.cmds.push(Cmd::ToggleRepeat { team: 0, n });
+        self.log(&format!("REPEAT {} {}", info(j.kind).name, if j.repeat { "OFF" } else { "ON" }));
     }
 
     fn unqueue(&mut self) {
@@ -500,9 +510,12 @@ impl Game {
         fb.text("PRINTING", 308, 230, TEXT_FAINT, None, 1);
         let jobs: Vec<Job> = king.job.iter().chain(king.queue.iter()).copied().collect();
         for (n, j) in jobs.iter().enumerate().take(QUEUE_MAX) {
-            let x = 306 + n as i32 * 15;
-            let r = Rect::new(x, 240, 14, 16);
+            let r = queue_rect(n);
+            let x = r.x;
             fb.rect_fill(r.x, r.y, r.w, r.h, PANEL_DEEP);
+            if j.repeat {
+                fb.rect_outline(r.x, r.y, r.w, r.h, ACCENT);
+            }
             let d = &info(j.kind).design;
             let printed = j.printed;
             render::draw_design(fb, r, d, x + 7, 247, 0, 0, &|c| n > 0 || d.rank[c] < printed, &|c| n == 0 && d.rank[c] >= printed);
@@ -538,7 +551,7 @@ impl Game {
             return Some("[BACKSPACE] TAKE THE LAST CARD OFF THE PRINT QUEUE. PRINTED PIXELS COME BACK.".into());
         }
         if (306..396).contains(&x) && (230..258).contains(&y) {
-            return Some("YOUR KING PRINTS THESE IN ORDER, ONE PIXEL EVERY OTHER FRAME WHILE PX LAST.".into());
+            return Some("YOUR KING PRINTS THESE IN ORDER, A PIXEL A FRAME WHILE PX LAST. RIGHT-CLICK ONE TO REPEAT IT (BLUE FRAME).".into());
         }
         if let Some(k) = self.targeting {
             if let Some(aim) = self.aim() {
@@ -610,7 +623,7 @@ impl Game {
             ("SEEDS", "PICK A SEED CARD, THEN CLICK A ROCK (MAP, MINIMAP OR TAC VIEW). THE SEED FLIES THERE AND EATS THE ROCK INTO A BASE."),
             ("BASES", "A PLANTED BASE PRINTS ITS OWN PINNED LIST AND REBUILDS WHATEVER DIES."),
             ("PARTS", "YELLOW SHOOTS, BLUE-WHITE PUSHES, ORANGE SCOOPS, GREY TAKES TWO HITS. A SHIP DIES WHEN ITS WHITE CORE IS GONE."),
-            ("KEYS", "TAB TACTICAL VIEW  P PAUSE  BACKSPACE UNQUEUE  RIGHT-CLICK CANCELS  F2 SCANLINES  F1 HELP"),
+            ("KEYS", "TAB TACTICAL VIEW  P PAUSE  BACKSPACE UNQUEUE  RIGHT-CLICK A QUEUED CARD TO REPEAT IT  F2 SCANLINES  F1 HELP"),
         ];
         let mut y = r.y + 34;
         for (head, text) in body {
@@ -671,6 +684,36 @@ impl Game {
         let m = self.mouse;
         ui::button(fb, END_BTNS[0], "NEW MATCH", END_BTNS[0].contains(m.0, m.1), false);
         ui::button(fb, END_BTNS[1], "QUIT", END_BTNS[1].contains(m.0, m.1), false);
+    }
+}
+
+impl App for Game {
+    fn event(&mut self, ev: Ev) {
+        Game::event(self, ev)
+    }
+    fn hold(&mut self, dirs: [bool; 4]) {
+        Game::hold(self, dirs)
+    }
+    fn tick(&mut self) {
+        Game::tick(self)
+    }
+    fn draw(&self, fb: &mut Framebuffer) {
+        Game::draw(self, fb)
+    }
+    fn palette(&self) -> &Pal {
+        Game::palette(self)
+    }
+    fn cursor_kind(&self) -> u8 {
+        Game::cursor_kind(self)
+    }
+    fn crt(&self) -> bool {
+        self.crt
+    }
+    fn toggle_crt(&mut self) {
+        Game::toggle_crt(self)
+    }
+    fn quit(&self) -> bool {
+        self.quit
     }
 }
 

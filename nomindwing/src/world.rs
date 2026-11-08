@@ -52,6 +52,8 @@ pub struct Job {
     pub dest: Option<usize>,
     /// Which pinned slot this job refills.
     pub slot: Option<usize>,
+    /// Re-queue the same card when it finishes (the king's queue only).
+    pub repeat: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -234,6 +236,8 @@ pub enum Event {
 pub enum Cmd {
     Queue { team: usize, kind: Kind, dest: Option<usize> },
     Unqueue { team: usize },
+    /// Toggle repeat on the king's nth job (0 = the one printing now).
+    ToggleRepeat { team: usize, n: usize },
 }
 
 /// A read-only copy of the living ships, taken at the start of each tick.
@@ -619,7 +623,25 @@ impl World {
                 }
                 let s = &mut self.ships[k];
                 if s.alive && s.queue.len() < QUEUE_MAX {
-                    s.queue.push_back(Job { kind, printed: 0, dest, slot: None });
+                    s.queue.push_back(Job { kind, printed: 0, dest, slot: None, repeat: false });
+                }
+            }
+            Cmd::ToggleRepeat { team, n } => {
+                let k = self.teams[team].king;
+                let s = &mut self.ships[k];
+                let j = if s.job.is_some() {
+                    if n == 0 {
+                        s.job.as_mut()
+                    } else {
+                        s.queue.get_mut(n - 1)
+                    }
+                } else {
+                    s.queue.get_mut(n)
+                };
+                if let Some(j) = j {
+                    if !j.kind.is_seed() {
+                        j.repeat = !j.repeat;
+                    }
                 }
             }
             Cmd::Unqueue { team } => {
@@ -696,6 +718,9 @@ impl World {
                 self.ships[i].slots[sl].child = Some(id);
             }
             self.ships[i].job = None;
+            if job.repeat && self.ships[i].queue.len() < QUEUE_MAX {
+                self.ships[i].queue.push_back(Job { printed: 0, ..job });
+            }
             self.teams[team].printed += 1;
         }
     }
@@ -714,11 +739,11 @@ impl World {
                     continue;
                 }
                 match self.free_rock_near(s.x, s.y, SPREAD_RANGE, s.team, None) {
-                    Some(r) => return Some(Job { kind: slot.kind, printed: 0, dest: Some(r), slot: Some(k) }),
+                    Some(r) => return Some(Job { kind: slot.kind, printed: 0, dest: Some(r), slot: Some(k), repeat: false }),
                     None => continue,
                 }
             }
-            return Some(Job { kind: slot.kind, printed: 0, dest: None, slot: Some(k) });
+            return Some(Job { kind: slot.kind, printed: 0, dest: None, slot: Some(k), repeat: false });
         }
         None
     }

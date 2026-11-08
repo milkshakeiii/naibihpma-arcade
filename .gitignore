@@ -8,6 +8,8 @@
 **/roguelikes_save.txt
 **/playtest_log.txt
 **/nomindwing_playtest.log
+**/proving_ground.log
+**/proving_ground_designs.txt
 
 # Exclude all song & audio files
 **/assets/music/

@@ -18,6 +18,8 @@ pub const ENGINE: u8 = 23;
 pub const SCOOP: u8 = 24;
 pub const CORE: u8 = 25;
 pub const LOOSE: u8 = 26;
+pub const LANCE: u8 = 27;
+pub const LANCE_HI: u8 = 28;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -73,6 +75,8 @@ pub fn game() -> Pal {
     set(&mut p, SCOOP, (232, 140, 40));
     set(&mut p, CORE, (255, 255, 255));
     set(&mut p, LOOSE, (216, 204, 140));
+    set(&mut p, LANCE, (232, 92, 216));
+    set(&mut p, LANCE_HI, (255, 196, 248));
 
     set(&mut p, PANEL_LO, (36, 40, 56));
     set(&mut p, PANEL, (60, 66, 88));

@@ -1,23 +1,27 @@
 mod ai;
+mod app;
 mod design;
 mod export;
 mod framebuffer;
 mod game;
 mod geom;
 mod palette;
+mod pg;
 mod render;
 mod rng;
 mod ui;
 mod world;
 
+use app::{App, Ev, Key};
 use framebuffer::{Framebuffer, Sprite};
-use game::{Ev, Game, Key};
+use game::Game;
 use std::ffi::OsStr;
 use std::mem::{size_of, zeroed};
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
@@ -32,12 +36,27 @@ use winapi::um::winuser::*;
 /// The pixel-art pointer as an OS cursor, rebuilt when the integer scale or pointer changes. Like
 /// a DOS mouse driver's pointer, it moves independently of the 15 FPS frames.
 static CURSOR: AtomicUsize = AtomicUsize::new(0);
+/// Typed characters from WM_CHAR (the OS handles key repeat and keyboard layouts).
+static TYPED: Mutex<Vec<char>> = Mutex::new(Vec::new());
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if let Some(i) = args.iter().position(|a| a == "--export-screenshots") {
-        let dir = args.get(i + 1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("screenshots"));
-        export::screenshots(&dir);
+    let arg = |name: &str| args.iter().position(|a| a == name).map(|i| args.get(i + 1).cloned());
+    if let Some(dir) = arg("--export-screenshots") {
+        export::pg_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots".into())));
+        return;
+    }
+    if let Some(dir) = arg("--export-toy1") {
+        export::screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/toy1".into())));
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--pg-trace") {
+        let n = |k: usize| args.get(i + k).and_then(|s| s.parse::<i32>().ok()).unwrap_or(1);
+        export::pg_trace((n(1) as usize, n(2)), (n(3) as usize, n(4)), n(5).max(1) as u32, n(6).max(1) as u32);
+        return;
+    }
+    if arg("--pg-sim").is_some() {
+        export::pg_sim();
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--trace") {
@@ -50,9 +69,15 @@ fn main() {
         export::sim(n);
         return;
     }
-    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1);
-    let mut game = Game::new(seed, Some(PathBuf::from("nomindwing_playtest.log")));
-    run_window(&mut game, args.iter().any(|a| a == "--windowed"));
+    let windowed = args.iter().any(|a| a == "--windowed");
+    if args.iter().any(|a| a == "--toy1") {
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1);
+        let mut game = Game::new(seed, Some(PathBuf::from("nomindwing_playtest.log")));
+        run_window(&mut game, windowed, "NO MIND WING - TOY 1 [400x300 64-COLOR VGA | 15 FPS]");
+    } else {
+        let mut pg = pg::Pg::new(Some(PathBuf::from("proving_ground_designs.txt")), Some(PathBuf::from("proving_ground.log")));
+        run_window(&mut pg, windowed, "NO MIND WING - PROVING GROUND [400x300 64-COLOR VGA | 15 FPS]");
+    }
 }
 
 fn key_down(vk: i32) -> bool {
@@ -67,20 +92,38 @@ struct Poll {
 
 fn polls() -> Vec<Poll> {
     let p = |vks: &'static [i32], key: Key| Poll { vks, key, held: false };
-    vec![
-        p(&['1' as i32, VK_NUMPAD1], Key::Num(1)),
-        p(&['2' as i32, VK_NUMPAD2], Key::Num(2)),
-        p(&['3' as i32, VK_NUMPAD3], Key::Num(3)),
-        p(&['4' as i32, VK_NUMPAD4], Key::Num(4)),
-        p(&['5' as i32, VK_NUMPAD5], Key::Num(5)),
+    static DIGITS: [[i32; 2]; 9] = [
+        ['1' as i32, VK_NUMPAD1],
+        ['2' as i32, VK_NUMPAD2],
+        ['3' as i32, VK_NUMPAD3],
+        ['4' as i32, VK_NUMPAD4],
+        ['5' as i32, VK_NUMPAD5],
+        ['6' as i32, VK_NUMPAD6],
+        ['7' as i32, VK_NUMPAD7],
+        ['8' as i32, VK_NUMPAD8],
+        ['9' as i32, VK_NUMPAD9],
+    ];
+    static LETTERS: [[i32; 1]; 26] = {
+        let mut l = [[0; 1]; 26];
+        let mut i = 0;
+        while i < 26 {
+            l[i][0] = 'A' as i32 + i as i32;
+            i += 1;
+        }
+        l
+    };
+    let mut v: Vec<Poll> = (0..9).map(|i| p(&DIGITS[i], Key::Num(i as u8 + 1))).collect();
+    v.extend((0..26).map(|i| p(&LETTERS[i], Key::Letter((b'A' + i as u8) as char))));
+    v.extend([
         p(&[VK_TAB], Key::Tab),
-        p(&['P' as i32, VK_PAUSE], Key::Pause),
+        p(&[VK_SPACE], Key::Space),
+        p(&[VK_PAUSE], Key::Letter('P')),
         p(&[VK_ESCAPE], Key::Esc),
         p(&[VK_F1], Key::Help),
         p(&[VK_BACK], Key::Back),
         p(&[VK_RETURN], Key::Enter),
-        p(&['R' as i32], Key::Restart),
-    ]
+    ]);
+    v
 }
 
 /// Builds a hardware cursor from a pointer sprite with every logical pixel an exact NxN block.
@@ -121,7 +164,7 @@ unsafe fn make_cursor(spr: &Sprite, pal: &[u32; 64], n: i32, hot: (i32, i32)) ->
     cursor
 }
 
-fn run_window(game: &mut Game, windowed: bool) {
+fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
     unsafe {
         SetProcessDPIAware();
         let hinstance = GetModuleHandleW(null_mut());
@@ -150,7 +193,7 @@ fn run_window(game: &mut Game, windowed: bool) {
         } else {
             (WS_POPUP | WS_VISIBLE, 0, 0, sw, sh)
         };
-        let title = wide("NO MIND WING - TOY 1 [400x300 64-COLOR VGA | 15 FPS]");
+        let title = wide(title);
         let hwnd = CreateWindowExW(0, class_name.as_ptr(), title.as_ptr(), style, x, y, w, h, null_mut(), null_mut(), hinstance, null_mut());
         if hwnd.is_null() {
             return;
@@ -194,6 +237,10 @@ fn run_window(game: &mut Game, windowed: bool) {
                     }
                     p.held = down;
                 }
+                let typed: Vec<char> = TYPED.lock().map(|mut t| t.drain(..).collect()).unwrap_or_default();
+                for c in typed.into_iter().filter(|c| !c.is_control()) {
+                    game.event(Ev::Char(c));
+                }
                 let any = |vks: &[i32]| vks.iter().any(|&vk| key_down(vk));
                 game.hold([any(&['W' as i32, VK_UP]), any(&['S' as i32, VK_DOWN]), any(&['A' as i32, VK_LEFT]), any(&['D' as i32, VK_RIGHT])]);
                 let f2 = key_down(VK_F2);
@@ -219,13 +266,18 @@ fn run_window(game: &mut Game, windowed: bool) {
                         *held = down;
                         if down && in_view {
                             game.event(Ev::Press { x: lx, y: ly, right });
+                        } else if !down {
+                            game.event(Ev::Release { x: lx, y: ly, right });
                         }
                     }
                 }
             } else {
                 game.hold([false; 4]);
+                if let Ok(mut t) = TYPED.lock() {
+                    t.clear();
+                }
             }
-            if game.quit {
+            if game.quit() {
                 break 'running;
             }
 
@@ -246,7 +298,7 @@ fn run_window(game: &mut Game, windowed: bool) {
             GetClientRect(hwnd, &mut rc);
             let (cw, ch) = ((rc.right - rc.left).max(1), (rc.bottom - rc.top).max(1));
             let scale = Framebuffer::integer_scale_for_viewport(cw, ch);
-            let (dw, dh) = fb.present(&mut scaled, scale, &pal, game.crt);
+            let (dw, dh) = fb.present(&mut scaled, scale, &pal, game.crt());
             let (dw, dh) = (dw as i32, dh as i32);
             let (dx, dy) = ((cw - dw) / 2, (ch - dh) / 2);
             let want = game.cursor_kind();
@@ -283,6 +335,14 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
     match msg {
         WM_DESTROY | WM_CLOSE => {
             PostQuitMessage(0);
+            0
+        }
+        WM_CHAR => {
+            if let Some(c) = char::from_u32(wparam as u32) {
+                if let Ok(mut t) = TYPED.lock() {
+                    t.push(c);
+                }
+            }
             0
         }
         WM_SETCURSOR if (lparam & 0xFFFF) as isize == HTCLIENT => {
