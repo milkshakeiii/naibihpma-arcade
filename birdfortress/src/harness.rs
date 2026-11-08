@@ -525,6 +525,17 @@ pub fn shots(levels: &[Level], dir: &str) {
         g.enter_level(*idx);
         snap(&mut g, &format!("{:02}_{}_rule", 2 + k * 3, levels[*idx].id));
         g.event(Ev::Key(Key::Space));
+        if k == 1 {
+            // The reach marks: a dodo picking up at the twig pile.
+            g.layout = Layout::default();
+            g.rebuild();
+            g.tool = crate::game::Tool::Species(Species::Dodo);
+            g.from = Some(NodeRef::Source(0));
+            g.mouse = (200, 100);
+            snap(&mut g, &format!("{:02}_{}_reach", 2 + k * 3, levels[*idx].id));
+            g.tool = crate::game::Tool::Select;
+            g.from = None;
+        }
         g.layout = Layout::from_text(&levels[*idx].reference);
         g.rebuild();
         if let Some(r) = g.layout.routes.first() {
@@ -551,5 +562,44 @@ pub fn shots(levels: &[Level], dir: &str) {
     for p in 0..crate::game::HELP_PAGES {
         g.help_page = p;
         snap(&mut g, &format!("90_help_{}", p + 1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_level_parses_and_its_reference_solves() {
+        let levels = crate::level::parse_book(crate::BOOK);
+        assert_eq!(levels.len(), 19);
+        for lv in &levels {
+            assert!(lv.fortress.2 > 0, "{} has no fortress", lv.id);
+            assert!(!lv.rule.is_empty(), "{} has no rule card", lv.id);
+            let l = Layout::from_text(&lv.reference);
+            let s = sim::evaluate(lv, &l).unwrap_or_else(|e| panic!("{} reference fails: {e}", lv.id));
+            assert!(s.cost >= lv.targets.cost && s.crew >= lv.targets.crew, "{} goals are looser than its reference", lv.id);
+            // Every building in a reference must be legal to place.
+            let mut placed = Layout::default();
+            for b in &l.buildings {
+                let w = World::new(lv, &placed);
+                assert!(w.can_build(b.x, b.y).is_ok(), "{} reference building at {},{} is illegal", lv.id, b.x, b.y);
+                placed.add_building(b.kind, b.x, b.y);
+            }
+        }
+    }
+
+    #[test]
+    fn sources_sit_on_floors() {
+        for lv in crate::level::parse_book(crate::BOOK) {
+            let w = World::new(&lv, &Layout::default());
+            for s in &lv.sources {
+                assert!(w.standable(s.x, s.y), "{} source at {},{} floats", lv.id, s.x, s.y);
+            }
+            let (fx, fy, fw, fh) = lv.fortress;
+            for x in fx..fx + fw {
+                assert!(w.floor_below(x, fy + fh - 1), "{} fortress floats at x {x}", lv.id);
+            }
+        }
     }
 }

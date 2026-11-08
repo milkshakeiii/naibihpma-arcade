@@ -531,7 +531,7 @@ impl Game {
                         None => (format!("{} {}: THERE {} + BACK {} + DOCKS 4 = {} TICKS A TRIP. CLICK TO ADD.", s.name(), g.name(), p.loaded.ticks, p.empty.ticks, p.cycle()), false),
                     };
                 }
-                return (format!("{} PICKS UP AT THE {}. NOW CLICK WHERE IT DROPS OFF.", s.name(), self.node_name(f)), false);
+                return (format!("{} PICKS UP AT THE {}. MARKS: WHERE IT CAN CARRY IT (RED: NO WAY BACK). CLICK THE DROP-OFF.", s.name(), self.node_name(f)), false);
             }
             let w = s.jump(Weight::Empty);
             return (format!("{} ({} SEEDS): CLICK WHERE IT PICKS UP. EMPTY: JUMP {w}, PACE {}.", s.name(), s.cost(), s.pace(Weight::Empty)), false);
@@ -1127,5 +1127,87 @@ impl Drop for Game {
         }
         self.save.write();
         self.log.line("=== session end");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn game() -> Game {
+        let levels = crate::level::parse_book(crate::BOOK);
+        Game::new(levels, Save::load(None), Log::open(None), None)
+    }
+
+    fn click(g: &mut Game, x: i32, y: i32) {
+        g.event(Ev::Move(x, y));
+        g.event(Ev::Press { x, y, right: false });
+        g.event(Ev::Release { x, y, right: false });
+    }
+
+    fn tile(g: &mut Game, tx: i32, ty: i32) {
+        click(g, tx * TILE + 5, ty * TILE + 5);
+    }
+
+    /// Plays the first site with the mouse alone: route, run, results, next site.
+    #[test]
+    fn first_site_by_mouse() {
+        let mut g = game();
+        click(&mut g, 200, 150);
+        assert_eq!(g.screen, Screen::Select);
+        let r = select_rect(0, 0);
+        click(&mut g, r.x + 5, r.y + 5);
+        assert_eq!(g.screen, Screen::Play);
+        assert!(matches!(g.overlay, Overlay::Rule));
+        click(&mut g, 200, 100);
+        assert!(matches!(g.overlay, Overlay::None));
+        let t = tool_rect(1);
+        click(&mut g, t.x + 5, t.y + 5);
+        assert_eq!(g.tool, Tool::Species(Species::Tribble));
+        tile(&mut g, 4, 16);
+        assert_eq!(g.from, Some(NodeRef::Source(0)));
+        tile(&mut g, 34, 16);
+        assert_eq!(g.layout.routes.len(), 1);
+        // Add two more tribbles from the card.
+        let card = g.card_rect().expect("card");
+        let (_, _, _, plus, _) = g.card_row(card, 0);
+        click(&mut g, plus.x + 2, plus.y + 2);
+        click(&mut g, plus.x + 2, plus.y + 2);
+        assert_eq!(g.layout.routes[0].count, 3);
+        click(&mut g, R_RUN.x + 5, R_RUN.y + 5);
+        assert!(g.running);
+        g.speed = SPEEDS.len() - 1;
+        for _ in 0..200 {
+            g.tick();
+        }
+        match g.overlay {
+            Overlay::Results { ticks, cost, crew, .. } => assert_eq!((ticks, cost, crew), (114, 6, 3)),
+            ref o => panic!("expected results, got {o:?}"),
+        }
+        let b = result_buttons();
+        click(&mut g, b[0].x + 5, b[0].y + 5);
+        assert_eq!(g.cur, 1);
+        assert!(matches!(g.overlay, Overlay::Rule));
+    }
+
+    /// Building, erasing with the right button, and undo.
+    #[test]
+    fn build_erase_undo() {
+        let mut g = game();
+        let i = g.levels.iter().position(|l| l.id == "1-4").unwrap();
+        g.enter_level(i);
+        g.overlay = Overlay::None;
+        let tools = g.tools();
+        let k = tools.iter().position(|t| *t == Tool::Build(Kind::Depot)).unwrap();
+        let t = tool_rect(k);
+        click(&mut g, t.x + 5, t.y + 5);
+        tile(&mut g, 8, 15);
+        assert_eq!(g.layout.buildings.len(), 1);
+        g.event(Ev::Press { x: 85, y: 155, right: true });
+        g.event(Ev::Press { x: 85, y: 155, right: true });
+        g.event(Ev::Press { x: 85, y: 155, right: true });
+        assert_eq!(g.layout.buildings.len(), 0, "right-click erases once the tool is put down");
+        g.event(Ev::Key(Key::Letter('Z')));
+        assert_eq!(g.layout.buildings.len(), 1);
     }
 }

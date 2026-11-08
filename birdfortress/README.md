@@ -62,6 +62,16 @@ puzzle; chapter IV is three full optimization puzzles.
 Each site has a goal for each score. A goal earns a star, and each best is kept separately. The
 results screen plots your score against a histogram of every distinct solution the solver found.
 
+## Reading the map
+
+- When you pick a creature and click a pickup, marks show every spot where it could carry that
+  good. A gold mark means it can get back from there empty; a red one means it would be stranded.
+- When you hover a drop-off, both trips are previewed (gold loaded, blue empty), and the status
+  line gives the round trip in ticks.
+- Placed routes draw as dotted paths, bright for the loaded trip and dark for the way back. A red X
+  marks a route that can't run.
+- Hover anything (a bush, a tile, a creature mid-run) to see what it is or what it's doing.
+
 ## Controls
 
 The left mouse button uses the selected tool and the right button cancels or erases. **1-9** pick

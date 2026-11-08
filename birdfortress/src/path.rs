@@ -192,6 +192,37 @@ pub fn find(world: &World, s: Species, load: Load, starts: &[(i32, i32)], goals:
     None
 }
 
+/// Every tile from which this creature, with this load, can reach any of `goals`.
+pub fn reach_back(world: &World, s: Species, load: Load, goals: &[(i32, i32)]) -> Vec<bool> {
+    let n = (world.w * world.h) as usize;
+    let mut rev: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut buf = Vec::new();
+    for y in 0..world.h {
+        for x in 0..world.w {
+            moves(world, s, load, x, y, &mut buf);
+            let i = world.idx(x, y);
+            for seg in buf.drain(..) {
+                let last = *seg.last().unwrap();
+                rev[world.idx(last.x, last.y)].push(i);
+            }
+        }
+    }
+    let mut seen = vec![false; n];
+    let mut stack: Vec<usize> = goals.iter().filter(|&&(x, y)| world.inside(x, y)).map(|&(x, y)| world.idx(x, y)).collect();
+    for &i in &stack {
+        seen[i] = true;
+    }
+    while let Some(i) = stack.pop() {
+        for &j in &rev[i] {
+            if !seen[j] {
+                seen[j] = true;
+                stack.push(j);
+            }
+        }
+    }
+    seen
+}
+
 /// Every tile reachable from (x, y) for this creature and load (for the reach overlay).
 pub fn reach(world: &World, s: Species, load: Load, x: i32, y: i32) -> Vec<bool> {
     let n = (world.w * world.h) as usize;

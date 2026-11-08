@@ -1000,9 +1000,46 @@ fn draw_histo(fb: &mut Framebuffer, x: i32, y: i32, lo: i32, hi: i32, bins: &[u3
     }
 }
 
+/// With a creature chosen and a pickup clicked: every spot it can reach carrying that pickup's
+/// goods, so missing links (a step too high, a gap too wide) show before a route is made.
+fn draw_reach(fb: &mut Framebuffer, g: &Game) {
+    let (Tool::Species(s), Some(f)) = (g.tool, g.from) else { return };
+    let good = match f {
+        NodeRef::Source(i) => Some(g.level().sources[i].good),
+        NodeRef::Building(id) => match g.layout.building(id).map(|b| b.kind) {
+            Some(Kind::Depot) => g.layout.routes.iter().find(|r| r.to == f).map(|r| r.cargo),
+            Some(k) => k.recipe().map(|r| r.output),
+            None => None,
+        },
+        NodeRef::Fortress => None,
+    };
+    let Some(good) = good else { return };
+    let load = Load::of(good);
+    let w = &g.world;
+    let starts = w.access(g.level(), &g.layout, f);
+    let mut seen = vec![false; (w.w * w.h) as usize];
+    for &(x, y) in &starts {
+        for (i, r) in crate::path::reach(w, s, load, x, y).into_iter().enumerate() {
+            seen[i] |= r;
+        }
+    }
+    let home = crate::path::reach_back(w, s, Load::EMPTY, &starts);
+    for y in 0..w.h {
+        for x in 0..w.w {
+            let i = w.idx(x, y);
+            if seen[i] && w.standable(x, y) {
+                let (px, py) = (x * TILE + 4, y * TILE + 8);
+                fb.rect_fill(px, py + 1, 2, 1, OUTLINE);
+                fb.rect_fill(px, py, 2, 1, if home[i] { GOLD } else { BAD });
+            }
+        }
+    }
+}
+
 fn draw_play(g: &Game, fb: &mut Framebuffer) {
     draw_sky(fb, VIEW_H);
     draw_terrain(fb, &g.world);
+    draw_reach(fb, g);
     draw_nodes(fb, g);
     draw_routes(fb, g);
     draw_creatures(fb, g);
