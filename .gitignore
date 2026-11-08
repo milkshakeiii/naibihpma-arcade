@@ -19,3 +19,5 @@
 *.aac
 *.opus
 *.wma
+**/birdfortress_save.txt
+**/birdfortress_playtest.log
