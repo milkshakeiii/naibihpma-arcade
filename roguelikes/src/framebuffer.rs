@@ -27,6 +27,33 @@ impl Sprite {
         Self { w, h, px }
     }
 
+    /// Adds a 1px dark hull (index 1) around the opaque fill, growing the sprite by 1 each side.
+    pub fn outlined(self) -> Sprite {
+        let (w, h) = (self.w + 2, self.h + 2);
+        let mut px = vec![0u8; (w * h) as usize];
+        for y in 0..self.h {
+            for x in 0..self.w {
+                px[((y + 1) * w + x + 1) as usize] = self.px[(y * self.w + x) as usize];
+            }
+        }
+        let src = px.clone();
+        for y in 0..h {
+            for x in 0..w {
+                if src[(y * w + x) as usize] != 0 {
+                    continue;
+                }
+                let near = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| {
+                    let (nx, ny) = (x + dx, y + dy);
+                    nx >= 0 && ny >= 0 && nx < w && ny < h && src[(ny * w + nx) as usize] > 1
+                });
+                if near {
+                    px[(y * w + x) as usize] = 1;
+                }
+            }
+        }
+        Sprite { w, h, px }
+    }
+
     /// Lowest row holding an opaque pixel (for checking feet are planted).
     pub fn bottom_row(&self) -> i32 {
         (0..self.h).rev().find(|&y| (0..self.w).any(|x| self.px[(y * self.w + x) as usize] != 0)).unwrap_or(-1)

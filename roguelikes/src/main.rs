@@ -1,12 +1,12 @@
 mod app;
 mod audio;
-mod changeling;
 mod form;
+mod gulp;
+mod hatchery;
 mod framebuffer;
 mod palette;
 mod rng;
 mod shots;
-mod turncoat;
 mod ui;
 
 use app::{App, Ev, Key};
@@ -145,7 +145,7 @@ fn run_window(app: &mut App, audio: &mut Audio, windowed: bool) {
         } else {
             (WS_POPUP | WS_VISIBLE, 0, 0, sw, sh)
         };
-        let title = wide("TWO ROGUELIKES: CHANGELING / TURNCOAT [400x300 64-COLOR VGA | 15 FPS]");
+        let title = wide("TWO ROGUELIKES: GULP / HATCHERY [400x300 64-COLOR VGA | 15 FPS]");
         let hwnd = CreateWindowExW(0, class_name.as_ptr(), title.as_ptr(), style, x, y, w, h, null_mut(), null_mut(), hinstance, null_mut());
         if hwnd.is_null() {
             return;

@@ -114,7 +114,7 @@ impl Form {
                 }
                 if Self::save_rect().contains(x, y) {
                     self.done = true;
-                    sfx.push(Sfx::Buy);
+                    sfx.push(Sfx::Pick);
                 }
             }
             Ev::Key(k) => {
@@ -125,7 +125,7 @@ impl Form {
                     Key::Enter => {
                         if self.focus == Focus::Save {
                             self.done = true;
-                            sfx.push(Sfx::Buy);
+                            sfx.push(Sfx::Pick);
                         } else {
                             self.step_focus(1);
                         }

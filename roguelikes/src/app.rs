@@ -2,11 +2,11 @@
 //! playtest log.
 
 use crate::audio::{Sfx, Track, MUSIC_LEVEL_NAMES};
-use crate::changeling;
+use crate::gulp;
+use crate::hatchery;
 use crate::form::{Form, Question};
 use crate::framebuffer::{wrap, Framebuffer};
 use crate::palette::{self, *};
-use crate::turncoat;
 use crate::ui::{self, Rect};
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -79,39 +79,46 @@ pub trait Run {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GameId {
-    Changeling,
-    Turncoat,
+    Gulp,
+    Hatchery,
 }
 
 impl GameId {
+    /// Save-file prefix.
     pub fn key(self) -> &'static str {
         match self {
-            GameId::Changeling => "a",
-            GameId::Turncoat => "b",
+            GameId::Gulp => "gulp",
+            GameId::Hatchery => "hatchery",
+        }
+    }
+    pub fn letter(self) -> &'static str {
+        match self {
+            GameId::Gulp => "A",
+            GameId::Hatchery => "B",
         }
     }
     pub fn name(self) -> &'static str {
         match self {
-            GameId::Changeling => "CHANGELING",
-            GameId::Turncoat => "TURNCOAT",
+            GameId::Gulp => "GULP",
+            GameId::Hatchery => "HATCHERY",
         }
     }
     fn version(self) -> u32 {
         match self {
-            GameId::Changeling => changeling::VERSION,
-            GameId::Turncoat => turncoat::VERSION,
+            GameId::Gulp => gulp::VERSION,
+            GameId::Hatchery => hatchery::VERSION,
         }
     }
     fn lesson_version(self) -> u32 {
         match self {
-            GameId::Changeling => changeling::LESSON_VERSION,
-            GameId::Turncoat => turncoat::LESSON_VERSION,
+            GameId::Gulp => gulp::LESSON_VERSION,
+            GameId::Hatchery => hatchery::LESSON_VERSION,
         }
     }
     fn special(self) -> &'static Question {
         match self {
-            GameId::Changeling => &changeling::FORM_QUESTION,
-            GameId::Turncoat => &turncoat::FORM_QUESTION,
+            GameId::Gulp => &gulp::FORM_QUESTION,
+            GameId::Hatchery => &hatchery::FORM_QUESTION,
         }
     }
 }
@@ -272,8 +279,8 @@ impl App {
             if lesson { "yes" } else { "no" }
         ));
         let game: Box<dyn Run> = match id {
-            GameId::Changeling => Box::new(changeling::Game::new(seed, lesson)),
-            GameId::Turncoat => Box::new(turncoat::Game::new(seed, lesson)),
+            GameId::Gulp => Box::new(gulp::Game::new(seed, lesson)),
+            GameId::Hatchery => Box::new(hatchery::Game::new(seed, lesson)),
         };
         self.run_frames = 0;
         self.screen = Screen::Play(id, game);
@@ -383,23 +390,23 @@ impl App {
     fn title_event(&mut self, ev: Ev) {
         match ev {
             Ev::Press { x, y, right: false } => {
-                let seen = |k: &str| self.save.get(&format!("{k}_lesson")) > 0;
-                if LESSON_A.contains(x, y) && seen("a") {
+                let seen = |id: GameId| self.save.get(&format!("{}_lesson", id.key())) >= id.lesson_version();
+                if LESSON_A.contains(x, y) && seen(GameId::Gulp) {
                     self.out.sfx(Sfx::Click);
-                    self.start(GameId::Changeling, true);
-                } else if LESSON_B.contains(x, y) && seen("b") {
+                    self.start(GameId::Gulp, true);
+                } else if LESSON_B.contains(x, y) && seen(GameId::Hatchery) {
                     self.out.sfx(Sfx::Click);
-                    self.start(GameId::Turncoat, true);
+                    self.start(GameId::Hatchery, true);
                 } else if CARD_A.contains(x, y) {
                     self.out.sfx(Sfx::Click);
-                    self.start(GameId::Changeling, false);
+                    self.start(GameId::Gulp, false);
                 } else if CARD_B.contains(x, y) {
                     self.out.sfx(Sfx::Click);
-                    self.start(GameId::Turncoat, false);
+                    self.start(GameId::Hatchery, false);
                 }
             }
-            Ev::Char('a') | Ev::Char('A') => self.start(GameId::Changeling, false),
-            Ev::Char('b') | Ev::Char('B') => self.start(GameId::Turncoat, false),
+            Ev::Char('a') | Ev::Char('A') => self.start(GameId::Gulp, false),
+            Ev::Char('b') | Ev::Char('B') => self.start(GameId::Hatchery, false),
             Ev::Key(Key::Esc) => self.quit = true,
             _ => {}
         }
@@ -452,12 +459,12 @@ impl App {
             }
         }
         fb.text_centered("TWO ROGUELIKES", 200, 10, ACCENT_HI, Some(OUTLINE), 2);
-        let note = "HENRY: THESE TWO PULL IN OPPOSITE DIRECTIONS. PLAY A RUN OF EITHER. EACH ONE TEACHES ITSELF AS YOU GO, AND EVERY RUN ENDS WITH A SHORT FORM. YOUR ANSWERS DECIDE WHAT GETS BUILT NEXT.";
+        let note = "HENRY: ROUND 3. TWO NEW GAMES IN THE FOREST OF NAIBIHPMA, BUILT FRESH FROM YOUR NOTES: A FROG WITH A TONGUE, AND A HATCHERY OF FAMILIARS YOU DESIGN AND RAISE. BOTH TEACH THEMSELVES; EVERY RUN ENDS WITH THE FORM.";
         for (i, l) in wrap(note, 62).iter().enumerate() {
             fb.text(l, 14, 36 + i as i32 * 10, TEXT_DIM, None, 1);
         }
         let hover = |r: Rect| r.contains(self.mouse.0, self.mouse.1);
-        for (id, r, lesson_r) in [(GameId::Changeling, CARD_A, LESSON_A), (GameId::Turncoat, CARD_B, LESSON_B)] {
+        for (id, r, lesson_r) in [(GameId::Gulp, CARD_A, LESSON_A), (GameId::Hatchery, CARD_B, LESSON_B)] {
             let k = id.key();
             let h = hover(r) && !hover(lesson_r);
             if h {
@@ -466,10 +473,10 @@ impl App {
                 ui::panel(fb, r);
             }
             let (title_col, sub_col) = if h { (PANEL_DEEP, PANEL_DEEP) } else { (ACCENT_HI, TEXT) };
-            fb.text(&format!("{}  {}", k.to_uppercase(), id.name()), r.x + 8, r.y + 8, title_col, if h { None } else { Some(OUTLINE) }, 2);
+            fb.text(&format!("{}  {}", id.letter(), id.name()), r.x + 8, r.y + 8, title_col, if h { None } else { Some(OUTLINE) }, 2);
             let (tag, how) = match id {
-                GameId::Changeling => ("TAKE THE SHAPE OF WHAT YOU CATCH.", "ONE PIECE ON A SMALL BOARD. EVERY MOVE IS YOURS."),
-                GameId::Turncoat => ("WHOEVER RUNS OUT OF RESOLVE JOINS THE OTHER SIDE.", "PLACE YOUR BAND, THEN WATCH THE CONTEST PLAY OUT."),
+                GameId::Gulp => ("A FROG WITH A TONGUE. EAT, SPIT, GROW.", "ONE FROG, ONE POND AT A TIME. EVERY MOVE IS YOURS."),
+                GameId::Hatchery => ("HATCH FAMILIARS GENE BY GENE, AND RAISE THEM.", "DESIGN THEM, THEN WATCH THEM DEFEND THE EGGS."),
             };
             let mut y = r.y + 30;
             for l in wrap(tag, 28) {
@@ -489,7 +496,7 @@ impl App {
             if !seen {
                 fb.text("STARTS WITH A LESSON", r.x + 8, r.y + 108, if h { PANEL_DEEP } else { TEXT_DIM }, None, 1);
             }
-            if self.save.get(&format!("{k}_lesson")) > 0 {
+            if seen {
                 ui::button(fb, lesson_r, "REPLAY THE LESSON", hover(lesson_r), true);
             } else {
                 fb.text_centered("CLICK TO PLAY", r.x + r.w / 2, lesson_r.y + 3, if h { PANEL_DEEP } else { ACCENT }, None, 1);
@@ -510,24 +517,40 @@ fn pause_rect(i: usize) -> Rect {
     Rect::new(104, 118 + i as i32 * 22, 192, 18)
 }
 
-/// Small shell-palette emblems: a leap diagram for A, two banners meeting for B.
+/// Small shell-palette emblems: a frog shooting its tongue at a fly, and a familiar's gene
+/// slots beside a clutch of eggs.
 fn draw_card_icon(fb: &mut Framebuffer, id: GameId, x: i32, y: i32) {
     match id {
-        GameId::Changeling => {
-            let leaps: Vec<(i32, i32)> = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)].to_vec();
-            ui::pattern(fb, x, y, 2, 8, &leaps, 13, 14);
+        GameId::Gulp => {
+            fb.rect_fill(x, y, 42, 42, OUTLINE);
+            fb.rect_fill(x + 1, y + 1, 40, 40, 18);
+            fb.rect_fill(x + 1, y + 28, 40, 13, 12);
+            // The frog.
+            fb.rect_fill(x + 5, y + 26, 14, 8, OUTLINE);
+            fb.rect_fill(x + 6, y + 27, 12, 6, 13);
+            fb.rect_fill(x + 6, y + 23, 4, 4, OUTLINE);
+            fb.rect_fill(x + 14, y + 23, 4, 4, OUTLINE);
+            fb.rect_fill(x + 7, y + 24, 2, 2, WHITE);
+            fb.rect_fill(x + 15, y + 24, 2, 2, WHITE);
+            // Tongue to a fly.
+            fb.line(x + 18, y + 29, x + 33, y + 12, 16);
+            fb.line(x + 19, y + 29, x + 34, y + 12, 16);
+            fb.rect_fill(x + 33, y + 9, 4, 3, OUTLINE);
+            fb.pset(x + 32, y + 8, WHITE);
+            fb.pset(x + 37, y + 8, WHITE);
         }
-        GameId::Turncoat => {
-            fb.rect_fill(x, y, 41, 41, OUTLINE);
-            for gy in 0..5 {
-                for gx in 0..5 {
-                    let base = if (gx + gy) % 2 == 0 { PANEL_LO } else { PANEL_DEEP };
-                    fb.rect_fill(x + 1 + gx * 8, y + 1 + gy * 8, 7, 7, base);
-                }
+        GameId::Hatchery => {
+            for (k, l) in ["H", "S", "L", "T"].iter().enumerate() {
+                let yy = y + k as i32 * 11;
+                fb.rect_fill(x, yy, 24, 10, OUTLINE);
+                fb.rect_fill(x + 1, yy + 1, 22, 8, PANEL_DEEP);
+                fb.text(l, x + 2, yy + 1, ACCENT, None, 1);
+                fb.rect_fill(x + 10, yy + 3, 11, 4, [13, 16, 19, 14][k]);
             }
-            let dots = [(1, 0, 16), (3, 0, 16), (2, 1, 16), (0, 3, 19), (2, 3, 19), (4, 4, 19), (3, 2, 19)];
-            for (gx, gy, c) in dots {
-                fb.rect_fill(x + 2 + gx * 8, y + 2 + gy * 8, 5, 5, c);
+            for (ex, ey) in [(30, 26), (36, 26), (33, 32), (30, 38), (36, 38)] {
+                fb.rect_fill(x + ex, y + ey - 6, 6, 7, OUTLINE);
+                fb.rect_fill(x + ex + 1, y + ey - 5, 4, 5, WHITE);
+                fb.pset(x + ex + 2, y + ey - 3, OUTLINE);
             }
         }
     }

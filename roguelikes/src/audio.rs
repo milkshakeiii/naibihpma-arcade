@@ -26,64 +26,39 @@ const ALBUMS: &str = r"C:\Users\User\Desktop\albums";
 pub enum Track {
     /// s1-04 Delta: beatless, for the launcher and the feedback form.
     Menu,
-    /// s3-02 Doat, the Enchanter: Changeling's lessons.
-    Doat,
-    /// s3-01 The Underbrush.
+    /// s3 The Enchanted Forest of Naibihpma.
     Underbrush,
-    /// s3-03 Twen, Dew Collector.
+    Doat,
     Twen,
-    /// s3-04 Star Pond.
     StarPond,
-    /// s3-05 Grof, Malevolent Sorcerer.
     Grof,
-    /// s3-06 Ancient Magic: Changeling's victory.
     AncientMagic,
-    /// s5-01 .. s5-06 Virtual History, one per age of Turncoat.
-    Prehistory,
-    IronAge,
-    GoldenAge,
-    SpaceAge,
-    AMyth,
-    Posthistory,
 }
 
 impl Track {
     fn file(self) -> (&'static str, &'static str) {
         const S1: &str = r"s1_abstractobjects\mastered";
         const S3: &str = r"s3_thenechantedforestofnaibihpma\mastered_resonance";
-        const S5: &str = r"s5_virtualhistory\Virtual_History-Mastered";
         match self {
             Track::Menu => (S1, "4_delta_master.wav"),
-            Track::Doat => (S3, "2_doat_the_enchanter_master.wav"),
             Track::Underbrush => (S3, "1_the_underbrush_master.wav"),
+            Track::Doat => (S3, "2_doat_the_enchanter_master.wav"),
             Track::Twen => (S3, "3_twen_dew_collector_master.wav"),
             Track::StarPond => (S3, "4_star_pond_master.wav"),
             Track::Grof => (S3, "5_grof_malevolent_sorcerer_master.wav"),
             Track::AncientMagic => (S3, "6_ancient_magic_master.wav"),
-            Track::Prehistory => (S5, "1_Prehistory-Mastered-v2.wav"),
-            Track::IronAge => (S5, "2_IronAge-Mastered-v2.wav"),
-            Track::GoldenAge => (S5, "3_GoldenAge-Mastered-v2.wav"),
-            Track::SpaceAge => (S5, "4_SpaceAge-Mastered-v1.wav"),
-            Track::AMyth => (S5, "5_AMyth-Mastered-v1.wav"),
-            Track::Posthistory => (S5, "6_Posthistory-Mastered-v2.wav"),
         }
     }
 
     pub fn title(self) -> &'static str {
         match self {
             Track::Menu => "DELTA",
-            Track::Doat => "DOAT, THE ENCHANTER",
             Track::Underbrush => "THE UNDERBRUSH",
+            Track::Doat => "DOAT, THE ENCHANTER",
             Track::Twen => "TWEN, DEW COLLECTOR",
             Track::StarPond => "STAR POND",
             Track::Grof => "GROF, MALEVOLENT SORCERER",
             Track::AncientMagic => "ANCIENT MAGIC",
-            Track::Prehistory => "PREHISTORY",
-            Track::IronAge => "IRON AGE",
-            Track::GoldenAge => "GOLDEN AGE",
-            Track::SpaceAge => "SPACE AGE",
-            Track::AMyth => "A MYTH",
-            Track::Posthistory => "POSTHISTORY",
         }
     }
 
@@ -102,32 +77,36 @@ impl Track {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sfx {
     Click,
-    Step,
-    Hop,
-    Catch,
-    Hurt,
-    Strike,
-    Deny,
-    Dew,
-    Rest,
-    Rustle,
-    Arrive,
-    Descend,
-    Buy,
-    Die,
-    Win,
-    Place,
-    Lift,
-    Persuade,
-    Turn,
-    BattleStart,
-    BattleWin,
-    BattleLose,
     Key,
+    Deny,
     Lesson,
-    Ward,
-    Block,
+    Hop,
+    Splash,
+    Tongue,
+    Gulp,
+    Spit,
+    Croak,
+    Thud,
+    Hurt,
+    Drown,
+    Grow,
+    Rustle,
+    Clear,
+    Win,
+    Lose,
+    Pick,
+    Hatch,
+    Gene,
+    Level,
+    Fight,
+    Tap,
+    Heal,
+    Fall,
 }
+
+const SFX_COUNT: usize = Sfx::Fall as usize + 1;
+/// The same effect never restarts within this window, so busy moments don't machine-gun.
+const SFX_GAP: Duration = Duration::from_millis(70);
 
 struct Shared {
     device_ok: Option<bool>,
@@ -143,6 +122,7 @@ pub struct Audio {
     current: Option<Track>,
     enabled: bool,
     bank: Vec<Arc<Vec<i16>>>,
+    last: std::cell::RefCell<[Option<Instant>; SFX_COUNT]>,
 }
 
 impl Audio {
@@ -166,7 +146,7 @@ impl Audio {
             }
             thread::sleep(Duration::from_millis(2));
         };
-        Self { shared, device_ok, current: None, enabled: music_enabled, bank: build_sfx_bank() }
+        Self { shared, device_ok, current: None, enabled: music_enabled, bank: build_sfx_bank(), last: std::cell::RefCell::new([None; SFX_COUNT]) }
     }
 
     /// Switches to `track` (a no-op if it's already playing). Tracks loop.
@@ -189,6 +169,14 @@ impl Audio {
 
     pub fn play_sfx(&self, sfx: Sfx) {
         let idx = sfx as usize;
+        let now = Instant::now();
+        {
+            let mut last = self.last.borrow_mut();
+            if last[idx].is_some_and(|t| now.duration_since(t) < SFX_GAP) {
+                return;
+            }
+            last[idx] = Some(now);
+        }
         if let (Some(buf), Ok(mut g)) = (self.bank.get(idx), self.shared.lock()) {
             if g.sfx.len() < 10 {
                 g.sfx.push((Arc::clone(buf), 0));
@@ -419,96 +407,133 @@ fn mixer_thread(shared: Arc<Mutex<Shared>>) {
     }
 }
 
-/// Short synthesized effects, in the order of `Sfx`.
+/// Short synthesized effects, in the order of `Sfx`: soft envelopes, sine and triangle tones,
+/// filtered noise. Pond sounds rather than arcade buzzers.
 fn build_sfx_bank() -> Vec<Arc<Vec<i16>>> {
     use std::f32::consts::TAU;
-    let noise = |i: f32| -> f32 {
+    fn noise(i: f32) -> f32 {
         let mut x = (i * 7919.0) as u32 ^ 0x9E37_79B9;
         x ^= x << 13;
         x ^= x >> 17;
         x ^= x << 5;
         (x & 0xFFFF) as f32 / 32768.0 - 1.0
-    };
-    let env = |t: f32, len: f32, p: i32| (1.0 - t / len).max(0.0).powi(p);
-    let tone = |t: f32, f: f32| (t * f * TAU).sin();
-    let sq = |t: f32, f: f32| if (t * f).fract() < 0.5 { 1.0 } else { -1.0 };
-    let arp = |t: f32, notes: &[f32], gap: f32, len: f32| {
+    }
+    // Attack-decay envelope: a few ms of fade-in (no clicks), then a curved decay.
+    fn ad(t: f32, attack: f32, len: f32) -> f32 {
+        if t < attack {
+            t / attack
+        } else {
+            (1.0 - (t - attack) / (len - attack).max(0.001)).max(0.0).powi(2)
+        }
+    }
+    fn sine(phase: f32) -> f32 {
+        (phase * TAU).sin()
+    }
+    fn tri(phase: f32) -> f32 {
+        let f = phase.fract();
+        if f < 0.5 {
+            4.0 * f - 1.0
+        } else {
+            3.0 - 4.0 * f
+        }
+    }
+    // A pitch sweep integrated into a phase.
+    fn sweep(t: f32, f0: f32, f1: f32, dur: f32) -> f32 {
+        let k = (f1 - f0) / dur;
+        let tt = t.min(dur);
+        f0 * tt + 0.5 * k * tt * tt + f1 * (t - tt)
+    }
+    fn notes(t: f32, ns: &[f32], gap: f32, len: f32, bell: bool) -> f32 {
         let mut v = 0.0;
-        for (k, f) in notes.iter().enumerate() {
+        for (k, f) in ns.iter().enumerate() {
             let st = k as f32 * gap;
             if t >= st {
-                v += (t * f * TAU).sin() * (1.0 - (t - st) / len).max(0.0).powi(2);
+                let u = t - st;
+                let e = ad(u, 0.004, len);
+                v += e * (sine(u * f) + if bell { 0.3 * sine(u * f * 2.01) } else { 0.0 });
             }
         }
         v
-    };
+    }
     let mut b: Vec<Vec<i16>> = Vec::new();
-    // Click
-    b.push(synth(28, |t| tone(t, 1400.0) * env(t, 0.028, 3) * 0.35));
-    // Step: soft footfall
-    b.push(synth(70, |t| (tone(t, 220.0 - t * 900.0) * 0.6 + noise(t * 44100.0) * 0.25) * env(t, 0.07, 3) * 0.55));
-    // Hop: a creature moves
-    b.push(synth(60, |t| tone(t, 520.0 + t * 2600.0) * env(t, 0.06, 2) * 0.22));
-    // Catch: snap and a bright rising pair
-    b.push(synth(260, |t| {
-        let snap = noise(t * 44100.0) * env(t, 0.02, 2) * 0.6;
-        snap + arp(t, &[659.25, 987.77], 0.06, 0.2) * 0.4
+    // Click: a soft wooden tick.
+    b.push(synth(30, 0.3, |t| tri(t * 880.0) * ad(t, 0.002, 0.03) * 0.25));
+    // Key.
+    b.push(synth(14, 0.7, |t| noise(t * 44100.0) * ad(t, 0.001, 0.014) * 0.18));
+    // Deny: two low soft notes, falling.
+    b.push(synth(170, 0.4, |t| notes(t, &[233.1, 196.0], 0.07, 0.1, false) * 0.28));
+    // Lesson: a gentle fifth.
+    b.push(synth(520, 0.2, |t| notes(t, &[880.0, 1318.5], 0.09, 0.42, true) * 0.18));
+    // Hop: a little "pup" that rises.
+    b.push(synth(90, 0.3, |t| sine(sweep(t, 260.0, 620.0, 0.05)) * ad(t, 0.004, 0.09) * 0.32));
+    // Splash: filtered noise falling away.
+    b.push(synth(240, 0.75, |t| noise(t * 44100.0) * ad(t, 0.006, 0.24) * 0.55));
+    // Tongue: a quick "thwip".
+    b.push(synth(90, 0.25, |t| sine(sweep(t, 380.0, 1700.0, 0.07)) * ad(t, 0.003, 0.09) * 0.28));
+    // Gulp: a low wobbling "glunk".
+    b.push(synth(170, 0.35, |t| sine(sweep(t, 210.0, 85.0, 0.15) + 0.04 * sine(t * 25.0)) * ad(t, 0.006, 0.17) * 0.5));
+    // Spit: "ptoo".
+    b.push(synth(150, 0.4, |t| (noise(t * 44100.0) * ad(t, 0.001, 0.02) * 0.5 + sine(sweep(t, 760.0, 260.0, 0.12)) * ad(t, 0.004, 0.15)) * 0.32));
+    // Croak: two throaty syllables.
+    b.push(synth(360, 0.55, |t| {
+        let syl = if t < 0.16 { ad(t, 0.01, 0.16) } else if t > 0.2 { ad(t - 0.2, 0.01, 0.16) } else { 0.0 };
+        let am = 0.6 + 0.4 * sine(t * 28.0);
+        (tri(t * 96.0) + 0.4 * tri(t * 192.0)) * am * syl * 0.42
     }));
-    // Hurt: low thud with a sour square
-    b.push(synth(300, |t| (tone(t, 150.0 - t * 200.0) * 0.8 + sq(t, 233.0) * 0.25) * env(t, 0.3, 2) * 0.6));
-    // Strike: a whoosh
-    b.push(synth(140, |t| noise(t * 44100.0) * env(t, 0.14, 2) * (t / 0.14).min(1.0) * 0.45));
-    // Deny
-    b.push(synth(130, |t| sq(t, 110.0) * 0.22 * env(t, 0.13, 2)));
-    // Dew: a droplet
-    b.push(synth(180, |t| tone(t, 1800.0 + 900.0 * (-t * 30.0).exp()) * env(t, 0.18, 3) * 0.35));
-    // Rest: a soft settling chord
-    b.push(synth(360, |t| arp(t, &[392.0, 523.25], 0.05, 0.34) * 0.28));
-    // Rustle: leaves
-    b.push(synth(260, |t| noise(t * 44100.0) * (0.5 + 0.5 * tone(t, 18.0)) * env(t, 0.26, 1) * 0.3));
-    // Arrive
-    b.push(synth(200, |t| (tone(t, 300.0 + t * 600.0) * 0.5 + noise(t * 44100.0) * 0.2) * env(t, 0.2, 2) * 0.4));
-    // Descend: falling arpeggio
-    b.push(synth(700, |t| arp(t, &[783.99, 659.25, 523.25, 392.0], 0.11, 0.4) * 0.3));
-    // Buy
-    b.push(synth(260, |t| (tone(t, 1975.5) + tone(t, 2637.0) * if t > 0.06 { 1.0 } else { 0.0 }) * env(t, 0.26, 3) * 0.28));
-    // Die
-    b.push(synth(1300, |t| arp(t, &[392.0, 369.99, 349.23, 293.66], 0.22, 0.6) * 0.32));
-    // Win
-    b.push(synth(1500, |t| arp(t, &[523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5, 1318.5], 0.13, 0.6) * 0.22));
-    // Place
-    b.push(synth(90, |t| (tone(t, 180.0) * 0.7 + noise(t * 44100.0) * 0.2 * env(t, 0.02, 1)) * env(t, 0.09, 3) * 0.6));
-    // Lift
-    b.push(synth(70, |t| tone(t, 600.0 + t * 3000.0) * env(t, 0.07, 2) * 0.3));
-    // Persuade: a short vocal-ish blip
-    b.push(synth(90, |t| (sq(t, 330.0 + 80.0 * tone(t, 40.0)) * 0.3 + tone(t, 660.0) * 0.3) * env(t, 0.09, 2) * 0.32));
-    // Turn: someone changes sides
-    b.push(synth(420, |t| arp(t, &[523.25, 698.46, 880.0, 1046.5], 0.07, 0.3) * 0.3));
-    // Battle start: a horn
-    b.push(synth(700, |t| (sq(t, 196.0) * 0.4 + tone(t, 392.0) * 0.4) * env(t, 0.7, 1) * (t / 0.05).min(1.0) * 0.3));
-    // Battle won
-    b.push(synth(1100, |t| arp(t, &[523.25, 659.25, 783.99, 1046.5], 0.12, 0.6) * 0.27));
-    // Battle lost
-    b.push(synth(1000, |t| arp(t, &[440.0, 415.3, 392.0, 329.63], 0.18, 0.55) * 0.28));
-    // Key: a typing tick
-    b.push(synth(14, |t| noise(t * 44100.0) * env(t, 0.014, 2) * 0.3));
-    // Lesson: a gentle two-note chime
-    b.push(synth(500, |t| arp(t, &[880.0, 1318.5], 0.1, 0.4) * 0.26));
-    // Ward breaks
-    b.push(synth(600, |t| (sq(t, 98.0) * 0.3 + noise(t * 44100.0) * 0.3) * env(t, 0.6, 2) * 0.5));
-    // Block: shell rings
-    b.push(synth(300, |t| (tone(t, 1200.0) + tone(t, 1810.0) * 0.6) * env(t, 0.3, 3) * 0.3));
+    // Thud: a creature takes a hit.
+    b.push(synth(110, 0.5, |t| (sine(sweep(t, 150.0, 70.0, 0.1)) + noise(t * 44100.0) * 0.15) * ad(t, 0.002, 0.11) * 0.45));
+    // Hurt: you take a hit (low, a little sour, short).
+    b.push(synth(230, 0.45, |t| (sine(sweep(t, 190.0, 110.0, 0.2)) * 0.8 + tri(t * 233.0) * 0.25) * ad(t, 0.003, 0.23) * 0.42));
+    // Drown: three rising bubbles.
+    b.push(synth(300, 0.3, |t| {
+        let mut v = 0.0;
+        for (k, f) in [520.0f32, 440.0, 380.0].iter().enumerate() {
+            let st = k as f32 * 0.08;
+            if t >= st {
+                let u = t - st;
+                v += sine(sweep(u, *f, f * 1.8, 0.06)) * ad(u, 0.003, 0.07);
+            }
+        }
+        v * 0.26
+    }));
+    // Grow: a rising arpeggio.
+    b.push(synth(640, 0.25, |t| notes(t, &[392.0, 523.3, 659.3, 784.0], 0.08, 0.36, true) * 0.17));
+    // Rustle: something is coming.
+    b.push(synth(320, 0.8, |t| noise(t * 44100.0) * (0.55 + 0.45 * sine(t * 14.0)) * ad(t, 0.04, 0.32) * 0.22));
+    // Clear: the pond is quiet.
+    b.push(synth(980, 0.2, |t| notes(t, &[523.3, 659.3, 784.0, 1046.5], 0.11, 0.55, true) * 0.17));
+    // Win.
+    b.push(synth(1500, 0.2, |t| notes(t, &[523.3, 659.3, 784.0, 1046.5, 784.0, 1046.5, 1318.5], 0.13, 0.6, true) * 0.16));
+    // Lose: a soft fall.
+    b.push(synth(1300, 0.3, |t| notes(t, &[392.0, 349.2, 311.1, 261.6], 0.2, 0.55, false) * 0.2));
+    // Pick: choose something.
+    b.push(synth(280, 0.25, |t| notes(t, &[659.3, 987.8], 0.07, 0.2, true) * 0.2));
+    // Hatch: a crack and a bloop.
+    b.push(synth(170, 0.35, |t| (noise(t * 44100.0) * ad(t, 0.001, 0.015) * 0.6 + sine(sweep(t, 300.0, 720.0, 0.1)) * ad(t, 0.01, 0.17) * 0.6) * 0.45));
+    // Gene: a small chime.
+    b.push(synth(320, 0.2, |t| notes(t, &[1046.5, 1568.0], 0.05, 0.28, true) * 0.15));
+    // Level: a shimmer.
+    b.push(synth(760, 0.2, |t| notes(t, &[523.3, 659.3, 784.0, 1046.5, 1318.5], 0.06, 0.4, true) * (1.0 + 0.1 * sine(t * 6.0)) * 0.15));
+    // Fight: a soft log drum.
+    b.push(synth(360, 0.5, |t| (sine(sweep(t, 110.0, 60.0, 0.25)) + noise(t * 44100.0) * 0.08) * ad(t, 0.004, 0.36) * 0.5));
+    // Tap: an auto-battle hit, quiet.
+    b.push(synth(45, 0.4, |t| sine(sweep(t, 520.0, 380.0, 0.04)) * ad(t, 0.002, 0.045) * 0.16));
+    // Heal.
+    b.push(synth(190, 0.25, |t| sine(sweep(t, 660.0, 990.0, 0.15)) * ad(t, 0.01, 0.19) * 0.16));
+    // Fall: something is out of the fight.
+    b.push(synth(180, 0.35, |t| sine(sweep(t, 420.0, 190.0, 0.16)) * ad(t, 0.004, 0.18) * 0.26));
     b.into_iter().map(Arc::new).collect()
 }
 
-fn synth(ms: usize, gen: impl Fn(f32) -> f32) -> Vec<i16> {
+/// Renders `ms` of `gen` through a one-pole lowpass (`lp`: 0 = none, near 1 = heavy).
+fn synth(ms: usize, lp: f32, gen: impl Fn(f32) -> f32) -> Vec<i16> {
     let n = RATE as usize * ms / 1000;
-    let mut lp = 0.0f32;
+    let mut y = 0.0f32;
     (0..n)
         .map(|i| {
             let raw = gen(i as f32 / RATE as f32).clamp(-1.0, 1.0);
-            lp = lp * 0.55 + raw * 0.45;
-            (lp * SFX_PEAK) as i16
+            y = y * lp + raw * (1.0 - lp);
+            (y * SFX_PEAK) as i16
         })
         .collect()
 }
@@ -555,12 +580,12 @@ mod tests {
 
     #[test]
     fn sfx_bank_matches_enum() {
-        assert_eq!(build_sfx_bank().len(), Sfx::Block as usize + 1);
+        assert_eq!(build_sfx_bank().len(), SFX_COUNT);
     }
 
     #[test]
     fn every_track_names_a_wav() {
-        for t in [Track::Menu, Track::Doat, Track::Grof, Track::Prehistory, Track::Posthistory] {
+        for t in [Track::Menu, Track::Doat, Track::Grof, Track::StarPond, Track::AncientMagic] {
             assert!(t.file().1.ends_with(".wav"));
         }
     }

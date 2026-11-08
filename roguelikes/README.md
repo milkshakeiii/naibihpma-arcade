@@ -1,17 +1,21 @@
-# Two roguelikes: Changeling and Turncoat
+# Two roguelikes: GULP and HATCHERY
 
-Two contrasting roguelike prototypes behind one launcher, built to find a direction through play. Each run ends with an in-game feedback form, and the answers go into `playtest_log.txt` together with a log of the run. The design, the reasoning behind it, and what each game tests are in [`docs/design.md`](docs/design.md).
+Two contrasting roguelike prototypes behind one launcher, built to find a direction through play. Each run ends with an in-game feedback form; the answers go into `playtest_log.txt` with a log of the run. The design, the history of the earlier rounds, and what each game tests are in [`docs/design.md`](docs/design.md).
 
-- **A: CHANGELING.** One piece on an 8x8 board in the forest of Naibihpma. You move like the last creature you caught. Every creature moves and strikes with its own shape, and red squares show where you'd be struck. 10 burrows over 3 areas, then Grof. Music: *The Enchanted Forest of Naibihpma*.
-- **B: TURNCOAT.** Place your band against a visible rival formation, then watch. Whoever runs out of resolve joins the side that won them over. 13 battles across the ages of history. Music: *Virtual History*.
+- **A: GULP.** One frog, one pond at a time. Hop, then tongue (swallow the small, yank your size, get pulled to the big), spit what you swallowed, croak to shove. Eat to grow. Predators telegraph their strikes and also go for your frogspawn; shove and yank them so their strikes land elsewhere.
+- **B: HATCHERY.** Hatch familiars from a body and genes (head, skin, legs, tail), raise them through four stages, learn new genes from what they defeat, and watch them defend the eggs over 8 nights, the last one Grof's. Eggs are both your lives and the cost of hatching.
 
-Both games teach themselves (lessons on the first run, and again whenever the lesson version goes up), follow [`../AGENTS.md`](../AGENTS.md) (400x300, 64-colour VGA palettes, exact integer scaling, F2 scanlines, 15 FPS with 250 Hz input, a hardware pixel-art pointer), and stream music from the album masters on the Desktop. The music sits about 3 dB lower than in the earlier prototypes and the effects about 4 dB higher. F3 steps the music through HIGH, MEDIUM, LOW and OFF.
+Both are set in the forest of Naibihpma, with music from *The Enchanted Forest of Naibihpma*. Both teach themselves (lessons on the first run, and again whenever the lesson version goes up) and follow [`../AGENTS.md`](../AGENTS.md): 400x300, 64-colour VGA palettes, exact integer scaling, F2 scanlines, 15 FPS with 250 Hz input, and a hardware pixel-art pointer. Sound effects are soft synthesized pond sounds, and the same effect can't restart within 70 ms. The music sits under the effects, and F3 steps its level.
+
+Earlier rounds: round 1 (Changeling, Turncoat) is commit f870cdc; round 2 (Changeling v2, Conduit) is in `archive/round2/` (not compiled).
 
 ![Title](screenshots/00_title.png)
 
-![Changeling lesson](screenshots/a03_lesson_danger_preview.png)
+![GULP](screenshots/a05_star_pond.png)
 
-![Turncoat battle](screenshots/b07_golden_battle.png)
+![Hatchery](screenshots/b04_hatchery.png)
+
+![A night](screenshots/b07_night.png)
 
 ## Run
 
@@ -19,21 +23,20 @@ Both games teach themselves (lessons on the first run, and again whenever the le
 cargo run --release -- --windowed
 ```
 
-Without `--windowed` it runs fullscreen. `--no-music` turns the music off. Music is looked for in `assets/music/` next to the exe or the working directory, then in `C:\Users\User\Desktop\albums`.
+Without `--windowed` it runs fullscreen; `--no-music` turns the music off. Music is looked for in `assets/music/` next to the exe or the working directory, then in `C:\Users\User\Desktop\albums`.
 
-Local files (gitignored): `roguelikes_save.txt` (runs played, lessons seen, music level, scanlines) and `playtest_log.txt` (every run, turn by turn, followed by the form answers).
+Local files (gitignored): `roguelikes_save.txt` (runs, lessons seen, music level, scanlines) and `playtest_log.txt` (every run, turn by turn, followed by the form answers).
 
 ## Keys
 
-| Key | Changeling | Turncoat |
+| Key | GULP | HATCHERY |
 | :-- | :-- | :-- |
-| Mouse | point to inspect, click a lit square to move, click yourself to rest | drag people onto the field, right-click to send one back, point to see reach |
-| Arrows + Enter | move the square cursor and act | choose routes |
-| R | rest | |
-| F | | battle speed 1x / 2x / 4x |
-| F1 | rules | rules |
-| F2 / F3 | scanlines / music level | scanlines / music level |
-| Esc | pause: keep playing, end the run (and rate it), or quit | same |
+| Mouse | click a lit square to hop; right-click a square in line to tongue; click yourself to end the turn; point at anything | click buttons and cards; drag familiars onto the pond; point at anything |
+| T / S / G / C | tongue / spit / gulp / croak | |
+| Space, Enter | end the turn | start the night |
+| F | | night speed 1x / 2x / 4x |
+| F1 / F2 / F3 | rules / scanlines / music level | same |
+| Esc | pause: keep playing, end the run (and rate it), or quit | same (or close a dialog) |
 
 ## Tests and screenshots
 
@@ -42,11 +45,10 @@ cargo test --release
 cargo run --release -- --export-screenshots screenshots
 ```
 
-The tests cover shapes, line blocking, strikes and the exact move preview, creature AI (including the wary heron), spawns, Pounce and Shell, Grof's three catches, fair turn-one generation for every burrow, battle termination, turning, Priests holding, Heralds' columns, veterans, and the feedback form. Bots play whole runs of both games, lessons included, to check that every state is reachable and to estimate difficulty (see the balance notes in the design doc).
+The tests cover GULP's tongue (swallow, yank, grapple, drowning), spit and shoves, strikes landing where the striker stands, growth, lily pads sinking, charges into water, fair pond generation and the lessons; and Hatchery's growth into body slots, nights always ending, defenders mattering, and egg sacs. Bots play whole runs of both games, lessons included, to check every state is reachable and to estimate difficulty (see the balance notes in the design doc).
 
 ## Files
 
-- `src/app.rs`: launcher, pause menu, save file, playtest log. `src/form.rs`: the feedback form. `src/main.rs`: window, input, presentation.
-- `src/audio.rs`: track table (all from the albums), waveOut streaming with looping and fade-in, synthesized effects.
-- `src/changeling/`: `rules.rs` (pure simulation and preview), `gen.rs` (burrows, areas, lessons), `mod.rs` (game flow), `render.rs`, `art.rs`.
-- `src/turncoat/`: `data.rs` (people, ideas, ages), `battle.rs` (pure simulation), `mod.rs` (game flow), `render.rs`, `art.rs`.
+- `src/app.rs`: launcher, pause menu, save file, playtest log. `src/form.rs`: the feedback form. `src/main.rs`: window, input, presentation. `src/audio.rs`: album tracks, streaming, synthesized effects.
+- `src/gulp/`: `rules.rs` (pure simulation and previews), `gen.rs` (ponds, areas, lessons), `mod.rs` (flow, input, bank), `render.rs`, `art.rs`.
+- `src/hatchery/`: `data.rs` (bodies, genes, foes, familiars), `battle.rs` (pure tick simulation), `mod.rs` (hatchery, dialogs, nights, lesson), `render.rs` (including drawing familiars from their genes), `art.rs`.
