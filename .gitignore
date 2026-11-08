@@ -5,6 +5,8 @@
 **/chuteworks_save.txt
 **/chuteworks_playtest.log
 **/misenspace_save.txt
+**/roguelikes_save.txt
+**/playtest_log.txt
 
 # Exclude all song & audio files
 **/assets/music/
