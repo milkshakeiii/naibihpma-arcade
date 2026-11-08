@@ -647,16 +647,9 @@ fn tool_icon(fb: &mut Framebuffer, g: &Game, t: Tool, r: Rect) {
     let (cx, cy) = (r.x + r.w / 2, r.y + r.h / 2);
     match t {
         Tool::Select => {
+            // The whole 10x16 pointer, inside the button's 1px bevel (rows 2..17).
             let a = &g.art.pointer;
-            // A small arrow: the pointer's top 9 rows.
-            for y in 0..10 {
-                for x in 0..a.w {
-                    let c = a.px[(y * a.w + x) as usize];
-                    if c != 0 {
-                        fb.pset(cx - 3 + x, cy - 5 + y, c);
-                    }
-                }
-            }
+            fb.blit(a, r.x + (r.w - a.w) / 2 + 1, r.y + (r.h - a.h) / 2, false);
         }
         Tool::Species(s) => {
             let spr = g.art.creature(s, 0);
