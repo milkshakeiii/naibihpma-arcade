@@ -91,6 +91,19 @@ fn draw_tile(fb: &mut Framebuffer, w: &World, x: i32, y: i32) {
                 _ => (THORN_DK, OUTLINE, THORN),
             };
             fb.rect_fill(px, py, TILE, TILE, base);
+            if t == Tile::Rock {
+                // Strata: broken horizontal seams, offset per tile.
+                for sy in [3, 7] {
+                    let off = ((hsh >> sy) % 5) as i32;
+                    for sx in 0..TILE {
+                        if (sx + off) % 7 < 4 {
+                            fb.pset(px + sx, py + sy, ROCK_DK);
+                        }
+                    }
+                }
+                fb.pset(px + (hsh % 8) as i32 + 1, py + 2, ROCK_HI);
+                fb.pset(px + ((hsh >> 4) % 8) as i32 + 1, py + 6, ROCK_HI);
+            }
             for k in 0..5 {
                 let hh = hash(x * 7 + k, y * 13 - k);
                 let (sx, sy) = ((hh % 9) as i32, ((hh >> 8) % 9) as i32);
@@ -467,8 +480,10 @@ fn dotted(fb: &mut Framebuffer, pts: &[(i32, i32)], col: u8, dy: i32, every: i32
         let (x1, y1) = (w[1].0 * TILE + 5, w[1].1 * TILE + 5 + dy);
         let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
         for k in 0..steps {
-            if n % every == 0 {
-                fb.pset(x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps, col);
+            if n.rem_euclid(every) == 0 {
+                let (x, y) = (x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps);
+                fb.pset(x, y + 1, OUTLINE);
+                fb.pset(x, y, col);
             }
             n += 1;
         }
@@ -860,7 +875,7 @@ fn draw_card(fb: &mut Framebuffer, g: &Game) {
         name.truncate(8);
         fb.text(&format!("{arrow}{name}"), row.x + 36, row.y + 3, TEXT_DIM, None, 1);
         match g.plans.get(ri).and_then(|p| if p.problem.is_none() { Some(p.cycle()) } else { None }) {
-            Some(c) => fb.text(&format!("{c:>3}"), row.x + 92, row.y + 3, TEXT_FAINT, None, 1),
+            Some(c) => fb.text(&format!("{c:>3}"), row.x + 92, row.y + 3, TEXT_DIM, None, 1),
             None => fb.text(" !!", row.x + 92, row.y + 3, BAD, None, 1),
         }
         for (b, lab) in [(minus, "-"), (plus, "+"), (del, "X")] {
@@ -927,22 +942,27 @@ fn draw_results(fb: &mut Framebuffer, g: &Game) {
             let lv = g.level();
             let rec = g.save.rec(&lv.id);
             let tg = lv.targets;
-            fb.text("SCORE", r.x + 64, r.y + 26, TEXT_DIM, None, 1);
-            fb.text("BEST", r.x + 116, r.y + 26, TEXT_DIM, None, 1);
-            fb.text("GOAL", r.x + 164, r.y + 26, TEXT_DIM, None, 1);
+            fb.text("SCORE", r.x + 52, r.y + 24, TEXT_DIM, None, 1);
+            fb.text("BEST", r.x + 100, r.y + 24, TEXT_DIM, None, 1);
+            fb.text("GOAL", r.x + 142, r.y + 24, TEXT_DIM, None, 1);
+            fb.text("OTHER SOLUTIONS", r.x + 232, r.y + 24, TEXT_DIM, None, 1);
+            let histo = g.histos.iter().find(|(id, _)| *id == lv.id).map(|(_, h)| h);
             let rows = [("TICKS", *ticks, rec.ticks, tg.ticks, best[0]), ("COST", *cost, rec.cost, tg.cost, best[1]), ("CREW", *crew, rec.crew, tg.crew, best[2])];
             for (k, (name, v, b2, goal, nb)) in rows.iter().enumerate() {
-                let y = r.y + 40 + k as i32 * 16;
-                fb.text(name, r.x + 14, y, TEXT, None, 1);
-                fb.text(&format!("{v:>5}"), r.x + 58, y, if *nb { GOOD } else { TEXT }, None, 1);
-                fb.text(&format!("{:>5}", b2.unwrap_or(*v)), r.x + 110, y, GOLD, None, 1);
-                fb.text(&format!("<={goal}"), r.x + 160, y, TEXT_DIM, None, 1);
-                ui::star(fb, r.x + 204, y, b2.unwrap_or(*v) <= *goal);
+                let y = r.y + 42 + k as i32 * 24;
+                fb.text(name, r.x + 8, y, TEXT, None, 1);
+                fb.text(&format!("{v:>5}"), r.x + 46, y, if *nb { GOOD } else { TEXT }, None, 1);
+                fb.text(&format!("{:>5}", b2.unwrap_or(*v)), r.x + 88, y, GOLD, None, 1);
+                fb.text(&format!("<={goal}"), r.x + 138, y, TEXT_DIM, None, 1);
+                ui::star(fb, r.x + 180, y, b2.unwrap_or(*v) <= *goal);
                 if *nb {
-                    fb.text("NEW!", r.x + 216, y, GOOD, None, 1);
+                    fb.text("NEW", r.x + 192, y, GOOD, None, 1);
+                }
+                if let Some((lo, hi, bins)) = histo.and_then(|h| h.m.get(k)) {
+                    draw_histo(fb, r.x + 230, y - 6, *lo, *hi, bins, *v);
                 }
             }
-            fb.text_centered("EACH SCORE IS KEPT ON ITS OWN. TRY ANOTHER SHAPE.", r.x + r.w / 2, r.y + 94, TEXT_FAINT, None, 1);
+            fb.text_centered("EACH SCORE IS KEPT ON ITS OWN. TRY ANOTHER SHAPE.", r.x + r.w / 2, r.y + 120, TEXT_FAINT, None, 1);
             let last = g.cur + 1 >= g.levels.len();
             for (k, lab) in [(0, if last { "CLOSE" } else { "NEXT SITE" }), (1, "KEEP TUNING"), (2, "MENU")] {
                 ui::button(fb, b[k], lab, b[k].contains(mx, my), false);
@@ -957,6 +977,26 @@ fn draw_results(fb: &mut Framebuffer, g: &Game) {
             }
         }
         _ => {}
+    }
+}
+
+/// A 16-bar histogram, 96x14, lower scores to the left; the bar holding `you` is gold.
+fn draw_histo(fb: &mut Framebuffer, x: i32, y: i32, lo: i32, hi: i32, bins: &[u32], you: i32) {
+    let max = bins.iter().copied().max().unwrap_or(1).max(1);
+    let yours = crate::harness::histo_bin(you, lo, hi);
+    fb.rect_fill(x - 1, y + 14, 98, 1, PANEL_LO);
+    for (i, &n) in bins.iter().enumerate() {
+        let h = if n == 0 { 0 } else { 1 + (13 * n / max) as i32 };
+        let col = if i == yours { GOLD } else { PANEL_HI };
+        if h > 0 {
+            fb.rect_fill(x + i as i32 * 6, y + 14 - h, 5, h, col);
+        }
+        if i == yours {
+            fb.rect_fill(x + i as i32 * 6 + 2, y + 16, 1, 2, GOLD);
+        }
+    }
+    if you < lo {
+        fb.text("<", x - 7, y + 4, GOOD, None, 1);
     }
 }
 

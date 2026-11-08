@@ -8,6 +8,42 @@ use crate::sim::{self, Score};
 use crate::world::World;
 use std::collections::HashSet;
 
+pub const HISTO_BINS: usize = 16;
+
+pub fn histo_bin(v: i32, lo: i32, hi: i32) -> usize {
+    if hi <= lo {
+        return 0;
+    }
+    (((v - lo).clamp(0, hi - lo) as i64 * (HISTO_BINS as i64 - 1) + (hi - lo) as i64 / 2) / (hi - lo) as i64) as usize
+}
+
+/// Per-level histograms of solver-found scores, for the results screen.
+#[derive(Clone, Debug, Default)]
+pub struct Histo {
+    /// [metric] = (lo, hi, bins)
+    pub m: Vec<(i32, i32, Vec<u32>)>,
+}
+
+pub fn parse_histos(text: &str) -> Vec<(String, Histo)> {
+    let mut out: Vec<(String, Histo)> = Vec::new();
+    for line in text.lines() {
+        let p: Vec<&str> = line.split_whitespace().collect();
+        if p.first() != Some(&"histo") || p.len() < 5 + HISTO_BINS {
+            continue;
+        }
+        let id = p[1].to_string();
+        let lo = p[3].parse().unwrap_or(0);
+        let hi = p[4].parse().unwrap_or(0);
+        let bins: Vec<u32> = p[5..5 + HISTO_BINS].iter().map(|s| s.parse().unwrap_or(0)).collect();
+        if let Some(e) = out.iter_mut().find(|(i, _)| *i == id) {
+            e.1.m.push((lo, hi, bins));
+        } else {
+            out.push((id, Histo { m: vec![(lo, hi, bins)] }));
+        }
+    }
+    out
+}
+
 pub struct Rng(u64);
 
 impl Rng {
@@ -425,6 +461,37 @@ pub fn cli(args: &[String], levels: &[Level]) -> bool {
         }
         return true;
     }
+    if let Some(i) = arg("--histo") {
+        // Solves every level and writes the score histograms the results screen draws.
+        let out = args.get(i + 1).cloned().unwrap_or_else(|| "src/levels/histo.txt".into());
+        let starts: usize = args.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(80);
+        let climb: usize = args.get(i + 3).and_then(|s| s.parse().ok()).unwrap_or(300);
+        let prefix = args.get(i + 4).cloned().unwrap_or_default();
+        let mut text = String::new();
+        for lv in levels.iter().filter(|l| l.id.starts_with(&prefix)) {
+            let rep = solve(lv, starts, climb, 777);
+            for (m, name) in ["TICKS", "COST", "CREW"].iter().enumerate() {
+                let vals: Vec<i32> = rep.all.iter().map(|a| [a.0, a.1, a.2][m]).collect();
+                let (lo, hi) = (vals.iter().copied().min().unwrap_or(0), vals.iter().copied().max().unwrap_or(0));
+                let mut bins = [0u32; HISTO_BINS];
+                for v in &vals {
+                    bins[histo_bin(*v, lo, hi)] += 1;
+                }
+                let b: Vec<String> = bins.iter().map(|n| n.to_string()).collect();
+                text.push_str(&format!("histo {} {} {} {} {}\n", lv.id, name, lo, hi, b.join(" ")));
+            }
+            let b = |m: usize| rep.best[m].as_ref().map(|(s, _)| [s.ticks, s.cost, s.crew][m]).unwrap_or(0);
+            text.push_str(&format!("best {} {} {} {}\n", lv.id, b(0), b(1), b(2)));
+            for m in 0..3 {
+                if let Some((s, l)) = &rep.best[m] {
+                    text.push_str(&format!("# {} best {}: {} {} {} | {}\n", lv.id, ["TICKS", "COST", "CREW"][m], s.ticks, s.cost, s.crew, l.to_text()));
+                }
+            }
+            println!("{} done: {} distinct", lv.id, rep.distinct);
+        }
+        let _ = std::fs::write(&out, text);
+        return true;
+    }
     if let Some(i) = arg("--shots") {
         let dir = args.get(i + 1).cloned().unwrap_or_else(|| "screenshots".into());
         crate::harness::shots(levels, &dir);
@@ -469,6 +536,16 @@ pub fn shots(levels: &[Level], dir: &str) {
             g.tick();
         }
         snap(&mut g, &format!("{:02}_{}_run", 4 + k * 3, levels[*idx].id));
+        if k == 1 || k == 4 {
+            g.speed = 4;
+            for _ in 0..2000 {
+                if !g.running {
+                    break;
+                }
+                g.tick();
+            }
+            snap(&mut g, &format!("{:02}_{}_result", 4 + k * 3, levels[*idx].id));
+        }
     }
     g.event(Ev::Key(Key::Help));
     for p in 0..crate::game::HELP_PAGES {

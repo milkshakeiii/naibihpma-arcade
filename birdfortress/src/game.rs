@@ -53,7 +53,7 @@ pub const R_ROUTES: Rect = Rect::new(334, 1, 34, 11);
 pub const R_MENU: Rect = Rect::new(370, 1, 28, 11);
 pub const R_STATUS: Rect = Rect::new(3, 265, 268, 33);
 pub const R_METRICS: Rect = Rect::new(273, 265, 124, 33);
-pub const R_RESULTS: Rect = Rect::new(60, 50, 280, 150);
+pub const R_RESULTS: Rect = Rect::new(26, 36, 348, 168);
 pub const CARD_W: i32 = 166;
 
 pub fn tool_rect(i: usize) -> Rect {
@@ -63,7 +63,7 @@ pub fn tool_rect(i: usize) -> Rect {
 /// Buttons inside a result/failure box: next, keep tuning, menu.
 pub fn result_buttons() -> [Rect; 3] {
     let y = R_RESULTS.y + R_RESULTS.h - 24;
-    [Rect::new(R_RESULTS.x + 10, y, 80, 16), Rect::new(R_RESULTS.x + 100, y, 80, 16), Rect::new(R_RESULTS.x + 190, y, 80, 16)]
+    [Rect::new(R_RESULTS.x + 24, y, 90, 16), Rect::new(R_RESULTS.x + 129, y, 90, 16), Rect::new(R_RESULTS.x + 234, y, 90, 16)]
 }
 
 pub fn select_rect(chapter: usize, i: usize) -> Rect {
@@ -110,6 +110,7 @@ pub struct Game {
     pub show_routes: bool,
     pub sparks: Vec<(i32, i32, i32, u8)>,
     pub level_start: std::time::Instant,
+    pub histos: Vec<(String, crate::harness::Histo)>,
 }
 
 impl Game {
@@ -149,6 +150,7 @@ impl Game {
             show_routes: true,
             sparks: Vec::new(),
             level_start: std::time::Instant::now(),
+            histos: crate::harness::parse_histos(include_str!("levels/histo.txt")),
         };
         g.music(Track::Menu);
         g

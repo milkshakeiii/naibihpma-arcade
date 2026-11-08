@@ -189,6 +189,8 @@ pub fn parse_book(text: &str) -> Vec<Level> {
         };
         // Per-good source settings: (max, regrow).
         let mut src_cfg: Vec<(Good, i32, i32)> = Vec::new();
+        // Per-letter settings override per-good ones (uppercase letters are a level's odd sources).
+        let mut letter_cfg: Vec<(char, i32, i32)> = Vec::new();
         let mut rows: Vec<String> = Vec::new();
         while let Some(l) = lines.next() {
             let l = l.trim_end();
@@ -222,8 +224,12 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                 "src" => {
                     let p: Vec<&str> = val.split_whitespace().collect();
                     if p.len() == 3 {
-                        if let (Some(g), Ok(m), Ok(r)) = (Good::from_name(p[0]), p[1].parse(), p[2].parse()) {
-                            src_cfg.push((g, m, r));
+                        if let (Ok(m), Ok(r)) = (p[1].parse(), p[2].parse()) {
+                            if let Some(g) = Good::from_name(p[0]) {
+                                src_cfg.push((g, m, r));
+                            } else if let Some(c) = p[0].chars().next().filter(|_| p[0].len() == 1) {
+                                letter_cfg.push((c, m, r));
+                            }
                         }
                     }
                 }
@@ -277,15 +283,15 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                 };
                 lv.tiles[(y * MAP_W + x) as usize] = t;
                 let good = match ch {
-                    'b' => Some(Good::Berry),
-                    't' => Some(Good::Twig),
-                    'q' => Some(Good::Stone),
-                    'c' => Some(Good::Clay),
-                    'e' => Some(Good::Egg),
+                    'b' | 'B' => Some(Good::Berry),
+                    't' | 'T' => Some(Good::Twig),
+                    'q' | 'Q' => Some(Good::Stone),
+                    'c' | 'C' => Some(Good::Clay),
+                    'e' | 'E' => Some(Good::Egg),
                     _ => None,
                 };
                 if let Some(g) = good {
-                    let (max, regrow) = cfg(g);
+                    let (max, regrow) = letter_cfg.iter().find(|c| c.0 == ch).map(|c| (c.1, c.2)).unwrap_or_else(|| cfg(g));
                     lv.sources.push(Source { x, y, good: g, max, regrow });
                 }
                 if ch == '^' {
