@@ -46,21 +46,48 @@ different design:
   has one dock (the fortress has two); a pickup or handover holds it for 2 ticks.
 - **Infrastructure:** a springboard adds +2 jump to anyone leaping from it. A ladder costs 1 seed
   per rung. A plank is a one-way board that costs 2 seeds a tile.
+- **Clouds** (chapter V) are one-way platforms that hold a creature only when it carries nothing or
+  something light. Heavier loads fall straight through, so the way there and the way back often
+  differ.
 
 ## Levels
 
-19 sites in four chapters. Chapters I to III teach one rule per site and finish with an open
-puzzle; chapter IV is three full optimization puzzles.
+22 sites in five chapters. Most sites introduce one new thing, and each chapter ends with open
+puzzles.
 
 | Chapter | Sites |
 |---|---|
-| I. Meadow | First Haul, The Bluff, Berry Patch, Handoff, Springboard, **Meadow Market** |
+| I. Meadow | First Haul, The Bluff, Berry Patch, Handoff, Springboard, **Market Day** |
 | II. Quarry | Heavy Stone, Stonecutter, Ladders, **Quarry Road**, **The Crag** |
-| III. Canopy | Eggshells, The Weaver, Bridges, The Kiln, **The Great Tree** |
-| IV. Bastion | **Twin Rivers**, **The Eyrie**, **Bird Fortress** |
+| III. Canopy | Eggshells, The Weaver, Bridges, The Kiln, **Great Tree** |
+| IV. Bastion | **Twin Rivers**, **The Eyrie**, **The Fortress** |
+| V. Skyreach | Cloudwalk, **Moonwell**, **Skyreach** |
 
-Each site has a goal for each score. A goal earns a star, and each best is kept separately. The
-results screen plots your score against a histogram of every distinct solution the solver found.
+Every site has four stars, always shown in the header:
+
+- **Ticks**, **cost** and **crew** goals. Each is the solver's best for that score (ticks rounded
+  up to 5), so each is a hard target on its own.
+- A **combo** goal: hit a ticks limit and a cost limit in the same run. It's taken from the knee of
+  the solver's ticks-versus-cost frontier, a balanced design that neither the fastest nor the
+  cheapest solution reaches.
+
+The results screen plots your score against a histogram of every distinct solution the solver
+found. A green "<" means you beat all of them.
+
+## Teaching
+
+The game teaches itself as you go, with little reading up front:
+
+- **First site:** a guided coach points at each step (hire a tribble, click the pile, click the
+  fortress, run).
+- **Site cards:** each opens with one line of description, the new thing shown with its icon, what
+  the fortress wants, and the goals.
+- **One-time tips** pop up when they matter: a route that can't run, then hints about depots,
+  springboards and ladders. Others come at fragile cargo, queues at a dock, a bush picked clean,
+  the first workshop, and changing a route's cargo.
+- **Tool cards:** hovering a tool shows a picture card. Creatures get a jump and pace chart per
+  load; workshops show their recipe as icons.
+- **Rules (F1):** five short pages, mostly pictures.
 
 ## Reading the map
 
@@ -74,7 +101,8 @@ results screen plots your score against a histogram of every distinct solution t
 
 ## Controls
 
-The left mouse button uses the selected tool and the right button cancels or erases. **1-9** pick
+The left mouse button uses the selected tool. The right button takes away what you built under
+the pointer, or cancels. **1-9** pick
 tools, **X** erases, **Space** runs or pauses, **S** steps one tick, **Tab** changes speed, **R**
 resets, **Z** undoes, **V** shows all paths and **I** shows the site note again. **F1** opens the
 rules, **F2** toggles scanlines and **F3** sets the music level. Everything also has an on-screen
@@ -102,5 +130,11 @@ from them.
 
 - `birdfortress_save.txt` holds progress, per-score bests and your last layout per site.
 - `birdfortress_playtest.log` records every run, solve and stall with layouts (gitignored).
-- Music is the s1 *Abstract Objects* masters, read from `assets/music` or the album folder. The game
-  runs silently if they're missing.
+- Music is the s5 *Virtual History* masters: *A Myth* on the menus and one era per chapter
+  (Prehistory, Iron Age, Golden Age, Space Age, Posthistory). They're read from `assets/music` or
+  the album folder, and the game runs silently if they're missing.
+- `assets/art/` holds the title painting and the chapter backdrops as indexed images with their own
+  small palettes. They were painted by an image model (through `agy`), then converted offline by
+  `tools/convert_art.py`. The converter crops and box-downscales each image, takes a 10-colour
+  palette (46 for the title) snapped to 6-bit DAC values, and ordered-dithers with a 4x4 Bayer
+  matrix. Backdrops are dimmed and desaturated so creatures, paths and buildings stay clear.

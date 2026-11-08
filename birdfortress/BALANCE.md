@@ -38,6 +38,28 @@ The simulation is deterministic, so every site was checked headlessly:
   - Apes own heavy goods and anything up vines or ladders.
   - Every species is the best choice on at least one leg somewhere.
 
+## Round 2 (2026-11-08)
+
+- **Distinct valid solutions per site** (one solver pass, 40 random starts with 150 hill-climbs per
+  score):
+
+  | Chapter | Counts |
+  |---|---|
+  | I | 27, 103, 1559, 589, 1999, 1664 |
+  | II | 28, 4407, 115, 509, 1265 |
+  | III | 102, 361, 106, 144, 186 |
+  | IV | 965, 206, 198 |
+  | V | 416, 5959, 1416 |
+
+  The lowest are the one-rule teaching sites (1-1, 2-1), which is fine.
+- **Ticks-cost frontiers have 3 to 21 points.** Each site's combo goal is the knee: the point
+  closest to the best of both after normalising, excluding the two extremes.
+- **Clouds** split each trip by load. In 5-1, a dodo with twigs must go down and around under the
+  clouds (78 ticks) but walks home across them in 30. Weaving on the near island makes the goods
+  light enough to cross both ways. Where the weaver goes is the site's main decision.
+- **Moonwell's fastest layouts** pull eggs from both nests and bricks from three apes at once (49
+  ticks). The cheapest uses one tribble per job and a single ape on the vine (14 seeds).
+
 ## Open questions for the next round
 
 - Should one site cap the crew, so the ticks goal can't be reached by headcount alone?
