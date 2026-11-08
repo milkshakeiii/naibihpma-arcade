@@ -1,0 +1,26 @@
+name: Floor Paint
+hall: 1
+note: Booths work on the floor too.
+left:
+########
+########
+########
+@>>>>>>>
+########
+########
+########
+########
+right:
+........
+........
+........
+..v.....
+........
+........
+..>...P.
+........
+crate 0 3 E blue blue
+chute 3
+bin 6 6 purple 2
+tray: booth-red 1
+solve: R booth-red 2 5

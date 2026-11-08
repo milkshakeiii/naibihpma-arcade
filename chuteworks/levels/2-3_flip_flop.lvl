@@ -1,0 +1,27 @@
+name: Flip-Flop
+hall: 2
+note: The same switch works on the floor: it turns each item toward its lever, then flips.
+left:
+########
+########
+########
+@>>>>>>>
+########
+########
+########
+########
+right:
+....R...
+........
+........
+........
+........
+........
+........
+....B...
+crate 0 3 E red blue red blue
+chute 3
+bin 4 0 red 2
+bin 4 7 blue 2
+tray: switch 1
+solve: R switch 4 3 N
