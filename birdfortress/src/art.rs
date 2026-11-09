@@ -87,15 +87,17 @@ impl Art {
             art(&["kk.kkkk.", "kAkAAAAk", ".kAffffk", ".kAfkfkk", ".kAffffk", ".kAkkkAk", ".kAAAAAk", ".kAAAAk.", "kak..kak"]),
             art(&["kk....kk", "kAkkkkAk", "kAAAAAAk", ".kAAAAk.", ".kAAAAk.", ".kAAAAk.", "kAAAAAAk", "kAkAAkAk", "kak..kak"]),
         ];
+        // In `Good` order: berry, nut, fish, twig, stone, clay, wicker, pot, brick.
         let goods = vec![
             art(&["..g..", ".rWr.", "rrrrr", "rrrrr", ".rrr."]).outlined(),
+            art(&[".ww.", "wMMw", "MMmM", "MmmM", ".mm."]).outlined(),
+            art(&["....T.", ".TTTTT", "TTsTT.", ".TTTTT", "....T."]).outlined(),
             art(&["....O", "...o.", "..oO.", ".o...", "o...."]).outlined(),
             art(&[".STT.", "SSSST", "sSSSS", "ssSSS", ".sss."]).outlined(),
             art(&[".cc..", "ccMc.", "ccccc", "ccccc", ".ccc."]).outlined(),
-            art(&[".ee.", "eeWe", "eeee", "eeee", ".ee."]).outlined(),
-            art(&["bbbbW", "bbbbb", "bbbbb"]).outlined(),
             art(&["OoOoO", "oOoOo", "OoOoO", "oOoOo"]).outlined(),
             art(&[".uuu.", "..u..", ".uuu.", "uuWuu", ".uuu."]).outlined(),
+            art(&["bbbbW", "bbbbb", "bbbbb"]).outlined(),
         ];
         let pointer = art(&[
             "k.........",

@@ -1,7 +1,7 @@
-//! The level's terrain with the player's additions laid over it, answering the movement and
-//! placement questions everything else asks.
+//! The site's terrain with the player's additions laid over it, answering the movement and
+//! placement questions everything else asks. Buildings never block movement (creatures pass in
+//! front of them); only ladders, planks and springboards change anyone's map.
 
-use crate::layout::{Layout, NodeRef};
 use crate::level::{Level, Tile};
 use crate::rules::*;
 
@@ -12,8 +12,10 @@ pub enum Occ {
     Source(usize),
     Fortress,
     Spring,
+    Entrance,
 }
 
+#[derive(Clone)]
 pub struct World {
     pub w: i32,
     pub h: i32,
@@ -22,14 +24,25 @@ pub struct World {
     pub plank: Vec<bool>,
     pub spring: Vec<bool>,
     pub occ: Vec<Occ>,
-    /// Length of each of the layout's ladders, in layout order (0 = couldn't hang).
-    pub ladder_lens: Vec<i32>,
+    /// Player ladders: top tile and length.
+    pub ladders: Vec<(i32, i32, i32)>,
+    /// Bumped whenever movement changes (paths cached against an older stamp are stale).
+    pub stamp: u32,
 }
 
 impl World {
-    pub fn new(level: &Level, layout: &Layout) -> World {
+    pub fn new(level: &Level) -> World {
         let n = (level.w * level.h) as usize;
-        let mut w = World { w: level.w, h: level.h, tiles: level.tiles.clone(), plank: vec![false; n], spring: vec![false; n], occ: vec![Occ::None; n], ladder_lens: Vec::new() };
+        let mut w = World {
+            w: level.w,
+            h: level.h,
+            tiles: level.tiles.clone(),
+            plank: vec![false; n],
+            spring: vec![false; n],
+            occ: vec![Occ::None; n],
+            ladders: Vec::new(),
+            stamp: 1,
+        };
         for (i, s) in level.sources.iter().enumerate() {
             w.set_occ(s.x, s.y, Occ::Source(i));
         }
@@ -45,34 +58,8 @@ impl World {
                 w.spring[i] = true;
             }
         }
-        for &(x, y) in &layout.planks {
-            if w.inside(x, y) {
-                let i = w.idx(x, y);
-                w.plank[i] = true;
-            }
-        }
-        for &(x, y) in &layout.ladders {
-            let len = w.ladder_len(x, y).unwrap_or(0);
-            w.ladder_lens.push(len);
-            for k in 0..len {
-                let i = w.idx(x, y + k);
-                w.tiles[i] = Tile::Ladder;
-            }
-        }
-        for &(x, y) in &layout.springs {
-            if w.inside(x, y) {
-                let i = w.idx(x, y);
-                w.spring[i] = true;
-                w.occ[i] = Occ::Spring;
-            }
-        }
-        for b in &layout.buildings {
-            for dy in 0..2 {
-                for dx in 0..2 {
-                    w.set_occ(b.x + dx, b.y + dy, Occ::Building(b.id));
-                }
-            }
-        }
+        let (ex, ey) = level.entrance;
+        w.set_occ(ex, ey, Occ::Entrance);
         w
     }
 
@@ -162,7 +149,7 @@ impl World {
     pub fn ladder_len(&self, x: i32, y: i32) -> Option<i32> {
         for k in 0..MAX_LADDER {
             let yy = y + k;
-            if !self.inside(x, yy) || !self.tile(x, yy).open() || self.platform(x, yy) {
+            if !self.inside(x, yy) || !(self.tile(x, yy).open() || self.tile(x, yy) == Tile::Vine) || self.platform(x, yy) {
                 return None;
             }
             if self.floor_below(x, yy) {
@@ -172,47 +159,55 @@ impl World {
         None
     }
 
-    /// Tiles where creatures stand to use a node: the bottom row of its footprint.
-    pub fn access(&self, level: &Level, layout: &Layout, n: NodeRef) -> Vec<(i32, i32)> {
-        match n {
-            NodeRef::Source(i) => level.sources.get(i).map(|s| vec![(s.x, s.y)]).unwrap_or_default(),
-            NodeRef::Fortress => {
-                let (fx, fy, fw, fh) = level.fortress;
-                (fx..fx + fw).map(|x| (x, fy + fh - 1)).collect()
-            }
-            NodeRef::Building(id) => layout.building(id).map(|b| vec![(b.x, b.y + 1), (b.x + 1, b.y + 1)]).unwrap_or_default(),
-        }
-    }
-
-    /// The node whose footprint covers this tile.
-    pub fn node_at(&self, x: i32, y: i32) -> Option<NodeRef> {
-        match self.occ(x, y) {
-            Occ::Building(id) => Some(NodeRef::Building(id)),
-            Occ::Source(i) => Some(NodeRef::Source(i)),
-            Occ::Fortress => Some(NodeRef::Fortress),
-            _ => None,
-        }
-    }
-
     fn free(&self, x: i32, y: i32) -> bool {
         self.inside(x, y) && self.tile(x, y).open() && !self.platform(x, y) && self.occ(x, y) == Occ::None
     }
 
-    /// A 2x2 building with its top-left at (x, y).
-    pub fn can_build(&self, x: i32, y: i32) -> Result<(), &'static str> {
-        for dy in 0..2 {
-            for dx in 0..2 {
+    /// Can a building of this kind have its top-left at (x, y)? Camps go on a source's tile.
+    pub fn can_build(&self, kind: Kind, x: i32, y: i32) -> Result<(), &'static str> {
+        if kind == Kind::Camp {
+            return match self.occ(x, y) {
+                Occ::Source(_) => Ok(()),
+                Occ::Building(_) => Err("That source already has a camp."),
+                _ => Err("A camp goes on a source: a bush, tree, pile, quarry, bank or fishing spot."),
+            };
+        }
+        let (w, h) = kind.size();
+        for dy in 0..h {
+            for dx in 0..w {
                 if !self.free(x + dx, y + dy) {
                     return Err("No room here.");
                 }
             }
         }
-        for dx in 0..2 {
-            if !self.inside(x + dx, y + 2) || !self.tile(x + dx, y + 2).buildable_top() {
-                return Err("It needs earth, rock or a branch under both halves.");
+        for dx in 0..w {
+            if !self.inside(x + dx, y + h) || !self.tile(x + dx, y + h).buildable_top() {
+                return Err(if w > 1 { "It needs earth, rock or a branch under both halves." } else { "It needs earth, rock or a branch under it." });
             }
         }
         Ok(())
+    }
+
+    pub fn place_building(&mut self, id: u32, kind: Kind, x: i32, y: i32) {
+        let (w, h) = kind.size();
+        for dy in 0..h {
+            for dx in 0..w {
+                self.set_occ(x + dx, y + dy, Occ::Building(id));
+            }
+        }
+    }
+
+    /// Clears a building's footprint (a camp gives its tile back to the source).
+    pub fn remove_building(&mut self, kind: Kind, x: i32, y: i32, source: Option<usize>) {
+        let (w, h) = kind.size();
+        for dy in 0..h {
+            for dx in 0..w {
+                self.set_occ(x + dx, y + dy, Occ::None);
+            }
+        }
+        if let Some(i) = source {
+            self.set_occ(x, y, Occ::Source(i));
+        }
     }
 
     pub fn can_spring(&self, x: i32, y: i32) -> Result<(), &'static str> {
@@ -226,12 +221,14 @@ impl World {
     }
 
     pub fn can_ladder(&self, x: i32, y: i32) -> Result<i32, &'static str> {
-        if !self.free(x, y) {
+        // A ladder can be lashed along a vine.
+        let room = |xx: i32, yy: i32| self.free(xx, yy) || (self.inside(xx, yy) && self.tile(xx, yy) == Tile::Vine && self.occ(xx, yy) == Occ::None);
+        if !room(x, y) {
             return Err("No room here.");
         }
         let len = self.ladder_len(x, y).ok_or("Click the top rung. A ladder hangs 2 to 12 tiles down to a floor.")?;
         for k in 0..len {
-            if !self.free(x, y + k) {
+            if !room(x, y + k) {
                 return Err("Something is in the ladder's way.");
             }
         }
@@ -248,22 +245,75 @@ impl World {
         }
         Ok(())
     }
-}
 
-/// Total price of a layout in seeds.
-pub fn layout_cost(level: &Level, layout: &Layout) -> i32 {
-    let world = World::new(level, layout);
-    let mut c = 0;
-    for b in &layout.buildings {
-        c += b.kind.cost();
+    pub fn add_spring(&mut self, x: i32, y: i32) {
+        let i = self.idx(x, y);
+        self.spring[i] = true;
+        self.occ[i] = Occ::Spring;
+        self.stamp += 1;
     }
-    c += layout.springs.len() as i32 * Infra::Spring.cost();
-    c += layout.planks.len() as i32 * Infra::Plank.cost();
-    for len in &world.ladder_lens {
-        c += len * Infra::Ladder.cost();
+
+    pub fn add_plank(&mut self, x: i32, y: i32) {
+        let i = self.idx(x, y);
+        self.plank[i] = true;
+        self.stamp += 1;
     }
-    for r in &layout.routes {
-        c += r.species.cost() * r.count;
+
+    pub fn add_ladder(&mut self, x: i32, y: i32) -> i32 {
+        let len = self.ladder_len(x, y).unwrap_or(0);
+        for k in 0..len {
+            let i = self.idx(x, y + k);
+            self.tiles[i] = Tile::Ladder;
+        }
+        self.ladders.push((x, y, len));
+        self.stamp += 1;
+        len
     }
-    c
+
+    /// Takes away the player infrastructure covering (x, y), if any. Returns its refund basis
+    /// (seeds it cost).
+    pub fn remove_infra(&mut self, x: i32, y: i32, level: &Level) -> Option<i32> {
+        if !self.inside(x, y) {
+            return None;
+        }
+        let i = self.idx(x, y);
+        if self.occ[i] == Occ::Spring {
+            self.spring[i] = false;
+            self.occ[i] = Occ::None;
+            self.stamp += 1;
+            return Some(Infra::Spring.cost());
+        }
+        if self.plank[i] {
+            self.plank[i] = false;
+            self.stamp += 1;
+            return Some(Infra::Plank.cost());
+        }
+        if let Some(k) = self.ladders.iter().position(|&(lx, ly, len)| lx == x && y >= ly && y < ly + len) {
+            let (lx, ly, len) = self.ladders.remove(k);
+            for j in 0..len {
+                let ti = self.idx(lx, ly + j);
+                self.tiles[ti] = level.tile(lx, ly + j);
+            }
+            self.stamp += 1;
+            return Some(len * Infra::Ladder.cost());
+        }
+        None
+    }
+
+    /// Player infrastructure covering (x, y).
+    pub fn infra_at(&self, x: i32, y: i32) -> Option<Infra> {
+        if !self.inside(x, y) {
+            return None;
+        }
+        let i = self.idx(x, y);
+        if self.occ[i] == Occ::Spring {
+            Some(Infra::Spring)
+        } else if self.plank[i] {
+            Some(Infra::Plank)
+        } else if self.ladders.iter().any(|&(lx, ly, len)| lx == x && y >= ly && y < ly + len) {
+            Some(Infra::Ladder)
+        } else {
+            None
+        }
+    }
 }

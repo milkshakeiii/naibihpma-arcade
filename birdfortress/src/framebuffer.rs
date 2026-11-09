@@ -63,11 +63,32 @@ impl Sprite {
 
 pub struct Framebuffer {
     pub px: Vec<u8>,
+    /// Drawing offset (the camera): every primitive draws at (x + ox, y + oy).
+    pub ox: i32,
+    pub oy: i32,
+    /// Clip rectangle in screen pixels: x0, y0, x1, y1 (exclusive).
+    pub clip: (i32, i32, i32, i32),
 }
+
+pub const FULL: (i32, i32, i32, i32) = (0, 0, FB_W as i32, FB_H as i32);
 
 impl Framebuffer {
     pub fn new() -> Self {
-        Self { px: vec![0; FB_W * FB_H] }
+        Self { px: vec![0; FB_W * FB_H], ox: 0, oy: 0, clip: FULL }
+    }
+
+    /// Draw the world through a camera into a window of the screen.
+    pub fn set_view(&mut self, ox: i32, oy: i32, clip: (i32, i32, i32, i32)) {
+        self.ox = ox;
+        self.oy = oy;
+        self.clip = clip;
+    }
+
+    /// Back to plain screen drawing.
+    pub fn reset_view(&mut self) {
+        self.ox = 0;
+        self.oy = 0;
+        self.clip = FULL;
     }
 
     pub fn clear(&mut self, col: u8) {
@@ -76,13 +97,16 @@ impl Framebuffer {
 
     #[inline]
     pub fn pset(&mut self, x: i32, y: i32, col: u8) {
-        if x >= 0 && x < FB_W as i32 && y >= 0 && y < FB_H as i32 {
+        let (x, y) = (x + self.ox, y + self.oy);
+        let (cx0, cy0, cx1, cy1) = self.clip;
+        if x >= cx0 && x < cx1 && y >= cy0 && y < cy1 {
             self.px[y as usize * FB_W + x as usize] = col & 63;
         }
     }
 
     #[inline]
     pub fn get(&self, x: i32, y: i32) -> u8 {
+        let (x, y) = (x + self.ox, y + self.oy);
         if x >= 0 && x < FB_W as i32 && y >= 0 && y < FB_H as i32 {
             self.px[y as usize * FB_W + x as usize]
         } else {
@@ -91,8 +115,10 @@ impl Framebuffer {
     }
 
     pub fn rect_fill(&mut self, x: i32, y: i32, w: i32, h: i32, col: u8) {
-        let (x0, y0) = (x.max(0), y.max(0));
-        let (x1, y1) = ((x + w).min(FB_W as i32), (y + h).min(FB_H as i32));
+        let (x, y) = (x + self.ox, y + self.oy);
+        let (cx0, cy0, cx1, cy1) = self.clip;
+        let (x0, y0) = (x.max(cx0), y.max(cy0));
+        let (x1, y1) = ((x + w).min(cx1), (y + h).min(cy1));
         for py in y0..y1 {
             let row = py as usize * FB_W;
             for px in x0..x1 {
@@ -130,8 +156,10 @@ impl Framebuffer {
 
     /// Checkerboard dither of a single colour (dims and marks without alpha blending).
     pub fn rect_checker(&mut self, x: i32, y: i32, w: i32, h: i32, col: u8, phase: i32) {
-        for py in y.max(0)..(y + h).min(FB_H as i32) {
-            for px in x.max(0)..(x + w).min(FB_W as i32) {
+        let (x, y) = (x + self.ox, y + self.oy);
+        let (cx0, cy0, cx1, cy1) = self.clip;
+        for py in y.max(cy0)..(y + h).min(cy1) {
+            for px in x.max(cx0)..(x + w).min(cx1) {
                 if (px + py + phase) & 1 == 0 {
                     self.px[py as usize * FB_W + px as usize] = col & 63;
                 }
@@ -141,8 +169,10 @@ impl Framebuffer {
 
     /// Sparse diagonal hatching: every fourth diagonal (danger marks that keep the tile readable).
     pub fn rect_hatch(&mut self, x: i32, y: i32, w: i32, h: i32, col: u8) {
-        for py in y.max(0)..(y + h).min(FB_H as i32) {
-            for px in x.max(0)..(x + w).min(FB_W as i32) {
+        let (x, y) = (x + self.ox, y + self.oy);
+        let (cx0, cy0, cx1, cy1) = self.clip;
+        for py in y.max(cy0)..(y + h).min(cy1) {
+            for px in x.max(cx0)..(x + w).min(cx1) {
                 if (px - py).rem_euclid(4) == 0 {
                     self.px[py as usize * FB_W + px as usize] = col & 63;
                 }
@@ -198,14 +228,16 @@ impl Framebuffer {
 
     /// Blits through a 64-entry palette remap table (team colours, spirit tint, silhouettes).
     pub fn blit_map(&mut self, spr: &Sprite, x: i32, y: i32, flip_x: bool, map: &[u8; 64]) {
+        let (x, y) = (x + self.ox, y + self.oy);
+        let (cx0, cy0, cx1, cy1) = self.clip;
         for sy in 0..spr.h {
             let py = y + sy;
-            if py < 0 || py >= FB_H as i32 {
+            if py < cy0 || py >= cy1 {
                 continue;
             }
             for sx in 0..spr.w {
                 let px = x + sx;
-                if px < 0 || px >= FB_W as i32 {
+                if px < cx0 || px >= cx1 {
                     continue;
                 }
                 let src_x = if flip_x { spr.w - 1 - sx } else { sx };

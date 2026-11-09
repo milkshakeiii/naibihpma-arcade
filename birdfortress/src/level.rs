@@ -1,4 +1,4 @@
-//! Level data: hand-drawn terrain maps plus what each level asks for and allows.
+//! Site data: hand-drawn terrain maps plus what each site asks for and allows.
 
 use crate::rules::*;
 
@@ -23,7 +23,7 @@ pub enum Tile {
     Vine,
     /// Nobody enters water.
     Water,
-    /// A ladder that came with the level.
+    /// A ladder that came with the site.
     Ladder,
     /// A cloud bank: stand on it carrying nothing or something light; heavier loads fall through.
     Cloud,
@@ -61,23 +61,6 @@ impl Tile {
             Tile::Cloud => "Cloud. It holds you up only if you carry nothing, or something light.",
         }
     }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Tile::Air => "AIR",
-            Tile::Earth => "EARTH",
-            Tile::Rock => "ROCK",
-            Tile::Bramble => "BRAMBLE (NO BUILDING)",
-            Tile::Branch => "BRANCH (ONE-WAY)",
-            Tile::Ledge => "THIN LEDGE (ONE-WAY, NO BUILDING)",
-            Tile::Trunk => "TREE TRUNK",
-            Tile::Leaves => "LEAVES",
-            Tile::Vine => "VINE (APES CLIMB)",
-            Tile::Water => "WATER",
-            Tile::Ladder => "LADDER",
-            Tile::Cloud => "CLOUD (HOLDS LIGHT LOADS ONLY)",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -85,7 +68,7 @@ pub struct Source {
     pub x: i32,
     pub y: i32,
     pub good: Good,
-    /// Goods on hand at the start and the most it holds.
+    /// Goods on hand at the start and the most it holds (<= 0: endless).
     pub max: i32,
     /// Ticks to grow one more back (0 = never regrows).
     pub regrow: i32,
@@ -95,26 +78,51 @@ impl Source {
     pub fn infinite(&self) -> bool {
         self.max <= 0
     }
-    pub fn label(&self) -> &'static str {
-        match self.good {
-            Good::Berry => "berry bush",
-            Good::Twig => "twig pile",
-            Good::Stone => "quarry",
-            Good::Clay => "clay bank",
-            Good::Egg => "nest",
-            _ => "source",
-        }
-    }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Targets {
-    pub ticks: i32,
-    pub cost: i32,
-    pub crew: i32,
-    /// The combo goal: both at once in a single run (0 = none).
-    pub combo_ticks: i32,
-    pub combo_cost: i32,
+/// One stage of the fortress: what it takes.
+#[derive(Clone, Debug)]
+pub struct Stage {
+    pub name: String,
+    pub need: Vec<(Good, i32)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Goal {
+    /// Every fortress stage built.
+    Fortress,
+    /// At least this many residents.
+    Pop(i32),
+    /// At least `count` homes at `tier` (0-based) or better.
+    Tier(usize, i32),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Challenge {
+    None,
+    /// Never more than this many stores standing.
+    MaxStores(i32),
+    /// Never house this species.
+    NoSpecies(Species),
+    /// No ladders, planks or springboards.
+    NoInfra,
+    /// No home ever slips a tier or loses a resident to hunger.
+    NoHunger,
+    /// Never more than this many homes standing.
+    MaxHomes(i32),
+}
+
+impl Challenge {
+    pub fn text(self) -> String {
+        match self {
+            Challenge::None => String::new(),
+            Challenge::MaxStores(n) => format!("Never more than {n} store{}", if n == 1 { "" } else { "s" }),
+            Challenge::NoSpecies(s) => format!("No {}", s.plural()),
+            Challenge::NoInfra => "No ladders, planks or springboards".to_string(),
+            Challenge::NoHunger => "No home ever slips".to_string(),
+            Challenge::MaxHomes(n) => format!("Never more than {n} homes"),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -127,23 +135,27 @@ pub struct Level {
     pub tiles: Vec<Tile>,
     pub springs: Vec<(i32, i32)>,
     pub sources: Vec<Source>,
-    /// Fortress footprint: x, y (top-left), w, h.
+    /// Where settlers step onto the map.
+    pub entrance: (i32, i32),
+    /// Fortress footprint: x, y (top-left), w, h (all zero when the site has none).
     pub fortress: (i32, i32, i32, i32),
-    pub need: Vec<(Good, i32)>,
+    pub stages: Vec<Stage>,
+    pub goals: Vec<Goal>,
+    pub seeds: i32,
+    /// Homes the player may build, by species.
     pub species: Vec<Species>,
     pub kinds: Vec<Kind>,
     pub infra: Vec<Infra>,
-    /// The rule card shown on entering: teaches rules, never the solution.
+    /// Gold, silver and bronze finishing days.
+    pub medals: [i32; 3],
+    pub challenge: Challenge,
+    /// The card shown on entering: teaches rules, never the solution.
     pub rule: String,
     /// What this site introduces, shown with its icon on the site card.
     pub new: Vec<String>,
-    pub targets: Targets,
-    /// A known solution in layout text form (used by tests and the balance harness).
-    pub reference: String,
+    /// Bot build plans, each a `;`-separated action list (used by tests and the balance harness).
+    pub plans: Vec<String>,
 }
-
-pub const MAP_W: i32 = 40;
-pub const MAP_H: i32 = 24;
 
 impl Level {
     pub fn tile(&self, x: i32, y: i32) -> Tile {
@@ -153,15 +165,15 @@ impl Level {
         self.tiles[(y * self.w + x) as usize]
     }
 
-    pub fn need_of(&self, g: Good) -> i32 {
-        self.need.iter().find(|(n, _)| *n == g).map(|(_, c)| *c).unwrap_or(0)
+    pub fn has_fortress(&self) -> bool {
+        self.fortress.2 > 0 && !self.stages.is_empty()
     }
 
-    pub fn total_need(&self) -> i32 {
-        self.need.iter().map(|(_, c)| c).sum()
+    pub fn source_at(&self, x: i32, y: i32) -> Option<usize> {
+        self.sources.iter().position(|s| s.x == x && s.y == y)
     }
 
-    /// Goods that can exist in this level (from sources and recipes).
+    /// Every good that can turn up here.
     pub fn goods(&self) -> Vec<Good> {
         let mut v: Vec<Good> = Vec::new();
         for s in &self.sources {
@@ -179,10 +191,29 @@ impl Level {
         v.sort();
         v
     }
+
+    pub fn medal_for(&self, day: i32) -> usize {
+        // 0 gold, 1 silver, 2 bronze, 3 finished without a medal.
+        self.medals.iter().position(|&m| m > 0 && day <= m).unwrap_or(3)
+    }
 }
 
-/// Parses the level book. Each level starts with `@ id name`, then `key value` lines, then
-/// `map` and exactly MAP_H rows of MAP_W characters.
+fn title_case(s: &str) -> String {
+    s.split_whitespace()
+        .map(|w| {
+            let lower = w.to_lowercase();
+            let mut c = lower.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Parses the site book. Each site starts with `@ id name`, then `key value` lines, then `map`,
+/// the map rows, and `end`.
 pub fn parse_book(text: &str) -> Vec<Level> {
     let mut out = Vec::new();
     let mut lines = text.lines().peekable();
@@ -197,54 +228,47 @@ pub fn parse_book(text: &str) -> Vec<Level> {
         let (id, name) = head.split_once(' ').unwrap_or((head, ""));
         let mut lv = Level {
             id: id.to_string(),
-            name: name.split_whitespace().map(|w| {
-                let lower = w.to_lowercase();
-                let mut c = lower.chars();
-                match c.next() {
-                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                    None => String::new(),
-                }
-            }).collect::<Vec<_>>().join(" "),
+            name: title_case(name),
             chapter,
-            w: MAP_W,
-            h: MAP_H,
-            tiles: vec![Tile::Air; (MAP_W * MAP_H) as usize],
+            w: 0,
+            h: 0,
+            tiles: Vec::new(),
             springs: Vec::new(),
             sources: Vec::new(),
+            entrance: (0, 0),
             fortress: (0, 0, 0, 0),
-            need: Vec::new(),
+            stages: Vec::new(),
+            goals: Vec::new(),
+            seeds: 30,
             species: Vec::new(),
             kinds: Vec::new(),
             infra: Vec::new(),
+            medals: [0; 3],
+            challenge: Challenge::None,
             rule: String::new(),
             new: Vec::new(),
-            targets: Targets::default(),
-            reference: String::new(),
+            plans: Vec::new(),
         };
-        // Per-good source settings: (max, regrow).
         let mut src_cfg: Vec<(Good, i32, i32)> = Vec::new();
-        // Per-letter settings override per-good ones (uppercase letters are a level's odd sources).
         let mut letter_cfg: Vec<(char, i32, i32)> = Vec::new();
         let mut rows: Vec<String> = Vec::new();
+        let mut plan = String::new();
         while let Some(l) = lines.next() {
             let l = l.trim_end();
             if l == "map" {
-                for _ in 0..MAP_H {
-                    rows.push(lines.next().unwrap_or("").to_string());
+                for r in lines.by_ref() {
+                    let r = r.trim_end();
+                    if r == "end" {
+                        break;
+                    }
+                    rows.push(r.to_string());
                 }
                 break;
             }
             let (key, val) = l.split_once(' ').unwrap_or((l, ""));
             let val = val.trim();
             match key {
-                "need" => {
-                    let mut it = val.split_whitespace();
-                    while let (Some(n), Some(g)) = (it.next(), it.next()) {
-                        if let (Ok(n), Some(g)) = (n.parse(), Good::from_name(g)) {
-                            lv.need.push((g, n));
-                        }
-                    }
-                }
+                "seeds" => lv.seeds = val.parse().unwrap_or(30),
                 "species" => lv.species = val.split_whitespace().filter_map(Species::from_name).collect(),
                 "build" => {
                     for w in val.split_whitespace() {
@@ -254,6 +278,51 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                             lv.infra.push(i);
                         }
                     }
+                }
+                "stage" => {
+                    // stage Name words... N GOOD N GOOD
+                    let toks: Vec<&str> = val.split_whitespace().collect();
+                    let first_num = toks.iter().position(|t| t.parse::<i32>().is_ok()).unwrap_or(toks.len());
+                    let name = toks[..first_num].join(" ");
+                    let mut need = Vec::new();
+                    let mut i = first_num;
+                    while i + 1 < toks.len() {
+                        if let (Ok(n), Some(g)) = (toks[i].parse::<i32>(), Good::from_name(toks[i + 1])) {
+                            need.push((g, n));
+                        }
+                        i += 2;
+                    }
+                    lv.stages.push(Stage { name, need });
+                }
+                "goal" => {
+                    let toks: Vec<&str> = val.split_whitespace().collect();
+                    match toks.first().copied() {
+                        Some("fortress") => lv.goals.push(Goal::Fortress),
+                        Some("pop") => lv.goals.push(Goal::Pop(toks.get(1).and_then(|t| t.parse().ok()).unwrap_or(10))),
+                        Some("tier") => {
+                            let t: usize = toks.get(1).and_then(|t| t.parse().ok()).unwrap_or(2);
+                            let n: i32 = toks.get(2).and_then(|t| t.parse().ok()).unwrap_or(1);
+                            lv.goals.push(Goal::Tier(t.saturating_sub(1).min(TIERS - 1), n));
+                        }
+                        _ => {}
+                    }
+                }
+                "medals" => {
+                    let n: Vec<i32> = val.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+                    for (i, v) in n.iter().take(3).enumerate() {
+                        lv.medals[i] = *v;
+                    }
+                }
+                "challenge" => {
+                    let toks: Vec<&str> = val.split_whitespace().collect();
+                    lv.challenge = match toks.first().copied() {
+                        Some("maxstores") => Challenge::MaxStores(toks.get(1).and_then(|t| t.parse().ok()).unwrap_or(1)),
+                        Some("maxhomes") => Challenge::MaxHomes(toks.get(1).and_then(|t| t.parse().ok()).unwrap_or(4)),
+                        Some("no") => toks.get(1).and_then(|t| Species::from_name(t)).map(Challenge::NoSpecies).unwrap_or(Challenge::None),
+                        Some("noinfra") => Challenge::NoInfra,
+                        Some("nohunger") => Challenge::NoHunger,
+                        _ => Challenge::None,
+                    };
                 }
                 "src" => {
                     let p: Vec<&str> = val.split_whitespace().collect();
@@ -268,49 +337,52 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                     }
                 }
                 "new" => lv.new.extend(val.split_whitespace().map(|w| w.to_ascii_uppercase())),
-                "combo" => {
-                    let n: Vec<i32> = val.split_whitespace().filter_map(|s| s.parse().ok()).collect();
-                    if n.len() == 2 {
-                        lv.targets.combo_ticks = n[0];
-                        lv.targets.combo_cost = n[1];
-                    }
-                }
                 "rule" | "intro" => {
                     if !lv.rule.is_empty() {
                         lv.rule.push('\n');
                     }
                     lv.rule.push_str(val);
                 }
-                "targets" => {
-                    let n: Vec<i32> = val.split_whitespace().filter_map(|s| s.parse().ok()).collect();
-                    if n.len() == 3 {
-                        lv.targets.ticks = n[0];
-                        lv.targets.cost = n[1];
-                        lv.targets.crew = n[2];
+                "plan" => {
+                    if !plan.is_empty() {
+                        plan.push(';');
                     }
+                    plan.push_str(val);
                 }
-                "ref" => {
-                    if !lv.reference.is_empty() {
-                        lv.reference.push(';');
+                "nextplan" => {
+                    if !plan.is_empty() {
+                        lv.plans.push(std::mem::take(&mut plan));
                     }
-                    lv.reference.push_str(val);
                 }
                 _ => {}
             }
         }
+        if !plan.is_empty() {
+            lv.plans.push(plan);
+        }
+        if lv.goals.is_empty() && !lv.stages.is_empty() {
+            lv.goals.push(Goal::Fortress);
+        }
+        if !lv.stages.is_empty() && !lv.goals.contains(&Goal::Fortress) {
+            lv.goals.insert(0, Goal::Fortress);
+        }
         let cfg = |g: Good| -> (i32, i32) {
             src_cfg.iter().find(|c| c.0 == g).map(|c| (c.1, c.2)).unwrap_or(match g {
-                Good::Berry => (3, 24),
-                Good::Twig => (0, 0),
-                Good::Stone => (0, 0),
-                Good::Clay => (0, 0),
-                Good::Egg => (2, 40),
+                Good::Berry => (4, 50),
+                Good::Nut => (8, 60),
+                Good::Fish => (3, 70),
+                Good::Twig => (5, 45),
                 _ => (0, 0),
             })
         };
+        let w = rows.iter().map(|r| r.chars().count()).max().unwrap_or(0) as i32;
+        let h = rows.len() as i32;
+        lv.w = w;
+        lv.h = h;
+        lv.tiles = vec![Tile::Air; (w * h) as usize];
         let (mut fx0, mut fy0, mut fx1, mut fy1) = (i32::MAX, i32::MAX, -1, -1);
         for (y, row) in rows.iter().enumerate() {
-            for (x, ch) in row.chars().enumerate().take(MAP_W as usize) {
+            for (x, ch) in row.chars().enumerate() {
                 let (x, y) = (x as i32, y as i32);
                 let t = match ch {
                     '#' => Tile::Earth,
@@ -326,13 +398,14 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                     '@' => Tile::Cloud,
                     _ => Tile::Air,
                 };
-                lv.tiles[(y * MAP_W + x) as usize] = t;
+                lv.tiles[(y * w + x) as usize] = t;
                 let good = match ch {
                     'b' | 'B' => Some(Good::Berry),
+                    'n' | 'N' => Some(Good::Nut),
+                    'f' => Some(Good::Fish),
                     't' | 'T' => Some(Good::Twig),
                     'q' | 'Q' => Some(Good::Stone),
                     'c' | 'C' => Some(Good::Clay),
-                    'e' | 'E' => Some(Good::Egg),
                     _ => None,
                 };
                 if let Some(g) = good {
@@ -341,6 +414,9 @@ pub fn parse_book(text: &str) -> Vec<Level> {
                 }
                 if ch == '^' {
                     lv.springs.push((x, y));
+                }
+                if ch == 'E' {
+                    lv.entrance = (x, y);
                 }
                 if ch == 'F' {
                     fx0 = fx0.min(x);

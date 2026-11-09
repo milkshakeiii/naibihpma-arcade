@@ -1,5 +1,5 @@
-//! Progress on disk: per level, whether it's solved, the best of each score (kept separately,
-//! like any optimization game), and the layout last worked on.
+//! Progress on disk: per site, whether it's finished, the best finishing day, the challenge, and
+//! the run in progress (as its list of actions, replayed on return).
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -7,13 +7,11 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default)]
 pub struct Record {
-    pub solved: bool,
-    pub ticks: Option<i32>,
-    pub cost: Option<i32>,
-    pub crew: Option<i32>,
-    /// The combo goal (ticks and cost in one run) has been met.
-    pub combo: bool,
-    pub layout: String,
+    pub done: bool,
+    pub best_day: Option<i32>,
+    pub challenge: bool,
+    /// The unfinished run, as `city::run_to_text` writes it.
+    pub run: String,
 }
 
 pub struct Save {
@@ -41,16 +39,11 @@ impl Save {
                 Some("intro") => s.seen_intro = true,
                 Some("crt") => s.crt = f.get(1) != Some(&"0"),
                 Some("music") => s.music = f.get(1).and_then(|v| v.parse().ok()).unwrap_or(2).min(3),
-                Some("level") if f.len() >= 7 => {
+                Some("site") if f.len() >= 6 => {
                     s.levels.insert(
                         f[1].to_string(),
-                        Record { solved: f[2] == "1", ticks: opt(f[3]), cost: opt(f[4]), crew: opt(f[5]), combo: false, layout: f[6..].join("|") },
+                        Record { done: f[2] == "1", best_day: opt(f[3]), challenge: f[4] == "1", run: f[5..].join("|") },
                     );
-                }
-                Some("combo") => {
-                    if let Some(id) = f.get(1) {
-                        s.levels.entry(id.to_string()).or_default().combo = true;
-                    }
                 }
                 Some("tips") => s.tips = f[1..].iter().filter(|t| !t.is_empty()).map(|t| t.to_string()).collect(),
                 _ => {}
@@ -68,12 +61,7 @@ impl Save {
         out.push_str(&format!("crt|{}\nmusic|{}\n", self.crt as u8, self.music));
         let o = |v: Option<i32>| v.map(|n| n.to_string()).unwrap_or_default();
         for (id, r) in &self.levels {
-            out.push_str(&format!("level|{}|{}|{}|{}|{}|{}\n", id, r.solved as u8, o(r.ticks), o(r.cost), o(r.crew), r.layout));
-        }
-        for (id, r) in &self.levels {
-            if r.combo {
-                out.push_str(&format!("combo|{id}\n"));
-            }
+            out.push_str(&format!("site|{}|{}|{}|{}|{}\n", id, r.done as u8, o(r.best_day), r.challenge as u8, r.run));
         }
         out.push_str(&format!("tips|{}\n", self.tips.join("|")));
         if let Ok(mut f) = std::fs::File::create(p) {

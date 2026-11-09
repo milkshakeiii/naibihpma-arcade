@@ -246,3 +246,93 @@ pub fn reach(world: &World, s: Species, load: Load, x: i32, y: i32) -> Vec<bool>
     }
     seen
 }
+
+/// Every tile's cheapest arrival time from a set of start tiles, for one species and load, with
+/// enough breadcrumbs to walk any of those paths. Deliveries compare destinations by looking up
+/// a field instead of searching once per candidate.
+#[derive(Clone, Debug)]
+pub struct Field {
+    pub dist: Vec<i32>,
+    pub prev: Vec<u32>,
+}
+
+pub const FAR: i32 = i32::MAX;
+
+pub fn field(world: &World, s: Species, load: Load, starts: &[(i32, i32)]) -> Field {
+    let n = (world.w * world.h) as usize;
+    let mut dist = vec![FAR; n];
+    let mut prev = vec![u32::MAX; n];
+    let mut heap = BinaryHeap::new();
+    for &(x, y) in starts {
+        if !world.inside(x, y) {
+            continue;
+        }
+        let i = world.idx(x, y);
+        dist[i] = 0;
+        heap.push(Reverse((0i32, i)));
+    }
+    let mut buf = Vec::new();
+    while let Some(Reverse((d, i))) = heap.pop() {
+        if d > dist[i] {
+            continue;
+        }
+        let (x, y) = ((i as i32) % world.w, (i as i32) / world.w);
+        moves(world, s, load, x, y, &mut buf);
+        for seg in buf.drain(..) {
+            let last = *seg.last().unwrap();
+            let j = world.idx(last.x, last.y);
+            let nd = d + seg.iter().map(|st| st.t).sum::<i32>();
+            if nd < dist[j] {
+                dist[j] = nd;
+                prev[j] = i as u32;
+                heap.push(Reverse((nd, j)));
+            }
+        }
+    }
+    Field { dist, prev }
+}
+
+impl Field {
+    pub fn at(&self, world: &World, x: i32, y: i32) -> i32 {
+        if !world.inside(x, y) {
+            return FAR;
+        }
+        self.dist[world.idx(x, y)]
+    }
+
+    /// The closest of `goals`: its time and tile.
+    pub fn best(&self, world: &World, goals: &[(i32, i32)]) -> Option<(i32, (i32, i32))> {
+        goals.iter().map(|&(x, y)| (self.at(world, x, y), (x, y))).filter(|(d, _)| *d < FAR).min_by_key(|(d, _)| *d)
+    }
+
+    /// The path the field found to (gx, gy), step by step.
+    pub fn path_to(&self, world: &World, s: Species, load: Load, gx: i32, gy: i32) -> Option<Path> {
+        if !world.inside(gx, gy) || self.dist[world.idx(gx, gy)] == FAR {
+            return None;
+        }
+        let mut segs: Vec<Vec<Step>> = Vec::new();
+        let mut cur = world.idx(gx, gy);
+        let mut buf = Vec::new();
+        let mut guard = 0;
+        while self.prev[cur] != u32::MAX {
+            let p = self.prev[cur] as usize;
+            let (px, py) = ((p as i32) % world.w, (p as i32) / world.w);
+            let want = self.dist[cur] - self.dist[p];
+            moves(world, s, load, px, py, &mut buf);
+            let seg = buf.drain(..).find(|seg| {
+                let last = seg.last().unwrap();
+                world.idx(last.x, last.y) == cur && seg.iter().map(|st| st.t).sum::<i32>() == want
+            })?;
+            segs.push(seg);
+            cur = p;
+            guard += 1;
+            if guard > 100_000 {
+                return None;
+            }
+        }
+        let start = ((cur as i32) % world.w, (cur as i32) / world.w);
+        let steps: Vec<Step> = segs.into_iter().rev().flatten().collect();
+        let ticks = steps.iter().map(|s| s.t).sum();
+        Some(Path { start, steps, ticks })
+    }
+}

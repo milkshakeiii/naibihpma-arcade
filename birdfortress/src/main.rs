@@ -1,10 +1,11 @@
 mod app;
 mod art;
 mod audio;
+mod bot;
+mod city;
 mod framebuffer;
 mod game;
 mod harness;
-mod layout;
 mod level;
 mod palette;
 mod path;
@@ -12,19 +13,17 @@ mod picture;
 mod render;
 mod rules;
 mod save;
-mod sim;
 mod ui;
 mod world;
 
 use app::{App, Ev, Key};
 use framebuffer::{Framebuffer, Sprite};
-use layout::Layout;
 use std::ffi::OsStr;
 use std::mem::{size_of, zeroed};
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -38,22 +37,23 @@ use winapi::um::wingdi::{
 use winapi::um::winuser::*;
 
 pub const BOOK: &str = concat!(
-    include_str!("levels/ch1.txt"),
+    include_str!("sites/ch1.txt"),
     "\n",
-    include_str!("levels/ch2.txt"),
+    include_str!("sites/ch2.txt"),
     "\n",
-    include_str!("levels/ch3.txt"),
+    include_str!("sites/ch3.txt"),
     "\n",
-    include_str!("levels/ch4.txt"),
-    "
-",
-    include_str!("levels/ch5.txt"),
+    include_str!("sites/ch4.txt"),
+    "\n",
+    include_str!("sites/ch5.txt"),
 );
 
 /// The pixel-art pointer as an OS cursor, rebuilt when the integer scale or pointer changes. Like
 /// a DOS mouse driver's pointer, it moves independently of the 15 FPS frames.
 static CURSOR: AtomicUsize = AtomicUsize::new(0);
 static TYPED: Mutex<Vec<char>> = Mutex::new(Vec::new());
+/// Mouse wheel notches since the last frame (WM_MOUSEWHEEL adds, the frame drains).
+static WHEEL: AtomicI32 = AtomicI32::new(0);
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -275,6 +275,15 @@ fn run_window(game: &mut game::Game, windowed: bool, title: &str) {
                 next_tick = now + tick;
             }
 
+            if GetForegroundWindow() == hwnd {
+                game.hold([key_down(VK_UP), key_down(VK_DOWN), key_down(VK_LEFT), key_down(VK_RIGHT)]);
+            } else {
+                game.hold([false; 4]);
+            }
+            let wheel = WHEEL.swap(0, Ordering::Relaxed);
+            if wheel != 0 {
+                game.event(Ev::Wheel(wheel));
+            }
             game.tick();
             game.draw(&mut fb);
             let pal = *game.palette();
@@ -329,6 +338,11 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
             }
             0
         }
+        WM_MOUSEWHEEL => {
+            let delta = ((wparam >> 16) & 0xFFFF) as u16 as i16 as i32;
+            WHEEL.fetch_add(delta / 120, Ordering::Relaxed);
+            0
+        }
         WM_SETCURSOR if (lparam & 0xFFFF) as isize == HTCLIENT => {
             SetCursor(CURSOR.load(Ordering::Relaxed) as HCURSOR);
             1
@@ -336,6 +350,3 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
-
-#[allow(dead_code)]
-fn unused(_: Layout) {}

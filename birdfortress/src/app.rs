@@ -23,6 +23,8 @@ pub enum Ev {
     Move(i32, i32),
     Press { x: i32, y: i32, right: bool },
     Release { x: i32, y: i32, right: bool },
+    /// Mouse wheel notches (positive = away from you).
+    Wheel(i32),
 }
 
 pub trait App {
