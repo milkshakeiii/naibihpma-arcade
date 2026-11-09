@@ -10,6 +10,9 @@ goal pop 26
 challenge maxstores 2
 intro The fortress goes up on the mesa. Apes climb vines and ladders with anything. Everyone else climbs a ladder only with nothing or something light.
 new MASON BRICK LADDER VINE
+medals 32 41 56
+plan burrow 2 18; nest 11 18; burrow 6 18; lodge 17 18; camp 4 19 tribble; burrow 31 18; camp 15 19 tribble; lodge 19 18; ladder 62 13; camp 67 19 ape; camp 33 19 ape; ladder 60 11; nest 23 18; ladder 58 9; ladder 64 15; ladder 66 17; mason 68 18 dodo; ladder 37 9; burrow 39 8; camp 52 9 ape; camp 55 9 tribble; weaver 49 8 tribble; burrow 42 8
+nextplan
 plan burrow 2 18; camp 4 19 tribble; burrow 6 18; camp 9 19 tribble; nest 11 18; camp 15 19 tribble; lodge 17 18; lodge 19 18; camp 21 19 tribble; nest 23 18; ladder 66 17; ladder 64 15; ladder 62 13; ladder 60 11; ladder 58 9; camp 67 19 ape; camp 30 19 tribble; mason 68 18 dodo; camp 70 19 dodo; lodge 27 18; ladder 37 9; weaver 34 18 tribble; camp 25 19 tribble; camp 33 19 tribble; burrow 31 18; nest 13 18; camp 41 9 tribble; burrow 39 8; camp 52 9 tribble; nest 53 8; camp 55 9 tribble; weaver 49 8 tribble; burrow 42 8; lodge 56 8
 map
 ........................................................................
@@ -38,7 +41,7 @@ E...b....b.....b.....b...t....b..t...v%%%%%%%%%%%%%%%%%%%%%%%%%%%%.q..q.
 ######################################%%%%%%%%%%%%%%%%%%%%%%%%%%%%######
 end
 
-@ 2-2 THE LONG HAUL
+@ 2-2 LONG HAUL
 seeds 36
 species TRIBBLE DODO APE
 build BURROW NEST LODGE CAMP STORE WEAVER MASON
@@ -49,6 +52,9 @@ goal pop 36
 challenge maxstores 3
 intro The quarries are a long way off. Nobody carries a thing further than 100 ticks of walking. A store told to GET a good sends its carriers to fetch it from other stores.
 new ORDERS
+medals 36 45 61
+plan lodge 64 16; burrow 6 18; camp 4 19 tribble; burrow 2 18; nest 12 18; camp 10 19 tribble; burrow 27 18; nest 17 18; lodge 77 18; nest 33 16; store 58 16 ape; camp 80 19 ape; camp 38 17 tribble; lodge 88 18; camp 62 17 tribble; store 82 18 ape; camp 75 19 tribble; camp 92 19 dodo; mason 84 18 dodo; get 58 16 brick; camp 46 15 tribble; weaver 48 14 tribble; nest 8 18; nest 53 14; burrow 43 14; weaver 39 16 ape
+nextplan
 plan burrow 2 18; camp 4 19 tribble; burrow 6 18; camp 10 19 tribble; nest 12 18; camp 15 19 tribble; nest 17 18; camp 38 17 tribble; burrow 27 18; store 82 18 ape; lodge 77 18; camp 80 19 ape; camp 75 19 tribble; lodge 88 18; camp 86 19 ape; store 58 16 ape; get 58 16 stone; lodge 64 16; camp 62 17 tribble; nest 33 16; camp 35 17 tribble; store 29 18 dodo; get 29 18 stone; get 29 18 brick; mason 84 18 dodo; lodge 94 18; camp 96 19 tribble; camp 92 19 dodo; get 58 16 brick; weaver 48 14 tribble; weaver 39 16 tribble; camp 46 15 tribble; camp 50 15 tribble; burrow 43 14; camp 52 15 tribble; nest 53 14; lodge 60 16; camp 66 17 tribble; nest 8 18
 map
 ....................................................................................................
@@ -87,6 +93,9 @@ goal tier 3 4
 challenge nohunger
 intro A house wants two kinds of food, wicker and pots. Pots are fragile: whoever carries one won't drop more than a tile, though climbing a ladder is fine.
 new KILN POT CLAY FISH
+medals 33 42 57
+plan burrow 2 16; camp 9 17 tribble; ladder 45 19; weaver 55 16 ape; burrow 22 16; burrow 6 16; camp 21 17 tribble; nest 11 16; camp 60 17 tribble; kiln 52 16 tribble; camp 39 21 dodo; camp 32 17 tribble; ladder 47 17; camp 63 17 tribble; lodge 29 16; ladder 36 17; camp 65 17 ape; store 24 16 ape; camp 43 21 ape; burrow 15 16; lodge 34 16
+nextplan
 plan burrow 2 16; camp 4 17 tribble; burrow 6 16; camp 9 17 tribble; nest 11 16; camp 14 17 tribble; burrow 22 16; camp 21 17 tribble; nest 48 16; camp 67 17 dodo; camp 51 17 tribble; camp 39 21 dodo; kiln 52 16 tribble; weaver 55 16 tribble; camp 54 17 tribble; camp 63 17 tribble; ladder 47 17; ladder 45 19; ladder 36 17; store 24 16 dodo; camp 65 17 ape; nest 61 16; camp 60 17 tribble; lodge 27 16; camp 43 21 ape; nest 57 16; burrow 15 16; camp 26 17 tribble; lodge 29 16; camp 32 17 tribble; lodge 34 16
 map
 ....................................................................................

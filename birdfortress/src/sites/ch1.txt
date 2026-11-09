@@ -1,5 +1,5 @@
 chapter 1
-@ 1-1 FIRST SETTLERS
+@ 1-1 SETTLERS
 seeds 16
 species TRIBBLE
 build BURROW CAMP
@@ -7,6 +7,9 @@ stage Cornerstone 6 TWIG
 goal pop 12
 intro A meadow, a trail and some berry bushes. Tribbles walk in along the trail to any burrow they can reach. Every one of them works.
 new BURROW CAMP BERRY
+medals 8 10 14
+plan camp 7 17 tribble; burrow 16 16; burrow 3 16; camp 21 17 tribble; burrow 14 16; burrow 9 16
+nextplan
 plan burrow 3 16; camp 7 17 tribble; burrow 9 16; camp 12 17 tribble; burrow 14 16; camp 21 17 tribble; burrow 16 16; camp 19 17 tribble; camp 33 17 tribble
 map
 ........................................
@@ -35,7 +38,7 @@ E......b....b......b.t##########.t.FFFF.
 ########################################
 end
 
-@ 1-2 HEAVY LIFTING
+@ 1-2 HEAVY STONE
 seeds 24
 species TRIBBLE DODO APE
 build BURROW NEST LODGE CAMP STORE
@@ -45,6 +48,9 @@ goal pop 18
 challenge no APE
 intro Stone is heavy: a tribble can barely drag it. Dodos and apes manage. Each workplace hires one kind of creature; pick it before you build.
 new NEST LODGE STORE STONE
+medals 18 23 31
+plan burrow 7 16; burrow 2 16; camp 10 17 tribble; burrow 13 16; nest 11 16; camp 44 15 dodo; camp 53 11 dodo; nest 23 16; nest 37 15; store 30 16 tribble; camp 48 15 dodo; camp 33 17 tribble; nest 46 14; nest 16 16
+nextplan
 plan burrow 2 16; camp 6 17 tribble; burrow 7 16; camp 10 17 tribble; nest 11 16; camp 53 11 tribble; nest 16 16; camp 15 17 tribble; camp 44 15 dodo; store 30 16 dodo; camp 48 15 dodo; nest 23 16; camp 26 17 tribble; burrow 13 16; nest 37 15; camp 33 17 tribble; camp 41 15 tribble; camp 54 11 tribble; nest 46 14
 map
 ........................................................
@@ -83,6 +89,9 @@ goal tier 2 4
 challenge maxstores 1
 intro Homes move up when they get what they want. A cottage wants wicker as well as food: it holds more and pays more. Run short and it slips back.
 new WEAVER WICKER TIERS
+medals 16 20 27
+plan nest 14 16; burrow 7 16; camp 36 14 dodo; camp 59 16 tribble; camp 19 17 tribble; burrow 9 16; weaver 34 13 tribble; camp 21 17 tribble; nest 39 13
+nextplan
 plan burrow 2 16; camp 5 17 tribble; burrow 7 16; camp 12 17 tribble; burrow 9 16; camp 21 17 tribble; nest 14 16; camp 19 17 tribble; weaver 34 13 tribble; camp 33 14 tribble; camp 36 14 tribble; burrow 16 16; camp 24 17 tribble; camp 38 14 tribble; camp 59 16 dodo; camp 62 16 dodo; nest 54 16; camp 48 17 tribble; camp 41 14 tribble; burrow 31 13; nest 39 13
 map
 ................................................................

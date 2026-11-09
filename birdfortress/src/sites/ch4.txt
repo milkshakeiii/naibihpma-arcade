@@ -1,5 +1,5 @@
 chapter 4
-@ 4-1 QUIET QUARTER
+@ 4-1 MANOR LANE
 seeds 50
 species TRIBBLE DODO APE
 build BURROW NEST LODGE CAMP STORE WEAVER KILN MASON GARDEN PLANK
@@ -9,6 +9,9 @@ goal tier 4 3
 challenge maxstores 2
 intro A manor wants bricks too, and a pleasant spot: gardens close by, and no kiln, mason, quarry or clay pit within three tiles.
 new GARDEN PLEASANT
+medals 32 41 56
+plan camp 9 18 tribble; nest 13 17; burrow 2 17; burrow 6 17; camp 12 18 tribble; weaver 10 17 tribble; garden 8 18; camp 4 18 tribble; nest 17 17; camp 30 18 tribble; camp 21 18 tribble; camp 27 18 tribble; burrow 23 17; nest 28 17; plank 68 19; plank 69 19; store 59 17 dodo; plank 70 19; plank 71 19; camp 74 18 dodo; plank 72 19; camp 88 17 ape; camp 82 17 dodo; lodge 84 16; camp 54 16 dodo; camp 79 17 dodo; mason 86 16 ape; garden 19 18; kiln 77 16 dodo; lodge 93 16; garden 25 18; nest 62 17
+nextplan
 plan burrow 2 17; camp 4 18 tribble; burrow 6 17; camp 9 18 tribble; nest 13 17; camp 15 18 tribble; camp 12 18 tribble; weaver 10 17 tribble; nest 17 17; camp 21 18 tribble; burrow 23 17; camp 27 18 tribble; camp 30 18 tribble; nest 28 17; camp 67 18 dodo; store 59 17 dodo; plank 68 19; plank 69 19; plank 70 19; plank 71 19; plank 72 19; plank 73 19; camp 74 18 dodo; lodge 84 16; camp 82 17 ape; mason 86 16 ape; camp 88 17 ape; camp 92 17 dodo; kiln 77 16 dodo; camp 79 17 dodo; lodge 93 16; camp 53 16 tribble; camp 54 16 tribble; camp 42 18 tribble; camp 33 18 tribble; garden 5 18; garden 8 18; garden 16 18; garden 19 18; garden 22 18; garden 25 18; garden 26 18; nest 35 17; burrow 37 17; lodge 31 17; lodge 40 17; nest 62 17; lodge 65 17
 map
 ................................................................................................
@@ -50,6 +53,9 @@ goal pop 55
 challenge nohunger
 intro The great fortress of the lowlands. Winter comes, manors want bricks, and so does the keep.
 new SPRING
+medals 63 80 109
+plan burrow 2 18; burrow 20 18; burrow 10 18; camp 14 19 tribble; nest 15 18; nest 6 18; camp 9 19 tribble; weaver 22 17 tribble; camp 35 16 tribble; camp 36 16 tribble; burrow 42 18; store 47 18 ape; camp 45 19 tribble; camp 53 19 tribble; camp 50 19 tribble; lodge 65 18; plank 56 20; camp 55 19 dodo; plank 57 20; nest 51 18; plank 58 20; plank 59 20; plank 60 20; plank 63 20; camp 64 19 dodo; plank 62 20; plank 61 20; store 82 13 ape; camp 67 19 tribble; camp 88 14 ape; lodge 85 13; lodge 80 13; mason 89 13 ape; camp 95 14 ape; get 47 18 stone; lodge 93 13; kiln 96 13 ape; camp 98 14 ape; camp 92 14 tribble; lodge 99 13; garden 12 19; garden 5 19; garden 1 19; garden 17 19; garden 8 19; nest 38 16; camp 68 19 dodo; camp 101 14 ape; lodge 40 17
+nextplan
 plan burrow 2 18; camp 4 19 tribble; nest 6 18; camp 9 19 tribble; burrow 10 18; camp 14 19 tribble; nest 15 18; camp 19 19 tribble; weaver 22 17 tribble; camp 35 16 tribble; camp 36 16 tribble; burrow 20 18; burrow 42 18; camp 45 19 tribble; store 47 18 ape; camp 50 19 tribble; camp 53 19 tribble; camp 55 19 dodo; nest 51 18; plank 56 20; plank 57 20; plank 58 20; plank 59 20; plank 60 20; plank 61 20; plank 62 20; plank 63 20; camp 64 19 dodo; camp 67 19 tribble; lodge 65 18; lodge 80 13; store 82 13 ape; camp 84 14 tribble; lodge 85 13; camp 88 14 ape; mason 89 13 ape; get 47 18 stone; camp 92 14 tribble; lodge 93 13; camp 95 14 ape; kiln 96 13 ape; camp 98 14 ape; lodge 99 13; camp 101 14 ape; garden 1 19; garden 5 19; garden 8 19; garden 12 19; garden 13 19; garden 17 19; nest 38 16; lodge 40 17; camp 68 19 dodo
 map
 ........................................................................................................

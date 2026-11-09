@@ -206,3 +206,76 @@ pub fn day_line(c: &City) -> String {
         notes.join(" ")
     )
 }
+
+/// A small deterministic random generator for the optimiser.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+    fn below(&mut self, n: usize) -> usize {
+        if n == 0 {
+            0
+        } else {
+            (self.next() % n as u64) as usize
+        }
+    }
+}
+
+fn win_day(level: &Level, steps: &[Step], limit: i32) -> Option<i32> {
+    let r = run(level, steps, limit, false);
+    if r.error.is_some() {
+        return None;
+    }
+    r.won
+}
+
+/// Hill-climbs a plan's order, hiring and length to finish sooner. Returns the best day and plan.
+pub fn optimize(level: &Level, steps: &[Step], iters: usize, seed: u64) -> (i32, Vec<Step>) {
+    let mut rng = Rng(seed.max(1));
+    let mut best = steps.to_vec();
+    let mut best_day = win_day(level, &best, 400).unwrap_or(9999);
+    for _ in 0..iters {
+        let mut cand = best.clone();
+        let n = cand.len();
+        if n < 2 {
+            break;
+        }
+        match rng.below(5) {
+            0 | 1 => {
+                let i = rng.below(n - 1);
+                cand.swap(i, i + 1);
+            }
+            2 => {
+                let i = rng.below(n);
+                let j = rng.below(i + 1);
+                let s = cand.remove(i);
+                cand.insert(j, s);
+            }
+            3 => {
+                // Hire someone else.
+                let i = rng.below(n);
+                if let Step::Do(Action::Build { kind, species, .. }) = &mut cand[i] {
+                    if kind.slots() > 0 {
+                        *species = SPECIES[(species.index() + 1 + rng.below(2)) % 3];
+                    }
+                }
+            }
+            _ => {
+                let i = rng.below(n);
+                cand.remove(i);
+            }
+        }
+        if let Some(d) = win_day(level, &cand, best_day) {
+            if d <= best_day {
+                best_day = d;
+                best = cand;
+            }
+        }
+    }
+    (best_day, best)
+}

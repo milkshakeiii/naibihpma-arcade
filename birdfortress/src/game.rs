@@ -75,7 +75,7 @@ pub const R_SPEED: Rect = Rect::new(355, 243, 20, 20);
 pub const R_HOME: Rect = Rect::new(377, 243, 20, 20);
 pub const R_HELP: Rect = Rect::new(355, 1, 14, 11);
 pub const R_MENU: Rect = Rect::new(371, 1, 28, 11);
-pub const R_MINI: Rect = Rect::new(206, 1, 146, 10);
+pub const R_MINI: Rect = Rect::new(242, 1, 110, 10);
 pub const R_STATUS: Rect = Rect::new(3, 265, 250, 33);
 pub const R_GOALS: Rect = Rect::new(255, 265, 142, 33);
 pub const R_RESULTS: Rect = Rect::new(40, 30, 320, 180);
@@ -373,12 +373,26 @@ impl Game {
 
     /// Where a building of this kind would go with the pointer on (tx, ty): its top-left.
     pub fn place_at(&self, k: Kind, tx: i32, ty: i32) -> (i32, i32) {
+        let w = &self.city.world;
         if k == Kind::Camp {
+            // Snap to a source on or right next to the pointer.
+            for (dx, dy) in [(0, 0), (0, 1), (0, -1), (-1, 0), (1, 0), (0, 2)] {
+                if matches!(w.occ(tx + dx, ty + dy), Occ::Source(_)) {
+                    return (tx + dx, ty + dy);
+                }
+            }
             return (tx, ty);
         }
-        let (w, h) = k.size();
-        // The pointer marks the bottom-left tile, so a building sits where you point at the floor.
-        (tx - (w - 1) / 2, ty - h + 1)
+        let (bw, bh) = k.size();
+        let x = tx - (bw - 1) / 2;
+        // The pointer marks the bottom row; drop the building onto the floor below the pointer.
+        for dy in 0..5 {
+            let y = ty + dy - bh + 1;
+            if w.can_build(k, x, y).is_ok() {
+                return (x, y);
+            }
+        }
+        (x, ty - bh + 1)
     }
 
     pub fn hovered_sel(&self) -> Option<Sel> {
@@ -416,7 +430,7 @@ impl Game {
             Sel::B(id) => {
                 let b = self.city.building(id)?;
                 match b.kind {
-                    Kind::Store => 78,
+                    Kind::Store => 88,
                     k if k.is_home() => 70,
                     Kind::Garden => 34,
                     _ => 60,
@@ -460,6 +474,36 @@ impl Game {
     }
 
     // ----- Tips --------------------------------------------------------------------------------
+
+    /// The guided first site: what to do next and where to look (world pixels).
+    pub fn coach(&self) -> Option<(String, i32, i32)> {
+        if self.screen != Screen::Play || self.overlay_open() || self.level().id != "1-1" || self.city.won.is_some() {
+            return None;
+        }
+        let c = &self.city;
+        let (ex, ey) = self.level().entrance;
+        let homes = c.buildings.iter().filter(|b| b.kind.is_home()).count();
+        let camps: Vec<Good> = c.buildings.iter().filter_map(|b| b.source.map(|s| self.level().sources[s].good)).collect();
+        let near = |g: Good| self.level().sources.iter().find(|s| s.good == g).map(|s| (s.x * TILE + 5, s.y * TILE));
+        if homes == 0 {
+            if self.tool == Tool::Build(Kind::Burrow) {
+                return Some(("Click near the trail to build it.".into(), ex * TILE + 30, ey * TILE));
+            }
+            return Some(("Pick the burrow below, then build one near this trail.".into(), ex * TILE + 5, ey * TILE));
+        }
+        if !camps.contains(&Good::Berry) {
+            let (x, y) = near(Good::Berry)?;
+            return Some(("Settlers need food. Put a camp on a berry bush.".into(), x, y));
+        }
+        if !camps.contains(&Good::Twig) {
+            let (x, y) = near(Good::Twig)?;
+            return Some(("The fortress wants twigs. Camp on a twig pile.".into(), x, y));
+        }
+        if homes < 3 && c.pop() >= 3 {
+            return Some(("More burrows, more workers, more tax.".into(), ex * TILE + 30, ey * TILE));
+        }
+        None
+    }
 
     /// Shows a one-time tip bubble pointing at a world spot, unless seen before or another is up.
     pub fn tip(&mut self, key: &str, text: &str, at: (i32, i32)) {
@@ -529,8 +573,14 @@ impl Game {
     }
 
     fn float(&mut self, at: (i32, i32), text: &str, col: u8) {
+        // Stack on top of any word still rising nearby, so two never overprint.
+        let mut y = at.1;
+        let w = crate::framebuffer::Framebuffer::text_width(text, 1);
+        while self.floaters.iter().any(|f| (f.y - y).abs() < 9 && (f.x - at.0).abs() < (w + crate::framebuffer::Framebuffer::text_width(&f.text, 1)) / 2 + 2) {
+            y -= 9;
+        }
         if self.floaters.len() < 24 {
-            self.floaters.push(Floater { x: at.0, y: at.1, text: text.to_string(), col, life: 24 });
+            self.floaters.push(Floater { x: at.0, y, text: text.to_string(), col, life: 24 });
         }
     }
 
@@ -735,9 +785,14 @@ impl Game {
                     return;
                 }
                 let [a, b] = intro_buttons();
-                if a.contains(x, y) {
-                    self.begin(self.resume_day.is_some());
-                } else if b.contains(x, y) && self.resume_day.is_some() {
+                if self.resume_day.is_none() {
+                    // One centred Begin button spans both slots.
+                    if a.contains(x, y) || b.contains(x, y) {
+                        self.begin(false);
+                    }
+                } else if a.contains(x, y) {
+                    self.begin(true);
+                } else if b.contains(x, y) {
                     self.begin(false);
                 }
                 return;
@@ -1058,7 +1113,7 @@ impl Game {
             format!("{} ({})", b.kind.title(), TIER_NAMES[b.tier])
         } else if b.kind == Kind::Camp {
             let g = b.source.map(|s| self.level().sources[s].good).unwrap_or(Good::Berry);
-            format!("{} camp", g.source_name())
+            format!("{} camp", cap(g.word()))
         } else {
             b.kind.title().to_string()
         }

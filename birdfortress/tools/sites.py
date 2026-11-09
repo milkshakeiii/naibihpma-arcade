@@ -5,6 +5,7 @@ same coordinates. Run from the birdfortress folder:  python tools/sites.py
 Then check with:  cargo run --release -- --check
 """
 
+import math
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -119,6 +120,26 @@ class Plan:
         return "; ".join(self.steps)
 
 
+def load_best():
+    """Best plans found by `--opt`, kept in tools/best_plans.txt as id, day, plan."""
+    best = {}
+    path = os.path.join(HERE, "best_plans.txt")
+    if os.path.exists(path):
+        for line in open(path, encoding="utf-8"):
+            parts = line.rstrip(chr(10)).split(chr(9))
+            if len(parts) == 3:
+                best[parts[0]] = (int(parts[1]), parts[2])
+    return best
+
+
+BEST = load_best()
+
+
+def medals_for(day):
+    """Gold is within a tenth of the optimiser's best; silver and bronze are kinder."""
+    return [math.ceil(day * 1.1), math.ceil(day * 1.4), math.ceil(day * 1.9)]
+
+
 class Site:
     def __init__(self, sid, name, m):
         self.sid, self.name, self.m = sid, name, m
@@ -136,7 +157,13 @@ class Site:
     def text(self):
         out = [f"@ {self.sid} {self.name.upper()}"]
         out += self.keys
-        for i, p in enumerate(self.plans):
+        plans = list(self.plans)
+        if self.sid in BEST:
+            # The optimiser's best plan comes first: it sets the medals and the tests run it.
+            day, best = BEST[self.sid]
+            plans.insert(0, best)
+            out.append("medals " + " ".join(str(d) for d in medals_for(day)))
+        for i, p in enumerate(plans):
             if i > 0:
                 out.append("nextplan")
             out.append(f"plan {p}")
@@ -158,7 +185,7 @@ def s1_1():
     b = [m.on(7, "b"), m.on(12, "b"), m.on(19, "b"), m.on(28, "b")]
     t = [m.on(33, "t"), m.on(21, "t")]
     m.fortress(35, 4, 3)
-    s = Site("1-1", "First Settlers", m)
+    s = Site("1-1", "Settlers", m)
     s.key("seeds", 16).key("species", "TRIBBLE").key("build", "BURROW CAMP")
     s.key("stage", "Cornerstone 6 TWIG").key("goal", "pop 12")
     s.key("intro", "A meadow, a trail and some berry bushes. Tribbles walk in along the trail to any burrow they can reach. Every one of them works.")
@@ -181,7 +208,7 @@ def s1_2():
     t = [m.on(53, "t"), m.on(54, "t")]
     q = [m.on(44, "q"), m.on(48, "q")]
     m.fortress(19, 4, 3)
-    s = Site("1-2", "Heavy Lifting", m)
+    s = Site("1-2", "Heavy Stone", m)
     s.key("seeds", 24).key("species", "TRIBBLE DODO APE").key("build", "BURROW NEST LODGE CAMP STORE")
     s.key("stage", "Footing 10 STONE 6 TWIG").key("stage", "Rampart 14 STONE").key("goal", "pop 18")
     s.key("challenge", "no APE")
@@ -302,7 +329,7 @@ def s2_2():
     for x in (80, 86, 92):
         m.on(x, "q")
     m.fortress(21, 5, 4)
-    s = Site("2-2", "The Long Haul", m)
+    s = Site("2-2", "Long Haul", m)
     s.key("seeds", 36).key("species", "TRIBBLE DODO APE").key("build", "BURROW NEST LODGE CAMP STORE WEAVER MASON")
     s.key("stage", "Footing 16 STONE").key("stage", "Walls 24 BRICK").key("stage", "Keep 12 BRICK 12 WICKER")
     s.key("goal", "pop 36")
@@ -438,7 +465,7 @@ def s4_1():
     for x in (o + 76, o + 63):
         m.on(x, "c")
     m.fortress(o + 31, 5, 4)
-    s = Site("4-1", "Quiet Quarter", m)
+    s = Site("4-1", "Manor Lane", m)
     s.key("seeds", 50).key("species", "TRIBBLE DODO APE").key("build", "BURROW NEST LODGE CAMP STORE WEAVER KILN MASON GARDEN PLANK")
     s.key("stage", "Footing 16 STONE").key("stage", "Halls 20 BRICK 10 POT")
     s.key("goal", "tier 4 3")

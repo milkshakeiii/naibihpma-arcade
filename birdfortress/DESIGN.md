@@ -123,9 +123,10 @@ are on-screen buttons. A day is 120 ticks. A year is four seasons of six days ea
      **going by its own species' map with that load**.
    - It carries the good there and walks back empty, by another way if it has to.
    - Consumers (homes, workshops, the fortress) come before stores, and stores never feed stores.
-6. **Stores** hold a mix of goods. Their carriers supply consumers within range. Each good has a
-   setting: *accept*, *refuse*, or *get*. *Get* sends the store's own carriers to fetch that good
-   from other stores, which is how you relay goods over long distances.
+6. **Stores** hold 24 goods, 8 of a kind. Their carriers supply consumers within range. Each good
+   has a setting: *accept*, *refuse*, or *get*. *Get* sends the store's own carriers to fetch that
+   good from other stores, which is how you relay goods over long distances. A store with any *get*
+   order takes only what it gets, so a relay stays clean.
 7. **Camps** claim a berry bush, nut tree, fishing spot, twig pile, quarry or clay bank. Their
    workers harvest there and carry the harvest out. Sources run down and regrow, so a big colony
    needs many of them.
@@ -160,7 +161,8 @@ is met, and you're rated by the day you finish.
   a twig pile from here."
 - **Choosing a species shows its map.** While placing or inspecting a workplace, the reach overlay
   shows where that species can go, empty and loaded.
-- **Hungry or slipping homes** flash their need icon (slowly; there's no strobing).
+- **Hungry or slipping homes** show the missing good over the roof in a red-edged box. It's
+  static, with no flashing.
 - **The header shows** seeds, the date and season, workers per species (busy/total) and the
   goals.
 - **Just-in-time tips** appear at the building they're about. They teach rules, never the solution.
@@ -188,6 +190,18 @@ Each round names its additions and what to look for. Verdicts are the player's t
 | Seasons | Tension over time | Is winter a planning problem rather than a surprise? |
 | Pleasantness | Spatial trade-offs | Does the noise-vs-distance pull read clearly? |
 | Fortress stages, bigger maps | Scale | Do sites take long enough to have a middle game? |
+
+### Changes made while balancing
+
+Each came from a bot run that stalled for a reason a player would also hit; [BALANCE.md](BALANCE.md)
+has the details:
+
+- Stores take 8 of a kind.
+- Relay stores take only what they get, and lend down a gradient.
+- Camps on renewable sources hire one worker.
+- Ape lodges hold more.
+- Taxes went down and prices up.
+- Workshops craft while their workers deliver.
 
 ### Parking lot
 

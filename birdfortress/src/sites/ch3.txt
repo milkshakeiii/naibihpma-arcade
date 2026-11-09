@@ -10,6 +10,9 @@ goal pop 40
 challenge nohunger
 intro Seasons turn. Berries and fish stop growing in winter, and homes still eat. A store keeps what's brought to it.
 new WINTER PLANK FISH
+medals 40 51 69
+plan camp 14 18 ape; nest 16 17; camp 25 15 tribble; camp 27 15 tribble; burrow 18 17; burrow 6 17; burrow 82 16; burrow 29 14; burrow 2 17; camp 4 18 tribble; weaver 34 16 dodo; plank 44 19; store 38 17 tribble; plank 49 19; lodge 41 17; plank 50 19; nest 53 17; camp 70 17 ape; camp 52 18 tribble; camp 56 18 dodo; camp 58 18 dodo; mason 72 16 tribble; lodge 66 16; camp 36 18 tribble; lodge 68 16; nest 86 16; nest 77 16; lodge 64 16; weaver 84 16 ape
+nextplan
 plan burrow 2 17; camp 4 18 tribble; burrow 6 17; camp 9 18 tribble; nest 11 17; camp 14 18 tribble; nest 16 17; camp 22 16 tribble; store 38 17 tribble; camp 27 15 tribble; camp 43 18 dodo; burrow 29 14; camp 25 15 tribble; lodge 41 17; plank 44 19; plank 45 19; plank 46 19; plank 49 19; plank 50 19; plank 51 19; camp 52 18 dodo; camp 56 18 tribble; nest 53 17; camp 70 17 ape; lodge 66 16; mason 72 16 ape; camp 75 17 ape; camp 63 18 tribble; weaver 34 16 tribble; camp 36 18 tribble; camp 58 18 tribble; burrow 18 17; nest 77 16; lodge 68 16; lodge 64 16; nest 80 16; burrow 82 16; weaver 84 16 tribble; nest 86 16
 map
 ........................................................................................
@@ -49,6 +52,9 @@ goal tier 3 4
 challenge maxhomes 12
 intro Nut trees fruit in autumn and only then, high in the branches. Nuts weigh as much as twigs. A house wants two kinds of food.
 new NUT
+medals 40 51 69
+plan lodge 13 26; burrow 21 26; ladder 7 19; burrow 4 26; camp 36 27 dodo; camp 24 11 ape; camp 23 27 tribble; camp 10 19 tribble; camp 43 11 ape; camp 26 19 tribble; lodge 19 18; weaver 19 26 tribble; ladder 60 19; camp 56 19 ape; camp 41 19 tribble; nest 39 26; camp 55 11 ape; kiln 62 26 dodo; nest 64 26; camp 69 27 tribble
+nextplan
 plan burrow 1 26; camp 3 27 tribble; burrow 4 26; camp 12 27 tribble; nest 9 26; camp 23 27 tribble; lodge 13 26; lodge 15 26; ladder 7 19; camp 10 19 tribble; camp 26 19 tribble; weaver 19 26 tribble; burrow 21 26; store 29 26 tribble; camp 36 27 tribble; ladder 60 19; camp 41 19 tribble; camp 56 19 tribble; camp 12 11 ape; camp 24 11 ape; lodge 19 18; lodge 21 18; camp 43 11 ape; camp 55 11 ape; nest 64 26; kiln 62 26 dodo; camp 69 27 dodo; camp 52 27 tribble; camp 66 27 tribble; burrow 24 26; nest 39 26; burrow 44 26
 map
 ........................................................................

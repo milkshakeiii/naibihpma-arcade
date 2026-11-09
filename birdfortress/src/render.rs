@@ -790,9 +790,10 @@ fn draw_reach_dots(fb: &mut Framebuffer, g: &Game, f: &crate::path::Field, s: Sp
             if !(w.standable_w(x, y, Weight::Empty) || w.climbable(x, y, s, Weight::Empty)) {
                 continue;
             }
-            let (px, py) = (x * TILE + 4, y * TILE + 7);
-            fb.rect_fill(px, py, 2, 2, if d <= limit / 2 { hi } else { dk });
-            fb.pset(px + 1, py + 2, OUTLINE);
+            // An outlined dot at standing height: bright within half the range, dark beyond.
+            let (px, py) = (x * TILE + 3, y * TILE + 4);
+            fb.rect_fill(px, py, 4, 4, OUTLINE);
+            fb.rect_fill(px + 1, py + 1, 2, 2, if d <= limit / 2 { hi } else { dk });
         }
     }
 }
@@ -1225,6 +1226,7 @@ fn draw_panel(fb: &mut Framebuffer, g: &Game) {
     }
     if g.tool.workplace().is_some() {
         fb.text("hire", R_STATUS.x + R_STATUS.w - 64, R_STATUS.y + 17, TEXT_DIM, None, 1);
+        fb.text("T D A", R_STATUS.x + R_STATUS.w - 34, R_STATUS.y + 17, TEXT_FAINT, None, 1);
         for (i, s) in SPECIES.iter().enumerate() {
             let r = hire_rect(i);
             let free = g.city.pop_of(*s) - g.city.employed(*s);
@@ -1234,7 +1236,6 @@ fn draw_panel(fb: &mut Framebuffer, g: &Game) {
             fb.rect_outline(r.x + 2, r.y + 2, 7, 7, OUTLINE);
             fb.text(&format!("{}", free.max(0)), r.x + 10, r.y + 2, if free > 0 { TEXT } else { TEXT_FAINT }, None, 1);
         }
-        fb.text("T D A keys", R_STATUS.x + R_STATUS.w - 64, R_STATUS.y + 25, TEXT_FAINT, None, 1);
     }
     // Goals.
     ui::inset(fb, R_GOALS);
@@ -1518,6 +1519,22 @@ fn new_thing(fb: &mut Framebuffer, g: &Game, token: &str, x: i32, y: i32) -> i32
                 small_button(fb, Rect::new(x, y + 4, 20, 12), "GET", false, true);
                 "Store orders"
             }
+            "VINE" => {
+                for k in 0..10 {
+                    let dx = if k % 4 < 2 { 0 } else { 1 };
+                    fb.rect_fill(x + 9 + dx, y + k * 2, 2, 2, VINE);
+                    if k % 3 == 0 {
+                        fb.pset(x + 8 + dx * 3, y + k * 2 + 1, LEAF_HI);
+                    }
+                }
+                "Vine"
+            }
+            "CLOUD" => {
+                fb.rect_fill(x + 2, y + 9, 16, 5, ROCK_HI);
+                fb.rect_fill(x + 5, y + 6, 8, 3, WHITE);
+                fb.rect_fill(x + 2, y + 13, 16, 1, ACCENT);
+                "Cloud"
+            }
             _ => token,
         };
         label = t.to_string();
@@ -1551,7 +1568,7 @@ fn draw_intro(fb: &mut Framebuffer, g: &Game) {
     let mut gx = r.x + 50;
     for gl in &lv.goals {
         let t = match gl {
-            Goal::Fortress => format!("raise the fortress ({} stages)", lv.stages.len()),
+            Goal::Fortress => format!("raise the fortress ({} stage{})", lv.stages.len(), if lv.stages.len() == 1 { "" } else { "s" }),
             Goal::Pop(n) => format!("{n} residents"),
             Goal::Tier(t, n) => format!("{n} {}s", TIER_NAMES[*t].to_lowercase()),
         };
@@ -1658,7 +1675,10 @@ fn draw_play(g: &Game, fb: &mut Framebuffer) {
         Overlay::Intro => draw_intro(fb, g),
         Overlay::Results { .. } => draw_results(fb, g),
         Overlay::None => {
-            if let Some(b) = &g.tip {
+            if let Some((t, x, y)) = g.coach() {
+                let (sx, sy) = g.to_screen(x, y);
+                bubble(fb, &t, sx, sy);
+            } else if let Some(b) = &g.tip {
                 let (sx, sy) = g.to_screen(b.x, b.y);
                 bubble(fb, &b.text, sx, sy);
             }
@@ -1820,13 +1840,13 @@ fn draw_help(g: &Game, fb: &mut Framebuffer) {
         4 => {
             let mut col = 0;
             for gd in GOODS {
-                let cx = x + col * 124;
+                let cx = x + col * 186;
                 let s = g.art.good(gd);
                 fb.blit(s, cx, y + (8 - s.h) / 2, false);
                 let fr = if gd.fragile() { ", fragile" } else if gd.food() { ", food" } else { "" };
                 fb.text(&format!("{}: {}{fr}", crate::game::cap(gd.word()), gd.weight().word()), cx + 12, y, TEXT, None, 1);
                 col += 1;
-                if col == 3 {
+                if col == 2 {
                     col = 0;
                     y += 11;
                 }

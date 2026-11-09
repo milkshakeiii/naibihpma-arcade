@@ -101,6 +101,21 @@ pub fn cli(args: &[String], levels: &[Level]) -> bool {
             }
             true
         }
+        "--opt" => {
+            let Some(lv) = find(levels, arg(2)) else { return true };
+            let iters: usize = arg(3).parse().unwrap_or(200);
+            let seed: u64 = arg(4).parse().unwrap_or(7);
+            let steps = bot::parse_plan(&lv.plans[0]).unwrap_or_default();
+            let before = bot::run(lv, &steps, 400, false).won;
+            let (day, best) = bot::optimize(lv, &steps, iters, seed);
+            println!("{} before {:?} after day {day}", lv.id, before);
+            println!("PLAN {} {}", lv.id, bot::plan_text(&best));
+            true
+        }
+        "--shots" => {
+            shots(levels, if arg(2).is_empty() { "screenshots" } else { arg(2) });
+            true
+        }
         "--map" => {
             let Some(lv) = find(levels, arg(2)) else { return true };
             print_map(lv);
@@ -233,6 +248,104 @@ pub fn shot(levels: &[Level], id: &str, days: i32, out: &str, cam: Option<(i32, 
     g.draw(&mut fb);
     fb.save_png(std::path::Path::new(out), g.palette());
     println!("{}", bot::day_line(&g.city));
+}
+
+/// The screenshot set for the README and for looking over the presentation.
+pub fn shots(levels: &[Level], dir: &str) {
+    use crate::app::{App, Ev, Key};
+    use crate::framebuffer::Framebuffer;
+    let _ = std::fs::create_dir_all(dir);
+    let new_game = || {
+        let mut g = crate::game::Game::new(levels.to_vec(), crate::save::Save::load(None), crate::save::Log::open(None), None);
+        g.unlock_all = true;
+        g
+    };
+    let mut fb = Framebuffer::new();
+    let mut snap = |g: &mut crate::game::Game, name: &str| {
+        g.tick();
+        g.draw(&mut fb);
+        fb.save_png(&std::path::Path::new(dir).join(format!("{name}.png")), g.palette());
+    };
+    let at = |id: &str| levels.iter().position(|l| l.id == id).unwrap_or(0);
+    let mut g = new_game();
+    snap(&mut g, "00_title");
+    g.event(Ev::Key(Key::Enter));
+    g.mouse = (200, 150);
+    snap(&mut g, "01_select");
+    // The first site: its card, then a moment of play with a burrow being placed.
+    g.enter_level(at("1-1"));
+    snap(&mut g, "02_1-1_card");
+    g.begin(false);
+    let steps = crate::bot::parse_plan(&levels[at("1-1")].plans[0]).unwrap_or_default();
+    drive(&mut g, &steps, 2);
+    g.tip = None;
+    g.tool = crate::game::Tool::Build(crate::rules::Kind::Burrow);
+    g.mouse = (200, 165);
+    g.paused = false;
+    snap(&mut g, "03_1-1_play");
+    // Mid-game views of bigger sites, each with something selected.
+    let views: [(&str, i32, (i32, i32), (i32, i32), &str); 7] = [
+        ("1-2", 12, (0, 0), (30, 16), "04_1-2_store"),
+        ("2-1", 22, (300, 0), (68, 18), "05_2-1_mesa"),
+        ("2-2", 26, (440, 0), (82, 18), "06_2-2_relay"),
+        ("2-3", 22, (240, 0), (52, 16), "07_2-3_kiln"),
+        ("3-2", 26, (0, 80), (12, 11), "08_3-2_canopy"),
+        ("4-1", 24, (0, 0), (6, 17), "09_4-1_manors"),
+        ("5-2", 50, (580, 0), (88, 12), "10_5-2_skyreach"),
+    ];
+    for (id, days, cam, sel, name) in views {
+        let mut g = new_game();
+        g.enter_level(at(id));
+        g.begin(false);
+        let steps = crate::bot::parse_plan(&levels[at(id)].plans[0]).unwrap_or_default();
+        drive(&mut g, &steps, days);
+        g.tip = None;
+        g.msg = None;
+        g.floaters.clear();
+        g.overlay = crate::game::Overlay::None;
+        g.paused = true;
+        g.cam = cam;
+        g.clamp_cam();
+        if let Some(b) = g.city.building_at(sel.0, sel.1) {
+            g.sel = Some(crate::game::Sel::B(b.id));
+        } else if let Some(s) = g.level().source_at(sel.0, sel.1) {
+            g.sel = Some(crate::game::Sel::Source(s));
+        }
+        g.mouse = (390, 120);
+        snap(&mut g, name);
+    }
+    // A workplace about to be placed: the reach dots.
+    let mut g = new_game();
+    g.enter_level(at("2-1"));
+    g.begin(false);
+    let steps = crate::bot::parse_plan(&levels[at("2-1")].plans[0]).unwrap_or_default();
+    drive(&mut g, &steps, 20);
+    g.tip = None;
+    g.msg = None;
+    g.floaters.clear();
+    g.city.seeds_tenths = 400;
+    g.paused = true;
+    g.cam = (0, 0);
+    g.clamp_cam();
+    g.tool = crate::game::Tool::Build(crate::rules::Kind::Weaver);
+    g.hire = crate::rules::Species::Dodo;
+    g.mouse = (275, 195);
+    snap(&mut g, "11_2-1_reach");
+    // A finished site.
+    let mut g = new_game();
+    g.enter_level(at("1-1"));
+    g.begin(false);
+    let steps = crate::bot::parse_plan(&levels[at("1-1")].plans[0]).unwrap_or_default();
+    drive(&mut g, &steps, 60);
+    g.mouse = (200, 100);
+    snap(&mut g, "12_results");
+    // The rules pages.
+    let mut g = new_game();
+    g.event(Ev::Key(Key::Help));
+    for p in 0..crate::game::HELP_PAGES {
+        g.help_page = p;
+        snap(&mut g, &format!("90_help_{}", p + 1));
+    }
 }
 
 #[cfg(test)]
