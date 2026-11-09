@@ -137,20 +137,64 @@ For that to work, the ships you design have to be the strategy. The proving grou
 
 ---
 
-**Next: talk through before building**:
-- **How to design big ships.** Henry wants even bigger ships, and clicking pixels on a 41 grid doesn't scale. Big ships probably need their own way of being designed, and the yard has to stay tidy as features pile up. One direction: design small modules (a turret pod, an engine block, an armor panel) pixel by pixel, then lay a big ship out from your own modules, so the big-ship editor only places them. Fitting and power could live there too, as a reactor module powering the modules beside it. That would also make a cannon on a tiny hull expensive.
+## Round 4: a yard for big ships (2026-11-08)
+
+**Goal:** make a 100 px ship as quick to build as a fighter, in a yard with room for the 25 or so part types to come (goal 3), before any new parts are added.
+
+**Decided in the talk before building:**
+- **Ships go up to 100x100.**
+- **Modules are stamps.** Copying a design or a region onto a ship makes plain pixels; nothing stays linked. Henry: 100x100 "is not so many that you would never want to edit it manually", and it would "muddy the waters" if editing a module changed the ships that used it. My first pitch said live modules would serve the deck-building and factory-tree ideas; Henry pointed out those ideas stand however a ship is painted. Launching sub-ships from a big ship can be designed on its own later (parking lot).
+- **One editor with tools**, not a second big-ship editor.
+- **The yard's text readouts become icons**, freeing space for a bigger canvas.
+- **Parts get sorted into categories.** More are coming: factory, guns, power, maybe shields, more armor types, a second collector, network nodes.
+
+| # | Addition | Serves | What to look for | Verdict |
+|---|---|---|---|---|
+| 4.1 | **A 99x99 grid with whole-step zoom.** 1x is the ship at its real size (drawn as in the arena), 2x is the whole grid, 4x and 8x are for fine work; at 8x each cell shows its part's shape. Q/E, the mouse wheel or the -/+ buttons zoom around the pointer; WASD or the arrows scroll. A design opens at the biggest zoom that shows all of it. | 3 | Does moving between 2x and 8x feel quick enough to draw a big ship's outline and then detail it? Is 1x useful as the preview? | **Keep.** |
+| 4.2 | **Rectangle and fill tools.** Drag a box to fill it (right-drag empties); cannons tile it in 3x3 blocks. Fill takes a hole inside the ship, or swaps a patch of one part for another; open space that reaches the edge won't fill. Mirror works with both. | 3 | Can you rough out a hull, plate it and fill it in a minute? Does the fill refusing open space ever get in the way? | **Keep.** |
+| 4.3 | **Stamps.** C, then drag a box to pick it up; or right-click any design's tab to pick up the whole design. A dithered ghost follows the pointer, T turns it, a click places it as ordinary pixels, right-click puts it down. With mirror on, a flipped copy lands on the other side. | 3 | Is building a big ship from your own turret pods and engine blocks the shortcut it should be? | **Keep** ("stamps was the right choice"). |
+| 4.4 | **Six part categories**, keys 1–6, pressing again for the next part: hull & armor, weapons, drive, power (empty until its parts arrive), industry, command. Each part's swatch has a small shape in it. | 3 | Does it still feel quick to switch parts? Do the shapes help tell parts apart? | **Keep.** Once a category outgrows one row of part buttons, the layout will need some shuffling. |
+| 4.5 | **Icon readouts.** Cost and the status line stay as text. Flight style is an icon and a word; speed, turning and thrust per weight are gauges with their numbers (the gold mark is 1 thrust per weight, where attack runs start); the part lines became a tally of swatches with counts. Everything explains itself on hover. | 3 | Can you read a ship at a glance? Is anything you used to read now missing? | **Keep.** |
+| 4.6 | **TITAN, a 97 px default** (7th slot): plated two deep, nine cannons, flak on sponsons and behind the plate, three prow lances, three cores, 13 engines. Two new tests: 1 titan vs 5 capitals, and vs 40 lancers. | 3 (the awe) | Does a 97 px ship beside 3 px fighters give the awe? | **Keep** ("impressive"). Henry is tempted to go even bigger, but 99x99 stays for now. |
+
+**Judgement calls while building** (say if any are wrong):
+- **99, not 100.** An odd grid keeps a centre column for the mirror. Ships are at most 99x99.
+- **Undo (U, and a button), 64 steps deep.** It wasn't in the plan, but a misplaced fill or stamp on a 99x99 grid is too costly without it.
+- **A 7th design slot** for the titan, rather than replacing one of the six. The yard's tabs lost their little ship icons to fit seven names; the arena's roster entries got a little shorter.
+- **The acceleration line became the thrust-per-weight gauge.** It's the number that decides flight style; the time to top speed is in its hover text.
+- **Status lines got shorter** to fit the narrower column: "3 LOOSE PIXELS", "2 ENGINES: NO 3-WIDE EXIT", "NO GUNS: STAYS WITH ITS GROUP". The test from round 3 still checks that every one fits, now for every cell of a 99x99 grid.
+- **Save files store each design trimmed to its drawing**, with its place on the grid, instead of the whole grid (a 99x99 grid would be 10,000 characters a line). Old files load centred, so Henry's designs carry over.
+
+**What the headless runs showed** (12 seeds each):
+- **Nothing else changed.** Every round 3 matchup gives exactly the same results, so the bigger grid didn't touch the fights.
+- **The titan kills lancer swarms and loses to equal-cost big ships.** 1 titan vs 40 lancers: titan 12–0 in 0:21, losing 287 of its 3,069 px. Its cores sit 15–20 px deep, beyond a lance's 6-pixel punch, and its 32 flak shred them (40 lancers kill the capital in 16 s). 1 titan vs 5 capitals: capitals 12–0 in 1:43, losing no ships. At its own cost (3,093 px) it loses to 4 capitals (10 wins, 2 draws), 17 destroyers (8 wins, 4 draws) and 70 frigates (12 wins). Five capitals bring 20 cannons to its 9, and a 97x41 ship is the easiest target in the arena.
+
+**Fixed during play:**
+- **Engines need a straight 3-wide way out** (Henry, changing 3.3). His capital wrapped plate round its engines and let the exhaust out through a channel that turned a corner, which the round 3 rule allowed. "The point of making engines be exposed is allowing fighters to have something they can do vs. armored capital ships, and this defeats that." Now it's a rook's move: in one of the four directions, the engine's own line and the lines either side of it must be empty right out past the edge of the ship, so there's always a straight line of fire to every engine. A straight well, however deep in plate, still counts; a bend or a pixel diagonally behind the engine doesn't. Every default still flies. Of Henry's saved designs only that capital is affected: all 6 of its engines show buried.
+- **Cannons stay on their target among equals** (Henry, watching the titan against five capitals: "its guns do one volley against one target and then spin all the way over to another"). A cannon took whichever enemy in range had the most pixels left, so every hit made its target smaller than the four untouched capitals and sent the barrel swinging round to one of them. Measured over the first minute: the titan's nine cannons changed target about 180 times while firing about 130 shells. Now a cannon goes for the big ships (anything in range at least 2/3 the size, as built, of the biggest), and of those takes the one its barrel reaches soonest, so it keeps shooting the ship it's aimed at. Barrel movement fell by about 70% (1,150 steps to 365 a minute) and target changes to 20–60; a test checks a cannon between two equal hulks never changes target. This is every cannon, not just the titan's. 12 seeds each:
+  - The titan still loses to 5 capitals (0–12), but takes more off them (1,026 px, up from 830). At its own cost it now draws 5 of 12 against 4 capitals (was 2) and kills 7 of 17 destroyers (was 2).
+  - Cannon ships mostly do better: 1 destroyer vs 4 frigates 3–9 (was 1–11); 13 frigates vs 1 capital 2–10 (was 5–7).
+  - One went the other way: 13 frigates vs 3 destroyers is 12–0 for the frigates (was 8–4). The destroyers kill about as many frigates as before (7 of 13, was 8) but now lose all three.
+  - The fighter > lancer > frigate > fighter triangle holds at 12–0 each way.
+
+**Henry's notes:**
+- "The new pixel editor looks good to me. There's even extra room in the bottom right that we can use in the future if we need it."
+
+---
+
+**Next:** power, once round 4's verdicts are in. It's the first new category: reactors, and how a gun's real cost becomes space and shape (parking lot: fitting and power).
 
 ---
 
 ## Parking lot (considered, not built)
 
 - **Beam lasers**: a held beam that carves a groove. Mostly for the cool factor.
-- **Fitting and power**: reactors power the guns near them, so a gun's real cost is space and shape. This keeps "pixels are money" honest without price tags. Henry expects it to stop cannons going on tiny hulls (2.3); see the big-ship talk above.
+- **Fitting and power**: reactors power the guns near them, so a gun's real cost is space and shape. This keeps "pixels are money" honest without price tags. Henry expects it to stop cannons going on tiny hulls (2.3). The first new part category after round 4.
 - **Small guns chip heavy armor**: flak doing a tiny bit of damage to plate. Needs an HP system.
 - **Shields and counter-shields.**
 - **Sub-orders**: Hunt → attack runs, orbit or kite. Also a hunting group size (Toy 1's packs of 3, generalized). In a real game, maybe a button per ship type to switch its AI live.
 - **Reactionless drive** (campaign): a special engine that works buried inside armor, as an exception to the exposed-engine rule.
-- **100 px capitals**: these need ships built from your own smaller designs (stamped turret modules, hangars holding your fighter design).
+- **Hangars and launching**: a big ship carrying your fighter design, or a piece of it with its own core and engines detaching on command.
 - **Torpedoes or bombs** for small ships to threaten plate, if lances aren't enough.
 - **Per-part prices or multiple materials**: only if weight and fitting can't carry the costs.
 - **Lancers vs big ships, balance**: 40 lancers kill a 620 px capital in 4 s. Good as a counter for now; revisit once fights are bigger (bigger cores, half-pixel death, or cores that resist small guns were the options).

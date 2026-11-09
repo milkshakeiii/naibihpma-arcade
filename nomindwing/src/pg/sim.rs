@@ -363,7 +363,8 @@ struct Snap {
     vx: i32,
     vy: i32,
     half: i32,
-    px: i32,
+    /// Pixels as built: its size class, which damage doesn't change.
+    full: i32,
 }
 
 /// What a brain wants this tick.
@@ -556,7 +557,7 @@ impl Arena {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.alive)
-            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), px: s.px_now() })
+            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full() })
             .collect();
         let n = self.ships.len();
         // How close each armed ship that can move is to its nearest enemy, before and after
@@ -1200,8 +1201,14 @@ impl Arena {
         }
     }
 
-    /// A cannon turret swings toward the biggest enemy in range, slowly, and fires once its
-    /// barrel is on target. Fast ships close in change bearing faster than it turns.
+    /// A cannon turret swings slowly toward its target and fires once its barrel is on it. Fast
+    /// ships close in change bearing faster than it turns.
+    ///
+    /// It goes for the big ships: anything in range at least 2/3 the size (as built) of the
+    /// biggest enemy in range. Of those it takes the one its barrel reaches soonest, so among
+    /// ships of a size it stays on the one it's already aimed at. (It used to take whichever had
+    /// the most pixels left, so every hit sent it swinging round to an undamaged twin: the
+    /// titan's cannons changed target more often than they fired at five capitals.)
     fn cannon(&mut self, i: usize, k: usize, snap: &[Snap], pending: &mut [i32]) {
         let (team, cell) = (self.ships[i].team, self.ships[i].turrets[k].cell);
         if self.ships[i].hp[cell] == 0 {
@@ -1212,7 +1219,12 @@ impl Arena {
             let t = &mut self.ships[i].turrets[k];
             t.cool = (t.cool - 1).max(0);
         }
-        let Some(e) = snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, gx, gy) <= CANNON_RANGE + e.half).max_by_key(|e| (e.px, -dist2(e.x, e.y, gx, gy))).copied() else {
+        let in_range = || snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, gx, gy) <= CANNON_RANGE + e.half);
+        let Some(big) = in_range().map(|e| e.full).max() else {
+            return;
+        };
+        let barrel = self.ships[i].turrets[k].aim;
+        let Some(e) = in_range().filter(|e| e.full * 3 >= big * 2).min_by_key(|e| (angle_diff(barrel, angle_of(e.x - gx, e.y - gy)).abs(), dist2(e.x, e.y, gx, gy))).copied() else {
             return;
         };
         let stale = {
@@ -1939,5 +1951,25 @@ mod tests {
     fn an_armed_miner_shoots_back() {
         let a = fight(&[(0, 200, 180)], &[(5, 250, 180)]);
         assert!(a.score[1].hits > 0, "the gunminer never hit the fighter");
+    }
+
+    #[test]
+    fn a_cannon_stays_on_its_target_among_equals() {
+        // Henry, watching the titan against five capitals: its guns fired one volley at one ship,
+        // then swung all the way round to another. A cannon facing two equal hulks must keep
+        // shooting the one it's aimed at, however much the first hits take off it.
+        let gun = Design::from_rows("GUN", Order::Hold, &["nnn", "nnn", "nnn", "hch"]);
+        let hulk = Design::from_rows("HULK", Order::Hold, &["hhhhh", "hhhhh", "hhchh", "hhhhh", "hhhhh"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &gun, 240, 180);
+        a.add(1, 1, &hulk, 180, 180);
+        a.add(1, 1, &hulk, 300, 180);
+        let mut targets = Vec::new();
+        while a.tick < 15 * 30 && a.ships[1..].iter().all(|s| s.alive) {
+            a.step();
+            targets.extend(a.shots.iter().filter(|s| s.kind == Kind::Shell && s.born == a.tick).map(|s| s.target));
+        }
+        assert!(targets.len() >= 3, "only {} shells", targets.len());
+        assert!(targets.windows(2).all(|w| w[0] == w[1]), "it changed target: {targets:?}");
     }
 }

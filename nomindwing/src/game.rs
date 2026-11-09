@@ -145,7 +145,7 @@ impl Game {
             Ev::Move(x, y) => self.mouse = (x, y),
             Ev::Key(k) => self.key(k),
             Ev::Press { x, y, right } => self.press(x, y, right),
-            Ev::Release { .. } | Ev::Char(_) => {}
+            Ev::Release { .. } | Ev::Char(_) | Ev::Wheel(_) => {}
         }
     }
 

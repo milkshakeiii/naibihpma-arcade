@@ -5,9 +5,11 @@
 //! Round 2 rules: every pixel must connect to the core through other pixels (edges, not
 //! corners); plate shrugs off hits no stronger than it; the cannon is a 3x3 block.
 //! Round 3: extra cores are allowed at a steeply rising cost, and every engine needs a 3-wide
-//! way out of the ship for its exhaust.
+//! way out of the ship for its exhaust (straight out since round 4, so it's always in the open).
+//! Round 4: ships up to 99x99 (odd, so the mirror has a centre column), parts sorted into
+//! categories, and the editing tools big ships need: rectangles, fills and stamps.
 
-pub const GRID: i32 = 41;
+pub const GRID: i32 = 99;
 pub const FLAK_RANGE: i32 = 48;
 pub const LANCE_RANGE: i32 = 100;
 pub const CANNON_RANGE: i32 = 130;
@@ -23,8 +25,10 @@ pub const CANNON_DMG: i32 = 3;
 pub const LANCE_PEN: i32 = 6;
 /// Pixels each scoop carries.
 pub const SCOOP_CARRY: i32 = 3;
-/// The first line of a save file (the format hasn't changed since round 2).
-pub const SAVE_HEADER: &str = "#ROUND2";
+/// The first line of a save file. Round 4 saves each design trimmed to its drawing, with where it
+/// sits on the grid; round 2 and 3 files saved the whole 41x41 grid and still load, centred.
+pub const SAVE_HEADER: &str = "#ROUND4";
+pub const OLD_SAVE_HEADER: &str = "#ROUND2";
 /// What the second core costs on top of the ship's pixels. Each core after that costs twice the
 /// one before: +8, +16, +32 and so on.
 pub const CORE_EXTRA: i32 = 8;
@@ -51,6 +55,45 @@ pub enum Part {
 }
 
 pub const PARTS: [Part; 8] = [Part::Hull, Part::Plate, Part::Flak, Part::Lance, Part::Cannon, Part::Engine, Part::Scoop, Part::Core];
+
+/// The yard's part categories, keys 1-6. Power is empty until its parts arrive.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cat {
+    Armor,
+    Weapons,
+    Drive,
+    Power,
+    Industry,
+    Command,
+}
+
+pub const CATS: [Cat; 6] = [Cat::Armor, Cat::Weapons, Cat::Drive, Cat::Power, Cat::Industry, Cat::Command];
+
+impl Cat {
+    pub fn name(self) -> &'static str {
+        match self {
+            Cat::Armor => "HULL AND ARMOR",
+            Cat::Weapons => "WEAPONS",
+            Cat::Drive => "DRIVE",
+            Cat::Power => "POWER",
+            Cat::Industry => "INDUSTRY",
+            Cat::Command => "COMMAND",
+        }
+    }
+    pub fn parts(self) -> &'static [Part] {
+        match self {
+            Cat::Armor => &[Part::Hull, Part::Plate],
+            Cat::Weapons => &[Part::Flak, Part::Lance, Part::Cannon],
+            Cat::Drive => &[Part::Engine],
+            Cat::Power => &[],
+            Cat::Industry => &[Part::Scoop],
+            Cat::Command => &[Part::Core],
+        }
+    }
+    pub fn of(p: Part) -> Cat {
+        *CATS.iter().find(|c| c.parts().contains(&p)).expect("every part has a category")
+    }
+}
 
 impl Part {
     /// Hits this strong or weaker bounce off.
@@ -100,8 +143,8 @@ impl Part {
             Part::Plate => "PLATE - FLAK BOUNCES OFF IT. LANCES AND CANNON SHELLS BREAK IT, AND IT SOAKS TWICE AS MUCH OF A LANCE. WEIGHS 2.",
             Part::Flak => "FLAK - A TURRET. SHOOTS THE NEAREST ENEMY WITHIN 48 PX, LEADING ITS AIM, SPREADING FIRE OVER SEVERAL TARGETS. TOO WEAK FOR PLATE. ONE SHOT EVERY 1.3 S.",
             Part::Lance => "LANCE - SHOOTS STRAIGHT AHEAD ONLY, UP TO 100 PX. PUNCHES THROUGH 6 PIXELS, OR 3 OF PLATE. ONE SHOT EVERY 3 S. WEIGHS 2.",
-            Part::Cannon => "CANNON - A BIG 3X3 TURRET, 130 PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL BLASTS A 3X3 HOLE, PLATE AND ALL. PREFERS THE BIGGEST TARGET. EVERY 3 S. WEIGHS 18.",
-            Part::Engine => "ENGINE - THRUST. ITS EXHAUST NEEDS A 3-WIDE WAY OUT OF THE SHIP, IN ANY DIRECTION AND ALLOWED TO BEND. A BURIED ENGINE SHOWS RED. MORE THRUST FOR THE WEIGHT MEANS A HIGHER TOP SPEED AND QUICKER TURNS.",
+            Part::Cannon => "CANNON - A BIG 3X3 TURRET, 130 PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL BLASTS A 3X3 HOLE, PLATE AND ALL. IT GOES FOR THE BIG SHIPS IN RANGE, AND OF THOSE THE ONE ITS BARREL REACHES SOONEST. EVERY 3 S. WEIGHS 18.",
+            Part::Engine => "ENGINE - THRUST. ITS EXHAUST NEEDS A STRAIGHT 3-WIDE WAY OUT: ITS OWN LINE AND THE ONES EITHER SIDE EMPTY RIGHT OUT OF THE SHIP, IN ANY OF THE FOUR DIRECTIONS. A BURIED ENGINE SHOWS RED. MORE THRUST FOR THE WEIGHT MEANS A HIGHER TOP SPEED AND QUICKER TURNS.",
             Part::Scoop => "SCOOP - MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES 3.",
             Part::Core => "CORE - THE SHIP'S LIFE: IT DIES WHEN ITS LAST CORE IS GONE. EXTRA CORES COST MORE EACH: +8, +16, +32. CUT IN TWO, EVERY PIECE WITH A CORE FLIES ON AS A SHIP; PIECES WITHOUT ONE BREAK AWAY.",
         }
@@ -314,7 +357,7 @@ pub struct Check {
     pub cores: i32,
     /// Cells not joined to the cores: the whole drawing must be one piece.
     pub loose: Vec<(i32, i32)>,
-    /// Engines with no 3-wide way out of the ship for their exhaust.
+    /// Engines with no straight 3-wide way out of the ship for their exhaust.
     pub buried: Vec<(i32, i32)>,
 }
 
@@ -328,59 +371,32 @@ impl Check {
             Some("NO CORE: IT CAN'T FLY".into())
         } else if !self.loose.is_empty() {
             let n = self.loose.len();
-            Some(format!("{n} LOOSE PIXEL{}: CONNECT TO CORE", s(n)))
+            Some(format!("{n} LOOSE PIXEL{}", s(n)))
         } else if !self.buried.is_empty() {
             let n = self.buried.len();
-            Some(format!("{n} BURIED ENGINE{}: NO 3-WIDE EXIT", s(n)))
+            Some(format!("{n} ENGINE{}: NO 3-WIDE EXIT", s(n)))
         } else {
             None
         }
     }
 }
 
-/// Engines whose exhaust has no way out: a 3x3 window of empty space has to fit against one
-/// face of the engine and slide, a cell at a time through empty space, out past the edge of the
-/// ship's bounding box. It can leave in any direction and can turn corners. `filled` says whether
-/// a cell holds a pixel (anything outside the drawing is empty).
+/// Engines whose exhaust has no straight way out. Like a rook's move: in one of the four
+/// directions, the engine's own column (or row) and the ones either side of it must be empty all
+/// the way out past the edge of the ship's bounding box. So there's always a straight line of
+/// fire to every engine; plate can't fold round it. `filled` says whether a cell holds a pixel
+/// (anything outside the drawing is empty).
 pub fn buried_engines(engines: &[(i32, i32)], bbox: (i32, i32, i32, i32), filled: impl Fn(i32, i32) -> bool) -> Vec<(i32, i32)> {
     let (x0, y0, x1, y1) = bbox;
-    // Windows go by their top-left corner. A window poking out past the box can slide on out
-    // through empty space, so those are where the exhaust gets away. Flood inward from them to
-    // find every window with a way out, then check what sits against each engine.
-    let free = |wx: i32, wy: i32| (0..3).all(|dy| (0..3).all(|dx| !filled(wx + dx, wy + dy)));
-    let out = |wx: i32, wy: i32| wx < x0 || wy < y0 || wx + 2 > x1 || wy + 2 > y1;
-    let (w, h) = (x1 - x0 + 3, y1 - y0 + 3);
-    let inside = |wx: i32, wy: i32| (x0 - 2..=x1).contains(&wx) && (y0 - 2..=y1).contains(&wy);
-    let idx = |wx: i32, wy: i32| ((wy - (y0 - 2)) * w + (wx - (x0 - 2))) as usize;
-    let mut escapes = vec![false; (w * h) as usize];
-    let mut todo = Vec::new();
-    for wy in y0 - 2..=y1 {
-        for wx in x0 - 2..=x1 {
-            if out(wx, wy) && free(wx, wy) {
-                escapes[idx(wx, wy)] = true;
-                todo.push((wx, wy));
-            }
-        }
-    }
-    while let Some((wx, wy)) = todo.pop() {
-        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-            let (nx, ny) = (wx + dx, wy + dy);
-            if inside(nx, ny) && !escapes[idx(nx, ny)] && free(nx, ny) {
-                escapes[idx(nx, ny)] = true;
-                todo.push((nx, ny));
-            }
-        }
-    }
-    let leads_out = |wx: i32, wy: i32| if inside(wx, wy) { escapes[idx(wx, wy)] } else { free(wx, wy) };
-    engines
-        .iter()
-        .copied()
-        .filter(|&(ex, ey)| {
-            // The windows sharing an edge with the engine: three behind it, three ahead, three each side.
-            let exposed = (-2..=0).any(|k| leads_out(ex + k, ey + 1) || leads_out(ex + k, ey - 3) || leads_out(ex - 3, ey + k) || leads_out(ex + 1, ey + k));
-            !exposed
-        })
-        .collect()
+    let clear = |(ex, ey): (i32, i32), (dx, dy): (i32, i32)| {
+        // Sideways from the line of the exhaust.
+        let (sx, sy) = (dy.abs(), dx.abs());
+        (1..)
+            .map(|k| (ex + dx * k, ey + dy * k))
+            .take_while(|&(x, y)| (x0..=x1).contains(&x) && (y0..=y1).contains(&y))
+            .all(|(x, y)| (-1..=1).all(|s| !filled(x + sx * s, y + sy * s)))
+    };
+    engines.iter().copied().filter(|&e| ![(0, 1), (0, -1), (1, 0), (-1, 0)].iter().any(|&d| clear(e, d))).collect()
 }
 
 #[derive(Clone, Debug)]
@@ -515,10 +531,9 @@ impl Design {
             c.loose = (0..self.cells.len()).filter(|&i| self.cells[i].is_some() && !seen[i]).map(|i| (i as i32 % GRID, i as i32 / GRID)).collect();
         }
         c.loose.extend(self.cannon_blocks().1);
-        let used: Vec<(i32, i32)> = (0..GRID * GRID).filter(|&i| self.cells[i as usize].is_some()).map(|i| (i % GRID, i / GRID)).collect();
-        if !used.is_empty() {
-            let bbox = (used.iter().map(|p| p.0).min().unwrap(), used.iter().map(|p| p.1).min().unwrap(), used.iter().map(|p| p.0).max().unwrap(), used.iter().map(|p| p.1).max().unwrap());
-            let engines: Vec<(i32, i32)> = used.iter().copied().filter(|&(x, y)| self.get(x, y) == Some(Part::Engine)).collect();
+        if let Some(bbox) = self.used_box() {
+            let (x0, y0, x1, y1) = bbox;
+            let engines: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| self.get(x, y) == Some(Part::Engine)).collect();
             c.buried = buried_engines(&engines, bbox, |x, y| self.get(x, y).is_some());
         }
         c
@@ -528,41 +543,228 @@ impl Design {
         stats_of(&self.cells, self.cannon_blocks().0.len() as i32)
     }
 
-    pub fn shape(&self) -> Shape {
-        let used: Vec<(i32, i32)> = (0..GRID * GRID).filter(|&i| self.cells[i as usize].is_some()).map(|i| (i % GRID, i / GRID)).collect();
-        if used.is_empty() {
-            return Shape { w: 1, h: 1, cells: vec![None], cannons: Vec::new() };
+    /// The box round everything drawn, as (left, top, right, bottom), inclusive.
+    pub fn used_box(&self) -> Option<(i32, i32, i32, i32)> {
+        let mut b: Option<(i32, i32, i32, i32)> = None;
+        for i in 0..self.cells.len() {
+            if self.cells[i].is_some() {
+                let (x, y) = (i as i32 % GRID, i as i32 / GRID);
+                b = Some(match b {
+                    None => (x, y, x, y),
+                    Some((l, t, r, bt)) => (l.min(x), t.min(y), r.max(x), bt.max(y)),
+                });
+            }
         }
-        let (x0, x1) = (used.iter().map(|p| p.0).min().unwrap(), used.iter().map(|p| p.0).max().unwrap());
-        let (y0, y1) = (used.iter().map(|p| p.1).min().unwrap(), used.iter().map(|p| p.1).max().unwrap());
+        b
+    }
+
+    pub fn shape(&self) -> Shape {
+        let Some((x0, y0, x1, y1)) = self.used_box() else {
+            return Shape { w: 1, h: 1, cells: vec![None], cannons: Vec::new() };
+        };
         let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
         let cells = (0..w * h).map(|i| self.get(x0 + i % w, y0 + i / w)).collect();
         let cannons = self.cannon_blocks().0.iter().map(|&(bx, by)| ((by + 1 - y0) * w + bx + 1 - x0) as usize).collect();
         Shape { w, h, cells, cannons }
     }
 
-    /// One line for the save file: `NAME|ORDER|row/row/...` with `.` for empty cells.
-    pub fn to_line(&self) -> String {
-        let rows: Vec<String> = (0..GRID).map(|y| (0..GRID).map(|x| self.get(x, y).map_or('.', |p| p.ch())).collect()).collect();
-        format!("{}|{}|{}", self.name, self.order.name(), rows.join("/"))
+    /// The whole drawing as a stamp.
+    pub fn as_stamp(&self) -> Stamp {
+        let sh = self.shape();
+        Stamp { w: sh.w, h: sh.h, cells: sh.cells }
     }
 
-    pub fn from_line(s: &str) -> Option<Design> {
-        let mut it = s.trim().split('|');
-        let name = it.next()?.to_string();
-        let order = Order::from_name(it.next()?)?;
-        let rows: Vec<&str> = it.next()?.split('/').collect();
-        if rows.len() != GRID as usize {
-            return None;
+    /// The cells in a box (corners inclusive, either order) as a stamp, trimmed to what's drawn.
+    /// A cannon block the box cuts through is left out, so a stamp never holds part of one.
+    pub fn copy_box(&self, a: (i32, i32), b: (i32, i32)) -> Stamp {
+        let (x0, x1, y0, y1) = (a.0.min(b.0), a.0.max(b.0), a.1.min(b.1), a.1.max(b.1));
+        let inside = |x: i32, y: i32| (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
+        let blocks = self.cannon_blocks().0;
+        let keep = |x: i32, y: i32| match self.get(x, y) {
+            Some(Part::Cannon) => blocks.iter().any(|&(bx, by)| (bx..bx + 3).contains(&x) && (by..by + 3).contains(&y) && inside(bx, by) && inside(bx + 2, by + 2)),
+            p => p.is_some(),
+        };
+        let used: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| keep(x, y)).collect();
+        if used.is_empty() {
+            return Stamp { w: 1, h: 1, cells: vec![None] };
         }
-        let mut d = Design::blank(&name);
+        let (l, r) = (used.iter().map(|p| p.0).min().unwrap(), used.iter().map(|p| p.0).max().unwrap());
+        let (t, bt) = (used.iter().map(|p| p.1).min().unwrap(), used.iter().map(|p| p.1).max().unwrap());
+        let (w, h) = (r - l + 1, bt - t + 1);
+        let cells = (0..w * h)
+            .map(|i| {
+                let (x, y) = (l + i % w, t + i / w);
+                if keep(x, y) {
+                    self.get(x, y)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Stamp { w, h, cells }
+    }
+
+    /// Writes a stamp's pixels with its top-left at (x, y); its empty cells leave what's there,
+    /// and anything off the grid is dropped. A cannon block the stamp lands on is removed whole
+    /// first, so no scraps are left. Returns whether anything changed.
+    pub fn paste(&mut self, st: &Stamp, (x, y): (i32, i32)) -> bool {
+        let mut changed = false;
+        for (bx, by) in self.cannon_blocks().0 {
+            if (0..9).any(|k| st.get(bx + k % 3 - x, by + k / 3 - y).is_some()) {
+                self.clear_cannon((bx, by));
+                changed = true;
+            }
+        }
+        for sy in 0..st.h {
+            for sx in 0..st.w {
+                let (gx, gy) = (x + sx, y + sy);
+                if let Some(p) = st.get(sx, sy) {
+                    if (0..GRID).contains(&gx) && (0..GRID).contains(&gy) && self.get(gx, gy) != Some(p) {
+                        self.set(gx, gy, Some(p));
+                        changed = true;
+                    }
+                }
+            }
+        }
+        changed
+    }
+
+    /// Fills a box (corners inclusive, either order) with a part, or empties it. Cannons tile the
+    /// box in whole 3x3 blocks from its top-left corner, leaving any strip too thin for one; a
+    /// cannon block the box touches is removed whole. Returns whether anything changed.
+    pub fn fill_box(&mut self, a: (i32, i32), b: (i32, i32), p: Option<Part>) -> bool {
+        let (x0, x1) = (a.0.min(b.0).max(0), a.0.max(b.0).min(GRID - 1));
+        let (y0, y1) = (a.1.min(b.1).max(0), a.1.max(b.1).min(GRID - 1));
+        if x0 > x1 || y0 > y1 {
+            return false;
+        }
+        let (mut w, mut h) = (x1 - x0 + 1, y1 - y0 + 1);
+        if p == Some(Part::Cannon) {
+            (w, h) = (w / 3 * 3, h / 3 * 3);
+            if w == 0 || h == 0 {
+                return false;
+            }
+        }
+        match p {
+            Some(_) => self.paste(&Stamp { w, h, cells: vec![p; (w * h) as usize] }, (x0, y0)),
+            None => {
+                let mut changed = false;
+                for (bx, by) in self.cannon_blocks().0 {
+                    if bx + 2 >= x0 && bx <= x1 && by + 2 >= y0 && by <= y1 {
+                        self.clear_cannon((bx, by));
+                        changed = true;
+                    }
+                }
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        changed |= self.get(x, y).is_some();
+                        self.set(x, y, None);
+                    }
+                }
+                changed
+            }
+        }
+    }
+
+    /// Flood-fills the patch joined edge to edge that matches the cell at (x, y): an empty hole,
+    /// or a patch of one part, which this swaps for another part or erases. An empty area that
+    /// reaches the edge of the grid isn't a hole, so it's refused, and so are cannons (they come
+    /// in 3x3 blocks; the rectangle tiles them). Returns whether anything changed.
+    pub fn flood(&mut self, (x, y): (i32, i32), p: Option<Part>) -> Result<bool, &'static str> {
+        if !(0..GRID).contains(&x) || !(0..GRID).contains(&y) {
+            return Ok(false);
+        }
+        if p == Some(Part::Cannon) {
+            return Err("CANNONS DON'T FILL: USE THE RECTANGLE");
+        }
+        let was = self.get(x, y);
+        if was == p {
+            return Ok(false);
+        }
+        let seen = reach(GRID, GRID, (y * GRID + x) as usize, |i| self.cells[i] == was);
+        let patch: Vec<usize> = (0..seen.len()).filter(|&i| seen[i]).collect();
+        if was.is_none() && patch.iter().any(|&i| (i as i32 % GRID) % (GRID - 1) == 0 || (i as i32 / GRID) % (GRID - 1) == 0) {
+            return Err("THAT SPACE ISN'T CLOSED IN: FILL A HOLE INSIDE THE SHIP");
+        }
+        for i in patch {
+            self.cells[i] = p;
+        }
+        Ok(true)
+    }
+
+    /// One line for the save file: `NAME|ORDER|X,Y|row/row/...`, the drawing trimmed to its box
+    /// with the box's top-left on the grid, and `.` for empty cells.
+    pub fn to_line(&self) -> String {
+        let Some((x0, y0, x1, y1)) = self.used_box() else {
+            return format!("{}|{}|0,0|.", self.name, self.order.name());
+        };
+        let rows: Vec<String> = (y0..=y1).map(|y| (x0..=x1).map(|x| self.get(x, y).map_or('.', |p| p.ch())).collect()).collect();
+        format!("{}|{}|{x0},{y0}|{}", self.name, self.order.name(), rows.join("/"))
+    }
+
+    /// Reads a save line. A round 2 or 3 line (the whole 41x41 grid, no position) is centred.
+    pub fn from_line(s: &str) -> Option<Design> {
+        let f: Vec<&str> = s.trim().split('|').collect();
+        let (name, order) = (*f.first()?, Order::from_name(f.get(1)?)?);
+        let (at, rows) = match f.len() {
+            4 => {
+                let (x, y) = f[2].split_once(',')?;
+                ((x.parse::<i32>().ok()?, y.parse::<i32>().ok()?), f[3])
+            }
+            3 => {
+                let n = f[2].split('/').count() as i32;
+                if n > GRID {
+                    return None;
+                }
+                (((GRID - n) / 2, (GRID - n) / 2), f[2])
+            }
+            _ => return None,
+        };
+        let mut d = Design::blank(name);
         d.order = order;
-        for (y, r) in rows.iter().enumerate() {
-            for (x, c) in r.chars().enumerate().take(GRID as usize) {
-                d.set(x as i32, y as i32, Part::from_ch(c));
+        for (y, r) in rows.split('/').enumerate() {
+            for (x, c) in r.chars().enumerate() {
+                d.set(at.0 + x as i32, at.1 + y as i32, Part::from_ch(c));
             }
         }
         Some(d)
+    }
+}
+
+/// A piece of a drawing picked up to place elsewhere: a whole design, or a box copied off the
+/// grid. Placing it writes ordinary pixels; nothing stays linked to where it came from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stamp {
+    pub w: i32,
+    pub h: i32,
+    pub cells: Vec<Option<Part>>,
+}
+
+impl Stamp {
+    pub fn get(&self, x: i32, y: i32) -> Option<Part> {
+        if (0..self.w).contains(&x) && (0..self.h).contains(&y) {
+            self.cells[(y * self.w + x) as usize]
+        } else {
+            None
+        }
+    }
+    /// A quarter turn clockwise.
+    pub fn turned(&self) -> Stamp {
+        let (w, h) = (self.h, self.w);
+        let cells = (0..w * h).map(|i| self.get(i / w, self.h - 1 - i % w)).collect();
+        Stamp { w, h, cells }
+    }
+    /// Mirrored left to right.
+    pub fn flipped(&self) -> Stamp {
+        let cells = (0..self.w * self.h).map(|i| self.get(self.w - 1 - i % self.w, i / self.w)).collect();
+        Stamp { w: self.w, h: self.h, cells }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.cells.iter().all(|c| c.is_none())
+    }
+    /// Where the top-left goes for the stamp to sit centred on a cell.
+    pub fn origin(&self, (cx, cy): (i32, i32)) -> (i32, i32) {
+        (cx - self.w / 2, cy - self.h / 2)
     }
 }
 
@@ -646,7 +848,51 @@ pub fn defaults() -> Vec<Design> {
             ],
         ),
         Design::from_rows("GUNMINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]),
+        titan(),
     ]
+}
+
+/// A 97-pixel battleship, the round 4 scale test, drawn in code: plated two pixels deep, nine
+/// cannons, flak on sponsons down both sides and more behind the plate, three lances in the prow,
+/// three cores down the spine (+24) and a row of engines across the stern.
+fn titan() -> Design {
+    let mut d = Design::blank("TITAN");
+    let c = GRID / 2;
+    let half = |y: i32| if y < 40 { y / 2 } else if y <= 88 { 20 } else { 20 - (y - 88) };
+    for y in 0..=95 {
+        for x in c - half(y)..=c + half(y) {
+            d.set(x, y, Some(Part::Hull));
+        }
+    }
+    // Two pixels of plate all round: hull touching anything that isn't hull becomes plate, twice.
+    for _ in 0..2 {
+        let skin: Vec<(i32, i32)> = (0..GRID * GRID)
+            .map(|i| (i % GRID, i / GRID))
+            .filter(|&(x, y)| d.get(x, y) == Some(Part::Hull) && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| d.get(x + dx, y + dy) != Some(Part::Hull)))
+            .collect();
+        for (x, y) in skin {
+            d.set(x, y, Some(Part::Plate));
+        }
+    }
+    for y in [30, 55, 80] {
+        d.set(c, y, Some(Part::Core));
+    }
+    for (x, y) in [(c, 18), (c, 42), (c, 67), (c - 12, 48), (c + 12, 48), (c - 12, 62), (c + 12, 62), (c - 12, 76), (c + 12, 76)] {
+        d.put(x, y, Some(Part::Cannon));
+    }
+    for (x, y) in [(c, 8), (c - 4, 24), (c + 4, 24)] {
+        d.set(x, y, Some(Part::Lance));
+    }
+    for s in [-1, 1] {
+        // Sponsons just outside the plate, and guns behind it (a ship's own shots pass through it).
+        for (x, y) in [(half(20) + 1, 20), (half(32) + 1, 32)].into_iter().chain((44..=84).step_by(8).map(|y| (21, y))).chain((44..=88).step_by(6).map(|y| (16, y))) {
+            d.set(c + s * x, y, Some(Part::Flak));
+        }
+    }
+    for x in (c - 12..=c + 12).step_by(2) {
+        d.set(x, 96, Some(Part::Engine));
+    }
+    d
 }
 
 /// Earlier versions of the defaults, by slot. A saved design still exactly like one of these was
@@ -708,6 +954,91 @@ mod tests {
         assert!(d[2].stats().turn < d[3].stats().turn && d[3].stats().turn < d[4].stats().turn, "bigger ships turn slower");
         assert_eq!(d[3].stats().cannon, 1);
         assert_eq!(d[4].stats().cannon, 4);
+        assert_eq!(d[6].stats().cannon, 9);
+        assert_eq!(d[6].stats().flight, Flight::StandOff, "titan");
+        let sh = d[6].shape();
+        assert!(sh.w <= GRID && sh.h <= GRID && sh.h >= 95, "the titan is {}x{}", sh.w, sh.h);
+    }
+
+    #[test]
+    fn saves_from_the_41_grid_still_load_centred() {
+        // A round 3 line: the whole 41x41 grid, no position.
+        let mut rows = vec![".".repeat(41); 41];
+        rows[19] = format!("{}g.g{}", ".".repeat(19), ".".repeat(19));
+        rows[20] = format!("{}hch{}", ".".repeat(19), ".".repeat(19));
+        rows[21] = format!("{}e.e{}", ".".repeat(19), ".".repeat(19));
+        let d = Design::from_line(&format!("OLD|HUNT|{}", rows.join("/"))).expect("parses");
+        assert_eq!(d.to_line(), Design::from_rows("OLD", Order::Hunt, &["g.g", "hch", "e.e"]).to_line());
+        assert_eq!(d.get(GRID / 2, GRID / 2), Some(Part::Core));
+    }
+
+    #[test]
+    fn boxes_fill_and_erase_and_tile_cannons() {
+        let mut d = Design::blank("T");
+        assert!(d.fill_box((10, 10), (14, 12), Some(Part::Hull)));
+        assert_eq!(d.stats().count, 15);
+        // Cannons tile in whole blocks: a 7x4 box takes two, side by side.
+        let mut e = Design::blank("T");
+        e.fill_box((20, 20), (26, 23), Some(Part::Cannon));
+        assert_eq!(e.cannon_blocks(), (vec![(20, 20), (23, 20)], vec![]));
+        // Erasing a box that clips a cannon takes the whole block.
+        e.fill_box((22, 22), (22, 22), None);
+        assert_eq!(e.cannon_blocks(), (vec![(23, 20)], vec![]));
+        assert_eq!(e.stats().count, 9);
+    }
+
+    #[test]
+    fn fills_take_holes_and_patches_but_not_open_space() {
+        let mut d = Design::from_rows("T", Order::Hunt, &["ppppp", "p...p", "p.c.p", "p...p", "ppppp"]);
+        let c = GRID / 2;
+        // Outside the ring is open space.
+        assert!(d.flood((0, 0), Some(Part::Hull)).is_err());
+        // The hole inside fills, around the core.
+        assert_eq!(d.flood((c - 1, c - 1), Some(Part::Hull)), Ok(true));
+        assert_eq!(d.stats().count, 25);
+        assert!(d.check().ok());
+        // Clicking the ring swaps the whole ring.
+        assert_eq!(d.flood((c - 2, c - 2), Some(Part::Hull)), Ok(true));
+        assert_eq!(d.stats().plate, 0);
+        assert!(d.flood((c, c - 1), Some(Part::Cannon)).is_err());
+    }
+
+    #[test]
+    fn stamps_copy_turn_and_paste_as_plain_pixels() {
+        let src = Design::from_rows("T", Order::Hunt, &["g.g", "hch", "e.e"]);
+        let st = src.as_stamp();
+        assert_eq!((st.w, st.h), (3, 3));
+        // Four quarter turns come back to the start; one turn puts the engines on the left.
+        assert_eq!(st.turned().turned().turned().turned(), st);
+        assert_eq!(st.turned().get(0, 0), Some(Part::Engine));
+        assert_eq!(st.flipped().flipped(), st);
+        let mut d = Design::blank("T");
+        assert!(d.paste(&st, (5, 5)));
+        assert_eq!(d.get(6, 6), Some(Part::Core));
+        // Empty stamp cells leave what's under them.
+        d.set(6, 5, Some(Part::Plate));
+        d.paste(&st, (5, 5));
+        assert_eq!(d.get(6, 5), Some(Part::Plate));
+        // A copied box leaves out a cannon block it cuts through.
+        let mut e = Design::blank("T");
+        e.put(11, 11, Some(Part::Cannon));
+        e.set(13, 11, Some(Part::Hull));
+        let cut = e.copy_box((11, 10), (13, 12));
+        assert_eq!((cut.w, cut.h), (1, 1));
+        assert_eq!(cut.get(0, 0), Some(Part::Hull));
+        let whole = e.copy_box((10, 10), (13, 12));
+        assert_eq!(whole.cells.iter().filter(|c| **c == Some(Part::Cannon)).count(), 9);
+        // Pasting over part of a cannon removes the whole block first.
+        e.paste(&Stamp { w: 1, h: 1, cells: vec![Some(Part::Hull)] }, (10, 10));
+        assert_eq!(e.stats().cannon, 0);
+        assert_eq!(e.cannon_blocks().1, vec![]);
+    }
+
+    #[test]
+    fn every_part_has_one_category() {
+        for p in PARTS {
+            assert_eq!(CATS.iter().filter(|c| c.parts().contains(&p)).count(), 1, "{:?}", p);
+        }
     }
 
     #[test]
@@ -729,27 +1060,25 @@ mod tests {
     }
 
     #[test]
-    fn engines_need_a_three_wide_way_out() {
+    fn engines_need_a_straight_three_wide_way_out() {
         let buried = |rows: &[&str]| Design::from_rows("T", Order::Hunt, rows).check().buried.len();
         // Straight out the back, or out the side.
         assert_eq!(buried(&["hch", "e.e"]), 0);
         assert_eq!(buried(&["hhh", "ech", "hhh"]), 0);
-        // A pixel diagonally behind still leaves a 3-wide gap a cell over.
-        assert_eq!(buried(&["hchh", "hhe.", "hh.."]), 0);
+        // A pixel diagonally behind is in the way: the line either side of the engine must be clear.
+        assert_eq!(buried(&["hchh", "hhe.", "hh.."]), 1);
         // An engine stacked behind another is buried; the one at the back isn't.
         assert_eq!(buried(&["hhchh", "hheh.", "hheh."]), 1);
-        // A 2-wide slot out the back is too narrow; a 3-wide one is enough.
+        // A 2-wide slot out the back is too narrow, and so is a 3-wide one that isn't centred on
+        // the engine; a 3-wide one centred on it is enough.
         assert_eq!(buried(&["hhchhh", "hhehhh", "hh..hh", "hh..hh"]), 1);
-        assert_eq!(buried(&["hhchhh", "hhehhh", "hh...h", "hh...h"]), 0);
-        // A 3-wide channel that turns a corner on its way out is fine...
+        assert_eq!(buried(&["hhchhh", "hhehhh", "hh...h", "hh...h"]), 1);
+        assert_eq!(buried(&["hhchhh", "hhehhh", "h...hh", "h...hh"]), 0);
+        // A straight well, however deep in plate, leaves a line of fire to the engine.
+        assert_eq!(buried(&["ppppppp", "pphchpp", "pp.e.pp", "pp...pp", "pp...pp", "pp...pp"]), 0);
+        // A channel that turns a corner doesn't: plate wrapped round the engine (Henry's capital).
         let bent = ["ppppppppp", "pphchpppp", "pp.e.pppp", "pp...pppp", "pp...pppp", "pp...pppp", "pp.......", "pp.......", "pp.......", "ppppppppp"];
-        assert_eq!(buried(&bent), 0);
-        // ...and the same channel closed off at the end is not.
-        let mut closed = bent.map(String::from);
-        for r in 6..9 {
-            closed[r].replace_range(8..9, "p");
-        }
-        assert_eq!(buried(&closed.iter().map(|s| s.as_str()).collect::<Vec<_>>()), 1);
+        assert_eq!(buried(&bent), 1);
     }
 
     #[test]

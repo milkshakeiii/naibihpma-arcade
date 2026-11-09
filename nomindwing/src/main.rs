@@ -20,7 +20,7 @@ use std::mem::{size_of, zeroed};
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -38,6 +38,8 @@ use winapi::um::winuser::*;
 static CURSOR: AtomicUsize = AtomicUsize::new(0);
 /// Typed characters from WM_CHAR (the OS handles key repeat and keyboard layouts).
 static TYPED: Mutex<Vec<char>> = Mutex::new(Vec::new());
+/// Mouse wheel movement from WM_MOUSEWHEEL, in Windows' units (120 a notch), drained on the tick.
+static WHEEL: AtomicI32 = AtomicI32::new(0);
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -291,6 +293,12 @@ fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
                 next_tick = now + tick;
             }
 
+            // Whole wheel notches go to the game on the tick; any part-notch waits for the next.
+            let notches = WHEEL.load(Ordering::Relaxed) / 120;
+            if notches != 0 {
+                WHEEL.fetch_sub(notches * 120, Ordering::Relaxed);
+                game.event(Ev::Wheel(notches));
+            }
             game.tick();
             game.draw(&mut fb);
             let pal = *game.palette();
@@ -343,6 +351,10 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
                     t.push(c);
                 }
             }
+            0
+        }
+        WM_MOUSEWHEEL => {
+            WHEEL.fetch_add(((wparam >> 16) & 0xFFFF) as u16 as i16 as i32, Ordering::Relaxed);
             0
         }
         WM_SETCURSOR if (lparam & 0xFFFF) as isize == HTCLIENT => {

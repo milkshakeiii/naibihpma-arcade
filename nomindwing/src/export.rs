@@ -259,6 +259,15 @@ pub fn pg_sim() {
             report(&name, &place);
         }
     }
+    // The titan against the bigger designs at its own cost (small ships would need hundreds).
+    let titan = lib[6].stats().cost;
+    println!("--- equal cost, the titan's {titan} px a side ---");
+    for b in 2..5 {
+        let n = (titan / lib[b].stats().cost).max(1);
+        let mut place = block(0, 6, 1, 110, 180, 0);
+        place.extend(block(1, b, n, 360, 180, gap(b)));
+        report(&format!("1 TITAN VS {n} {}", lib[b].name), &place);
+    }
 }
 
 /// Prints every ship's state every few ticks of one matchup: `blue` and `red` are (slot, count).
@@ -359,23 +368,56 @@ pub fn pg_screenshots(dir: &Path) {
     pg.draw(&mut fb);
     save(&fb, &pg, "08_result.png");
 
+    use crate::pg::design::{Part, GRID};
+    let c = GRID / 2;
     pg.running = false;
     pg.screen = Screen::Yard;
-    pg.slot = 4;
-    pg.mouse = (60, 90);
+    pg.select_slot(4);
+    pg.mouse = pg.cell_screen((c + 3, c - 6));
     pg.draw(&mut fb);
     save(&fb, &pg, "09_yard_capital.png");
     // A loose pixel, and a skirt of hull that buries both engines: flagged in red.
-    pg.slot = 0;
     pg.lib[0] = crate::pg::design::defaults()[0].clone();
-    pg.lib[0].set(22, 17, Some(crate::pg::design::Part::Hull));
-    for (x, y) in [(18, 20), (18, 21), (18, 22), (19, 22), (20, 22), (21, 22), (22, 22), (22, 21), (22, 20)] {
-        pg.lib[0].set(x, y, Some(crate::pg::design::Part::Hull));
+    pg.lib[0].set(c + 2, c - 3, Some(Part::Hull));
+    for (x, y) in [(-2, 0), (-2, 1), (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2), (2, 1), (2, 0)] {
+        pg.lib[0].set(c + x, c + y, Some(Part::Hull));
     }
-    pg.part = crate::pg::design::Part::Cannon;
-    pg.mouse = (6 + 30 * 4 + 2, 26 + 12 * 4 + 2);
+    pg.select_slot(0);
+    pg.ed.part = Part::Cannon;
+    pg.ed.cat = crate::pg::design::Cat::Weapons;
+    pg.mouse = pg.cell_screen((c + 7, c - 6));
     pg.draw(&mut fb);
     save(&fb, &pg, "10_yard_loose_pixels.png");
+    pg.lib[0] = crate::pg::design::defaults()[0].clone();
+    // The titan: the whole 99x99 grid at 2x, then at its real size.
+    pg.select_slot(6);
+    pg.mouse = pg.cell_screen((c + 12, 62));
+    pg.draw(&mut fb);
+    save(&fb, &pg, "11_yard_titan.png");
+    pg.ed.zoom = 1;
+    pg.ed.pan = ((198 - GRID) / 2, (198 - GRID) / 2);
+    pg.mouse = (300, 290);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "12_yard_titan_real_size.png");
+    // A stamp: the frigate picked up whole, about to land on a blank design, mirrored.
+    pg.lib[5] = crate::pg::design::Design::blank("NEW SHIP");
+    pg.select_slot(5);
+    pg.ed.zoom = 4;
+    pg.fit_view();
+    pg.stamp_design(2);
+    pg.mouse = pg.cell_screen((c - 9, c));
+    pg.draw(&mut fb);
+    save(&fb, &pg, "13_yard_stamp.png");
+    pg.lib = crate::pg::design::defaults();
+    pg.screen = Screen::Arena;
+    pg.load_test(7);
+    pg.running = true;
+    for _ in 0..240 {
+        pg.tick();
+    }
+    hover(&mut pg, 0);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "14_titan_vs_capitals.png");
     println!("exported proving-ground screenshots to {}", dir.display());
 }
 

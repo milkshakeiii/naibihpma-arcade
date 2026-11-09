@@ -1,0 +1,970 @@
+//! The shipyard. Designs are drawn on a 99x99 grid that zooms in whole steps (1x is the ship at
+//! its real size), with a pencil, filled rectangles, flood fills and stamps (a copied box or a
+//! whole design, placed as ordinary pixels). Parts are picked by category, and what the drawing
+//! implies is read from icons and gauges, with the details on hover.
+
+use super::design::*;
+use super::icons::{self, Icon};
+use super::{draw_shape, part_col, Pg};
+use crate::app::Key;
+use crate::framebuffer::{wrap, Framebuffer};
+use crate::geom::Line;
+use crate::palette::*;
+use crate::ui::{self, Rect};
+
+// Layout. The canvas is exactly the whole grid at 2x.
+pub const CANVAS: Rect = Rect::new(6, 26, 198, 198);
+pub const NAME_RECT: Rect = Rect::new(210, 26, 186, 18);
+pub const STATUS_RECT: Rect = Rect::new(210, 123, 186, 11);
+const INFO_RECT: Rect = Rect::new(208, 156, 190, 142);
+const COL_X: i32 = 212;
+const COST_Y: i32 = 47;
+const FLIGHT_Y: i32 = 58;
+const GAUGE_Y: [i32; 3] = [69, 79, 89];
+const TALLY_Y: i32 = 101;
+const BTN_ZOOM_OUT: Rect = Rect::new(6, 282, 16, 15);
+const BTN_ZOOM_IN: Rect = Rect::new(70, 282, 16, 15);
+const BTN_TO_ARENA: Rect = Rect::new(148, 282, 56, 15);
+pub const ZOOMS: [i32; 4] = [1, 2, 4, 8];
+/// Screen pixels the canvas scrolls per tick while a direction is held.
+const SCROLL: i32 = 16;
+const UNDO_DEPTH: usize = 64;
+
+pub fn tab_rect(i: usize) -> Rect {
+    Rect::new(1 + i as i32 * 57, 3, 56, 20)
+}
+fn cat_rect(i: usize) -> Rect {
+    Rect::new(6 + i as i32 * 33, 228, 32, 16)
+}
+/// The i-th of n part buttons for the open category.
+fn part_rect(i: usize, n: usize) -> Rect {
+    let w = (200 / n.max(1) as i32 - 2).min(64);
+    Rect::new(6 + i as i32 * (w + 2), 246, w, 15)
+}
+fn tool_rect(i: usize) -> Rect {
+    Rect::new(6 + i as i32 * 25, 264, 23, 16)
+}
+fn order_rect(i: usize) -> Rect {
+    Rect::new(210 + i as i32 * 47, 137, 45, 16)
+}
+fn tally_rect(k: usize) -> Rect {
+    Rect::new(COL_X + (k as i32 % 4) * 46, TALLY_Y + (k as i32 / 4) * 11, 44, 10)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tool {
+    Pencil,
+    Rect,
+    Fill,
+    /// Drag a box to pick it up as a stamp; with a stamp held, clicks place it.
+    Copy,
+}
+
+/// The buttons in the tool row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Btn {
+    Tool(Tool),
+    Turn,
+    Undo,
+    Mirror,
+    Clear,
+}
+
+const BTNS: [Btn; 8] = [Btn::Tool(Tool::Pencil), Btn::Tool(Tool::Rect), Btn::Tool(Tool::Fill), Btn::Tool(Tool::Copy), Btn::Turn, Btn::Undo, Btn::Mirror, Btn::Clear];
+
+impl Btn {
+    fn icon(self) -> Icon {
+        match self {
+            Btn::Tool(Tool::Pencil) => Icon::Pencil,
+            Btn::Tool(Tool::Rect) => Icon::Rect,
+            Btn::Tool(Tool::Fill) => Icon::Fill,
+            Btn::Tool(Tool::Copy) => Icon::Copy,
+            Btn::Turn => Icon::Turn,
+            Btn::Undo => Icon::Undo,
+            Btn::Mirror => Icon::Mirror,
+            Btn::Clear => Icon::Clear,
+        }
+    }
+}
+
+/// The yard's editing state.
+pub struct Ed {
+    pub cat: Cat,
+    pub part: Part,
+    pub tool: Tool,
+    pub mirror: bool,
+    pub zoom: i32,
+    /// Where the grid's top-left corner sits from the canvas's, in screen pixels.
+    pub pan: (i32, i32),
+    pub stamp: Option<Stamp>,
+    /// A mouse button held down on the canvas: whether it's the right one, and the cell it went
+    /// down on.
+    pub drag: Option<(bool, (i32, i32))>,
+    last_cell: Option<(i32, i32)>,
+    /// Earlier versions of designs, newest last: (slot, cells).
+    undo: Vec<(usize, Vec<Option<Part>>)>,
+    /// The design the view was last framed on, so coming back from the arena keeps your zoom.
+    framed: Option<usize>,
+}
+
+impl Ed {
+    pub fn new() -> Ed {
+        Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, drag: None, last_cell: None, undo: Vec::new(), framed: None }
+    }
+}
+
+/// Keeps a pan inside the grid, or centres the grid when it's smaller than the canvas.
+fn clamp_pan(zoom: i32, p: i32) -> i32 {
+    let (span, room) = (GRID * zoom, CANVAS.w);
+    if span <= room {
+        (room - span) / 2
+    } else {
+        p.clamp(room - span, 0)
+    }
+}
+
+fn mirror_x(x: i32) -> i32 {
+    GRID - 1 - x
+}
+
+fn canvas_centre() -> (i32, i32) {
+    (CANVAS.x + CANVAS.w / 2, CANVAS.y + CANVAS.h / 2)
+}
+
+/// The yard's one-line status: what's wrong with the design, or how it will behave.
+pub fn yard_status(check: &Check, armed: bool, order: Order) -> (String, u8) {
+    match check.problem() {
+        Some(why) => (why, BAD),
+        None if !armed => {
+            let what = match order {
+                Order::Hunt => "NO GUNS: STAYS WITH ITS GROUP",
+                Order::Hold => "NO GUNS: IT JUST HOLDS",
+                _ => "NO GUNS: RUNS HOME WHEN HIT",
+            };
+            (what.into(), TEXT_DIM)
+        }
+        None => ("READY TO FLY".into(), GOOD),
+    }
+}
+
+// ----- Clipped drawing -----
+
+fn fill_clip(fb: &mut Framebuffer, clip: Rect, x: i32, y: i32, w: i32, h: i32, c: u8) {
+    let (x0, y0) = (x.max(clip.x), y.max(clip.y));
+    let (x1, y1) = ((x + w).min(clip.x + clip.w), (y + h).min(clip.y + clip.h));
+    if x1 > x0 && y1 > y0 {
+        fb.rect_fill(x0, y0, x1 - x0, y1 - y0, c);
+    }
+}
+
+fn outline_clip(fb: &mut Framebuffer, clip: Rect, x: i32, y: i32, w: i32, h: i32, c: u8) {
+    fill_clip(fb, clip, x, y, w, 1, c);
+    fill_clip(fb, clip, x, y + h - 1, w, 1, c);
+    fill_clip(fb, clip, x, y, 1, h, c);
+    fill_clip(fb, clip, x + w - 1, y, 1, h, c);
+}
+
+/// A part's colour in a 9x9 outlined square with its shape inside.
+pub fn swatch(fb: &mut Framebuffer, x: i32, y: i32, p: Part) {
+    fb.rect_fill(x, y, 9, 9, OUTLINE);
+    fb.rect_fill(x + 1, y + 1, 7, 7, part_col(p, 0));
+    icons::draw(fb, Icon::Part(p), x + 1, y + 1, if p == Part::Cannon { GOLD } else { OUTLINE });
+}
+
+impl Pg {
+    // ----- Canvas geometry -----
+
+    /// The cell under a screen point, on or off the grid.
+    fn cell_at(&self, x: i32, y: i32) -> (i32, i32) {
+        let e = &self.ed;
+        ((x - CANVAS.x - e.pan.0).div_euclid(e.zoom), (y - CANVAS.y - e.pan.1).div_euclid(e.zoom))
+    }
+
+    /// The cell under a screen point, if the point is on the canvas and the cell on the grid.
+    pub(super) fn cell_under(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        if !CANVAS.contains(x, y) {
+            return None;
+        }
+        let c = self.cell_at(x, y);
+        ((0..GRID).contains(&c.0) && (0..GRID).contains(&c.1)).then_some(c)
+    }
+
+    /// The screen point in the middle of a cell (for the screenshot tool).
+    pub fn cell_screen(&self, (cx, cy): (i32, i32)) -> (i32, i32) {
+        let e = &self.ed;
+        (CANVAS.x + e.pan.0 + cx * e.zoom + e.zoom / 2, CANVAS.y + e.pan.1 + cy * e.zoom + e.zoom / 2)
+    }
+
+    /// Picks the design to edit and frames it.
+    pub fn select_slot(&mut self, i: usize) {
+        self.slot = i;
+        self.ed.drag = None;
+        self.fit_view();
+    }
+
+    /// The biggest zoom that shows the whole drawing, centred on it.
+    pub fn fit_view(&mut self) {
+        let b = self.lib[self.slot].used_box();
+        let (x0, y0, x1, y1) = b.unwrap_or((GRID / 2, GRID / 2, GRID / 2, GRID / 2));
+        let (w, h) = (x1 - x0 + 3, y1 - y0 + 3);
+        let z = if b.is_none() { 4 } else { ZOOMS.iter().rev().copied().find(|&z| w * z <= CANVAS.w && h * z <= CANVAS.h).unwrap_or(1) };
+        let centre = |a: i32, b: i32| CANVAS.w / 2 - (a + b + 1) * z / 2;
+        self.ed.zoom = z;
+        self.ed.pan = (clamp_pan(z, centre(x0, x1)), clamp_pan(z, centre(y0, y1)));
+        self.ed.framed = Some(self.slot);
+    }
+
+    /// Frames the design on the way into the yard, unless the view is already on it.
+    pub(super) fn frame_if_new(&mut self) {
+        if self.ed.framed != Some(self.slot) {
+            self.fit_view();
+        }
+    }
+
+    /// Zooms whole steps in (+) or out (-), keeping the point under (sx, sy) where it is.
+    fn zoom_by(&mut self, steps: i32, (sx, sy): (i32, i32)) {
+        let e = &mut self.ed;
+        let k = ZOOMS.iter().position(|&z| z == e.zoom).unwrap_or(1) as i32;
+        let (oz, nz) = (e.zoom, ZOOMS[(k + steps).clamp(0, ZOOMS.len() as i32 - 1) as usize]);
+        if nz == oz {
+            return;
+        }
+        let f = |p: i32, pan: i32| clamp_pan(nz, p - (p - pan) * nz / oz);
+        e.pan = (f(sx - CANVAS.x, e.pan.0), f(sy - CANVAS.y, e.pan.1));
+        e.zoom = nz;
+    }
+
+    /// Scrolls the canvas while WASD or the arrows are held.
+    pub(super) fn scroll_yard(&mut self, dirs: &[bool]) {
+        let e = &mut self.ed;
+        let dx = (dirs[3] as i32 - dirs[2] as i32) * SCROLL;
+        let dy = (dirs[1] as i32 - dirs[0] as i32) * SCROLL;
+        e.pan = (clamp_pan(e.zoom, e.pan.0 - dx), clamp_pan(e.zoom, e.pan.1 - dy));
+    }
+
+    pub(super) fn wheel_yard(&mut self, notches: i32) {
+        let at = if CANVAS.contains(self.mouse.0, self.mouse.1) { self.mouse } else { canvas_centre() };
+        self.zoom_by(notches, at);
+    }
+
+    // ----- Undo -----
+
+    /// Remembers the design as it is, before a change.
+    fn remember(&mut self) {
+        let (slot, cells) = (self.slot, self.lib[self.slot].cells.clone());
+        let u = &mut self.ed.undo;
+        if u.iter().rev().find(|(s, _)| *s == slot).is_some_and(|(_, c)| *c == cells) {
+            return;
+        }
+        u.push((slot, cells));
+        if u.len() > UNDO_DEPTH {
+            u.remove(0);
+        }
+    }
+
+    fn undo(&mut self) {
+        let (slot, now) = (self.slot, self.lib[self.slot].cells.clone());
+        while let Some(k) = self.ed.undo.iter().rposition(|(s, _)| *s == slot) {
+            let (_, cells) = self.ed.undo.remove(k);
+            if cells != now {
+                self.lib[slot].cells = cells;
+                self.edited = true;
+                self.save();
+                return;
+            }
+        }
+        self.say("NOTHING TO UNDO");
+    }
+
+    // ----- Tools -----
+
+    fn set_tool(&mut self, t: Tool) {
+        self.ed.tool = t;
+        self.ed.drag = None;
+        if t == Tool::Copy {
+            self.ed.stamp = None;
+        }
+    }
+
+    /// Opens a category, or with it already open, moves to its next part.
+    fn pick_cat(&mut self, c: Cat) {
+        let parts = c.parts();
+        if parts.is_empty() {
+            self.say(&format!("NO {} PARTS YET", c.name()));
+            return;
+        }
+        let e = &mut self.ed;
+        e.part = if e.cat == c { parts[parts.iter().position(|&p| p == e.part).map_or(0, |k| k + 1) % parts.len()] } else { parts[0] };
+        e.cat = c;
+        if e.tool == Tool::Copy {
+            e.tool = Tool::Pencil;
+        }
+    }
+
+    fn pick_part(&mut self, p: Part) {
+        self.ed.part = p;
+        self.ed.cat = Cat::of(p);
+        if self.ed.tool == Tool::Copy {
+            self.ed.tool = Tool::Pencil;
+        }
+    }
+
+    fn turn_stamp(&mut self) {
+        match &self.ed.stamp {
+            Some(st) => self.ed.stamp = Some(st.turned()),
+            None => self.say("NO STAMP TO TURN: [C] COPY ONE FIRST"),
+        }
+    }
+
+    /// Picks up a whole design as a stamp.
+    pub fn stamp_design(&mut self, i: usize) {
+        let st = self.lib[i].as_stamp();
+        if st.is_empty() {
+            self.say("THAT DESIGN IS EMPTY");
+            return;
+        }
+        self.ed.stamp = Some(st);
+        self.ed.tool = Tool::Copy;
+        self.ed.drag = None;
+    }
+
+    fn press_btn(&mut self, b: Btn) {
+        match b {
+            Btn::Tool(t) => self.set_tool(t),
+            Btn::Turn => self.turn_stamp(),
+            Btn::Undo => self.undo(),
+            Btn::Mirror => self.ed.mirror = !self.ed.mirror,
+            Btn::Clear => {
+                self.remember();
+                self.lib[self.slot].cells.iter_mut().for_each(|c| *c = None);
+                self.edited = true;
+                self.save();
+            }
+        }
+    }
+
+    /// The pencil on one cell, and its mirror.
+    fn paint(&mut self, (cx, cy): (i32, i32), erase: bool) {
+        let p = if erase { None } else { Some(self.ed.part) };
+        let mirror = self.ed.mirror;
+        let d = &mut self.lib[self.slot];
+        let mut changed = d.put(cx, cy, p);
+        let mx = mirror_x(cx);
+        // A mirrored cannon that would overlap its twin is skipped rather than replacing it.
+        if mirror && mx != cx && !(p == Some(Part::Cannon) && (mx - cx).abs() < 3) {
+            changed |= d.put(mx, cy, p);
+        }
+        self.edited |= changed;
+    }
+
+    /// Paints every cell between the last sample and this one, so a fast stroke leaves no gaps.
+    /// A cannon stamps once per click, not along the stroke.
+    fn paint_to(&mut self, cell: (i32, i32), erase: bool) {
+        if !erase && self.ed.part == Part::Cannon {
+            if self.ed.last_cell.is_none() {
+                self.paint(cell, false);
+            }
+            self.ed.last_cell = Some(cell);
+            return;
+        }
+        let from = self.ed.last_cell.unwrap_or(cell);
+        let mut l = Line::new(from.0, from.1, cell.0, cell.1);
+        loop {
+            self.paint((l.x, l.y), erase);
+            if (l.x, l.y) == cell {
+                break;
+            }
+            l.step();
+        }
+        self.ed.last_cell = Some(cell);
+    }
+
+    fn flood_at(&mut self, cell: (i32, i32), erase: bool) {
+        let p = if erase { None } else { Some(self.ed.part) };
+        let mirror = self.ed.mirror && mirror_x(cell.0) != cell.0;
+        let d = &mut self.lib[self.slot];
+        if erase && d.get(cell.0, cell.1).is_none() {
+            return;
+        }
+        match d.flood(cell, p) {
+            Ok(mut changed) => {
+                if mirror {
+                    changed |= d.flood((mirror_x(cell.0), cell.1), p).unwrap_or(false);
+                }
+                self.edited |= changed;
+            }
+            Err(why) => self.say(why),
+        }
+    }
+
+    /// The rectangle tool's box, and its mirror. Cannons tile the box in whole blocks, and the
+    /// mirrored box tiles exactly the mirror image of them.
+    fn fill_box_at(&mut self, a: (i32, i32), b: (i32, i32), erase: bool) {
+        let p = if erase { None } else { Some(self.ed.part) };
+        let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+        let (mut x1, mut y1) = (a.0.max(b.0), a.1.max(b.1));
+        if p == Some(Part::Cannon) {
+            x1 = x0 + (x1 - x0 + 1) / 3 * 3 - 1;
+            y1 = y0 + (y1 - y0 + 1) / 3 * 3 - 1;
+        }
+        let mirror = self.ed.mirror;
+        let d = &mut self.lib[self.slot];
+        let mut changed = d.fill_box((x0, y0), (x1, y1), p);
+        if mirror && mirror_x(x1) != x0 {
+            changed |= d.fill_box((mirror_x(x1), y0), (mirror_x(x0), y1), p);
+        }
+        self.edited |= changed;
+    }
+
+    /// Where a held stamp's mirror image goes, if it doesn't overlap the stamp itself.
+    fn mirror_origin(&self, st: &Stamp, o: (i32, i32)) -> Option<(i32, i32)> {
+        let mo = (GRID - o.0 - st.w, o.1);
+        let overlap = o.0 < mo.0 + st.w && mo.0 < o.0 + st.w;
+        (self.ed.mirror && !overlap).then_some(mo)
+    }
+
+    fn place(&mut self, st: &Stamp, cell: (i32, i32)) {
+        let o = st.origin(cell);
+        let mo = self.mirror_origin(st, o);
+        let d = &mut self.lib[self.slot];
+        let mut changed = d.paste(st, o);
+        if let Some(mo) = mo {
+            changed |= d.paste(&st.flipped(), mo);
+        }
+        self.edited |= changed;
+    }
+
+    fn finish_edit(&mut self) {
+        if self.edited {
+            self.save();
+        }
+    }
+
+    // ----- Input -----
+
+    pub(super) fn key_yard(&mut self, k: Key) {
+        match k {
+            Key::Num(n) if (1..=CATS.len() as u8).contains(&n) => self.pick_cat(CATS[n as usize - 1]),
+            Key::Letter('P') => self.set_tool(Tool::Pencil),
+            Key::Letter('R') => self.set_tool(Tool::Rect),
+            Key::Letter('F') => self.set_tool(Tool::Fill),
+            Key::Letter('C') => self.set_tool(Tool::Copy),
+            Key::Letter('T') => self.turn_stamp(),
+            Key::Letter('U') => self.undo(),
+            Key::Letter('M') => self.ed.mirror = !self.ed.mirror,
+            Key::Letter('Q') => self.zoom_by(-1, canvas_centre()),
+            Key::Letter('E') => self.zoom_by(1, canvas_centre()),
+            _ => {}
+        }
+    }
+
+    pub(super) fn press_yard(&mut self, x: i32, y: i32, right: bool) {
+        if let Some(cell) = self.cell_under(x, y) {
+            self.press_canvas(cell, right);
+            return;
+        }
+        if let Some(i) = (0..self.lib.len()).find(|&i| tab_rect(i).contains(x, y)) {
+            if right {
+                self.stamp_design(i);
+            } else {
+                self.select_slot(i);
+            }
+            return;
+        }
+        if right {
+            // Right-click off the canvas puts a held stamp down.
+            self.ed.stamp = None;
+            return;
+        }
+        let parts = self.ed.cat.parts();
+        if let Some(i) = (0..CATS.len()).find(|&i| cat_rect(i).contains(x, y)) {
+            self.pick_cat(CATS[i]);
+        } else if let Some(i) = (0..parts.len()).find(|&i| part_rect(i, parts.len()).contains(x, y)) {
+            self.pick_part(parts[i]);
+        } else if let Some(i) = (0..BTNS.len()).find(|&i| tool_rect(i).contains(x, y)) {
+            self.press_btn(BTNS[i]);
+        } else if let Some(i) = (0..ORDERS.len()).find(|&i| order_rect(i).contains(x, y)) {
+            self.lib[self.slot].order = ORDERS[i];
+            self.edited = true;
+            self.save();
+        } else if BTN_ZOOM_OUT.contains(x, y) {
+            self.zoom_by(-1, canvas_centre());
+        } else if BTN_ZOOM_IN.contains(x, y) {
+            self.zoom_by(1, canvas_centre());
+        } else if BTN_TO_ARENA.contains(x, y) {
+            self.switch_screen();
+        } else if NAME_RECT.contains(x, y) {
+            self.naming = true;
+        }
+    }
+
+    fn press_canvas(&mut self, cell: (i32, i32), right: bool) {
+        match self.ed.tool {
+            Tool::Pencil => {
+                self.remember();
+                self.ed.drag = Some((right, cell));
+                self.ed.last_cell = None;
+                self.paint_to(cell, right);
+            }
+            Tool::Rect => self.ed.drag = Some((right, cell)),
+            Tool::Fill => {
+                self.remember();
+                self.flood_at(cell, right);
+                self.finish_edit();
+            }
+            Tool::Copy => match (self.ed.stamp.clone(), right) {
+                (Some(_), true) => self.ed.stamp = None,
+                (Some(st), false) => {
+                    self.remember();
+                    self.place(&st, cell);
+                    self.finish_edit();
+                }
+                (None, false) => self.ed.drag = Some((false, cell)),
+                (None, true) => {}
+            },
+        }
+    }
+
+    /// The pointer moved: a pencil stroke follows it.
+    pub(super) fn drag_yard(&mut self, x: i32, y: i32) {
+        if let (Some((right, _)), Tool::Pencil) = (self.ed.drag, self.ed.tool) {
+            if let Some(cell) = self.cell_under(x, y) {
+                self.paint_to(cell, right);
+            }
+        }
+    }
+
+    pub(super) fn release_yard(&mut self, x: i32, y: i32) {
+        let Some((right, start)) = self.ed.drag.take() else { return };
+        let (ex, ey) = self.cell_at(x, y);
+        let end = (ex.clamp(0, GRID - 1), ey.clamp(0, GRID - 1));
+        match self.ed.tool {
+            Tool::Rect => {
+                self.remember();
+                self.fill_box_at(start, end, right);
+            }
+            Tool::Copy => {
+                let st = self.lib[self.slot].copy_box(start, end);
+                if st.is_empty() {
+                    self.say("NOTHING THERE TO COPY");
+                } else {
+                    self.ed.stamp = Some(st);
+                }
+            }
+            Tool::Pencil | Tool::Fill => {}
+        }
+        self.ed.last_cell = None;
+        self.finish_edit();
+    }
+
+    // ----- Drawing -----
+
+    pub(super) fn draw_yard(&self, fb: &mut Framebuffer) {
+        fb.rect_fill(0, 0, 400, 300, PANEL_LO);
+        let m = self.mouse;
+        let e = &self.ed;
+        for (i, d) in self.lib.iter().enumerate() {
+            let r = tab_rect(i);
+            let (sel, hov) = (i == self.slot, r.contains(m.0, m.1));
+            ui::button(fb, r, "", hov && !sel, sel);
+            let name: String = d.name.chars().take(9).collect();
+            let col = if !d.check().ok() { BAD } else if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
+            fb.text_centered(&name, r.x + r.w / 2, r.y + 7, col, None, 1);
+        }
+
+        let d = &self.lib[self.slot];
+        let check = d.check();
+        self.draw_canvas(fb, d, &check);
+
+        // Categories, the open category's parts, the tools and the zoom.
+        for (i, &cat) in CATS.iter().enumerate() {
+            let r = cat_rect(i);
+            let (sel, hov) = (cat == e.cat, r.contains(m.0, m.1));
+            ui::button(fb, r, "", hov && !sel, sel);
+            let col = if cat.parts().is_empty() { TEXT_FAINT } else if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
+            icons::draw(fb, Icon::Cat(cat), r.x + 7, r.y + 4, col);
+            fb.text(&format!("{}", i + 1), r.x + 20, r.y + 4, if hov && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
+        }
+        let parts = e.cat.parts();
+        for (i, &p) in parts.iter().enumerate() {
+            let r = part_rect(i, parts.len());
+            let (sel, hov) = (p == e.part && e.tool != Tool::Copy, r.contains(m.0, m.1));
+            ui::button(fb, r, "", hov && !sel, sel);
+            swatch(fb, r.x + 3, r.y + 3, p);
+            if r.w >= 17 + Framebuffer::text_width(p.name(), 1) {
+                fb.text(p.name(), r.x + 15, r.y + 4, if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT }, None, 1);
+            }
+        }
+        for (i, &b) in BTNS.iter().enumerate() {
+            let r = tool_rect(i);
+            let down = match b {
+                Btn::Tool(t) => e.tool == t,
+                Btn::Mirror => e.mirror,
+                _ => false,
+            };
+            let hov = r.contains(m.0, m.1);
+            ui::button(fb, r, "", hov && !down, down);
+            let off = b == Btn::Turn && e.stamp.is_none();
+            let col = if off { TEXT_FAINT } else if down { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
+            icons::draw(fb, b.icon(), r.x + 8, r.y + 4, col);
+        }
+        ui::button(fb, BTN_ZOOM_OUT, "-", BTN_ZOOM_OUT.contains(m.0, m.1), false);
+        ui::button(fb, BTN_ZOOM_IN, "+", BTN_ZOOM_IN.contains(m.0, m.1), false);
+        fb.text_centered(&format!("ZOOM {}X", e.zoom), 46, 286, TEXT_DIM, None, 1);
+        if let Some((cx, cy)) = self.cell_under(m.0, m.1) {
+            fb.text(&format!("{cx},{cy}"), 92, 286, TEXT_FAINT, None, 1);
+        }
+        ui::button(fb, BTN_TO_ARENA, "ARENA", BTN_TO_ARENA.contains(m.0, m.1), false);
+
+        // The name, and what the drawing implies.
+        if self.naming {
+            fb.rect_fill(NAME_RECT.x, NAME_RECT.y, NAME_RECT.w, NAME_RECT.h, PANEL_DEEP);
+            fb.text(&format!("{}_", d.name), NAME_RECT.x + 2, NAME_RECT.y + 2, ACCENT, None, 2);
+        } else {
+            fb.text(&d.name, NAME_RECT.x + 2, NAME_RECT.y + 2, if NAME_RECT.contains(m.0, m.1) { WHITE } else { TEXT }, Some(OUTLINE), 2);
+        }
+        let st = d.stats();
+        let cost = if st.cores > 1 { format!("COST {} PX (+{} CORES)", st.cost, st.cost - st.count) } else { format!("COST {} PX", st.cost) };
+        fb.text(&cost, COL_X, COST_Y, GOLD, None, 1);
+        icons::draw(fb, Icon::Flight(st.flight), COL_X, FLIGHT_Y, ACCENT);
+        fb.text(st.flight.name(), COL_X + 11, FLIGHT_Y, ACCENT, None, 1);
+        for (k, (icon, segs, mark, value)) in gauges(&st).into_iter().enumerate() {
+            let y = GAUGE_Y[k];
+            icons::draw(fb, icon, COL_X, y, TEXT_DIM);
+            for s in 0..10 {
+                fb.rect_fill(COL_X + 11 + s * 6, y + 1, 5, 5, if s < segs { ACCENT } else { PANEL_DEEP });
+            }
+            if let Some(mk) = mark {
+                fb.rect_fill(COL_X + 11 + mk * 6 - 1, y - 1, 1, 9, GOLD);
+            }
+            fb.text(&value, COL_X + 76, y, TEXT, None, 1);
+        }
+        for (k, (p, n)) in tally(d, &st).into_iter().enumerate() {
+            let r = tally_rect(k);
+            swatch(fb, r.x, r.y, p);
+            fb.text(&n.to_string(), r.x + 12, r.y + 1, TEXT, None, 1);
+        }
+        let (status, col) = yard_status(&check, st.armed(), d.order);
+        fb.text(&status, STATUS_RECT.x + 2, STATUS_RECT.y + 2, col, None, 1);
+        for (i, &o) in ORDERS.iter().enumerate() {
+            let r = order_rect(i);
+            ui::button(fb, r, o.name(), r.contains(m.0, m.1), o == d.order);
+        }
+
+        ui::inset(fb, INFO_RECT);
+        let info = self.yard_info(d, &st);
+        for (i, l) in wrap(&info, ((INFO_RECT.w - 8) / 6) as usize).iter().enumerate().take(14) {
+            fb.text(l, INFO_RECT.x + 4, INFO_RECT.y + 4 + i as i32 * 9, TEXT, None, 1);
+        }
+    }
+
+    fn draw_canvas(&self, fb: &mut Framebuffer, d: &Design, check: &Check) {
+        let (c, e, m) = (CANVAS, &self.ed, self.mouse);
+        let z = e.zoom;
+        fb.rect_fill(c.x - 1, c.y - 1, c.w + 2, c.h + 2, PANEL_HI);
+        fb.rect_fill(c.x, c.y, c.w, c.h, if z >= 4 { OUTLINE } else { SPACE });
+        // Screen position of cell (0, 0). From 4x up each cell has a 1px gap round it.
+        let (ox, oy) = (c.x + e.pan.0, c.y + e.pan.1);
+        let inner = if z >= 4 { z - 1 } else { z };
+        let ext = if z >= 4 { 1 } else { 2 };
+        if z == 1 {
+            // Real size: the ship as it looks in the arena.
+            if let Some((x0, y0, _, _)) = d.used_box() {
+                let sh = d.shape();
+                draw_shape(fb, c, &sh, ox + x0 + sh.w / 2, oy + y0 + sh.h / 2, 0, 0, &|_| true, false);
+            }
+        } else {
+            let (cx0, cy0) = ((-e.pan.0).div_euclid(z).max(0), (-e.pan.1).div_euclid(z).max(0));
+            let (cx1, cy1) = (((c.w - e.pan.0) / z).min(GRID - 1), ((c.h - e.pan.1) / z).min(GRID - 1));
+            // Guide blocks are 5 cells, centred, and the centre column (the mirror line) is lit.
+            let band = |k: i32| ((k - GRID / 2).abs() + 2) / 5;
+            let breeches: Vec<(i32, i32)> = d.cannon_blocks().0.iter().map(|&(x, y)| (x + 1, y + 1)).collect();
+            for cy in cy0..=cy1 {
+                for cx in cx0..=cx1 {
+                    let (x, y) = (ox + cx * z, oy + cy * z);
+                    let p = d.get(cx, cy);
+                    let breech = p == Some(Part::Cannon) && breeches.contains(&(cx, cy));
+                    let col = match p {
+                        Some(_) if breech => GOLD,
+                        Some(p) => part_col(p, 0),
+                        None if cx == GRID / 2 => PANEL,
+                        None if (band(cx) + band(cy)) % 2 == 0 => PANEL_DEEP,
+                        None => SPACE,
+                    };
+                    fill_clip(fb, c, x, y, inner, inner, col);
+                    // At 8x each cell shows its part's shape too.
+                    if let Some(p) = p.filter(|&p| z >= 8 && (p != Part::Cannon || breech) && c.contains(x, y) && c.contains(x + 6, y + 6)) {
+                        icons::draw(fb, Icon::Part(p), x, y, OUTLINE);
+                    }
+                }
+            }
+            for &(cx, cy) in check.loose.iter().chain(&check.buried) {
+                outline_clip(fb, c, ox + cx * z - 1, oy + cy * z - 1, inner + 2, inner + 2, BAD);
+            }
+        }
+
+        // What the pointer would do.
+        let frame = |fb: &mut Framebuffer, a: (i32, i32), b: (i32, i32), col: u8| {
+            let (x0, y0, x1, y1) = (a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1));
+            outline_clip(fb, c, ox + x0 * z - 1, oy + y0 * z - 1, (x1 - x0 + 1) * z + ext, (y1 - y0 + 1) * z + ext, col);
+        };
+        let ghost = |fb: &mut Framebuffer, st: &Stamp, o: (i32, i32), col: u8| {
+            for sy in 0..st.h {
+                for sx in 0..st.w {
+                    if let Some(p) = st.get(sx, sy) {
+                        let (x, y) = (ox + (o.0 + sx) * z, oy + (o.1 + sy) * z);
+                        // Dithered: every other pixel, no blending.
+                        for k in 0..inner * inner {
+                            let (px, py) = (x + k % inner, y + k / inner);
+                            if (px + py) & 1 == 0 && c.contains(px, py) {
+                                fb.pset(px, py, part_col(p, 0));
+                            }
+                        }
+                    }
+                }
+            }
+            frame(fb, o, (o.0 + st.w - 1, o.1 + st.h - 1), col);
+        };
+        if let Some((right, start)) = e.drag.filter(|_| e.tool != Tool::Pencil) {
+            let now = self.cell_at(m.0, m.1);
+            let end = (now.0.clamp(0, GRID - 1), now.1.clamp(0, GRID - 1));
+            let col = if e.tool == Tool::Copy { ACCENT } else if right { BAD } else { WHITE };
+            frame(fb, start, end, col);
+            if e.mirror && e.tool == Tool::Rect {
+                frame(fb, (mirror_x(start.0), start.1), (mirror_x(end.0), end.1), TEXT_FAINT);
+            }
+        } else if let Some(cell) = self.cell_under(m.0, m.1) {
+            match (&e.stamp, e.tool) {
+                (Some(st), Tool::Copy) => {
+                    let o = st.origin(cell);
+                    ghost(fb, st, o, WHITE);
+                    if let Some(mo) = self.mirror_origin(st, o) {
+                        ghost(fb, &st.flipped(), mo, TEXT_FAINT);
+                    }
+                }
+                (None, Tool::Copy) => frame(fb, cell, cell, ACCENT),
+                _ => {
+                    let n = if e.tool == Tool::Pencil && e.part == Part::Cannon { 1 } else { 0 };
+                    frame(fb, (cell.0 - n, cell.1 - n), (cell.0 + n, cell.1 + n), WHITE);
+                    let mx = mirror_x(cell.0);
+                    if e.mirror && mx != cell.0 {
+                        frame(fb, (mx - n, cell.1 - n), (mx + n, cell.1 + n), TEXT_FAINT);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The info box: what the pointer is over, or else what the current tool does.
+    fn yard_info(&self, d: &Design, st: &Stats) -> String {
+        let m = self.mouse;
+        let at = |r: Rect| r.contains(m.0, m.1);
+        let on_row = |y: i32| (COL_X..396).contains(&m.0) && (y - 1..y + 9).contains(&m.1);
+        let parts = self.ed.cat.parts();
+        if (0..self.lib.len()).any(|i| at(tab_rect(i))) {
+            return format!("YOUR {} DESIGNS. THE ARENA'S TESTS USE THESE SLOTS, SO EDITING ONE CHANGES THE TESTS TOO. A RED NAME CAN'T FLY YET. RIGHT-CLICK ONE TO PICK THE WHOLE DESIGN UP AS A STAMP.", self.lib.len());
+        }
+        if let Some(i) = (0..CATS.len()).find(|&i| at(cat_rect(i))) {
+            let c = CATS[i];
+            if c.parts().is_empty() {
+                return format!("[{}] {}: NOTHING HERE YET. ITS PARTS COME NEXT.", i + 1, c.name());
+            }
+            let names: Vec<&str> = c.parts().iter().map(|p| p.name()).collect();
+            return format!("[{}] {}: {}. PRESS THE KEY AGAIN FOR THE NEXT PART.", i + 1, c.name(), names.join(", "));
+        }
+        if let Some(i) = (0..parts.len()).find(|&i| at(part_rect(i, parts.len()))) {
+            return parts[i].blurb().into();
+        }
+        if let Some(i) = (0..BTNS.len()).find(|&i| at(tool_rect(i))) {
+            return match BTNS[i] {
+                Btn::Tool(t) => self.tool_info(t),
+                Btn::Turn => "[T] TURN THE STAMP YOU'RE HOLDING A QUARTER TURN CLOCKWISE.".into(),
+                Btn::Undo => "[U] UNDO THE LAST CHANGE TO THIS DESIGN.".into(),
+                Btn::Mirror => "[M] MIRROR: EVERY TOOL ALSO WORKS ON THE OTHER SIDE OF THE LIT CENTRE COLUMN.".into(),
+                Btn::Clear => "CLEAR THE WHOLE DESIGN. [U] UNDO BRINGS IT BACK.".into(),
+            };
+        }
+        if at(BTN_ZOOM_OUT) || at(BTN_ZOOM_IN) || ((6..148).contains(&m.0) && (282..297).contains(&m.1)) {
+            return "[Q] [E] OR THE MOUSE WHEEL ZOOM IN WHOLE STEPS. 1X IS THE SHIP AT ITS REAL SIZE, AS IN THE ARENA; 2X SHOWS THE WHOLE 99X99 GRID; 4X AND 8X ARE FOR FINE WORK. WASD OR THE ARROWS SCROLL. THE NUMBERS ARE THE CELL UNDER THE POINTER.".into();
+        }
+        if at(BTN_TO_ARENA) {
+            return "[TAB] THE ARENA, TO WATCH YOUR DESIGNS FIGHT.".into();
+        }
+        if at(NAME_RECT) {
+            return "CLICK TO RENAME. ENTER WHEN DONE.".into();
+        }
+        if on_row(COST_Y) {
+            return "COST: EVERY PIXEL COSTS 1. A SECOND CORE COSTS +8, A THIRD +16, A FOURTH +32, AND SO ON.".into();
+        }
+        if on_row(FLIGHT_Y) {
+            return "FLIGHT FOLLOWS FROM THE DRAWING. AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS, DIVING THROUGH THE TARGET AND LOOPING BACK. LESS: STAND-OFF, HOLDING AT WEAPON RANGE. NO ENGINES: IT STAYS PUT.".into();
+        }
+        if on_row(GAUGE_Y[0]) {
+            return format!("TOP SPEED: {} PX/S. MORE ENGINES FOR THE WEIGHT, FASTER. EVEN THE HEAVIEST SHIP WITH AN ENGINE MANAGES 11.", st.top_speed_px_s());
+        }
+        if on_row(GAUGE_Y[1]) {
+            return format!("TURNING: {}.{} S FOR A QUARTER TURN. HEAVIER SHIPS TURN SLOWER; MORE ENGINES HELP, UP TO A LIMIT OF 1.6 S.", st.turn_ds() / 10, st.turn_ds() % 10);
+        }
+        if on_row(GAUGE_Y[2]) {
+            let (a, b) = (st.zero_to_top_ds() / 10, st.zero_to_top_ds() % 10);
+            return format!("THRUST {} FOR WEIGHT {} (8 PER ENGINE). AT THE GOLD MARK OR PAST IT, 1 THRUST PER WEIGHT, IT MAKES ATTACK RUNS; SHORT OF IT, IT HOLDS AT RANGE. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
+        }
+        if let Some(k) = (0..8).find(|&k| at(tally_rect(k))) {
+            if let Some((p, _)) = tally(d, st).get(k) {
+                return p.blurb().into();
+            }
+        }
+        if at(STATUS_RECT) {
+            return "A SHIP NEEDS A CORE, AND ITS PIXELS MUST ALL JOIN UP EDGE TO EDGE (CORNERS DON'T COUNT); LOOSE PIXELS SHOW RED. EVERY ENGINE NEEDS A STRAIGHT 3-WIDE WAY OUT OF THE SHIP, ITS OWN LINE AND THE ONES EITHER SIDE CLEAR; BURIED ONES SHOW RED. CUT APART, EACH PIECE WITH A CORE FLIES ON AS A SHIP.".into();
+        }
+        if let Some(i) = (0..ORDERS.len()).find(|&i| at(order_rect(i))) {
+            return ORDERS[i].blurb().into();
+        }
+        self.tool_info(self.ed.tool)
+    }
+
+    fn tool_info(&self, t: Tool) -> String {
+        let p = self.ed.part.name();
+        let mirror = if self.ed.mirror { " MIRROR IS ON: IT ALSO WORKS ON THE OTHER SIDE." } else { "" };
+        match t {
+            Tool::Pencil if self.ed.part == Part::Cannon => format!("[P] PENCIL, PAINTING CANNON: A CLICK STAMPS A 3X3 CANNON CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF ONE TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}"),
+            Tool::Pencil => format!("[P] PENCIL, PAINTING {p}. LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}"),
+            Tool::Rect => format!("[R] RECTANGLE: DRAG A BOX TO FILL IT WITH {p}; RIGHT-DRAG EMPTIES ONE. CANNONS TILE THE BOX IN 3X3 BLOCKS.{mirror}"),
+            Tool::Fill => format!("[F] FILL: CLICK A HOLE INSIDE THE SHIP TO FILL IT WITH {p}, OR A PATCH OF ONE PART TO SWAP IT FOR {p}. RIGHT-CLICK EMPTIES A PATCH. OPEN SPACE WON'T FILL.{mirror}"),
+            Tool::Copy if self.ed.stamp.is_some() => format!("STAMP: CLICK TO PLACE IT. IT BECOMES ORDINARY PIXELS; NOTHING STAYS LINKED. [T] TURNS IT, RIGHT-CLICK PUTS IT DOWN.{mirror}"),
+            Tool::Copy => "[C] COPY: DRAG A BOX OVER PART OF A SHIP TO PICK IT UP AS A STAMP, OR RIGHT-CLICK A DESIGN'S TAB TO PICK UP THE WHOLE DESIGN.".into(),
+        }
+    }
+}
+
+/// The three gauges: (icon, segments lit out of 10, a mark, the number beside it).
+fn gauges(st: &Stats) -> [(Icon, i32, Option<i32>, String); 3] {
+    let moves = st.engines > 0;
+    let speed = if moves { st.vmax * 10 / 12 } else { 0 };
+    let turn = if moves { (25 - st.turn) * 10 / 24 } else { 0 };
+    // Half the bar is 1 thrust per weight, where attack runs start.
+    let push = if st.mass > 0 { (st.thrust * 5 / st.mass).min(10) } else { 0 };
+    [
+        (Icon::Speed, speed, None, format!("{} PX/S", st.top_speed_px_s())),
+        (Icon::TurnRate, turn, None, if moves { format!("{}.{} S", st.turn_ds() / 10, st.turn_ds() % 10) } else { "-".into() }),
+        (Icon::Thrust, push, Some(5), format!("{}/{}", st.thrust, st.mass)),
+    ]
+}
+
+/// How many of each part the design has (cannons by the block), leaving out the ones it lacks.
+fn tally(d: &Design, st: &Stats) -> Vec<(Part, i32)> {
+    PARTS
+        .iter()
+        .map(|&p| {
+            let n = match p {
+                Part::Hull => d.cells.iter().filter(|c| **c == Some(Part::Hull)).count() as i32,
+                Part::Plate => st.plate,
+                Part::Flak => st.flak,
+                Part::Lance => st.lance,
+                Part::Cannon => st.cannon,
+                Part::Engine => st.engines,
+                Part::Scoop => st.scoops,
+                Part::Core => st.cores,
+            };
+            (p, n)
+        })
+        .filter(|&(_, n)| n > 0)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_whole_grid_fits_the_canvas_at_2x() {
+        assert_eq!(GRID * 2, CANVAS.w);
+        assert_eq!(CANVAS.w, CANVAS.h);
+        for &z in &ZOOMS {
+            let p = clamp_pan(z, 0);
+            assert!(p <= 0 || GRID * z <= CANVAS.w);
+        }
+    }
+
+    #[test]
+    fn every_design_opens_framed_at_a_whole_zoom() {
+        let mut pg = Pg::new(None, None);
+        for i in 0..pg.lib.len() {
+            pg.select_slot(i);
+            let (x0, y0, x1, y1) = pg.lib[i].used_box().unwrap();
+            // Both corners of the drawing are on the canvas.
+            for c in [(x0, y0), (x1, y1)] {
+                let (sx, sy) = pg.cell_screen(c);
+                assert!(CANVAS.contains(sx, sy), "{} at {}x: cell {:?} lands at {sx},{sy}", pg.lib[i].name, pg.ed.zoom, c);
+            }
+        }
+        pg.select_slot(0);
+        assert_eq!(pg.ed.zoom, 8, "a fighter opens at 8x");
+        pg.select_slot(6);
+        assert_eq!(pg.ed.zoom, 2, "the titan opens at 2x");
+    }
+
+    #[test]
+    fn zooming_keeps_the_cell_under_the_pointer() {
+        let mut pg = Pg::new(None, None);
+        pg.select_slot(4);
+        let at = pg.cell_screen((50, 40));
+        let before = pg.cell_at(at.0, at.1);
+        pg.zoom_by(1, at);
+        assert_eq!(pg.ed.zoom, 8);
+        assert_eq!(pg.cell_at(at.0, at.1), before);
+        pg.zoom_by(-1, at);
+        assert_eq!(pg.cell_at(at.0, at.1), before);
+        // At 2x the whole grid fills the canvas exactly, so there's nothing left to scroll.
+        pg.zoom_by(-1, at);
+        assert_eq!(pg.ed.pan, (0, 0));
+    }
+
+    #[test]
+    fn undo_steps_back_through_changes() {
+        let mut pg = Pg::new(None, None);
+        pg.select_slot(0);
+        let start = pg.lib[0].cells.clone();
+        pg.ed.mirror = false;
+        pg.ed.tool = Tool::Rect;
+        pg.press_canvas((10, 10), false);
+        let end = pg.cell_screen((12, 12));
+        pg.release_yard(end.0, end.1);
+        assert_eq!(pg.lib[0].stats().count, 7 + 9);
+        pg.ed.tool = Tool::Fill;
+        pg.press_canvas((11, 11), true);
+        assert_eq!(pg.lib[0].stats().count, 7);
+        pg.undo();
+        assert_eq!(pg.lib[0].stats().count, 16);
+        pg.undo();
+        assert_eq!(pg.lib[0].cells, start);
+    }
+
+    #[test]
+    fn a_mirrored_stamp_lands_flipped_on_the_other_side() {
+        let mut pg = Pg::new(None, None);
+        pg.select_slot(5);
+        pg.press_btn(Btn::Clear);
+        let pod = Design::from_rows("P", Order::Hunt, &["gh", "hc"]).as_stamp();
+        pg.ed.mirror = true;
+        pg.place(&pod, (20, 30));
+        let o = pod.origin((20, 30));
+        assert_eq!(pg.lib[5].get(o.0, o.1), Some(Part::Flak));
+        assert_eq!(pg.lib[5].get(mirror_x(o.0), o.1), Some(Part::Flak));
+        assert_eq!(pg.lib[5].get(mirror_x(o.0 + 1), o.1 + 1), Some(Part::Core));
+    }
+
+    #[test]
+    fn the_readouts_fit_their_column() {
+        for d in defaults() {
+            let st = d.stats();
+            for (_, segs, _, value) in gauges(&st) {
+                assert!((0..=10).contains(&segs), "{}", d.name);
+                assert!(COL_X + 76 + Framebuffer::text_width(&value, 1) <= 400, "{}: {value}", d.name);
+            }
+            assert!(tally(&d, &st).len() <= 8);
+            let cost = format!("COST {} PX (+{} CORES)", st.cost, st.cost - st.count);
+            assert!(COL_X + Framebuffer::text_width(&cost, 1) <= 400, "{cost}");
+        }
+    }
+}

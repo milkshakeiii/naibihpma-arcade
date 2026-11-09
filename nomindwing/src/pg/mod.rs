@@ -1,12 +1,15 @@
 //! The proving ground: draw ships in the shipyard, set them loose in the arena, and see whether
-//! they fly and fight the way their drawings suggest. Round 2: connected ships, plate, the cannon,
-//! a 41x41 grid and a scrolling arena.
+//! they fly and fight the way their drawings suggest. Round 2: connected ships, plate, the cannon
+//! and a scrolling arena. Round 4: ships up to 99x99 and a yard with tools for drawing them.
 
 pub mod design;
+mod icons;
 pub mod sim;
+mod yard;
 
 use self::design::*;
 use self::sim::*;
+use self::yard::{Ed, NAME_RECT};
 use crate::app::{App, Ev, Key};
 use crate::framebuffer::{wrap, Framebuffer};
 use crate::geom::Line;
@@ -45,7 +48,7 @@ pub fn block(team: usize, slot: usize, n: i32, cx: i32, cy: i32, gap: i32) -> Ve
         .collect()
 }
 
-/// Slots: 0 fighter, 1 lancer, 2 frigate, 3 destroyer, 4 capital, 5 gunminer.
+/// Slots: 0 fighter, 1 lancer, 2 frigate, 3 destroyer, 4 capital, 5 gunminer, 6 titan.
 pub fn tests() -> Vec<Test> {
     let vs = |name: &'static str, blue: Vec<(usize, usize, i32, i32)>, red: Vec<(usize, usize, i32, i32)>| Test { name, place: blue.into_iter().chain(red).collect() };
     vec![
@@ -56,6 +59,8 @@ pub fn tests() -> Vec<Test> {
         vs("1 CAPITAL VS 30 FIGHTERS", block(0, 4, 1, 130, 180, 0), block(1, 0, 30, 350, 180, 9)),
         vs("1 CAPITAL VS 40 LANCERS", block(0, 4, 1, 130, 180, 0), block(1, 1, 40, 350, 180, 9)),
         vs("4 FIGHTERS VS 4 GUNMINERS", block(0, 0, 4, 120, 180, 12), block(1, 5, 4, 330, 180, 14)),
+        vs("1 TITAN VS 5 CAPITALS", block(0, 6, 1, 110, 180, 0), block(1, 4, 5, 380, 180, 44)),
+        vs("1 TITAN VS 40 LANCERS", block(0, 6, 1, 110, 180, 0), block(1, 1, 40, 350, 180, 9)),
         Test { name: "OPEN FIELD", place: Vec::new() },
     ]
 }
@@ -68,46 +73,6 @@ pub struct Placement {
     pub y: i32,
 }
 
-// Shipyard layout.
-const CELL: i32 = 4;
-const GRID_RECT: Rect = Rect::new(6, 26, GRID * CELL + 1, GRID * CELL + 1);
-const BTN_MIRROR: Rect = Rect::new(6, 261, 53, 15);
-const BTN_CLEAR: Rect = Rect::new(62, 261, 53, 15);
-const BTN_TO_ARENA: Rect = Rect::new(118, 261, 53, 15);
-const NAME_RECT: Rect = Rect::new(178, 26, 150, 18);
-const PREVIEW: Rect = Rect::new(342, 26, 54, 54);
-const STATS_X: i32 = 180;
-const STATUS_RECT: Rect = Rect::new(178, 150, 218, 11);
-const INFO_RECT: Rect = Rect::new(176, 196, 222, 102);
-/// The per-part stat lines under the preview: (part, y).
-const PART_LINES: [(Part, i32); 5] = [(Part::Plate, 100), (Part::Flak, 110), (Part::Lance, 120), (Part::Cannon, 130), (Part::Scoop, 140)];
-
-fn tab_rect(i: usize) -> Rect {
-    Rect::new(4 + i as i32 * 66, 3, 63, 20)
-}
-fn part_rect(i: usize) -> Rect {
-    Rect::new(6 + (i as i32 % 2) * 84, 194 + (i as i32 / 2) * 16, 81, 15)
-}
-fn order_rect(i: usize) -> Rect {
-    Rect::new(178 + i as i32 * 55, 176, 52, 16)
-}
-
-/// The yard's one-line status under the stats: what's wrong with the design, or how it will fly.
-fn yard_status(check: &Check, armed: bool, order: Order) -> (String, u8) {
-    match check.problem() {
-        Some(why) => (why, BAD),
-        None if !armed => {
-            let what = match order {
-                Order::Hunt => "NO GUNS: IT STAYS WITH ITS GROUP",
-                Order::Hold => "NO GUNS: IT JUST HOLDS",
-                _ => "NO GUNS: IT RUNS HOME WHEN HIT",
-            };
-            (what.into(), TEXT_DIM)
-        }
-        None => ("READY TO FLY".into(), GOOD),
-    }
-}
-
 /// A notice over the arena, wrapped to fit inside the field with room for its panel.
 fn notice_lines(s: &str) -> Vec<String> {
     wrap(s, ((FIELD.w - 8 - 12) / 6) as usize)
@@ -116,22 +81,22 @@ fn notice_lines(s: &str) -> Vec<String> {
 // Arena layout: the field is a 304x300 window onto the 480x360 arena.
 const FIELD: Rect = Rect::new(0, 0, 304, 300);
 const BTN_TEAM: [Rect; 2] = [Rect::new(306, 4, 44, 16), Rect::new(352, 4, 44, 16)];
-const BTN_RUN: Rect = Rect::new(306, 139, 90, 15);
-const BTN_RESET: Rect = Rect::new(306, 156, 44, 15);
-const BTN_SPEED: Rect = Rect::new(352, 156, 44, 15);
-const BTN_TEST: Rect = Rect::new(306, 173, 90, 15);
-const BTN_EMPTY: Rect = Rect::new(306, 190, 44, 15);
-const BTN_YARD: Rect = Rect::new(352, 190, 44, 15);
+const BTN_RUN: Rect = Rect::new(306, 149, 90, 15);
+const BTN_RESET: Rect = Rect::new(306, 165, 44, 15);
+const BTN_SPEED: Rect = Rect::new(352, 165, 44, 15);
+const BTN_TEST: Rect = Rect::new(306, 181, 90, 15);
+const BTN_EMPTY: Rect = Rect::new(306, 197, 44, 15);
+const BTN_YARD: Rect = Rect::new(352, 197, 44, 15);
 /// The minimap: the whole arena at exactly 1/6 scale.
 const MINI_SCALE: i32 = 6;
-const MINI: Rect = Rect::new(310, 208, AW / MINI_SCALE + 2, AH / MINI_SCALE + 2);
+const MINI: Rect = Rect::new(310, 213, AW / MINI_SCALE + 2, AH / MINI_SCALE + 2);
 const CAM_STEP: i32 = 8;
 const HELP_RECT: Rect = Rect::new(10, 8, 380, 284);
 const QUIT_RECT: Rect = Rect::new(112, 108, 176, 70);
 const QUIT_BTNS: [Rect; 2] = [Rect::new(124, 150, 72, 18), Rect::new(204, 150, 72, 18)];
 
 fn roster_rect(i: usize) -> Rect {
-    Rect::new(306, 23 + i as i32 * 19, 90, 18)
+    Rect::new(306, 22 + i as i32 * 18, 90, 17)
 }
 
 pub fn team_name(t: usize) -> &'static str {
@@ -274,10 +239,7 @@ pub struct Pg {
     pub lib: Vec<Design>,
     pub screen: Screen,
     pub slot: usize,
-    pub part: Part,
-    pub mirror: bool,
-    painting: Option<bool>,
-    last_cell: Option<(i32, i32)>,
+    pub ed: Ed,
     edited: bool,
     naming: bool,
     pub arena: Arena,
@@ -310,7 +272,7 @@ impl Pg {
         let mut lib = defaults();
         if let Some(p) = &save_path {
             if let Ok(text) = std::fs::read_to_string(p) {
-                if text.lines().next() == Some(SAVE_HEADER) {
+                if matches!(text.lines().next(), Some(SAVE_HEADER | OLD_SAVE_HEADER)) {
                     for (i, d) in text.lines().skip(1).filter_map(Design::from_line).take(lib.len()).enumerate() {
                         lib[i] = d;
                     }
@@ -335,10 +297,7 @@ impl Pg {
             lib,
             screen: Screen::Arena,
             slot: 0,
-            part: Part::Hull,
-            mirror: true,
-            painting: None,
-            last_cell: None,
+            ed: Ed::new(),
             edited: false,
             naming: false,
             arena: Arena::new(),
@@ -364,8 +323,9 @@ impl Pg {
             logged_over: false,
             notice: None,
         };
-        pg.log(&format!("##### proving ground round 3 session {} #####", crate::game::utc_stamp()));
+        pg.log(&format!("##### proving ground round 4 session {} #####", crate::game::utc_stamp()));
         pg.load_test(0);
+        pg.fit_view();
         pg
     }
 
@@ -472,9 +432,8 @@ impl Pg {
             (_, Key::Esc) => self.confirm_quit = true,
             (_, Key::Help) => self.help = true,
             (_, Key::Tab) => self.switch_screen(),
-            (Screen::Yard, Key::Num(n)) if (1..=PARTS.len() as u8).contains(&n) => self.part = PARTS[n as usize - 1],
-            (Screen::Yard, Key::Letter('M')) => self.mirror = !self.mirror,
-            (Screen::Arena, Key::Num(n)) if (1..=6).contains(&n) => self.slot = n as usize - 1,
+            (Screen::Yard, k) => self.key_yard(k),
+            (Screen::Arena, Key::Num(n)) if (1..=self.lib.len()).contains(&(n as usize)) => self.slot = n as usize - 1,
             (Screen::Arena, Key::Space) => self.set_running(!self.running),
             (Screen::Arena, Key::Letter('R')) => self.reset(),
             (Screen::Arena, Key::Letter('F')) => self.cycle_speed(),
@@ -513,6 +472,7 @@ impl Pg {
             }
             Screen::Arena => {
                 self.running = false;
+                self.frame_if_new();
                 Screen::Yard
             }
         };
@@ -527,53 +487,6 @@ impl Pg {
             self.edited = true;
             self.save();
         }
-    }
-
-    fn cell_under(x: i32, y: i32) -> Option<(i32, i32)> {
-        if !GRID_RECT.contains(x, y) {
-            return None;
-        }
-        let (cx, cy) = ((x - GRID_RECT.x) / CELL, (y - GRID_RECT.y) / CELL);
-        if cx < GRID && cy < GRID {
-            Some((cx, cy))
-        } else {
-            None
-        }
-    }
-
-    fn paint(&mut self, (cx, cy): (i32, i32), erase: bool) {
-        let p = if erase { None } else { Some(self.part) };
-        let mirror = self.mirror;
-        let d = &mut self.lib[self.slot];
-        d.put(cx, cy, p);
-        let mx = GRID - 1 - cx;
-        // A mirrored cannon that would overlap its twin is skipped rather than replacing it.
-        if mirror && mx != cx && !(p == Some(Part::Cannon) && (mx - cx).abs() < 3) {
-            d.put(mx, cy, p);
-        }
-        self.edited = true;
-    }
-
-    /// Paints every cell between the last sample and this one, so a fast stroke leaves no gaps.
-    /// A cannon stamps once per click, not along the stroke.
-    fn paint_to(&mut self, cell: (i32, i32), erase: bool) {
-        if !erase && self.part == Part::Cannon {
-            if self.last_cell.is_none() {
-                self.paint(cell, false);
-            }
-            self.last_cell = Some(cell);
-            return;
-        }
-        let from = self.last_cell.unwrap_or(cell);
-        let mut l = Line::new(from.0, from.1, cell.0, cell.1);
-        loop {
-            self.paint((l.x, l.y), erase);
-            if (l.x, l.y) == cell {
-                break;
-            }
-            l.step();
-        }
-        self.last_cell = Some(cell);
     }
 
     fn to_world(&self, x: i32, y: i32) -> (i32, i32) {
@@ -608,38 +521,6 @@ impl Pg {
         match self.screen {
             Screen::Yard => self.press_yard(x, y, right),
             Screen::Arena => self.press_arena(x, y, right),
-        }
-    }
-
-    fn press_yard(&mut self, x: i32, y: i32, right: bool) {
-        if let Some(cell) = Self::cell_under(x, y) {
-            self.painting = Some(right);
-            self.last_cell = None;
-            self.paint_to(cell, right);
-            return;
-        }
-        if right {
-            return;
-        }
-        if let Some(i) = (0..self.lib.len()).find(|&i| tab_rect(i).contains(x, y)) {
-            self.slot = i;
-        } else if let Some(i) = (0..PARTS.len()).find(|&i| part_rect(i).contains(x, y)) {
-            self.part = PARTS[i];
-        } else if let Some(i) = (0..ORDERS.len()).find(|&i| order_rect(i).contains(x, y)) {
-            self.lib[self.slot].order = ORDERS[i];
-            self.edited = true;
-            self.save();
-        } else if BTN_MIRROR.contains(x, y) {
-            self.mirror = !self.mirror;
-        } else if BTN_CLEAR.contains(x, y) {
-            let d = &mut self.lib[self.slot];
-            d.cells.iter_mut().for_each(|c| *c = None);
-            self.edited = true;
-            self.save();
-        } else if BTN_TO_ARENA.contains(x, y) {
-            self.switch_screen();
-        } else if NAME_RECT.contains(x, y) {
-            self.naming = true;
         }
     }
 
@@ -720,6 +601,9 @@ impl Pg {
                 self.set_cam(self.cam.0 + dx, self.cam.1 + dy);
             }
         }
+        if self.screen == Screen::Yard && !self.help && !self.confirm_quit && !self.naming {
+            self.scroll_yard(&dirs);
+        }
         if self.screen != Screen::Arena || !self.running || self.help || self.confirm_quit {
             return;
         }
@@ -782,155 +666,6 @@ impl Pg {
             for (r, l) in QUIT_BTNS.iter().zip(["QUIT", "BACK"]) {
                 ui::button(fb, *r, l, r.contains(self.mouse.0, self.mouse.1), false);
             }
-        }
-    }
-
-    fn draw_yard(&self, fb: &mut Framebuffer) {
-        fb.rect_fill(0, 0, 400, 300, PANEL_LO);
-        let m = self.mouse;
-        for (i, d) in self.lib.iter().enumerate() {
-            let r = tab_rect(i);
-            let sel = i == self.slot;
-            if sel {
-                fb.rect_bevel(r.x, r.y, r.w, r.h, PANEL_DEEP, PANEL_LO, PANEL_HI);
-                fb.rect_outline(r.x + 1, r.y + 1, r.w - 2, r.h - 2, ACCENT);
-            } else {
-                ui::panel(fb, r);
-            }
-            draw_icon(fb, d, Rect::new(r.x + 3, r.y + 3, 14, 14), 0);
-            let name: String = d.name.chars().take(7).collect();
-            let col = if !d.check().ok() { BAD } else if sel { ACCENT } else { TEXT };
-            fb.text(&name, r.x + 20, r.y + 7, col, None, 1);
-        }
-        // The grid: every cell a part, up is the front. Guide blocks are 5 cells, centred.
-        let d = &self.lib[self.slot];
-        let check = d.check();
-        let g = GRID_RECT;
-        fb.rect_fill(g.x - 1, g.y - 1, g.w + 2, g.h + 2, PANEL_HI);
-        fb.rect_fill(g.x, g.y, g.w, g.h, OUTLINE);
-        let band = |c: i32| ((c - GRID / 2).abs() + 2) / 5;
-        let breeches: Vec<(i32, i32)> = d.cannon_blocks().0.iter().map(|&(x, y)| (x + 1, y + 1)).collect();
-        for cy in 0..GRID {
-            for cx in 0..GRID {
-                let (x, y) = (g.x + 1 + cx * CELL, g.y + 1 + cy * CELL);
-                let col = match d.get(cx, cy) {
-                    Some(Part::Cannon) if breeches.contains(&(cx, cy)) => GOLD,
-                    Some(p) => part_col(p, 0),
-                    None if cx == GRID / 2 => PANEL,
-                    None if (band(cx) + band(cy)) % 2 == 0 => PANEL_DEEP,
-                    None => SPACE,
-                };
-                fb.rect_fill(x, y, CELL - 1, CELL - 1, col);
-            }
-        }
-        // Loose pixels and buried engines get a red frame round the cell.
-        for &(cx, cy) in check.loose.iter().chain(&check.buried) {
-            fb.rect_outline(g.x + cx * CELL, g.y + cy * CELL, CELL + 1, CELL + 1, BAD);
-        }
-        if let Some((cx, cy)) = Self::cell_under(m.0, m.1) {
-            let foot = |cx: i32| if self.part == Part::Cannon && self.painting != Some(true) { (cx - 1, cy - 1, 3) } else { (cx, cy, 1) };
-            let (fx, fy, n) = foot(cx);
-            fb.rect_outline(g.x + fx * CELL, g.y + fy * CELL, n * CELL + 1, n * CELL + 1, WHITE);
-            if self.mirror && cx != GRID - 1 - cx {
-                let (fx, fy, n) = foot(GRID - 1 - cx);
-                fb.rect_outline(g.x + fx * CELL, g.y + fy * CELL, n * CELL + 1, n * CELL + 1, TEXT_FAINT);
-            }
-        }
-        for (i, &p) in PARTS.iter().enumerate() {
-            let r = part_rect(i);
-            let sel = p == self.part;
-            if sel {
-                fb.rect_bevel(r.x, r.y, r.w, r.h, PANEL_DEEP, PANEL_LO, PANEL_HI);
-                fb.rect_outline(r.x + 1, r.y + 1, r.w - 2, r.h - 2, ACCENT);
-            } else if r.contains(m.0, m.1) {
-                fb.rect_bevel(r.x, r.y, r.w, r.h, PANEL_HI, WHITE, PANEL);
-            } else {
-                ui::panel(fb, r);
-            }
-            fb.rect_fill(r.x + 4, r.y + 3, 9, 9, OUTLINE);
-            fb.rect_fill(r.x + 5, r.y + 4, 7, 7, part_col(p, 0));
-            if p == Part::Cannon {
-                fb.rect_fill(r.x + 7, r.y + 6, 3, 3, GOLD);
-            }
-            let tc = if sel { ACCENT } else if r.contains(m.0, m.1) { PANEL_DEEP } else { TEXT };
-            fb.text(p.name(), r.x + 17, r.y + 4, tc, None, 1);
-            fb.text(&format!("{}", i + 1), r.x + r.w - 9, r.y + 4, TEXT_FAINT, None, 1);
-        }
-        ui::button(fb, BTN_MIRROR, "MIRROR", BTN_MIRROR.contains(m.0, m.1), self.mirror);
-        ui::button(fb, BTN_CLEAR, "CLEAR", BTN_CLEAR.contains(m.0, m.1), false);
-        ui::button(fb, BTN_TO_ARENA, "ARENA", BTN_TO_ARENA.contains(m.0, m.1), false);
-        fb.text("LEFT PAINTS  RIGHT ERASES", 6, 281, TEXT_FAINT, None, 1);
-        fb.text("TAB ARENA  M MIRROR", 6, 290, TEXT_FAINT, None, 1);
-
-        // Name, preview and the stats the drawing implies.
-        if self.naming {
-            fb.rect_fill(NAME_RECT.x, NAME_RECT.y, NAME_RECT.w, NAME_RECT.h, PANEL_DEEP);
-            fb.text(&format!("{}_", d.name), NAME_RECT.x + 2, NAME_RECT.y + 2, ACCENT, None, 2);
-        } else {
-            fb.text(&d.name, NAME_RECT.x + 2, NAME_RECT.y + 2, if NAME_RECT.contains(m.0, m.1) { WHITE } else { TEXT }, Some(OUTLINE), 2);
-        }
-        ui::inset(fb, PREVIEW);
-        fb.rect_fill(PREVIEW.x + 2, PREVIEW.y + 2, PREVIEW.w - 4, PREVIEW.h - 4, SPACE);
-        let sh = d.shape();
-        draw_shape(fb, PREVIEW, &sh, PREVIEW.x + PREVIEW.w / 2, PREVIEW.y + PREVIEW.h / 2, 0, 0, &|_| true, false);
-
-        let st = d.stats();
-        let line = |fb: &mut Framebuffer, y: i32, s: &str, c: u8| fb.text(s, STATS_X, y, c, None, 1);
-        let ds = |d: i32| format!("{}.{} S", d / 10, d % 10);
-        let cost = if st.cores > 1 { format!("COST    {} PX (+{} CORES)", st.cost, st.cost - st.count) } else { format!("COST    {} PX", st.cost) };
-        line(fb, 48, &cost, GOLD);
-        line(fb, 58, &format!("WEIGHT  {}  ENGINES {}", st.mass, st.engines), TEXT);
-        line(fb, 68, &format!("FLIGHT  {}", st.flight.name()), ACCENT);
-        if st.engines > 0 {
-            line(fb, 78, &format!("SPEED {} PX/S  TURN {}", st.top_speed_px_s(), ds(st.turn_ds())), TEXT);
-            line(fb, 88, &format!("0 TO TOP SPEED {}", ds(st.zero_to_top_ds())), TEXT);
-        } else {
-            line(fb, 78, "NO ENGINES: IT STAYS PUT", TEXT_DIM);
-        }
-        for (p, y) in PART_LINES {
-            let (n, what, col) = match p {
-                Part::Plate => (st.plate, "FLAK BOUNCES OFF".to_string(), STEEL),
-                Part::Flak => (st.flak, "TURRETS, 48 PX".into(), GUN),
-                Part::Lance => (st.lance, "STRAIGHT AHEAD, 100 PX".into(), LANCE),
-                Part::Cannon => (st.cannon, "BIG SLOW TURRETS, 130 PX".into(), GOLD),
-                _ => (st.scoops, format!("CARRIES {}", st.scoops * SCOOP_CARRY), SCOOP),
-            };
-            let name: String = format!("{:7}", p.name());
-            line(fb, y, &format!("{name}{n:3}  {what}"), if n > 0 { col } else { TEXT_FAINT });
-        }
-        let (status, col) = yard_status(&check, st.armed(), d.order);
-        fb.text(&status, STATUS_RECT.x + 2, STATUS_RECT.y + 2, col, None, 1);
-        fb.text("ORDER", STATS_X, 166, TEXT_FAINT, None, 1);
-        for (i, &o) in ORDERS.iter().enumerate() {
-            let r = order_rect(i);
-            ui::button(fb, r, o.name(), r.contains(m.0, m.1), o == d.order);
-        }
-
-        ui::inset(fb, INFO_RECT);
-        let part_line = PART_LINES.iter().find(|&&(_, y)| (STATS_X..396).contains(&m.0) && (y - 1..y + 9).contains(&m.1)).map(|&(p, _)| p);
-        let info: String = if let Some(i) = (0..PARTS.len()).find(|&i| part_rect(i).contains(m.0, m.1)) {
-            format!("[{}] {}", i + 1, PARTS[i].blurb())
-        } else if let Some(p) = part_line {
-            p.blurb().into()
-        } else if let Some(i) = (0..ORDERS.len()).find(|&i| order_rect(i).contains(m.0, m.1)) {
-            ORDERS[i].blurb().into()
-        } else if STATUS_RECT.contains(m.0, m.1) {
-            "A SHIP NEEDS A CORE, AND ITS PIXELS MUST ALL JOIN UP EDGE TO EDGE (CORNERS DON'T COUNT). LOOSE PIXELS SHOW RED. EVERY ENGINE NEEDS A 3-WIDE WAY OUT; BURIED ONES SHOW RED. EXTRA CORES COST +8, +16, +32. CUT APART, EACH PIECE WITH A CORE FLIES ON AS A SHIP.".into()
-        } else if (STATS_X..340).contains(&m.0) && (56..96).contains(&m.1) {
-            "FLIGHT FOLLOWS FROM THE DRAWING. AT LEAST 1 THRUST PER WEIGHT (8 PER ENGINE): ATTACK RUNS, DIVING THROUGH THE TARGET AND LOOPING BACK. LESS: STAND-OFF, HOLDING AT WEAPON RANGE. NO ENGINES: STAYS PUT. HEAVIER SHIPS TURN SLOWER.".into()
-        } else if BTN_MIRROR.contains(m.0, m.1) {
-            "[M] MIRROR PAINTS BOTH SIDES OF THE CENTRE COLUMN AT ONCE.".into()
-        } else if NAME_RECT.contains(m.0, m.1) {
-            "CLICK TO RENAME. ENTER WHEN DONE.".into()
-        } else if (0..self.lib.len()).any(|i| tab_rect(i).contains(m.0, m.1)) {
-            "YOUR SIX DESIGNS. THE TESTS IN THE ARENA USE THESE SLOTS, SO EDITING ONE CHANGES THE TESTS TOO. A RED NAME CAN'T FLY YET.".into()
-        } else if self.part == Part::Cannon {
-            "PAINTING CANNON. A CLICK STAMPS A 3X3 CANNON CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF IT TO REMOVE THE WHOLE THING. UP IS THE FRONT.".into()
-        } else {
-            format!("PAINTING {}. LEFT-CLICK PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT. EVERY PIXEL JOINED UP EDGE TO EDGE, AND EVERY ENGINE WITH A 3-WIDE WAY OUT.", self.part.name())
-        };
-        for (i, l) in wrap(&info, 35).iter().enumerate().take(10) {
-            fb.text(l, INFO_RECT.x + 4, INFO_RECT.y + 4 + i as i32 * 9, TEXT, None, 1);
         }
     }
 
@@ -1103,7 +838,7 @@ impl Pg {
             } else {
                 ui::panel(fb, r);
             }
-            draw_icon(fb, d, Rect::new(r.x + 2, r.y + 2, 14, 14), self.team);
+            draw_icon(fb, d, Rect::new(r.x + 2, r.y + 1, 14, 14), self.team);
             let ok = d.check().ok();
             let tc = if !ok { BAD } else if hover && !sel { PANEL_DEEP } else { TEXT };
             let name: String = d.name.chars().take(10).collect();
@@ -1126,7 +861,7 @@ impl Pg {
         self.draw_minimap(fb);
         let sc = &a.score;
         for t in 0..2 {
-            let y = 274 + t as i32 * 11;
+            let y = 278 + t as i32 * 11;
             fb.text(team_name(t), 308, y, team_col(t, 2), None, 1);
             fb.text(&format!("{}/{}", a.alive(t), sc[t].placed), 338, y, TEXT, None, 1);
             fb.text(&format!("-{}", sc[t].px_lost), 368, y, TEXT_DIM, None, 1);
@@ -1150,10 +885,10 @@ impl Pg {
                 Some("THE WHOLE ARENA AT 1/6 SCALE. CLICK OR DRAG TO MOVE THE VIEW, OR SCROLL WITH WASD OR THE ARROWS.")
             } else if (0..2).any(|t| BTN_TEAM[t].contains(m.0, m.1)) {
                 Some("[T] WHICH TEAM YOUR CLICKS PLACE.")
-            } else if (306..400).contains(&m.0) && m.1 >= 272 {
+            } else if (306..400).contains(&m.0) && m.1 >= 276 {
                 Some("SHIPS LEFT / PLACED, AND PIXELS LOST, FOR EACH TEAM.")
             } else {
-                (0..self.lib.len()).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|_| "[1-6] THE DESIGN YOUR CLICKS PLACE. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.")
+                (0..self.lib.len()).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|_| "[1-7] THE DESIGN YOUR CLICKS PLACE. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.")
             };
             if let Some(tip) = tip {
                 let lines = wrap(tip, 49);
@@ -1201,10 +936,10 @@ impl Pg {
         let r = HELP_RECT;
         ui::panel(fb, r);
         fb.text("PROVING GROUND", r.x + 10, r.y + 8, ACCENT, Some(OUTLINE), 2);
-        fb.text("ROUND 3", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
+        fb.text("ROUND 4", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
         let body = [
-            ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. AT LEAST ONE CORE, AND EVERY PIXEL JOINED UP EDGE TO EDGE."),
-            ("NEW", "EXTRA CORES COST +8, +16, +32. CUT A SHIP APART AND EACH PIECE WITH A CORE FLIES ON AS A SHIP. EVERY ENGINE NEEDS A 3-WIDE WAY OUT. 20 S WITH NO SHOTS, NO HITS AND NOBODY CLOSING IN ENDS A FIGHT AS A STALEMATE."),
+            ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. AT LEAST ONE CORE, EVERY PIXEL JOINED UP EDGE TO EDGE, AND EVERY ENGINE WITH A STRAIGHT 3-WIDE WAY OUT."),
+            ("NEW", "SHIPS UP TO 99X99. KEYS 1-6 PICK A PART CATEGORY. P PENCIL, R RECTANGLE, F FILL, C COPY A STAMP (OR RIGHT-CLICK A DESIGN'S TAB), T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM; 1X IS REAL SIZE."),
             ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE. HEAVIER SHIPS TURN SLOWER."),
             ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW."),
             ("KEYS", "TAB YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT"),
@@ -1244,21 +979,23 @@ impl App for Pg {
             }
             Ev::Move(x, y) => {
                 self.mouse = (x, y);
-                if let Some(erase) = self.painting {
-                    if let Some(cell) = Self::cell_under(x, y) {
-                        self.paint_to(cell, erase);
-                    }
+                if self.screen == Screen::Yard {
+                    self.drag_yard(x, y);
                 }
                 if self.map_drag {
                     self.cam_from_map(x.clamp(MINI.x + 1, MINI.x + MINI.w - 2), y.clamp(MINI.y + 1, MINI.y + MINI.h - 2));
                 }
             }
             Ev::Press { x, y, right } => self.press(x, y, right),
-            Ev::Release { .. } => {
+            Ev::Release { x, y, .. } => {
                 self.map_drag = false;
-                if self.painting.take().is_some() {
-                    self.last_cell = None;
-                    self.save();
+                if self.screen == Screen::Yard {
+                    self.release_yard(x, y);
+                }
+            }
+            Ev::Wheel(n) => {
+                if self.screen == Screen::Yard && !self.help && !self.confirm_quit {
+                    self.wheel_yard(n);
                 }
             }
         }
@@ -1291,6 +1028,7 @@ impl App for Pg {
 
 #[cfg(test)]
 mod tests {
+    use super::yard::{yard_status, STATUS_RECT};
     use super::*;
 
     #[test]
