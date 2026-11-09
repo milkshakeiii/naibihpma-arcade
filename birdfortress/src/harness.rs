@@ -116,6 +116,25 @@ pub fn cli(args: &[String], levels: &[Level]) -> bool {
             shots(levels, if arg(2).is_empty() { "screenshots" } else { arg(2) });
             true
         }
+        "--spread" => {
+            let n: usize = arg(2).parse().unwrap_or(40);
+            for lv in levels {
+                let steps = bot::parse_plan(&lv.plans[0]).unwrap_or_default();
+                let best = bot::run(lv, &steps, 400, false).won.unwrap_or(0);
+                let (days, lost) = bot::spread(lv, &steps, n, 5);
+                let q = |f: f32| days.get(((days.len() as f32 - 1.0) * f).round() as usize).copied().unwrap_or(0);
+                println!(
+                    "{:<5} best {:>3} | random orders: min {:>3} median {:>3} max {:>3} | {:>2} of {n} never finish",
+                    lv.id,
+                    best,
+                    q(0.0),
+                    q(0.5),
+                    q(1.0),
+                    lost
+                );
+            }
+            true
+        }
         "--map" => {
             let Some(lv) = find(levels, arg(2)) else { return true };
             print_map(lv);

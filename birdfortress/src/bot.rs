@@ -279,3 +279,42 @@ pub fn optimize(level: &Level, steps: &[Step], iters: usize, seed: u64) -> (i32,
     }
     (best_day, best)
 }
+
+/// Runs the same buildings in random orders: how much does build order matter? Returns the
+/// finishing days of the orders that still win, and how many didn't (sorted).
+pub fn spread(level: &Level, steps: &[Step], n: usize, seed: u64) -> (Vec<i32>, usize) {
+    let mut rng = Rng(seed.max(1));
+    let mut days = Vec::new();
+    let mut lost = 0;
+    for _ in 0..n {
+        let mut cand = steps.to_vec();
+        // Fisher-Yates, then move every store order after its store so the plan stays valid.
+        for i in (1..cand.len()).rev() {
+            let j = rng.below(i + 1);
+            cand.swap(i, j);
+        }
+        let (orders, mut rest): (Vec<Step>, Vec<Step>) = cand.into_iter().partition(|s| matches!(s, Step::Order(..)));
+        rest.extend(orders);
+        // Planks and ladders keep their original order among themselves (a plank must touch the
+        // one before it), in whatever slots the shuffle gave them.
+        let infra: Vec<Step> = steps.iter().filter(|s| matches!(s, Step::Do(Action::Infra { .. }))).cloned().collect();
+        let mut k = 0;
+        for s in rest.iter_mut() {
+            if matches!(s, Step::Do(Action::Infra { .. })) {
+                *s = infra[k].clone();
+                k += 1;
+            }
+        }
+        let r = run(level, &rest, 400, false);
+        match (r.error, r.won) {
+            (None, Some(d)) => days.push(d),
+            (Some(e), _) if std::env::var("SPREAD_DEBUG").is_ok() => {
+                eprintln!("{}: {e}", level.id);
+                lost += 1;
+            }
+            _ => lost += 1,
+        }
+    }
+    days.sort();
+    (days, lost)
+}

@@ -46,6 +46,37 @@ gaps came on sites with hard ordering choices:
 - **Kiln Country:** the hand plan built fish camps the town couldn't use yet.
 - **The Canopy:** the optimised plan reaches the larder stage before the first autumn.
 
+## Checking the framework: does build order matter?
+
+DESIGN.md's "compounding" lever says two orderings of the same buildings should finish days
+apart. `--spread 40` takes each site's best plan and runs the same buildings in 40 random orders.
+Planks and ladders keep their relative order, and store orders go last so every plan is valid.
+
+| Site | Best | Random orders: min / median / max | Never finish (of 40) |
+|---|---|---|---|
+| 1-1 | 7 | 7 / 10 / 16 | 0 |
+| 1-2 | 16 | 24 / 36 / 99 | 2 |
+| 1-3 | 14 | 15 / 18 / 329 | 34 |
+| 2-1 | 29 | 40 / 77 / 174 | 2 |
+| 2-2 | 32 | 58 / 67 / 102 | 37 |
+| 2-3 | 30 | 33 / 57 / 279 | 13 |
+| 3-1 | 36 | 58 / 91 / 225 | 10 |
+| 3-2 | 36 | 56 / 86 / 200 | 4 |
+| 4-1 | 29 | 42 / 91 / 310 | 24 |
+| 4-2 | 57 | none finished | 40 |
+| 5-1 | 20 | 40 / 140 / 332 | 30 |
+| 5-2 | 65 | 114 / 207 / 330 | 19 |
+
+Only the tutorial site barely cares about order. Everywhere else a random order of the right
+buildings takes two to four times as long, or stalls for good, so order is where a lot of the
+skill is.
+
+The stalls are worth reading. Workplaces hire in the order they were built, so a camp built early
+can hold the only free apes while the mason that needs them never gets a worker. The bot never
+pauses a building to free its workers, but a player can. Some of these stalls would be recoverable
+in play. They still show the coupling the design asked for: one early choice decides what the
+whole colony can do.
+
 ## What tuning changed in the rules
 
 Each of these came from a bot run that stalled for a reason a player would also hit:

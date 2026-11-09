@@ -8,7 +8,7 @@ Look-and-feel rules for small Rust games on a 400x300 VGA renderer, kept faithfu
 
 Games:
 
-- [`birdfortress/`](birdfortress/README.md): **Bird Fortress**, a logistics optimization game built on the [birdfortress2](https://github.com/milkshakeiii/birdfortress2) concept. Creatures' jumps and pace depend on what they carry. It has 19 sites with goals for ticks, cost and crew.
+- [`birdfortress/`](birdfortress/README.md): **Bird Fortress**, a side-view city builder in the line of *Pharaoh* and *Zeus*, built on the [birdfortress2](https://github.com/milkshakeiii/birdfortress2) concept. Each species sees a different map depending on what it carries. It has 12 sites with fortress stages, housing tiers, seasons, and gold, silver and bronze days.
 
 The prototypes that used to live here (Interstellar Forager, Star Pond, Chuteworks, Mise en Space, and the roguelike lab) were removed on 2026-11-07. They remain in this repository's history up to b9303e8, and the `chuteworks-prototype` and `starpond-underbrush-prototype` branches still carry their own copies.
 

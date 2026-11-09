@@ -131,6 +131,7 @@ cargo run --release -- --check            # every site's bot plans, the day they
 cargo run --release -- --plan 2-1         # one plan with a day-by-day log
 cargo run --release -- --dump 2-1 30      # every building and creature after 30 days of the plan
 cargo run --release -- --opt 2-1 600      # hill-climb the plan's order, hiring and length
+cargo run --release -- --spread 40        # run each best plan in 40 random orders: does order matter?
 cargo run --release -- --map 2-1          # the map with coordinates
 cargo run --release -- --shots screenshots
 python tools/sites.py                     # regenerate src/sites/ch*.txt
