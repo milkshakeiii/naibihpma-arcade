@@ -1782,12 +1782,12 @@ fn draw_help(g: &Game, fb: &mut Framebuffer) {
             let f = Rect::new(x, y, 20, 20);
             ui::button_face(fb, f, false, false);
             tool_icon(fb, g, Tool::Build(Kind::Camp), f);
-            fb.text("Camp: put it on a bush, tree, pile, quarry, bank or fishing spot.", x + 26, y + 6, TEXT, None, 1);
+            fb.text("Camp: goes on a bush, tree, pile, quarry, bank or pond.", x + 26, y + 6, TEXT, None, 1);
             y += 24;
             let f = Rect::new(x, y, 20, 20);
             ui::button_face(fb, f, false, false);
             tool_icon(fb, g, Tool::Build(Kind::Store), f);
-            fb.text("Store: holds 24 goods, 8 of a kind; its carriers feed anyone in reach.", x + 26, y + 6, TEXT, None, 1);
+            fb.text("Store: 24 goods, 8 of a kind. Feeds all in reach.", x + 26, y + 6, TEXT, None, 1);
             y += 26;
             para(fb, "Each workplace hires one kind of creature: you choose. A new hire walks over from a home of that kind, so it has to be able to get there.", TEXT, &mut y);
             para(fb, "Workers carry one thing at a time to the nearest place that wants it: homes, workshops and the fortress first, stores last. Stores never feed stores.", TEXT, &mut y);
