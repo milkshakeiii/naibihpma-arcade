@@ -135,6 +135,23 @@ pub fn cli(args: &[String], levels: &[Level]) -> bool {
             }
             true
         }
+        "--trip" => {
+            // --trip ID x y SPECIES GOOD: loaded ticks from a tile to the fortress, and back empty.
+            let Some(lv) = find(levels, arg(2)) else { return true };
+            let (x, y): (i32, i32) = (arg(3).parse().unwrap_or(0), arg(4).parse().unwrap_or(0));
+            let s = crate::rules::Species::from_name(arg(5)).unwrap_or(crate::rules::Species::Tribble);
+            let g = crate::rules::Good::from_name(arg(6)).unwrap_or(crate::rules::Good::Twig);
+            let w = crate::world::World::new(lv);
+            let (fx, fy, fw, fh) = lv.fortress;
+            let goals: Vec<(i32, i32)> = (fx..fx + fw).map(|x| (x, fy + fh - 1)).collect();
+            let there = crate::path::field(&w, s, crate::rules::Load::of(g), &[(x, y)]).best(&w, &goals);
+            println!("{} carrying {} from {x},{y} to the fortress: {:?} ticks (range {})", s.title(), g.word(), there.map(|t| t.0), crate::rules::RANGE);
+            if let Some((_, at)) = there {
+                let back = crate::path::field(&w, s, crate::rules::Load::EMPTY, &[at]).at(&w, x, y);
+                println!("back empty: {back} ticks");
+            }
+            true
+        }
         "--map" => {
             let Some(lv) = find(levels, arg(2)) else { return true };
             print_map(lv);
@@ -385,6 +402,31 @@ pub fn shots(levels: &[Level], dir: &str) {
     g.event(Ev::Key(Key::Enter));
     g.mouse = (200, 200);
     snap(&mut g, "14_select_done");
+    // A camp whose goods can't reach anyone who wants them: the card says who and how far.
+    let mut g = new_game();
+    g.enter_level(at("1-2"));
+    g.begin(false);
+    g.city.seeds_tenths = 1000;
+    g.act(crate::city::Action::Build { kind: crate::rules::Kind::Burrow, x: 3, y: 16, species: crate::rules::Species::Tribble });
+    g.act(crate::city::Action::Build { kind: crate::rules::Kind::Camp, x: 54, y: 11, species: crate::rules::Species::Tribble });
+    let id = g.city.buildings.last().map(|b| b.id).unwrap_or(0);
+    g.speed = 3;
+    for _ in 0..2000 {
+        g.tick();
+        if g.city.building(id).is_some_and(|b| matches!(b.note, crate::city::Note::Stuck(..))) {
+            break;
+        }
+    }
+    g.tip = None;
+    g.msg = None;
+    g.floaters.clear();
+    g.banner = None;
+    g.paused = true;
+    g.cam = (160, 0);
+    g.clamp_cam();
+    g.sel = Some(crate::game::Sel::B(id));
+    g.mouse = (54 * 10 + 5 - g.cam.0, 11 * 10 + 5);
+    snap(&mut g, "15_stuck_card");
     // The rules pages.
     let mut g = new_game();
     g.event(Ev::Key(Key::Help));

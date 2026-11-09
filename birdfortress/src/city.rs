@@ -38,8 +38,9 @@ pub enum Note {
     Bare,
     /// Waiting for an input.
     NeedInput(Good),
-    /// Has goods nobody in reach wants (or can carry there).
-    Stuck(Good),
+    /// Has a good that someone wants but nobody here can deliver: the nearest place that wants it
+    /// and the ticks it takes carrying one (FAR: no way there at all; within RANGE: no way back).
+    Stuck(Good, Place, i32),
     /// Settlers can't walk here from the trail.
     NoSettlers,
     /// A home lacks this for its tier.
@@ -1203,6 +1204,34 @@ impl City {
         self.buildings.iter().any(|b| Place::B(b.id) != from && self.want(Place::B(b.id), g, from_store) > 0)
     }
 
+    /// Why a good can't go anywhere: nobody needs it (Stocked), or the nearest place that wants it,
+    /// with the ticks it takes this species to carry one there.
+    pub fn why_stuck(&self, from: Place, s: Species, g: Good, from_store: bool) -> Note {
+        let f = self.field(from, s, Load::of(g));
+        let mut places: Vec<Place> = self.buildings.iter().map(|b| Place::B(b.id)).collect();
+        if self.level.has_fortress() {
+            places.push(Place::Fortress);
+        }
+        let mut nearest: Option<(i32, Place)> = None;
+        let mut any: Option<Place> = None;
+        for p in places {
+            if p == from || self.want(p, g, from_store) <= 0 {
+                continue;
+            }
+            any.get_or_insert(p);
+            if let Some((d, _)) = f.best(&self.world, &self.access(p)) {
+                if nearest.map_or(true, |(nd, _)| d < nd) {
+                    nearest = Some((d, p));
+                }
+            }
+        }
+        match (nearest, any) {
+            (Some((d, p)), _) => Note::Stuck(g, p, d),
+            (None, Some(p)) => Note::Stuck(g, p, FAR),
+            (None, None) => Note::Stocked(g),
+        }
+    }
+
     /// The best place within reach to take a good to: consumers first, then stores.
     fn best_drop(&self, from: Place, s: Species, g: Good, from_store: bool) -> Option<(i32, Place, (i32, i32))> {
         let load = Load::of(g);
@@ -1292,13 +1321,13 @@ impl City {
         if let Some(g) = c.cargo {
             if let Some((_, to, at)) = self.best_drop(here, c.species, g, false) {
                 if self.start_carry(uid, here, g, to, at) {
-                    if matches!(self.building(b.id).map(|b| b.note), Some(Note::Stuck(_) | Note::Stocked(_))) {
+                    if matches!(self.building(b.id).map(|b| b.note), Some(Note::Stuck(..) | Note::Stocked(_))) {
                         self.set_note(b.id, Note::Fine);
                     }
                     return;
                 }
             }
-            let n = if self.anyone_wants(here, g, false) { Note::Stuck(g) } else { Note::Stocked(g) };
+            let n = self.why_stuck(here, c.species, g, false);
             self.set_note(b.id, n);
             self.creatures[ci].job = Job::Wait(15);
             return;
@@ -1387,7 +1416,7 @@ impl City {
                         }
                         return;
                     } else if b.stock[out.index()] >= SHOP_OUT_CAP {
-                        let n = if self.anyone_wants(here, out, false) { Note::Stuck(out) } else { Note::Stocked(out) };
+                        let n = self.why_stuck(here, c.species, out, false);
                         self.set_note(b.id, n);
                     }
                 }

@@ -658,17 +658,17 @@ fn draw_need_mark(fb: &mut Framebuffer, g: &Game, b: &Building) {
         Note::Hungry if b.residents > 0 => Some(Good::Berry),
         Note::Lacks(gd) => Some(gd),
         Note::NeedInput(gd) => Some(gd),
-        Note::Stuck(gd) => Some(gd),
+        Note::Stuck(gd, ..) => Some(gd),
         _ => None,
     };
     if let Some(gd) = good {
         let s = g.art.good(gd);
         let (x, y) = (cx - s.w / 2, top - s.h - 2);
-        let edge = if matches!(b.note, Note::Stuck(_)) { ACCENT } else { BAD };
+        let edge = if matches!(b.note, Note::Stuck(..)) { ACCENT } else { BAD };
         fb.rect_fill(x - 2, y - 2, s.w + 4, s.h + 4, PANEL_DEEP);
         fb.rect_outline(x - 2, y - 2, s.w + 4, s.h + 4, edge);
         fb.blit(s, x, y, false);
-        if matches!(b.note, Note::Stuck(_)) {
+        if matches!(b.note, Note::Stuck(..)) {
             fb.line(x - 1, y + s.h, x + s.w, y - 1, BAD);
         }
         return;
@@ -1487,17 +1487,17 @@ fn draw_card(fb: &mut Framebuffer, g: &Game) {
             }
             let (t, bad) = g.note_text(b);
             let ty = r.y + r.h - 13;
-            let avail = (r.w - 84) / 6;
-            let mut t = t;
-            if t.chars().count() as i32 > avail {
-                t = t.chars().take(avail as usize - 1).collect::<String>() + ".";
+            let col = if bad { BAD } else { GOOD };
+            let lines = g.card_note_lines(b);
+            if lines.is_empty() {
+                fb.text(&t, x, ty, col, None, 1);
+            } else {
+                // Too long for beside the buttons: wrapped over the full width, just above them.
+                let top = ty - 10 * lines.len() as i32 - 2;
+                for (i, l) in lines.iter().enumerate() {
+                    fb.text(l, x, top + i as i32 * 10, col, None, 1);
+                }
             }
-            if b.kind.slots() == 0 {
-                let avail = (r.w - 48) / 6;
-                let full = g.note_text(b).0;
-                t = full.chars().take(avail as usize).collect();
-            }
-            fb.text(&t, x, ty, if bad { BAD } else { GOOD }, None, 1);
         }
     }
 }

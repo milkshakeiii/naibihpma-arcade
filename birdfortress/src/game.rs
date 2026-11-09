@@ -462,6 +462,10 @@ impl Game {
             Sel::Fortress => 30 + 10 * self.level().stages.get(self.city.stage).map(|s| s.need.len() as i32).unwrap_or(1),
             Sel::Source(_) => 40,
         };
+        let height = match s {
+            Sel::B(id) => height + 10 * self.city.building(id).map(|b| self.card_note_lines(b).len() as i32).unwrap_or(0),
+            _ => height,
+        };
         let (sx, sy) = self.to_screen(x * TILE + w * TILE / 2, y * TILE);
         let cx = (sx - CARD_W / 2).clamp(2, VIEW_W - CARD_W - 2);
         let mut cy = sy - height - 6;
@@ -580,7 +584,12 @@ impl Game {
                 Note::NoWorkers(s) => self.tip("noworkers", &format!("No {} free. Every resident works: build homes.", s.plural()), at),
                 Note::NoReach(s) => self.tip("noreach", &format!("No {} home can walk here.", s.title().to_lowercase()), at),
                 Note::NoSettlers => self.tip("nosettlers", "Settlers can't walk here from the trail.", at),
-                Note::Stuck(g) => self.tip("stuck", &format!("Nobody in reach can take {}. A store takes anything.", g.words()), at),
+                Note::Stuck(..) => {
+                    if let Some(b) = self.city.building(id) {
+                        let t = format!("{} Nobody carries a thing more than {RANGE} ticks.", self.note_text(b).0);
+                        self.tip("stuck", &t, at);
+                    }
+                }
                 Note::Bare if k == Kind::Camp => self.tip("bare", "Picked bare. It grows back.", at),
                 Note::Lacks(g) => self.tip(&format!("lacks_{}", g.word()), &format!("Wants {} to stay at this tier.", g.words()), at),
                 _ => {}
@@ -1119,7 +1128,17 @@ impl Game {
             Note::NoReach(s) => bad(format!("No {} home can walk here.", s.title().to_lowercase())),
             Note::Bare => good("Picked bare. Growing back.".into()),
             Note::NeedInput(g) => bad(format!("Wants {}.", g.words())),
-            Note::Stuck(g) => bad(format!("Nobody in reach takes {}.", g.words())),
+            Note::Stuck(g, p, d) => {
+                let who = self.place_name(p);
+                let one = if g == Good::Fish || g == Good::Clay || g == Good::Wicker { format!("some {}", g.word()) } else { "one".to_string() };
+                bad(if d == path::FAR {
+                    format!("{who} wants {}, but a {} can't get there carrying {one}.", g.words(), b.species.title().to_lowercase())
+                } else if d > RANGE {
+                    format!("{who} wants {}, but it's {d} ticks away carrying {one} (limit {RANGE}).", g.words())
+                } else {
+                    format!("{who} wants {}, but a {} couldn't get back from there.", g.words(), b.species.title().to_lowercase())
+                })
+            }
             Note::NoSettlers => bad("Settlers can't walk here.".into()),
             Note::Lacks(g) => bad(format!("Needs {} or it slips.", g.words())),
             Note::Hungry => bad("Hungry!".into()),
@@ -1191,6 +1210,28 @@ impl Game {
             }
         }
         ("Pick a tool below. Space pauses, Tab changes speed.".into(), false)
+    }
+
+    /// A place in running text: "The fortress", "The weaver".
+    pub fn place_name(&self, p: Place) -> String {
+        match p {
+            Place::Fortress => "The fortress".into(),
+            Place::Entrance => "The trail".into(),
+            Place::B(id) => self.city.building(id).map(|b| format!("The {}", b.kind.title().to_lowercase())).unwrap_or_else(|| "Someone".into()),
+        }
+    }
+
+    /// Characters that fit on the card's status line beside its buttons.
+    pub const CARD_NOTE_CHARS: usize = 15;
+
+    /// A note too long for the card's status line, wrapped over the card's full width.
+    pub fn card_note_lines(&self, b: &crate::city::Building) -> Vec<String> {
+        let t = self.note_text(b).0;
+        let inline = if b.kind.slots() > 0 { Self::CARD_NOTE_CHARS } else { 21 };
+        if t.chars().count() <= inline {
+            return Vec::new();
+        }
+        crate::framebuffer::wrap(&t, ((CARD_W - 10) / 6) as usize)
     }
 
     pub fn overlay_open(&self) -> bool {
@@ -1547,6 +1588,31 @@ mod tests {
             g.tick();
             assert!(g.coach().is_none());
         }
+    }
+
+    #[test]
+    fn a_stuck_camp_says_who_wants_it_and_how_far() {
+        let mut g = game();
+        let i = g.levels.iter().position(|l| l.id == "1-2").unwrap();
+        g.enter_level(i);
+        g.begin(false);
+        // The playtest layout: a tribble on the far twig pile, no store.
+        g.city.seeds_tenths = 1000;
+        assert!(g.act(Action::Build { kind: Kind::Burrow, x: 3, y: 16, species: Species::Tribble }));
+        assert!(g.act(Action::Build { kind: Kind::Camp, x: 54, y: 11, species: Species::Tribble }));
+        let id = g.city.buildings.last().unwrap().id;
+        g.speed = SPEEDS.len() - 1;
+        let mut text = String::new();
+        for _ in 0..2000 {
+            g.tick();
+            let b = g.city.building(id).unwrap();
+            if matches!(b.note, Note::Stuck(..)) {
+                text = g.note_text(b).0;
+                assert!(!g.card_note_lines(b).is_empty(), "the card should wrap the long note");
+                break;
+            }
+        }
+        assert_eq!(text, "The fortress wants twigs, but it's 102 ticks away carrying one (limit 100).");
     }
 
     #[test]
