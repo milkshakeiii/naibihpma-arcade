@@ -2,8 +2,10 @@
 //! drawing implies. Nothing here knows what "kind" of ship a design is: a fighter is just a
 //! small drawing with engines to spare.
 //!
-//! Round 2 rules: every pixel must connect to the one core through other pixels (edges, not
+//! Round 2 rules: every pixel must connect to the core through other pixels (edges, not
 //! corners); plate shrugs off hits no stronger than it; the cannon is a 3x3 block.
+//! Round 3: extra cores are allowed at a steeply rising cost, and every engine needs a 3-wide
+//! way out of the ship for its exhaust.
 
 pub const GRID: i32 = 41;
 pub const FLAK_RANGE: i32 = 48;
@@ -21,8 +23,20 @@ pub const CANNON_DMG: i32 = 3;
 pub const LANCE_PEN: i32 = 6;
 /// Pixels each scoop carries.
 pub const SCOOP_CARRY: i32 = 3;
-/// The first line of a round-2 save file.
+/// The first line of a save file (the format hasn't changed since round 2).
 pub const SAVE_HEADER: &str = "#ROUND2";
+/// What the second core costs on top of the ship's pixels. Each core after that costs twice the
+/// one before: +8, +16, +32 and so on.
+pub const CORE_EXTRA: i32 = 8;
+
+/// The extra cost of a ship's cores beyond the first.
+pub fn core_cost(cores: i32) -> i32 {
+    if cores <= 1 {
+        0
+    } else {
+        CORE_EXTRA.saturating_mul((1 << (cores - 1).min(24)) - 1)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Part {
@@ -87,9 +101,9 @@ impl Part {
             Part::Flak => "FLAK - A TURRET. SHOOTS THE NEAREST ENEMY WITHIN 48 PX, LEADING ITS AIM, SPREADING FIRE OVER SEVERAL TARGETS. TOO WEAK FOR PLATE. ONE SHOT EVERY 1.3 S.",
             Part::Lance => "LANCE - SHOOTS STRAIGHT AHEAD ONLY, UP TO 100 PX. PUNCHES THROUGH 6 PIXELS, OR 3 OF PLATE. ONE SHOT EVERY 3 S. WEIGHS 2.",
             Part::Cannon => "CANNON - A BIG 3X3 TURRET, 130 PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL BLASTS A 3X3 HOLE, PLATE AND ALL. PREFERS THE BIGGEST TARGET. EVERY 3 S. WEIGHS 18.",
-            Part::Engine => "ENGINE - THRUST. MORE THRUST FOR THE WEIGHT MEANS A HIGHER TOP SPEED AND QUICKER TURNS AND COURSE CHANGES.",
+            Part::Engine => "ENGINE - THRUST. ITS EXHAUST NEEDS A 3-WIDE WAY OUT OF THE SHIP, IN ANY DIRECTION AND ALLOWED TO BEND. A BURIED ENGINE SHOWS RED. MORE THRUST FOR THE WEIGHT MEANS A HIGHER TOP SPEED AND QUICKER TURNS.",
             Part::Scoop => "SCOOP - MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES 3.",
-            Part::Core => "CORE - THE SHIP'S LIFE: EXACTLY ONE PER SHIP. EVERY OTHER PIXEL MUST CONNECT TO IT THROUGH OTHERS, EDGE TO EDGE. CUT OFF, A PIECE BREAKS AWAY.",
+            Part::Core => "CORE - THE SHIP'S LIFE: IT DIES WHEN ITS LAST CORE IS GONE. EXTRA CORES COST MORE EACH: +8, +16, +32. CUT IN TWO, EVERY PIECE WITH A CORE FLIES ON AS A SHIP; PIECES WITHOUT ONE BREAK AWAY.",
         }
     }
 }
@@ -150,6 +164,9 @@ impl Flight {
 #[derive(Clone, Copy, Debug)]
 pub struct Stats {
     pub count: i32,
+    pub cores: i32,
+    /// What the ship costs to build: its pixels plus its extra cores.
+    pub cost: i32,
     pub mass: i32,
     pub engines: i32,
     pub plate: i32,
@@ -203,7 +220,9 @@ pub fn stats_of(cells: &[Option<Part>], cannons: i32) -> Stats {
     } else {
         Flight::StandOff
     };
-    Stats { count, mass, engines, plate: n(Part::Plate), flak: n(Part::Flak), lance: n(Part::Lance), cannon: cannons, scoops: n(Part::Scoop), thrust, vmax, turn, flight }
+    let cores = n(Part::Core);
+    let cost = count + core_cost(cores);
+    Stats { count, cores, cost, mass, engines, plate: n(Part::Plate), flak: n(Part::Flak), lance: n(Part::Lance), cannon: cannons, scoops: n(Part::Scoop), thrust, vmax, turn, flight }
 }
 
 /// Which of a w x h grid's cells connect to `start` edge to edge, through cells where `on` holds.
@@ -261,22 +280,31 @@ impl Shape {
         (x - w / 2 + rx, y - h / 2 + ry)
     }
     pub fn cell_at(&self, x: i32, y: i32, facing: u8, px: i32, py: i32) -> Option<usize> {
+        let (dx, dy) = self.to_local(x, y, facing, px, py);
+        self.local_cell(dx, dy)
+    }
+    /// A point in the arena in the shape's own grid (north up), for the shape centred on (x, y)
+    /// with a facing. Points outside the shape map too, just outside the grid.
+    pub fn to_local(&self, x: i32, y: i32, facing: u8, px: i32, py: i32) -> (i32, i32) {
         let (w, h) = self.dims(facing);
         let (rx, ry) = (px - (x - w / 2), py - (y - h / 2));
-        if rx < 0 || ry < 0 || rx >= w || ry >= h {
-            return None;
-        }
-        let (dx, dy) = match facing & 3 {
+        match facing & 3 {
             0 => (rx, ry),
             1 => (ry, self.h - 1 - rx),
             2 => (self.w - 1 - rx, self.h - 1 - ry),
             _ => (self.w - 1 - ry, rx),
-        };
+        }
+    }
+    /// The cell at a point of the shape's own grid, if there's a part there.
+    pub fn local_cell(&self, dx: i32, dy: i32) -> Option<usize> {
+        if dx < 0 || dy < 0 || dx >= self.w || dy >= self.h {
+            return None;
+        }
         let i = (dy * self.w + dx) as usize;
         self.cells[i].map(|_| i)
     }
-    pub fn core(&self) -> Option<usize> {
-        self.cells.iter().position(|c| *c == Some(Part::Core))
+    pub fn is_core(&self, i: usize) -> bool {
+        self.cells[i] == Some(Part::Core)
     }
 }
 
@@ -284,26 +312,75 @@ impl Shape {
 #[derive(Clone, Debug, Default)]
 pub struct Check {
     pub cores: i32,
-    /// Cells not connected to the core (only worked out when there is exactly one core).
+    /// Cells not joined to the cores: the whole drawing must be one piece.
     pub loose: Vec<(i32, i32)>,
+    /// Engines with no 3-wide way out of the ship for their exhaust.
+    pub buried: Vec<(i32, i32)>,
 }
 
 impl Check {
     pub fn ok(&self) -> bool {
-        self.cores == 1 && self.loose.is_empty()
+        self.cores >= 1 && self.loose.is_empty() && self.buried.is_empty()
     }
     pub fn problem(&self) -> Option<String> {
+        let s = |n: usize| if n == 1 { "" } else { "S" };
         if self.cores == 0 {
             Some("NO CORE: IT CAN'T FLY".into())
-        } else if self.cores > 1 {
-            Some(format!("{} CORES: ONLY ONE ALLOWED", self.cores))
         } else if !self.loose.is_empty() {
             let n = self.loose.len();
-            Some(format!("{n} LOOSE PIXEL{}: CONNECT TO CORE", if n == 1 { "" } else { "S" }))
+            Some(format!("{n} LOOSE PIXEL{}: CONNECT TO CORE", s(n)))
+        } else if !self.buried.is_empty() {
+            let n = self.buried.len();
+            Some(format!("{n} BURIED ENGINE{}: NO 3-WIDE EXIT", s(n)))
         } else {
             None
         }
     }
+}
+
+/// Engines whose exhaust has no way out: a 3x3 window of empty space has to fit against one
+/// face of the engine and slide, a cell at a time through empty space, out past the edge of the
+/// ship's bounding box. It can leave in any direction and can turn corners. `filled` says whether
+/// a cell holds a pixel (anything outside the drawing is empty).
+pub fn buried_engines(engines: &[(i32, i32)], bbox: (i32, i32, i32, i32), filled: impl Fn(i32, i32) -> bool) -> Vec<(i32, i32)> {
+    let (x0, y0, x1, y1) = bbox;
+    // Windows go by their top-left corner. A window poking out past the box can slide on out
+    // through empty space, so those are where the exhaust gets away. Flood inward from them to
+    // find every window with a way out, then check what sits against each engine.
+    let free = |wx: i32, wy: i32| (0..3).all(|dy| (0..3).all(|dx| !filled(wx + dx, wy + dy)));
+    let out = |wx: i32, wy: i32| wx < x0 || wy < y0 || wx + 2 > x1 || wy + 2 > y1;
+    let (w, h) = (x1 - x0 + 3, y1 - y0 + 3);
+    let inside = |wx: i32, wy: i32| (x0 - 2..=x1).contains(&wx) && (y0 - 2..=y1).contains(&wy);
+    let idx = |wx: i32, wy: i32| ((wy - (y0 - 2)) * w + (wx - (x0 - 2))) as usize;
+    let mut escapes = vec![false; (w * h) as usize];
+    let mut todo = Vec::new();
+    for wy in y0 - 2..=y1 {
+        for wx in x0 - 2..=x1 {
+            if out(wx, wy) && free(wx, wy) {
+                escapes[idx(wx, wy)] = true;
+                todo.push((wx, wy));
+            }
+        }
+    }
+    while let Some((wx, wy)) = todo.pop() {
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, ny) = (wx + dx, wy + dy);
+            if inside(nx, ny) && !escapes[idx(nx, ny)] && free(nx, ny) {
+                escapes[idx(nx, ny)] = true;
+                todo.push((nx, ny));
+            }
+        }
+    }
+    let leads_out = |wx: i32, wy: i32| if inside(wx, wy) { escapes[idx(wx, wy)] } else { free(wx, wy) };
+    engines
+        .iter()
+        .copied()
+        .filter(|&(ex, ey)| {
+            // The windows sharing an edge with the engine: three behind it, three ahead, three each side.
+            let exposed = (-2..=0).any(|k| leads_out(ex + k, ey + 1) || leads_out(ex + k, ey - 3) || leads_out(ex - 3, ey + k) || leads_out(ex + 1, ey + k));
+            !exposed
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug)]
@@ -427,14 +504,23 @@ impl Design {
         true
     }
 
+    /// A design is legal with at least one core, every pixel joined into one piece edge to edge
+    /// (so all its cores are joined too), whole cannon blocks, and no buried engines.
     pub fn check(&self) -> Check {
         let cores: Vec<usize> = (0..self.cells.len()).filter(|&i| self.cells[i] == Some(Part::Core)).collect();
-        let mut c = Check { cores: cores.len() as i32, loose: Vec::new() };
-        if cores.len() == 1 {
-            let seen = reach(GRID, GRID, cores[0], |i| self.cells[i].is_some());
+        let mut c = Check { cores: cores.len() as i32, ..Default::default() };
+        // The ship is the biggest piece with a core in it; anything else is loose.
+        let ship = cores.iter().map(|&k| reach(GRID, GRID, k, |i| self.cells[i].is_some())).max_by_key(|seen| seen.iter().filter(|&&b| b).count());
+        if let Some(seen) = ship {
             c.loose = (0..self.cells.len()).filter(|&i| self.cells[i].is_some() && !seen[i]).map(|i| (i as i32 % GRID, i as i32 / GRID)).collect();
         }
         c.loose.extend(self.cannon_blocks().1);
+        let used: Vec<(i32, i32)> = (0..GRID * GRID).filter(|&i| self.cells[i as usize].is_some()).map(|i| (i % GRID, i / GRID)).collect();
+        if !used.is_empty() {
+            let bbox = (used.iter().map(|p| p.0).min().unwrap(), used.iter().map(|p| p.1).min().unwrap(), used.iter().map(|p| p.0).max().unwrap(), used.iter().map(|p| p.1).max().unwrap());
+            let engines: Vec<(i32, i32)> = used.iter().copied().filter(|&(x, y)| self.get(x, y) == Some(Part::Engine)).collect();
+            c.buried = buried_engines(&engines, bbox, |x, y| self.get(x, y).is_some());
+        }
         c
     }
 
@@ -511,11 +597,11 @@ pub fn defaults() -> Vec<Design> {
                 ".phhhhhhhhhp.",
                 "..phhhhhhhp..",
                 "...ppppppp...",
-                "...e.e.e.e...",
-                "...e.e.e.e...",
+                "..eeee.eeee..",
             ],
         ),
-        // Sealed in plate all round: fighters can only strip its sponsons and engines.
+        // Sealed in plate all round: fighters can only strip its sponsons and engines. Three cores
+        // (fore, middle, aft) for +24: cheap insurance on a ship this size.
         Design::from_rows(
             "CAPITAL",
             Order::Hunt,
@@ -530,7 +616,7 @@ pub fn defaults() -> Vec<Design> {
                 "..pphhhhhnnnhhhhhpp..",
                 ".pphhhhhhnnnhhhhhhpp.",
                 ".phhhhhhhhhhhhhhhhhp.",
-                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhchhhhhhhhp.",
                 "gphhhhhhghhhghhhhhhpg",
                 ".phhhhhhhhhhhhhhhhhp.",
                 ".phhhhhhhhhhhhhhhhhp.",
@@ -546,7 +632,7 @@ pub fn defaults() -> Vec<Design> {
                 ".phhhhhhhnnnhhhhhhhp.",
                 ".phhhhhhhhhhhhhhhhhp.",
                 ".phhhhhhhhhhhhhhhhhp.",
-                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhchhhhhhhhp.",
                 "gphhhhhhghhhghhhhhhpg",
                 ".phhhhhhhhhhhhhhhhhp.",
                 ".phhhhhhhhhhhhhhhhhp.",
@@ -561,6 +647,43 @@ pub fn defaults() -> Vec<Design> {
         ),
         Design::from_rows("GUNMINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]),
     ]
+}
+
+/// Earlier versions of the defaults, by slot. A saved design still exactly like one of these was
+/// never edited, so loading swaps in the current default (round 3 buried the old destroyer's
+/// front engines and gave the capital extra cores).
+pub fn retired_defaults() -> Vec<(usize, Design)> {
+    let destroyer = Design::from_rows(
+        "DESTROYER",
+        Order::Hunt,
+        &[
+            ".....ppp.....",
+            "....pphpp....",
+            "...pphhhpp...",
+            "..pphhhhhpp..",
+            ".pphhnnnhhpp.",
+            ".phhhnnnhhhp.",
+            ".phhhnnnhhhp.",
+            ".phhhhhhhhhp.",
+            ".phhhhhhhhhp.",
+            "gphhhhhhhhhpg",
+            ".phhhhhhhhhp.",
+            ".phhhhchhhhp.",
+            ".phhhhhhhhhp.",
+            "gphhhhhhhhhpg",
+            ".phhhhhhhhhp.",
+            "..phhhhhhhp..",
+            "...ppppppp...",
+            "...e.e.e.e...",
+            "...e.e.e.e...",
+        ],
+    );
+    let mut capital = defaults()[4].clone();
+    let (cx, top) = (GRID / 2, (GRID - 37) / 2);
+    for row in [10, 26] {
+        capital.set(cx, top + row, Some(Part::Hull));
+    }
+    vec![(3, destroyer), (4, capital)]
 }
 
 #[cfg(test)]
@@ -588,15 +711,55 @@ mod tests {
     }
 
     #[test]
-    fn loose_pixels_and_extra_cores_are_flagged() {
+    fn loose_pixels_are_flagged_and_extra_cores_cost_more_each() {
         let mut d = Design::from_rows("T", Order::Hunt, &["g.g", "hch", "e.e"]);
         assert!(d.check().ok());
         d.set(0, 0, Some(Part::Hull));
         assert_eq!(d.check().loose, vec![(0, 0)]);
         d.set(0, 0, None);
+        // A second core joined to the ship is legal, at a price.
         d.set(GRID / 2, GRID / 2 - 1, Some(Part::Core));
+        assert!(d.check().ok(), "{:?}", d.check());
         assert_eq!(d.check().cores, 2);
-        assert!(!d.check().ok());
+        assert_eq!(d.stats().cost, d.stats().count + 8);
+        // A core off on its own is a loose pixel, not a second ship.
+        d.set(0, 0, Some(Part::Core));
+        assert_eq!(d.check().loose, vec![(0, 0)]);
+        assert_eq!([1, 2, 3, 4, 5].map(core_cost), [0, 8, 24, 56, 120]);
+    }
+
+    #[test]
+    fn engines_need_a_three_wide_way_out() {
+        let buried = |rows: &[&str]| Design::from_rows("T", Order::Hunt, rows).check().buried.len();
+        // Straight out the back, or out the side.
+        assert_eq!(buried(&["hch", "e.e"]), 0);
+        assert_eq!(buried(&["hhh", "ech", "hhh"]), 0);
+        // A pixel diagonally behind still leaves a 3-wide gap a cell over.
+        assert_eq!(buried(&["hchh", "hhe.", "hh.."]), 0);
+        // An engine stacked behind another is buried; the one at the back isn't.
+        assert_eq!(buried(&["hhchh", "hheh.", "hheh."]), 1);
+        // A 2-wide slot out the back is too narrow; a 3-wide one is enough.
+        assert_eq!(buried(&["hhchhh", "hhehhh", "hh..hh", "hh..hh"]), 1);
+        assert_eq!(buried(&["hhchhh", "hhehhh", "hh...h", "hh...h"]), 0);
+        // A 3-wide channel that turns a corner on its way out is fine...
+        let bent = ["ppppppppp", "pphchpppp", "pp.e.pppp", "pp...pppp", "pp...pppp", "pp...pppp", "pp.......", "pp.......", "pp.......", "ppppppppp"];
+        assert_eq!(buried(&bent), 0);
+        // ...and the same channel closed off at the end is not.
+        let mut closed = bent.map(String::from);
+        for r in 6..9 {
+            closed[r].replace_range(8..9, "p");
+        }
+        assert_eq!(buried(&closed.iter().map(|s| s.as_str()).collect::<Vec<_>>()), 1);
+    }
+
+    #[test]
+    fn untouched_old_defaults_are_recognised() {
+        let now = defaults();
+        for (slot, old) in retired_defaults() {
+            assert_eq!(old.name, now[slot].name);
+            assert_ne!(old.to_line(), now[slot].to_line());
+        }
+        assert!(!retired_defaults()[0].1.check().ok(), "the old destroyer's front engines are buried");
     }
 
     #[test]

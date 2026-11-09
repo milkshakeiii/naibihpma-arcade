@@ -12,6 +12,9 @@ use crate::rng::Rng;
 pub const AW: i32 = 480;
 pub const AH: i32 = 360;
 pub const TIME_LIMIT: u32 = 15 * 180;
+/// Once something has been shot off, a fight where for this long nobody fires, nothing is shot off
+/// and no armed ship gets any closer to an enemy is a stalemate: a draw.
+pub const STALEMATE: u32 = 15 * 20;
 /// Each team's home station: where hauls are delivered and the hurt run to.
 pub const STATIONS: [(i32, i32); 2] = [(10, AH / 2), (AW - 11, AH / 2)];
 const FLAK_SPEED: i32 = 6;
@@ -115,6 +118,7 @@ pub enum Doing {
     Haul,
     Guard,
     Hold,
+    Escort,
 }
 
 impl Doing {
@@ -130,6 +134,7 @@ impl Doing {
             Doing::Haul => "HAULING HOME",
             Doing::Guard => "ON GUARD",
             Doing::Hold => "HOLDING",
+            Doing::Escort => "NO GUNS: STAYING WITH THE GROUP",
         }
     }
 }
@@ -186,6 +191,9 @@ pub struct Ship {
     dirty: bool,
     /// The last move ran into a bigger enemy.
     bumped: bool,
+    /// Where the ship was, and which way it faced, at the start of this tick: shots are tested
+    /// against the path they take relative to the ship.
+    pose0: (i32, i32, u8),
     /// The target pixel (relative to the target's centre) a lance ship is lining up on.
     aim_off: (i32, i32),
     aim_for: Option<usize>,
@@ -224,6 +232,66 @@ impl Ship {
     pub fn speed_px_s(&self) -> i32 {
         isqrt(self.vx * self.vx + self.vy * self.vy) * 15 / 4
     }
+    /// A ship lives while any of its cores does.
+    pub fn has_core(&self) -> bool {
+        (0..self.hp.len()).any(|c| self.hp[c] > 0 && self.shape.is_core(c))
+    }
+
+    /// A new ship made of some of this one's cells (a cut-off piece with a core of its own). It
+    /// keeps the same pixels in the same places, facing and drift, and takes along the guns,
+    /// cannons and their reloads that sit in it.
+    fn piece(&self, cells: &[usize], tick: u32) -> Ship {
+        let w = self.shape.w;
+        let (x0, x1) = (cells.iter().map(|&c| c as i32 % w).min().unwrap(), cells.iter().map(|&c| c as i32 % w).max().unwrap());
+        let (y0, y1) = (cells.iter().map(|&c| c as i32 / w).min().unwrap(), cells.iter().map(|&c| c as i32 / w).max().unwrap());
+        let (nw, nh) = (x1 - x0 + 1, y1 - y0 + 1);
+        // Old cell index -> new cell index.
+        let map = |c: usize| ((c as i32 / w - y0) * nw + (c as i32 % w - x0)) as usize;
+        let mut new_cells = vec![None; (nw * nh) as usize];
+        let mut cool = vec![0; (nw * nh) as usize];
+        for &c in cells {
+            new_cells[map(c)] = self.shape.cells[c];
+            cool[map(c)] = self.cool[c];
+        }
+        let turrets: Vec<Turret> = self.turrets.iter().filter(|t| cells.contains(&t.cell)).map(|t| Turret { cell: map(t.cell), ..t.clone() }).collect();
+        let shape = Shape { w: nw, h: nh, cells: new_cells, cannons: turrets.iter().map(|t| t.cell).collect() };
+        // Place the new centre so every pixel stays exactly where it was.
+        let c0 = cells[0];
+        let (wx, wy) = self.cell_xy(c0);
+        let (lx, ly) = shape.cell_xy(0, 0, self.facing, map(c0));
+        let (x, y) = (wx - lx, wy - ly);
+        let hp = shape.cells.iter().map(|c| c.is_some() as u8).collect();
+        let working = turrets.len() as i32;
+        let st = stats_of(&shape.cells, working);
+        Ship {
+            shape,
+            st,
+            x,
+            y,
+            hp,
+            cool,
+            turrets,
+            // A piece told to hold stays where it broke off; the rest keep the old ship's home.
+            home: if self.order == Order::Hold { (x, y) } else { self.home },
+            carry: 0,
+            hauling: false,
+            tpx: None,
+            chew: 0,
+            last_hit: tick,
+            target: None,
+            goal: None,
+            trail: Vec::new(),
+            dirty: false,
+            bumped: false,
+            outbound: false,
+            run_t: 0,
+            doing: Doing::Idle,
+            aim_for: None,
+            aim_t: 0,
+            pose0: (x, y, self.facing),
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -247,6 +315,8 @@ pub struct Shot {
     pub prev: (i32, i32),
     /// Counted once in the shooter's hits, however many pixels it punches.
     connected: bool,
+    /// The tick it was fired.
+    born: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -273,8 +343,10 @@ pub struct Score {
     pub placed: i32,
     pub lost: i32,
     pub px_lost: i32,
-    /// Pixels that broke away when cut off from the core.
+    /// Pixels that broke away when cut off from every core.
     pub broken: i32,
+    /// Pieces that flew on as ships of their own (each one also counts as placed).
+    pub split: i32,
     pub mined: i32,
     pub fired: i32,
     pub hits: i32,
@@ -316,7 +388,13 @@ pub struct Arena {
     pub score: [Score; 2],
     /// Some(Some(team)) when a team won, Some(None) for a draw.
     pub over: Option<Option<usize>>,
+    /// The draw came from nobody being able to hurt anybody, not from the time limit.
+    pub stalemate: bool,
     started: [bool; 2],
+    /// The tick a pixel was last shot off (0: none yet).
+    last_loss: u32,
+    /// The tick anyone last fired, or an armed ship got closer to an enemy.
+    last_push: u32,
 }
 
 impl Arena {
@@ -334,7 +412,10 @@ impl Arena {
             rng: Rng::new(1),
             score: [Score::default(); 2],
             over: None,
+            stalemate: false,
             started: [false; 2],
+            last_loss: 0,
+            last_push: 0,
         };
         for (cx, cy, r) in [(AW / 2, AH / 2, 18), (AW / 2, 70, 11), (AW / 2, AH - 71, 11)] {
             for y in -r..=r {
@@ -370,7 +451,7 @@ impl Arena {
         (0..AW).contains(&x) && (0..AH).contains(&y) && self.rock[(y * AW + x) as usize]
     }
 
-    /// Places a ship; refuses a design that can't fly (no core, two cores, loose pixels).
+    /// Places a ship; refuses a design that can't fly (no core, loose pixels, buried engines).
     pub fn add(&mut self, team: usize, slot: usize, d: &Design, x: i32, y: i32) -> bool {
         if !d.check().ok() {
             return false;
@@ -425,11 +506,13 @@ impl Arena {
             aim_off: (0, 0),
             aim_for: None,
             aim_t: 0,
+            pose0: (x, y, facing),
         };
         let h = s.half();
         s.x = x.clamp(h, AW - 1 - h);
         s.y = y.clamp(h, AH - 1 - h);
         s.home = (s.x, s.y);
+        s.pose0 = (s.x, s.y, facing);
         self.ships.push(s);
         self.score[team].placed += 1;
         true
@@ -452,6 +535,11 @@ impl Arena {
         self.ships.iter().filter(|s| s.alive && s.team == team).count()
     }
 
+    /// A team still in the fight with no working guns left anywhere.
+    pub fn disarmed(&self, team: usize) -> bool {
+        self.alive(team) > 0 && !self.ships.iter().any(|s| s.alive && s.team == team && s.st.armed())
+    }
+
     pub fn step(&mut self) {
         if self.over.is_some() {
             return;
@@ -460,6 +548,9 @@ impl Arena {
             self.started = [self.alive(0) > 0, self.alive(1) > 0];
         }
         self.tick += 1;
+        for s in &mut self.ships {
+            s.pose0 = (s.x, s.y, s.facing);
+        }
         let snap: Vec<Snap> = self
             .ships
             .iter()
@@ -468,20 +559,35 @@ impl Arena {
             .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), px: s.px_now() })
             .collect();
         let n = self.ships.len();
+        // How close each armed ship that can move is to its nearest enemy, before and after
+        // everyone moves: closing in is still a fight, not a stalemate.
+        let pushing = |a: &Arena, i: usize| a.ships[i].alive && a.ships[i].st.armed() && a.ships[i].st.thrust > 0;
+        let near = |a: &Arena, i: usize| {
+            let s = &a.ships[i];
+            snap.iter().filter(|e| e.team != s.team && a.ships[e.idx].alive).map(|e| dist2(a.ships[e.idx].x, a.ships[e.idx].y, s.x, s.y)).min().unwrap_or(i32::MAX)
+        };
+        let before: Vec<i32> = (0..n).map(|i| if pushing(self, i) { near(self, i) } else { i32::MAX }).collect();
         for i in 0..n {
             if self.ships[i].alive {
                 let plan = self.brain(i, &snap);
                 self.fly(i, plan);
             }
         }
+        if (0..n).any(|i| before[i] != i32::MAX && pushing(self, i) && near(self, i) < before[i]) {
+            self.last_push = self.tick;
+        }
         let mut pending = vec![0; n];
         for t in self.shots.iter().filter_map(|s| s.target) {
             pending[t] += 1;
         }
+        let fired = self.score[0].fired + self.score[1].fired;
         for i in 0..n {
             if self.ships[i].alive {
                 self.weapons(i, &snap, &mut pending);
             }
+        }
+        if self.score[0].fired + self.score[1].fired != fired {
+            self.last_push = self.tick;
         }
         self.shots_step();
         self.break_off();
@@ -514,6 +620,10 @@ impl Arena {
                 self.over = Some(Some(0));
             }
         }
+        if self.over.is_none() && self.last_loss > 0 && self.tick - self.last_loss.max(self.last_push) >= STALEMATE {
+            self.over = Some(None);
+            self.stalemate = true;
+        }
         if self.over.is_none() && self.tick >= TIME_LIMIT {
             self.over = Some(None);
         }
@@ -535,11 +645,7 @@ impl Arena {
         let mut plan = match order {
             Order::Hunt => {
                 if !armed {
-                    if hurt {
-                        self.flee(i, station)
-                    } else {
-                        self.go(i, home, Doing::Idle)
-                    }
+                    self.with_group(i, snap)
                 } else {
                     match nearest(i32::MAX / 4, (x, y)) {
                         Some(e) => self.engage(i, &e, snap),
@@ -582,6 +688,24 @@ impl Arena {
             }
         }
         plan
+    }
+
+    /// A hunter with no guns left stays with its group: beside the nearest friend that still has
+    /// guns (or any friend, if none do), on the side it's already on. With no friends left, it
+    /// stays where it is.
+    fn with_group(&self, i: usize, snap: &[Snap]) -> Plan {
+        let s = &self.ships[i];
+        let friends = || snap.iter().filter(|f| f.team == s.team && f.idx != i);
+        let armed = friends().filter(|f| self.ships[f.idx].st.armed()).min_by_key(|f| dist2(f.x, f.y, s.x, s.y));
+        let Some(f) = armed.or_else(|| friends().min_by_key(|f| dist2(f.x, f.y, s.x, s.y))) else {
+            return self.go(i, (s.x, s.y), Doing::Idle);
+        };
+        let gap = f.half + s.half() + 4;
+        let (ux, uy) = if (s.x, s.y) == (f.x, f.y) { (64, 0) } else { toward(f.x, f.y, s.x, s.y, 64) };
+        let spot = ((f.x + ux * gap / 64).clamp(0, AW - 1), (f.y + uy * gap / 64).clamp(0, AH - 1));
+        let mut p = self.go(i, spot, Doing::Escort);
+        p.target = Some(f.idx);
+        p
     }
 
     /// Arrive at a point, braking in time for this ship's thrust and weight.
@@ -1039,7 +1163,7 @@ impl Arena {
                         aim = (px, py + 1);
                     }
                     let line = Line::new(gx, gy, aim.0, aim.1);
-                    self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false });
+                    self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick });
                     pending[e.idx] += 1;
                     self.ships[i].cool[c] = FLAK_PERIOD + self.rng.below(4) as i32;
                     self.score[team].fired += 1;
@@ -1065,7 +1189,7 @@ impl Arena {
                 if in_line {
                     self.ships[i].aim_t = 0;
                     let line = Line::new(gx, gy, gx + dx * 400, gy + dy * 400);
-                    self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_RANGE + 12, speed: LANCE_SPEED, dmg: LANCE_DMG, pen: LANCE_PEN, target: None, prev: (gx, gy), connected: false });
+                    self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_RANGE + 12, speed: LANCE_SPEED, dmg: LANCE_DMG, pen: LANCE_PEN, target: None, prev: (gx, gy), connected: false, born: self.tick });
                     self.ships[i].cool[c] = LANCE_PERIOD;
                     self.score[team].fired += 1;
                 }
@@ -1122,7 +1246,7 @@ impl Arena {
             let line = Line::new(gx, gy, lx, ly);
             t.cool = CANNON_PERIOD;
             t.aim_for = None;
-            self.shots.push(Shot { team, kind: Kind::Shell, line, left: CANNON_RANGE + 12, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false });
+            self.shots.push(Shot { team, kind: Kind::Shell, line, left: CANNON_RANGE + 12, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick });
             pending[e.idx] += 1;
             self.score[team].fired += 1;
         }
@@ -1139,63 +1263,122 @@ impl Arena {
         s.dirty = true;
         let team = s.team;
         self.score[team].px_lost += 1;
+        self.last_loss = self.tick;
         let drift = 2 + self.rng.below(4) as i32;
         self.debris.push(Debris { x, y, vx, vy, drift, taken: false });
     }
 
+    /// Moves every shot and works out what it hits. A shot is tested against each enemy ship in
+    /// that ship's own frame: the path it takes relative to the ship this tick, from where it was
+    /// before the ship moved or turned to where it ends up, walked a pixel at a time. Walked like
+    /// that, a shot always meets a ship's outer pixels first, so no move or turn can carry a shot
+    /// past plate to what the plate guards.
     fn shots_step(&mut self) {
         let shots = std::mem::take(&mut self.shots);
         let boxes: Vec<(usize, usize, (i32, i32, i32, i32))> = self.ships.iter().enumerate().filter(|(_, s)| s.alive).map(|(i, s)| (i, s.team, s.bbox())).collect();
         let mut keep = Vec::with_capacity(shots.len());
         'shot: for mut sh in shots {
+            // The shot's own flight this tick, a pixel at a time.
+            let mut path = vec![(sh.line.x, sh.line.y)];
+            let mut gone = false;
             for _ in 0..sh.speed {
-                sh.prev = (sh.line.x, sh.line.y);
                 sh.line.step();
                 sh.left -= 1;
                 let (nx, ny) = (sh.line.x, sh.line.y);
                 if sh.left <= 0 || nx < 0 || ny < 0 || nx >= AW || ny >= AH {
-                    continue 'shot;
+                    gone = true;
+                    break;
                 }
-                // A diagonal step clips the two pixels it squeezes between, so a staircase of
-                // plate (pixels touching only at corners) stops shots like the solid wall it looks.
-                let (px, py) = sh.prev;
-                let mut spots = vec![(nx, ny)];
-                if px != nx && py != ny {
-                    spots = vec![(nx, py), (px, ny), (nx, ny)];
+                path.push((nx, ny));
+            }
+            let m = path.len() as i32 - 1;
+            let (s0, s1) = (path[0], path[m as usize]);
+            let (pl, pt) = (path.iter().map(|p| p.0).min().unwrap(), path.iter().map(|p| p.1).min().unwrap());
+            let (pr, pb) = (path.iter().map(|p| p.0).max().unwrap(), path.iter().map(|p| p.1).max().unwrap());
+            // Every living enemy pixel the shot meets, with when it meets it (thousandths of the
+            // tick). Diagonal steps also meet the two pixels they squeeze between, so a staircase
+            // of plate (pixels touching only at corners) stops shots like the wall it looks.
+            let mut meets: Vec<(i32, usize, usize)> = Vec::new();
+            for (id, s) in self.ships.iter().enumerate() {
+                if !s.alive || s.team == sh.team {
+                    continue;
                 }
-                for (x, y) in spots {
-                    for &(id, team, (l, t, r, b)) in &boxes {
-                        if team == sh.team || x < l || y < t || x > r || y > b {
-                            continue;
+                // A shot fired this tick was fired after the ships moved.
+                let (x0, y0, f0) = if sh.born == self.tick { (s.x, s.y, s.facing) } else { s.pose0 };
+                let r = s.half() + 1;
+                if pr < s.x.min(x0) - r || pb < s.y.min(y0) - r || pl > s.x.max(x0) + r || pt > s.y.max(y0) + r {
+                    continue;
+                }
+                let mut meet = |t: i32, c: Option<usize>| {
+                    if let Some(c) = c.filter(|&c| s.hp[c] > 0) {
+                        meets.push((t, id, c));
+                    }
+                };
+                if (x0, y0, f0) == (s.x, s.y, s.facing) {
+                    // The ship held still: the relative path is the shot's own.
+                    for j in 1..=m {
+                        let ((px, py), (nx, ny)) = (path[j as usize - 1], path[j as usize]);
+                        let t = j * 1000 / m;
+                        if px != nx && py != ny {
+                            meet(t, s.cell_at(nx, py));
+                            meet(t, s.cell_at(px, ny));
                         }
-                        let Some(c) = self.ships[id].cell_at(x, y) else { continue };
-                        if self.ships[id].hp[c] == 0 {
-                            continue;
+                        meet(t, s.cell_at(nx, ny));
+                    }
+                } else {
+                    // The ship moved or turned: walk the relative path in the ship's own grid.
+                    let a = s.shape.to_local(x0, y0, f0, s0.0, s0.1);
+                    let b = s.shape.to_local(s.x, s.y, s.facing, s1.0, s1.1);
+                    let n = (b.0 - a.0).abs().max((b.1 - a.1).abs());
+                    let mut l = Line::new(a.0, a.1, b.0, b.1);
+                    for j in 1..=n {
+                        let (px, py) = (l.x, l.y);
+                        l.step();
+                        let (nx, ny) = (l.x, l.y);
+                        let t = j * 1000 / n;
+                        if px != nx && py != ny {
+                            meet(t, s.shape.local_cell(nx, py));
+                            meet(t, s.shape.local_cell(px, ny));
                         }
-                        if !sh.connected {
-                            sh.connected = true;
-                            self.score[sh.team].hits += 1;
-                        }
-                        self.ships[id].last_hit = self.tick;
-                        let armor = self.ships[id].shape.cells[c].map_or(0, |p| p.armor());
-                        if sh.dmg <= armor {
-                            // Too weak for plate: it bounces off.
-                            self.score[sh.team].bounced += 1;
-                            self.sparks.push(Spark { x: sh.prev.0, y: sh.prev.1, t: 2, blast: false });
-                            continue 'shot;
-                        }
-                        if sh.kind == Kind::Shell {
-                            self.blast(x, y, sh.team, &boxes);
-                            continue 'shot;
-                        }
-                        self.kill_cell(id, c, (x, y), sh.line.dir());
-                        sh.pen -= 1 + armor;
-                        if sh.pen <= 0 {
-                            continue 'shot;
-                        }
+                        meet(t, s.shape.local_cell(nx, ny));
                     }
                 }
             }
+            meets.sort_by_key(|&(t, _, _)| t);
+            for (t, id, c) in meets {
+                if self.ships[id].hp[c] == 0 {
+                    continue;
+                }
+                // How far along its own flight the shot is when it meets this pixel.
+                let k = ((t * m + 999) / 1000).clamp(1, m.max(1)) as usize;
+                let before = path[(k - 1).min(path.len() - 1)];
+                let at = self.ships[id].cell_xy(c);
+                if !sh.connected {
+                    sh.connected = true;
+                    self.score[sh.team].hits += 1;
+                }
+                self.ships[id].last_hit = self.tick;
+                let armor = self.ships[id].shape.cells[c].map_or(0, |p| p.armor());
+                if sh.dmg <= armor {
+                    // Too weak for plate: it bounces off.
+                    self.score[sh.team].bounced += 1;
+                    self.sparks.push(Spark { x: before.0, y: before.1, t: 2, blast: false });
+                    continue 'shot;
+                }
+                if sh.kind == Kind::Shell {
+                    self.blast(at.0, at.1, sh.team, &boxes);
+                    continue 'shot;
+                }
+                self.kill_cell(id, c, at, sh.line.dir());
+                sh.pen -= 1 + armor;
+                if sh.pen <= 0 {
+                    continue 'shot;
+                }
+            }
+            if gone {
+                continue;
+            }
+            sh.prev = path[(m as usize).saturating_sub(1)];
             keep.push(sh);
         }
         keep.append(&mut self.shots);
@@ -1222,27 +1405,54 @@ impl Arena {
         }
     }
 
-    /// Any piece no longer joined to its core, edge to edge, breaks away as loose pixels.
+    /// After a ship is cut apart: every piece that still holds a core flies on as a ship of its
+    /// own (the biggest stays the original ship), and pieces with no core break away as loose
+    /// pixels.
     fn break_off(&mut self) {
         for i in 0..self.ships.len() {
             let s = &self.ships[i];
-            if !s.alive || !s.dirty {
+            if !s.alive || !s.dirty || !s.has_core() {
                 continue;
             }
-            let Some(core) = s.shape.core() else { continue };
-            if s.hp[core] == 0 {
-                continue;
+            let (w, h) = (s.shape.w, s.shape.h);
+            let mut seen = vec![false; s.hp.len()];
+            let (mut cored, mut loose): (Vec<Vec<usize>>, Vec<usize>) = (Vec::new(), Vec::new());
+            for c in 0..s.hp.len() {
+                if s.hp[c] == 0 || seen[c] {
+                    continue;
+                }
+                let reach = reach(w, h, c, |k| s.hp[k] > 0);
+                let cells: Vec<usize> = (0..reach.len()).filter(|&k| reach[k]).collect();
+                for &k in &cells {
+                    seen[k] = true;
+                }
+                if cells.iter().any(|&k| s.shape.is_core(k)) {
+                    cored.push(cells);
+                } else {
+                    loose.extend(cells);
+                }
             }
-            let seen = reach(s.shape.w, s.shape.h, core, |c| s.hp[c] > 0);
-            let cut: Vec<usize> = (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && !seen[c]).collect();
             let (team, x, y) = (s.team, s.x, s.y);
-            for c in cut {
+            for c in loose {
                 let (px, py) = self.ships[i].cell_xy(c);
                 self.ships[i].hp[c] = 0;
                 self.score[team].px_lost += 1;
                 self.score[team].broken += 1;
                 let drift = 3 + self.rng.below(5) as i32;
                 self.debris.push(Debris { x: px, y: py, vx: (px - x).signum(), vy: (py - y).signum(), drift, taken: false });
+            }
+            if cored.len() > 1 {
+                // The biggest piece stays this ship; every other cored piece is a new one.
+                cored.sort_by_key(|p| std::cmp::Reverse(p.len()));
+                for p in &cored[1..] {
+                    let new = self.ships[i].piece(p, self.tick);
+                    for &c in p {
+                        self.ships[i].hp[c] = 0;
+                    }
+                    self.ships.push(new);
+                    self.score[team].placed += 1;
+                    self.score[team].split += 1;
+                }
             }
         }
     }
@@ -1272,11 +1482,11 @@ impl Arena {
         }
     }
 
-    /// A ship whose core is gone bursts into loose pixels.
+    /// A ship whose last core is gone bursts into loose pixels.
     fn deaths(&mut self) {
         for i in 0..self.ships.len() {
             let s = &self.ships[i];
-            if !s.alive || s.shape.core().map_or(false, |c| s.hp[c] > 0) {
+            if !s.alive || s.has_core() {
                 continue;
             }
             let (team, x, y) = (s.team, s.x, s.y);
@@ -1483,6 +1693,192 @@ mod tests {
                 assert!(a.score[0].hits > 0, "{} from ({sx},{sy}) missed", d.name);
             }
         }
+    }
+
+    /// Where every living pixel of a team's ships is.
+    fn pixels(a: &Arena, team: usize) -> Vec<(i32, i32)> {
+        let mut v: Vec<(i32, i32)> = a.ships.iter().filter(|s| s.alive && s.team == team).flat_map(|s| (0..s.hp.len()).filter(|&c| s.hp[c] > 0).map(|c| s.cell_xy(c)).collect::<Vec<_>>()).collect();
+        v.sort();
+        v
+    }
+
+    fn dumbbell() -> Design {
+        // Two gun pods, each with a core and engines, on a thin spine.
+        Design::from_rows("DUMBBELL", Order::Hunt, &["g.g.....g.g", "hchhhhhhhch", "e.e.....e.e"])
+    }
+
+    #[test]
+    fn a_cut_ship_with_a_core_in_each_piece_flies_on_as_two() {
+        let d = dumbbell();
+        assert!(d.check().ok(), "{:?}", d.check());
+        assert_eq!(d.stats().cost, 19 + 8);
+        let mut a = Arena::new();
+        a.add(0, 0, &d, 200, 180);
+        // Cut the spine in the middle.
+        let s = &a.ships[0];
+        let mid = (0..s.shape.cells.len()).find(|&c| c as i32 % s.shape.w == 5 && s.shape.cells[c].is_some()).unwrap();
+        let at = s.cell_xy(mid);
+        a.kill_cell(0, mid, at, (0, 1));
+        let before = pixels(&a, 0);
+        a.break_off();
+        a.deaths();
+        assert_eq!(a.alive(0), 2, "the two halves should fly on as two ships");
+        assert_eq!(pixels(&a, 0), before, "no pixel moved or vanished in the split");
+        assert_eq!((a.score[0].split, a.score[0].placed), (1, 2));
+        for s in a.ships.iter().filter(|s| s.alive) {
+            let st = stats_of(&s.alive_cells(), 0);
+            assert_eq!((st.cores, st.flak, st.engines, st.count), (1, 2, 2, 9), "{:?}", s.alive_cells());
+        }
+        // The original refreshes its stats at the end of the tick; the new ship starts with its own.
+        assert_eq!((a.ships[1].st.flak, a.ships[1].st.engines, a.ships[1].px_full()), (2, 2, 9));
+        // Each half fights on: run it against a fighter and see both shoot.
+        let lib = defaults();
+        a.add(1, 0, &lib[0], 260, 180);
+        run(&mut a, 15 * 20);
+        assert!(a.score[0].fired >= 4, "the halves fired {} shots", a.score[0].fired);
+    }
+
+    /// A flak shot from team 0 at (x, y), flying toward (tx, ty), fired on an earlier tick.
+    fn flak_at(a: &Arena, (x, y): (i32, i32), (tx, ty): (i32, i32)) -> Shot {
+        let line = Line::new(x, y, tx, ty);
+        Shot { team: 0, kind: Kind::Flak, line, left: FLAK_RANGE, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: None, prev: (x, y), connected: false, born: a.tick.saturating_sub(1) }
+    }
+
+    #[test]
+    fn moving_onto_a_shot_doesnt_let_it_skip_the_plate() {
+        // The case Henry saw: a flak shot rests just outside a pod's plate, heading for its gun,
+        // and the pod moves 1 px onto it. The shot has to meet the plate and bounce.
+        let pod = Design::from_rows("POD", Order::Hold, &["ppp", "pgp", "pcp", "ppp"]);
+        let mut a = Arena::new();
+        a.add(1, 0, &pod, 200, 180);
+        a.tick = 5;
+        let s = &a.ships[0];
+        let gun = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Flak)).unwrap();
+        let (gx, gy) = s.cell_xy(gun);
+        // The plate beside the gun, and the empty spot just beyond it.
+        let (dx, dy) = [(1, 0), (-1, 0), (0, 1), (0, -1)].into_iter().find(|&(dx, dy)| s.cell_at(gx + dx, gy + dy).map_or(false, |c| s.shape.cells[c] == Some(Part::Plate)) && s.cell_at(gx + 2 * dx, gy + 2 * dy).is_none()).unwrap();
+        let spot = (gx + 2 * dx, gy + 2 * dy);
+        let shot = flak_at(&a, spot, (spot.0 - dx * 50, spot.1 - dy * 50));
+        a.shots.push(shot);
+        let s = &mut a.ships[0];
+        s.pose0 = (s.x, s.y, s.facing);
+        s.x += dx;
+        s.y += dy;
+        a.shots_step();
+        assert_eq!(a.ships[0].hp[gun], 1, "the shot skipped the plate and killed the gun");
+        assert_eq!(a.score[0].bounced, 1, "it should bounce off the plate");
+    }
+
+    #[test]
+    fn flak_never_reaches_a_gun_sealed_in_plate() {
+        // Flak can't break plate, so a gun and core sealed inside a ring of plate must survive any
+        // flak shot: from every spot near the pod, flying any of 8 ways, whichever way the pod
+        // faces, however it moves (up to 3 px) and whether or not it turns in the same tick.
+        let pod = Design::from_rows("POD", Order::Hold, &["ppp", "pgp", "pcp", "ppp"]);
+        let mut a = Arena::new();
+        a.add(1, 0, &pod, 200, 180);
+        a.tick = 5;
+        let inner: Vec<usize> = (0..a.ships[0].hp.len()).filter(|&c| a.ships[0].shape.cells[c] != Some(Part::Plate)).collect();
+        let mut tried = 0;
+        for f0 in 0..4u8 {
+            for turn in [0u8, 1, 3] {
+                for (mx, my) in [(0, 0), (1, 0), (0, -1), (-2, 1), (3, 0), (0, 3), (-3, -2)] {
+                    for sy in 172..=188 {
+                        for sx in 192..=208 {
+                            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1), (2, 1), (-1, 3)] {
+                                let s = &mut a.ships[0];
+                                s.hp.iter_mut().for_each(|h| *h = 1);
+                                (s.x, s.y, s.facing) = (200, 180, f0);
+                                // Shots never start inside a ship.
+                                if s.cell_at(sx, sy).is_some() {
+                                    continue;
+                                }
+                                s.pose0 = (200, 180, f0);
+                                (s.x, s.y, s.facing) = (200 + mx, 180 + my, (f0 + turn) % 4);
+                                a.shots.clear();
+                                let shot = flak_at(&a, (sx, sy), (sx + dx * 50, sy + dy * 50));
+                                a.shots.push(shot);
+                                a.shots_step();
+                                tried += 1;
+                                for &c in &inner {
+                                    assert_eq!(a.ships[0].hp[c], 1, "a shot from ({sx},{sy}) going ({dx},{dy}) reached the inside: facing {f0} turning {turn}, moving ({mx},{my})");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(tried > 50_000, "only {tried} cases");
+    }
+
+    #[test]
+    fn a_hunter_with_no_guns_stays_with_its_group() {
+        // A gunless hunter far from its armed friend joins it instead of heading home, and stays
+        // beside it even after being hit.
+        let turret = Design::from_rows("TURRET", Order::Hold, &["ggg", "hch"]);
+        let gunless = Design::from_rows("SPARE", Order::Hunt, &["hch", "e.e"]);
+        let slab = Design::from_rows("SLAB", Order::Hold, &["ppp", "pcp", "ppp"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &turret, 240, 100);
+        a.add(0, 1, &gunless, 80, 280);
+        a.add(1, 0, &slab, 440, 300);
+        run(&mut a, 15 * 15);
+        let (f, s) = (&a.ships[0], &a.ships[1]);
+        assert_eq!(s.doing, Doing::Escort);
+        assert!(cheb(s.x, s.y, f.x, f.y) <= f.half() + s.half() + 6, "still {} px away", cheb(s.x, s.y, f.x, f.y));
+        a.ships[1].last_hit = a.tick;
+        let until = a.tick + 15 * 3;
+        run(&mut a, until);
+        let (f, s) = (&a.ships[0], &a.ships[1]);
+        assert!(cheb(s.x, s.y, f.x, f.y) <= f.half() + s.half() + 6, "ran off when hit");
+    }
+
+    #[test]
+    fn a_ship_lives_until_its_last_core_goes() {
+        let d = Design::from_rows("TWIN", Order::Hold, &["hcch", "e..e"]);
+        assert!(d.check().ok(), "{:?}", d.check());
+        let mut a = Arena::new();
+        a.add(0, 0, &d, 200, 180);
+        let cores: Vec<usize> = (0..a.ships[0].hp.len()).filter(|&c| a.ships[0].shape.is_core(c)).collect();
+        for (k, &c) in cores.iter().enumerate() {
+            let at = a.ships[0].cell_xy(c);
+            a.kill_cell(0, c, at, (0, 1));
+            a.break_off();
+            a.deaths();
+            assert_eq!(a.ships[0].alive, k + 1 < cores.len(), "after losing {} of {} cores", k + 1, cores.len());
+        }
+    }
+
+    #[test]
+    fn a_stalemate_ends_early_as_a_draw() {
+        // Two ships with no engines, out of each other's range, after a first hit: nobody can
+        // fire and nothing gets shot off, so it ends 20 s later instead of at the 3-minute limit.
+        let turret = Design::from_rows("TURRET", Order::Hold, &["ggg", "hch"]);
+        let hulk = Design::from_rows("HULK", Order::Hold, &["hhh", "hch"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &turret, 100, 180);
+        a.add(1, 0, &hulk, 380, 180);
+        let at = a.ships[1].cell_xy(0);
+        a.step();
+        a.kill_cell(1, 0, at, (0, 1));
+        let hit = a.tick;
+        run(&mut a, TIME_LIMIT);
+        assert_eq!(a.over, Some(None));
+        assert!(a.stalemate, "should end as a stalemate, not on the clock");
+        assert_eq!(a.tick, hit + STALEMATE);
+        assert!(a.disarmed(1) && !a.disarmed(0), "the hulk has no guns; the turret does");
+
+        // Ships still shooting keep the fight going, even if every shot bounces off plate.
+        let slab = Design::from_rows("SLAB", Order::Hold, &["..h..", "ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
+        let lib = defaults();
+        let mut a = Arena::new();
+        a.add(1, 0, &slab, 300, 180);
+        for k in 0..3 {
+            a.add(0, 0, &lib[0], 150, 160 + k * 20);
+        }
+        run(&mut a, 15 * 60);
+        assert!(a.score[1].px_lost > 0 && a.over.is_none(), "fighters plinking at plate aren't a stalemate yet");
     }
 
     #[test]

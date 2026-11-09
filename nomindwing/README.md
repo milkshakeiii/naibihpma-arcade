@@ -19,13 +19,13 @@ cargo run --release -- --toy1
 
 Toy 1's playtest found good feel and no depth. The planned fix is that strategy flows through the army you design, so every ship has to be drawn, not picked. The hard part, and where the 2020 version stalled ("sketchy enemy mind stuff"), is ship AI that works for any drawing. This toy tests one answer: a three-layer brain where none of the layers knows what kind of ship it is.
 
-The proving ground is iterated in rounds. **[ROUNDS.md](ROUNDS.md)** has the goals, every round's additions, the verdicts and the parking lot. This is round 2.
+The proving ground is iterated in rounds. **[ROUNDS.md](ROUNDS.md)** has the goals, every round's additions, the verdicts and the parking lot. This is round 3.
 
 1. **The order says where to go.** Each design has one: Hunt, Guard, Harvest or Hold.
-2. **The parts fire on reflex.** Flak turrets fire at the nearest enemy in range whatever the order, so an armed miner shoots back while it mines. A ship with no guns left runs home when hit.
+2. **The parts fire on reflex.** Flak turrets fire at the nearest enemy in range whatever the order, so an armed miner shoots back while it mines. A hunter with no guns left stays beside the nearest friend that still has some; guards and miners with no guns run home when hit.
 3. **Mass and thrust decide how to fly.** Integer inertia: velocity changes by whole quarter-pixels per tick, as fast as thrust over weight allows. A ship with at least 1 thrust per weight makes attack runs (dive, overshoot, loop back). A lance fires only straight ahead, like a rook, so a ship with one slides onto the target's row or column first and then dives along it ("LINING UP" on hover). Anything heavier holds at weapon range and lines its lances up the same way. Without engines it stays put.
 
-**Ship rules (round 2):** every ship has exactly one core, and every other pixel must join it through other pixels, edge to edge. Corners don't count. Loose pixels show red in the yard, and the ship can't fly until they're joined up. In a fight, any piece cut off from the core breaks away.
+**Ship rules (round 3):** a ship needs at least one core, and all its pixels must join up into one piece, edge to edge. Corners don't count. Every engine needs a 3-wide way out of the ship for its exhaust: a 3x3 gap against the engine that can slide out past the edge of the ship, in any direction and around corners. Loose pixels and buried engines show red in the yard, and the ship can't fly until they're fixed. Extra cores cost more each: the second +8, the third +16, the fourth +32. A ship's cost is its pixels plus its extra cores. In a fight, a ship dies when its last core goes. If it's cut apart, every piece that still holds a core flies on as a ship of its own, and pieces without one break away.
 
 **Parts:**
 
@@ -36,20 +36,20 @@ The proving ground is iterated in rounds. **[ROUNDS.md](ROUNDS.md)** has the goa
 | Flak | 1 | Turret, 48 px, 1 damage. Leads its aim and spreads its fire over several targets. One shot per 1.3 s. |
 | Lance | 2 | Fires straight ahead only, 100 px, 2 damage. Punches through 6 pixels, or 3 of plate. One shot per 3 s. |
 | Cannon | 18 (3x3) | A big turret, 130 px, turning about 42° a second. Its shell blasts a 3x3 hole, plate and all. Prefers the biggest target. One shot per 3 s. |
-| Engine | 1 | Thrust. |
+| Engine | 1 | Thrust. Needs a 3-wide way out. |
 | Scoop | 1 | Mines and carries 3. |
-| Core | 1 | Exactly one per ship. The ship dies when it's gone. |
+| Core | 1 | At least one per ship; extras cost +8, +16, +32. The ship dies when its last core is gone. |
 
 Stats change as pixels are shot off: lose your engines and you slow down. Enemies bigger than you are solid, so you can't fly into them and shoot them from inside their plate. An attack run peels off sideways before it would hit one, so small ships make strafing passes along a big ship's hull.
 
-**Arena:** 480x360, seen through a 304x300 window. Scroll it with WASD, the arrows or the 1/6-scale minimap. Seven ready-made tests use the six design slots, so editing a design changes the tests. The arena is deterministic: R replays exactly the same fight. Hover a ship to see its order, what it's doing, its target and where it's heading. Faint trails show recent flight paths; gold barrels show where cannons point; white sparks are shots bouncing off plate.
+**Arena:** 480x360, seen through a 304x300 window. Scroll it with WASD, the arrows or the 1/6-scale minimap. Seven ready-made tests use the six design slots, so editing a design changes the tests. The arena is deterministic: R replays exactly the same fight. A fight ends when one side is wiped out, after 3 minutes, or as a stalemate (a draw) once 20 seconds pass with nobody firing, nothing shot off and no armed ship closing in. The result names any side with no working guns left. Hover a ship to see its order, what it's doing, its target and where it's heading. Faint trails show recent flight paths; gold barrels show where cannons point; white sparks are shots bouncing off plate.
 
 **Headless tools:**
-- `--pg-sim`: every test, plus every pair of designs at about 600 px a side, each fought on 12 seeds (seed 1 is the fight the window replays).
+- `--pg-sim`: every test, plus every pair of designs at about 600 px of cost a side, each fought on 12 seeds (seed 1 is the fight the window replays). Draws are split out into stalemates, and splits count the ships that broke in two.
 - `--pg-trace BLUE_SLOT N RED_SLOT N EVERY UNTIL`: ship-by-ship state. Use blue slot 99 to run test number RED_SLOT.
 - `--export-screenshots DIR`: proving-ground screenshots.
 
-Sessions append to `proving_ground.log` (each run's designs and result). Designs persist in `proving_ground_designs.txt`; round-1 designs (15x15, old rules) were moved aside to `proving_ground_designs_round1.txt`. All three files are gitignored.
+Sessions append to `proving_ground.log` (each run's designs and result). Designs persist in `proving_ground_designs.txt`; round-1 designs (15x15, old rules) were moved aside to `proving_ground_designs_round1.txt`. A saved design still exactly like an old default is swapped for the current one when it loads. All three files are gitignored.
 
 What the rounds found so far is in [ROUNDS.md](ROUNDS.md).
 

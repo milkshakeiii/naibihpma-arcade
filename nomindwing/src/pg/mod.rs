@@ -92,6 +92,27 @@ fn order_rect(i: usize) -> Rect {
     Rect::new(178 + i as i32 * 55, 176, 52, 16)
 }
 
+/// The yard's one-line status under the stats: what's wrong with the design, or how it will fly.
+fn yard_status(check: &Check, armed: bool, order: Order) -> (String, u8) {
+    match check.problem() {
+        Some(why) => (why, BAD),
+        None if !armed => {
+            let what = match order {
+                Order::Hunt => "NO GUNS: IT STAYS WITH ITS GROUP",
+                Order::Hold => "NO GUNS: IT JUST HOLDS",
+                _ => "NO GUNS: IT RUNS HOME WHEN HIT",
+            };
+            (what.into(), TEXT_DIM)
+        }
+        None => ("READY TO FLY".into(), GOOD),
+    }
+}
+
+/// A notice over the arena, wrapped to fit inside the field with room for its panel.
+fn notice_lines(s: &str) -> Vec<String> {
+    wrap(s, ((FIELD.w - 8 - 12) / 6) as usize)
+}
+
 // Arena layout: the field is a 304x300 window onto the 480x360 arena.
 const FIELD: Rect = Rect::new(0, 0, 304, 300);
 const BTN_TEAM: [Rect; 2] = [Rect::new(306, 4, 44, 16), Rect::new(352, 4, 44, 16)];
@@ -293,6 +314,13 @@ impl Pg {
                     for (i, d) in text.lines().skip(1).filter_map(Design::from_line).take(lib.len()).enumerate() {
                         lib[i] = d;
                     }
+                    // A design still exactly like an old default was never edited: give it the new one.
+                    let now = defaults();
+                    for (slot, old) in retired_defaults() {
+                        if lib[slot].to_line() == old.to_line() {
+                            lib[slot] = now[slot].clone();
+                        }
+                    }
                 } else if !text.trim().is_empty() {
                     // Round-1 designs use the old 15x15 grid and rules: keep them, start fresh.
                     let backup = p.with_file_name("proving_ground_designs_round1.txt");
@@ -336,7 +364,7 @@ impl Pg {
             logged_over: false,
             notice: None,
         };
-        pg.log(&format!("##### proving ground round 2 session {} #####", crate::game::utc_stamp()));
+        pg.log(&format!("##### proving ground round 3 session {} #####", crate::game::utc_stamp()));
         pg.load_test(0);
         pg
     }
@@ -707,8 +735,22 @@ impl Pg {
                     Some(team) => format!("{} WINS", team_name(team)),
                     None => "DRAW".into(),
                 };
+                let who = if self.arena.stalemate { "DRAW (STALEMATE)".to_string() } else { who };
                 let s = &self.arena.score;
-                let side = |k: usize| format!("lost {}/{} ships, {} px ({} broke away), {} bounced off plate, mined {}", s[k].lost, s[k].placed, s[k].px_lost, s[k].broken, s[1 - k].bounced, s[k].mined);
+                let a = &self.arena;
+                let side = |k: usize| {
+                    format!(
+                        "lost {}/{} ships ({} split off), {} px ({} broke away), {} bounced off plate, mined {}{}",
+                        s[k].lost,
+                        s[k].placed,
+                        s[k].split,
+                        s[k].px_lost,
+                        s[k].broken,
+                        s[1 - k].bounced,
+                        s[k].mined,
+                        if a.disarmed(k) { ", DISARMED" } else { "" }
+                    )
+                };
                 let line = format!("RESULT {who} at {}:{:02} | blue {} | red {}", t / 60, t % 60, side(0), side(1));
                 self.log(&line);
             }
@@ -723,10 +765,13 @@ impl Pg {
             Screen::Arena => self.draw_arena(fb),
         }
         if let Some((s, _)) = &self.notice {
-            let w = Framebuffer::text_width(s, 1) + 12;
-            let r = Rect::new((FIELD.w - w).max(4) / 2, 22, w, 15);
+            let lines = notice_lines(s);
+            let w = lines.iter().map(|l| Framebuffer::text_width(l, 1)).max().unwrap_or(0) + 12;
+            let r = Rect::new((FIELD.w - w).max(4) / 2, 22, w, 6 + 9 * lines.len() as i32);
             ui::panel(fb, r);
-            fb.text(s, r.x + 6, r.y + 4, GOLD, None, 1);
+            for (i, l) in lines.iter().enumerate() {
+                fb.text(l, r.x + 6, r.y + 4 + 9 * i as i32, GOLD, None, 1);
+            }
         }
         if self.help {
             self.draw_help(fb);
@@ -778,8 +823,8 @@ impl Pg {
                 fb.rect_fill(x, y, CELL - 1, CELL - 1, col);
             }
         }
-        // Loose pixels get a red frame round the cell.
-        for &(cx, cy) in &check.loose {
+        // Loose pixels and buried engines get a red frame round the cell.
+        for &(cx, cy) in check.loose.iter().chain(&check.buried) {
             fb.rect_outline(g.x + cx * CELL, g.y + cy * CELL, CELL + 1, CELL + 1, BAD);
         }
         if let Some((cx, cy)) = Self::cell_under(m.0, m.1) {
@@ -832,7 +877,8 @@ impl Pg {
         let st = d.stats();
         let line = |fb: &mut Framebuffer, y: i32, s: &str, c: u8| fb.text(s, STATS_X, y, c, None, 1);
         let ds = |d: i32| format!("{}.{} S", d / 10, d % 10);
-        line(fb, 48, &format!("COST    {} PX", st.count), GOLD);
+        let cost = if st.cores > 1 { format!("COST    {} PX (+{} CORES)", st.cost, st.cost - st.count) } else { format!("COST    {} PX", st.cost) };
+        line(fb, 48, &cost, GOLD);
         line(fb, 58, &format!("WEIGHT  {}  ENGINES {}", st.mass, st.engines), TEXT);
         line(fb, 68, &format!("FLIGHT  {}", st.flight.name()), ACCENT);
         if st.engines > 0 {
@@ -852,11 +898,7 @@ impl Pg {
             let name: String = format!("{:7}", p.name());
             line(fb, y, &format!("{name}{n:3}  {what}"), if n > 0 { col } else { TEXT_FAINT });
         }
-        let (status, col) = match check.problem() {
-            Some(why) => (why, BAD),
-            None if !st.armed() => ("NO GUNS: IT RUNS HOME WHEN HIT".into(), TEXT_DIM),
-            None => ("READY TO FLY".into(), GOOD),
-        };
+        let (status, col) = yard_status(&check, st.armed(), d.order);
         fb.text(&status, STATUS_RECT.x + 2, STATUS_RECT.y + 2, col, None, 1);
         fb.text("ORDER", STATS_X, 166, TEXT_FAINT, None, 1);
         for (i, &o) in ORDERS.iter().enumerate() {
@@ -873,7 +915,7 @@ impl Pg {
         } else if let Some(i) = (0..ORDERS.len()).find(|&i| order_rect(i).contains(m.0, m.1)) {
             ORDERS[i].blurb().into()
         } else if STATUS_RECT.contains(m.0, m.1) {
-            "EVERY SHIP HAS EXACTLY ONE CORE, AND EVERY PIXEL MUST JOIN IT THROUGH OTHER PIXELS, EDGE TO EDGE (CORNERS DON'T COUNT). LOOSE PIXELS SHOW RED. IN A FIGHT, ANY PIECE CUT OFF FROM THE CORE BREAKS AWAY.".into()
+            "A SHIP NEEDS A CORE, AND ITS PIXELS MUST ALL JOIN UP EDGE TO EDGE (CORNERS DON'T COUNT). LOOSE PIXELS SHOW RED. EVERY ENGINE NEEDS A 3-WIDE WAY OUT; BURIED ONES SHOW RED. EXTRA CORES COST +8, +16, +32. CUT APART, EACH PIECE WITH A CORE FLIES ON AS A SHIP.".into()
         } else if (STATS_X..340).contains(&m.0) && (56..96).contains(&m.1) {
             "FLIGHT FOLLOWS FROM THE DRAWING. AT LEAST 1 THRUST PER WEIGHT (8 PER ENGINE): ATTACK RUNS, DIVING THROUGH THE TARGET AND LOOPING BACK. LESS: STAND-OFF, HOLDING AT WEAPON RANGE. NO ENGINES: STAYS PUT. HEAVIER SHIPS TURN SLOWER.".into()
         } else if BTN_MIRROR.contains(m.0, m.1) {
@@ -885,7 +927,7 @@ impl Pg {
         } else if self.part == Part::Cannon {
             "PAINTING CANNON. A CLICK STAMPS A 3X3 CANNON CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF IT TO REMOVE THE WHOLE THING. UP IS THE FRONT.".into()
         } else {
-            format!("PAINTING {}. LEFT-CLICK PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT. ONE CORE PER SHIP, AND EVERY PIXEL JOINED TO IT EDGE TO EDGE.", self.part.name())
+            format!("PAINTING {}. LEFT-CLICK PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT. EVERY PIXEL JOINED UP EDGE TO EDGE, AND EVERY ENGINE WITH A 3-WIDE WAY OUT.", self.part.name())
         };
         for (i, l) in wrap(&info, 35).iter().enumerate().take(10) {
             fb.text(l, INFO_RECT.x + 4, INFO_RECT.y + 4 + i as i32 * 9, TEXT, None, 1);
@@ -1019,15 +1061,23 @@ impl Pg {
             }
         }
         if let Some(result) = a.over {
-            let r = Rect::new(62, 112, 180, 62);
+            // A stalemate: 20 s with no shots, no hits and nobody closing in. Say who can't fight any more.
+            let disarmed: Vec<&str> = (0..2).filter(|&t| a.disarmed(t)).map(team_name).collect();
+            let extra = if a.stalemate && !disarmed.is_empty() { 10 } else { 0 };
+            let r = Rect::new(62, 112, 180, 62 + extra);
             ui::panel(fb, r);
             let (head, col) = match result {
                 Some(t) => (format!("{} WINS", team_name(t)), team_col(t, 2)),
+                None if a.stalemate => ("STALEMATE".to_string(), TEXT),
                 None => ("DRAW".to_string(), TEXT),
             };
             fb.text_centered(&head, r.x + r.w / 2, r.y + 8, col, Some(OUTLINE), 2);
-            fb.text_centered(&format!("IN {clock}"), r.x + r.w / 2, r.y + 28, TEXT, None, 1);
-            fb.text_centered("SPACE OR R REPLAYS", r.x + r.w / 2, r.y + 44, TEXT_FAINT, None, 1);
+            let when = if a.stalemate { format!("A DRAW AT {clock}") } else { format!("IN {clock}") };
+            fb.text_centered(&when, r.x + r.w / 2, r.y + 28, TEXT, None, 1);
+            if extra > 0 {
+                fb.text_centered(&format!("{} DISARMED", disarmed.join(" AND ")), r.x + r.w / 2, r.y + 38, GOLD, None, 1);
+            }
+            fb.text_centered("SPACE OR R REPLAYS", r.x + r.w / 2, r.y + 44 + extra, TEXT_FAINT, None, 1);
         }
 
         // Sidebar.
@@ -1059,7 +1109,7 @@ impl Pg {
             let name: String = d.name.chars().take(10).collect();
             fb.text(&name, r.x + 19, r.y + 1, tc, None, 1);
             let st = d.stats();
-            fb.text(&format!("{} PX {}", st.count, &d.order.name()[..4]), r.x + 19, r.y + 9, if hover && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
+            fb.text(&format!("{} PX {}", st.cost, &d.order.name()[..4]), r.x + 19, r.y + 9, if hover && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
             fb.text(&format!("{}", i + 1), r.x + r.w - 8, r.y + 1, TEXT_FAINT, None, 1);
         }
         let run_label = if self.running { "PAUSE" } else if a.over.is_some() { "REPLAY" } else { "RUN" };
@@ -1151,10 +1201,10 @@ impl Pg {
         let r = HELP_RECT;
         ui::panel(fb, r);
         fb.text("PROVING GROUND", r.x + 10, r.y + 8, ACCENT, Some(OUTLINE), 2);
-        fb.text("ROUND 2", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
+        fb.text("ROUND 3", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
         let body = [
-            ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. EXACTLY ONE CORE, AND EVERY PIXEL JOINED TO IT EDGE TO EDGE."),
-            ("NEW", "PLATE: FLAK BOUNCES OFF IT. CANNON: A BIG 3X3 TURRET THAT TURNS SLOWLY AND BLASTS HOLES, PLATE AND ALL. PIECES CUT OFF FROM THE CORE BREAK AWAY. FLAK SPREADS ITS FIRE. BIGGER ENEMIES ARE SOLID."),
+            ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. AT LEAST ONE CORE, AND EVERY PIXEL JOINED UP EDGE TO EDGE."),
+            ("NEW", "EXTRA CORES COST +8, +16, +32. CUT A SHIP APART AND EACH PIECE WITH A CORE FLIES ON AS A SHIP. EVERY ENGINE NEEDS A 3-WIDE WAY OUT. 20 S WITH NO SHOTS, NO HITS AND NOBODY CLOSING IN ENDS A FIGHT AS A STALEMATE."),
             ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE. HEAVIER SHIPS TURN SLOWER."),
             ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW."),
             ("KEYS", "TAB YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT"),
@@ -1251,6 +1301,35 @@ mod tests {
             for &(team, slot, x, y) in &t.place {
                 assert!(a.add(team, slot, &lib[slot], x, y), "{}", t.name);
                 assert!((0..AW).contains(&x) && (0..AH).contains(&y), "{} places a ship off the arena at {x},{y}", t.name);
+            }
+        }
+    }
+
+    #[test]
+    fn every_problem_message_fits_where_it_is_shown() {
+        // Worst cases: every cell of the grid loose or buried, and the longest name a design can have.
+        let n = (GRID * GRID) as usize;
+        let checks = [
+            Check { cores: 0, ..Check::default() },
+            Check { cores: 1, loose: vec![(0, 0)], ..Check::default() },
+            Check { cores: 1, loose: vec![(0, 0); n], ..Check::default() },
+            Check { cores: 1, buried: vec![(0, 0)], ..Check::default() },
+            Check { cores: 1, buried: vec![(0, 0); n], ..Check::default() },
+        ];
+        for c in checks.iter().chain([&Check { cores: 1, ..Check::default() }]) {
+            for armed in [false, true] {
+                for &order in &ORDERS {
+                    // The yard's status line, one line inside its box.
+                    let (status, _) = yard_status(c, armed, order);
+                    assert!(Framebuffer::text_width(&status, 1) <= STATUS_RECT.w - 2, "the yard's status line overflows: {status}");
+                }
+            }
+            // The arena's notice, wrapped inside the field.
+            if let Some(why) = c.problem() {
+                let notice = format!("WWWWWWWWWW CAN'T FLY: {why}");
+                for l in notice_lines(&notice) {
+                    assert!(Framebuffer::text_width(&l, 1) + 12 <= FIELD.w - 8, "the arena notice overflows: {l}");
+                }
             }
         }
     }

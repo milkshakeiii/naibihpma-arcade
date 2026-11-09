@@ -189,7 +189,7 @@ pub fn pg_sim() {
     const SEEDS: u64 = 12;
     let report = |name: &str, place: &[(usize, usize, i32, i32)]| {
         let (mut wins, mut secs, mut lost, mut px, mut window) = ([0; 3], 0, [0; 2], [0; 2], String::new());
-        let mut placed = [0; 2];
+        let (mut placed, mut stale, mut splits) = ([0; 2], 0, [0; 2]);
         for seed in 1..=SEEDS {
             let mut a = Arena::seeded(seed);
             for &(team, slot, x, y) in place {
@@ -204,11 +204,13 @@ pub fn pg_sim() {
                 None => 2,
             };
             wins[k] += 1;
+            stale += a.stalemate as i32;
             secs += a.tick / 15;
             for t in 0..2 {
                 lost[t] += a.score[t].lost;
                 px[t] += a.score[t].px_lost;
-                placed[t] = a.score[t].placed;
+                placed[t] = a.score[t].placed - a.score[t].split;
+                splits[t] += a.score[t].split;
             }
             if seed == 1 {
                 let t = a.tick / 15;
@@ -218,10 +220,11 @@ pub fn pg_sim() {
         let n = SEEDS as i32;
         let t = secs / SEEDS as u32;
         println!(
-            "{name:34} blue {:2}  red {:2}  draw {:2}  avg {}:{:02}  lost: blue {}/{} ({} px)  red {}/{} ({} px)  window: {window}",
+            "{name:34} blue {:2}  red {:2}  draw {:2} ({:2} stalemate)  avg {}:{:02}  lost: blue {}/{} ({} px)  red {}/{} ({} px)  splits {}/{}  window: {window}",
             wins[0],
             wins[1],
             wins[2],
+            stale,
             t / 60,
             t % 60,
             lost[0] / n,
@@ -229,22 +232,25 @@ pub fn pg_sim() {
             px[0] / n,
             lost[1] / n,
             placed[1],
-            px[1] / n
+            px[1] / n,
+            splits[0],
+            splits[1]
         );
     };
-    println!("wins out of {SEEDS} seeds; losses are averages; \"window\" is the fight the window replays");
+    println!("wins out of {SEEDS} seeds; losses are averages (ships lost can top ships placed when they split); splits are totals; \"window\" is the fight the window replays");
     println!("--- ready-made tests ---");
     for t in tests().iter().filter(|t| !t.place.is_empty()) {
         report(t.name, &t.place);
     }
-    // Every pair of designs at (roughly) the same pixel budget: the swarm question.
+    // Every pair of designs at (roughly) the same budget: the swarm question. Cost is pixels plus
+    // extra cores.
     let budget = 600;
     println!("--- equal cost, about {budget} px a side ---");
     let gap = |s: usize| {
         let sh = lib[s].shape();
         sh.w.max(sh.h) + 4
     };
-    let count = |s: usize| (budget / lib[s].stats().count).max(1);
+    let count = |s: usize| (budget / lib[s].stats().cost).max(1);
     for a in 0..5 {
         for b in a + 1..5 {
             let mut place = block(0, a, count(a), 130, 180, gap(a));
@@ -359,11 +365,13 @@ pub fn pg_screenshots(dir: &Path) {
     pg.mouse = (60, 90);
     pg.draw(&mut fb);
     save(&fb, &pg, "09_yard_capital.png");
-    // A design with a loose pixel and a second core, flagged in red.
+    // A loose pixel, and a skirt of hull that buries both engines: flagged in red.
     pg.slot = 0;
+    pg.lib[0] = crate::pg::design::defaults()[0].clone();
     pg.lib[0].set(22, 17, Some(crate::pg::design::Part::Hull));
-    pg.lib[0].set(18, 20, Some(crate::pg::design::Part::Core));
-    pg.lib[0].set(18, 20, Some(crate::pg::design::Part::Hull));
+    for (x, y) in [(18, 20), (18, 21), (18, 22), (19, 22), (20, 22), (21, 22), (22, 22), (22, 21), (22, 20)] {
+        pg.lib[0].set(x, y, Some(crate::pg::design::Part::Hull));
+    }
     pg.part = crate::pg::design::Part::Cannon;
     pg.mouse = (6 + 30 * 4 + 2, 26 + 12 * 4 + 2);
     pg.draw(&mut fb);
