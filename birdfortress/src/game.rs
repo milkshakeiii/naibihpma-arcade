@@ -169,7 +169,19 @@ pub struct Game {
     pub ghost_field: RefCell<Option<((i32, i32, Species, u32, Kind), Rc<Field>)>>,
     pub resume_day: Option<i32>,
     last_season: usize,
+    /// The coach step on show, when its condition started, and the steps already shown out.
+    coach_key: &'static str,
+    coach_since: u32,
+    coach_done: Vec<&'static str>,
+    /// Goals already announced this run, by index into the site's goal list.
+    goals_seen: Vec<bool>,
+    /// A short announcement across the top of the map: title, line, and when it goes.
+    pub banner: Option<(String, String, u32)>,
 }
+
+/// Coach bubbles wait this many frames before showing, then stay this long.
+const COACH_DELAY: u32 = 30;
+const COACH_SHOW: u32 = 150;
 
 impl Game {
     pub fn new(levels: Vec<Level>, save: Save, log: Log, audio: Option<Audio>) -> Game {
@@ -210,6 +222,11 @@ impl Game {
             ghost_field: RefCell::new(None),
             resume_day: None,
             last_season: 0,
+            coach_key: "",
+            coach_since: 0,
+            coach_done: Vec::new(),
+            goals_seen: Vec::new(),
+            banner: None,
         };
         let slots: Vec<u8> = (0..palette::TITLE_SLOTS as u8).map(|k| palette::TITLE_FIRST + k).collect();
         palette::load_slots(&mut g.title_pal, &slots, &g.gallery.title.colours);
@@ -291,6 +308,9 @@ impl Game {
         self.overlay = Overlay::Intro;
         self.screen = Screen::Play;
         self.last_season = 0;
+        self.coach_key = "";
+        self.coach_done.clear();
+        self.banner = None;
         self.center_on_entrance();
         self.level_start = std::time::Instant::now();
         let (id, name, ch) = (self.level().id.clone(), self.level().name.clone(), self.level().chapter);
@@ -318,6 +338,9 @@ impl Game {
         }
         self.overlay = Overlay::None;
         self.paused = false;
+        // Goals already met when a saved run resumes aren't news.
+        let goals = self.level().goals.clone();
+        self.goals_seen = goals.iter().map(|g| self.city.goal_met(*g)).collect();
         self.sfx(Sfx::Page);
     }
 
@@ -476,7 +499,30 @@ impl Game {
     // ----- Tips --------------------------------------------------------------------------------
 
     /// The guided first site: what to do next and where to look (world pixels).
+    /// The coach bubble, if one is on show right now.
     pub fn coach(&self) -> Option<(String, i32, i32)> {
+        let (key, text, x, y) = self.coach_step()?;
+        let age = self.frame.wrapping_sub(self.coach_since);
+        let delay = if matches!(key, "pick_burrow" | "place_burrow") { COACH_DELAY / 2 } else { COACH_DELAY };
+        if key != self.coach_key || self.coach_done.contains(&key) || age < delay || age >= delay + COACH_SHOW {
+            return None;
+        }
+        Some((text, x, y))
+    }
+
+    /// Keeps the coach's clock: a step shows after a pause, for a while, and then not again.
+    fn coach_clock(&mut self) {
+        let key = self.coach_step().map(|c| c.0).unwrap_or("");
+        if key != self.coach_key {
+            self.coach_key = key;
+            self.coach_since = self.frame;
+        } else if !key.is_empty() && self.frame.wrapping_sub(self.coach_since) >= COACH_DELAY + COACH_SHOW && !self.coach_done.contains(&key) {
+            self.coach_done.push(key);
+        }
+    }
+
+    /// The guided first site: what to do next and where to look (world pixels).
+    fn coach_step(&self) -> Option<(&'static str, String, i32, i32)> {
         if self.screen != Screen::Play || self.overlay_open() || self.level().id != "1-1" || self.city.won.is_some() {
             return None;
         }
@@ -487,20 +533,20 @@ impl Game {
         let near = |g: Good| self.level().sources.iter().find(|s| s.good == g).map(|s| (s.x * TILE + 5, s.y * TILE));
         if homes == 0 {
             if self.tool == Tool::Build(Kind::Burrow) {
-                return Some(("Click near the trail to build it.".into(), ex * TILE + 30, ey * TILE));
+                return Some(("place_burrow", "Click near the trail to build it.".into(), ex * TILE + 30, ey * TILE));
             }
-            return Some(("Pick the burrow below, then build one near this trail.".into(), ex * TILE + 5, ey * TILE));
+            return Some(("pick_burrow", "Pick the burrow below, then build one near this trail.".into(), ex * TILE + 5, ey * TILE));
         }
         if !camps.contains(&Good::Berry) {
             let (x, y) = near(Good::Berry)?;
-            return Some(("Settlers need food. Put a camp on a berry bush.".into(), x, y));
+            return Some(("berry", "Settlers need food. Put a camp on a berry bush.".into(), x, y));
         }
         if !camps.contains(&Good::Twig) {
             let (x, y) = near(Good::Twig)?;
-            return Some(("The fortress wants twigs. Camp on a twig pile.".into(), x, y));
+            return Some(("twig", "The fortress wants twigs. Camp on a twig pile.".into(), x, y));
         }
-        if homes < 3 && c.pop() >= 3 {
-            return Some(("More burrows, more workers, more tax.".into(), ex * TILE + 30, ey * TILE));
+        if homes < 3 && c.pop() >= 3 && c.can_afford(Kind::Burrow.cost()) {
+            return Some(("more", "More burrows, more workers, more taxes.".into(), ex * TILE + 30, ey * TILE));
         }
         None
     }
@@ -569,6 +615,49 @@ impl Game {
             for e in evs {
                 self.on_event(e);
             }
+        }
+    }
+
+    /// Says so when a goal is met for the first time this run, and what's still to do.
+    fn announce_goals(&mut self) {
+        if self.city.won.is_some() {
+            return;
+        }
+        let goals = self.level().goals.clone();
+        if self.goals_seen.len() != goals.len() {
+            self.goals_seen = vec![false; goals.len()];
+        }
+        for (i, g) in goals.iter().enumerate() {
+            if self.goals_seen[i] || !self.city.goal_met(*g) {
+                continue;
+            }
+            self.goals_seen[i] = true;
+            let title = match g {
+                Goal::Fortress => "The fortress stands!".to_string(),
+                Goal::Pop(n) => format!("{n} residents!"),
+                Goal::Tier(t, n) => format!("{n} {}s!", TIER_NAMES[*t].to_lowercase()),
+            };
+            let left: Vec<String> = goals.iter().filter(|g2| !self.city.goal_met(**g2)).map(|g2| self.goal_short(*g2)).collect();
+            let line = match left.len() {
+                0 => String::new(),
+                1 => format!("One goal left: {}.", left[0]),
+                _ => format!("Still to do: {}.", join_and(&left)),
+            };
+            self.log.line(&format!("goal met: {title} at day {}", self.city.day()));
+            self.banner = Some((title, line, self.frame + 90));
+            self.sfx(Sfx::Bell);
+        }
+    }
+
+    /// A goal in a few words, for "still to do".
+    pub fn goal_short(&self, g: Goal) -> String {
+        match g {
+            Goal::Fortress => {
+                let (got, total) = self.city.fortress_progress();
+                format!("the fortress ({got}/{total})")
+            }
+            Goal::Pop(n) => format!("{n} residents (now {})", self.city.pop()),
+            Goal::Tier(t, n) => format!("{n} {}s (now {})", TIER_NAMES[t].to_lowercase(), self.city.homes_at(t)),
         }
     }
 
@@ -1259,7 +1348,12 @@ impl App for Game {
             if !self.paused && !self.overlay_open() {
                 self.advance(SPEEDS[self.speed]);
                 self.watch();
+                self.announce_goals();
             }
+            self.coach_clock();
+        }
+        if self.banner.as_ref().is_some_and(|b| self.frame > b.2) {
+            self.banner = None;
         }
         if self.tip.as_ref().is_some_and(|t| self.frame > t.until) {
             self.tip = None;
@@ -1405,6 +1499,54 @@ mod tests {
             g.tick();
         }
         assert!(g.city.tick > 100);
+    }
+
+    #[test]
+    fn a_met_goal_is_announced_with_whats_left() {
+        let mut g = game();
+        g.enter_level(0);
+        g.begin(false);
+        // One burrow and a twig camp: the fortress gets built, the residents goal doesn't.
+        assert!(g.act(Action::Build { kind: Kind::Burrow, x: 2, y: 16, species: Species::Tribble }));
+        let twig = g.level().sources.iter().position(|s| s.good == Good::Twig).unwrap();
+        let (tx, ty) = (g.level().sources[twig].x, g.level().sources[twig].y);
+        assert!(g.act(Action::Build { kind: Kind::Camp, x: tx, y: ty, species: Species::Tribble }));
+        g.speed = SPEEDS.len() - 1;
+        let mut seen = None;
+        for _ in 0..3000 {
+            g.tick();
+            if let Some((title, line, _)) = &g.banner {
+                seen = Some((title.clone(), line.clone()));
+                break;
+            }
+        }
+        let (title, line) = seen.expect("no banner when the fortress was finished");
+        assert_eq!(title, "The fortress stands!");
+        assert!(line.starts_with("One goal left: 12 residents"), "{line}");
+        assert!(g.city.won.is_none());
+    }
+
+    #[test]
+    fn the_coach_waits_then_goes() {
+        let mut g = game();
+        g.enter_level(0);
+        g.begin(false);
+        g.paused = true;
+        // Nothing built yet: the first step shows after a short pause.
+        assert!(g.coach().is_none());
+        let mut shown = 0;
+        for _ in 0..400 {
+            g.tick();
+            if g.coach().is_some() {
+                shown += 1;
+            }
+        }
+        assert!(shown > 100 && shown <= COACH_SHOW as i32, "shown for {shown} frames");
+        // Once shown out, the same step stays quiet.
+        for _ in 0..200 {
+            g.tick();
+            assert!(g.coach().is_none());
+        }
     }
 
     #[test]

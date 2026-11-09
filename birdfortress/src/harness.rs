@@ -358,6 +358,33 @@ pub fn shots(levels: &[Level], dir: &str) {
     drive(&mut g, &steps, 60);
     g.mouse = (200, 100);
     snap(&mut g, "12_results");
+    // A goal met with one still to go: the banner says what's left.
+    let mut g = new_game();
+    g.enter_level(at("1-1"));
+    g.begin(false);
+    g.act(crate::city::Action::Build { kind: crate::rules::Kind::Burrow, x: 2, y: 16, species: crate::rules::Species::Tribble });
+    if let Some(t) = levels[at("1-1")].sources.iter().find(|s| s.good == crate::rules::Good::Twig) {
+        g.act(crate::city::Action::Build { kind: crate::rules::Kind::Camp, x: t.x, y: t.y, species: crate::rules::Species::Tribble });
+    }
+    g.speed = 3;
+    for _ in 0..3000 {
+        g.tick();
+        if g.banner.is_some() {
+            break;
+        }
+    }
+    g.tip = None;
+    g.msg = None;
+    g.mouse = (200, 100);
+    snap(&mut g, "13_goal_banner");
+    // The site list with a finished site.
+    let mut g = new_game();
+    let rec = g.save.rec_mut("1-1");
+    rec.done = true;
+    rec.best_day = Some(8);
+    g.event(Ev::Key(Key::Enter));
+    g.mouse = (200, 200);
+    snap(&mut g, "14_select_done");
     // The rules pages.
     let mut g = new_game();
     g.event(Ev::Key(Key::Help));

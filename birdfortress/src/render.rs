@@ -966,6 +966,31 @@ fn jump_table(fb: &mut Framebuffer, g: &Game, s: Species, x: i32, y: i32) {
     }
 }
 
+/// A small green check mark, 7 wide and 6 tall.
+fn check(fb: &mut Framebuffer, x: i32, y: i32, col: u8) {
+    for (dx, dy) in [(0, 3), (1, 4), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (6, 0)] {
+        fb.rect_fill(x + dx, y + dy, 1, 1, col);
+        fb.pset(x + dx, y + dy + 1, OUTLINE);
+    }
+}
+
+/// The announcement across the top of the map when a goal is met.
+fn draw_banner(fb: &mut Framebuffer, g: &Game) {
+    let Some((title, line, _)) = &g.banner else { return };
+    let w = Framebuffer::text_width(title, 1).max(Framebuffer::text_width(line, 1)) + 24;
+    let h = if line.is_empty() { 18 } else { 28 };
+    let x = 200 - w / 2;
+    let y = 22;
+    fb.rect_fill(x, y, w, h, OUTLINE);
+    fb.rect_fill(x + 1, y + 1, w - 2, h - 2, PANEL_DEEP);
+    fb.rect_fill(x + 1, y + 1, w - 2, 1, GOLD);
+    fb.rect_fill(x + 1, y + h - 2, w - 2, 1, GOLD);
+    fb.text_centered(title, 200, y + 5, GOLD, Some(OUTLINE), 1);
+    if !line.is_empty() {
+        fb.text_centered(line, 200, y + 16, TEXT, None, 1);
+    }
+}
+
 fn medal_icon(fb: &mut Framebuffer, x: i32, y: i32, m: usize, big: bool) {
     let (c, hi) = match m {
         0 => (GOLD, WHITE),
@@ -1254,6 +1279,9 @@ fn draw_panel(fb: &mut Framebuffer, g: &Game) {
             _ => fb.blit(&g.art.paw, icon_x, y, false),
         }
         fb.text(&t, R_GOALS.x + 14, y, if met { GOOD } else { TEXT }, None, 1);
+        if met {
+            check(fb, R_GOALS.x + R_GOALS.w - 11, y, GOOD);
+        }
         y += 10;
     }
     let lv = g.level();
@@ -1261,6 +1289,9 @@ fn draw_panel(fb: &mut Framebuffer, g: &Game) {
         let (t, met) = g.goal_text(goals[2]);
         fb.blit(&g.art.paw, R_GOALS.x + 4, y, false);
         fb.text(&t, R_GOALS.x + 14, y, if met { GOOD } else { TEXT }, None, 1);
+        if met {
+            check(fb, R_GOALS.x + R_GOALS.w - 11, y, GOOD);
+        }
     } else if lv.medals[0] > 0 {
         let day = g.city.day();
         let m = lv.medal_for(day);
@@ -1682,7 +1713,9 @@ fn draw_play(g: &Game, fb: &mut Framebuffer) {
                 let (sx, sy) = g.to_screen(b.x, b.y);
                 bubble(fb, &b.text, sx, sy);
             }
-            if g.paused {
+            if g.banner.is_some() {
+                draw_banner(fb, g);
+            } else if g.paused {
                 fb.text_centered("Paused", 200, 16, WHITE, Some(OUTLINE), 1);
             }
         }
@@ -1725,6 +1758,10 @@ fn draw_select(g: &Game, fb: &mut Framebuffer) {
             if open {
                 let col = ui::button_face(fb, r, r.contains(mx, my), false);
                 fb.text(&lv.id, r.x + 3, r.y + 3, if rec.done { GOOD } else { col }, None, 1);
+                if rec.done {
+                    fb.rect_outline(r.x - 1, r.y - 1, r.w + 2, r.h + 2, GOLD);
+                    check(fb, r.x + 25, r.y + 3, GOOD);
+                }
                 let mut name = lv.name.clone();
                 name.truncate(12);
                 fb.text(&name, r.x + 3, r.y + 15, col, None, 1);
