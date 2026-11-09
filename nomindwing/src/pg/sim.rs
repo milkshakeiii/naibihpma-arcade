@@ -9,16 +9,24 @@ use super::design::*;
 use crate::geom::{cheb, dist2, Line};
 use crate::rng::Rng;
 
-pub const AW: i32 = 304;
-pub const AH: i32 = 300;
+pub const AW: i32 = 480;
+pub const AH: i32 = 360;
 pub const TIME_LIMIT: u32 = 15 * 180;
 /// Each team's home station: where hauls are delivered and the hurt run to.
 pub const STATIONS: [(i32, i32); 2] = [(10, AH / 2), (AW - 11, AH / 2)];
 const FLAK_SPEED: i32 = 6;
 const LANCE_SPEED: i32 = 4;
+const SHELL_SPEED: i32 = 4;
 const GUARD_RADIUS: i32 = 100;
 /// Ticks after a hit during which an unarmed ship keeps fleeing.
 const SCARED: u32 = 30;
+/// Extra distance (px) a flak turret counts for each shot already on its way to a target, so a
+/// ship's guns spread over several small targets instead of piling onto one.
+const SPREAD: i32 = 12;
+/// Ticks per 1/64 turn of a cannon turret: about 42 degrees a second.
+const TURRET_TURN: u32 = 2;
+/// Length of a drawn cannon barrel from the turret's centre.
+pub const BARREL: i32 = 4;
 
 pub fn isqrt(n: i32) -> i32 {
     if n < 2 {
@@ -58,9 +66,47 @@ pub fn facing_vec(f: u8) -> (i32, i32) {
     [(0, -1), (1, 0), (0, 1), (-1, 0)][(f & 3) as usize]
 }
 
+/// sin of 0..=90 degrees in 16 steps, times 1024.
+const SIN16: [i32; 17] = [0, 100, 200, 297, 392, 483, 569, 650, 724, 792, 851, 903, 946, 980, 1004, 1019, 1024];
+
+fn sin64(a: i32) -> i32 {
+    let a = a.rem_euclid(64);
+    match a / 16 {
+        0 => SIN16[a as usize],
+        1 => SIN16[(32 - a) as usize],
+        2 => -SIN16[(a - 32) as usize],
+        _ => -SIN16[(64 - a) as usize],
+    }
+}
+
+/// The unit vector (times 1024) of a turret angle in 64ths of a turn: 0 is north, clockwise.
+pub fn dir64(a: i32) -> (i32, i32) {
+    (sin64(a), -sin64(a + 16))
+}
+
+/// The turret angle nearest a direction.
+fn angle_of(dx: i32, dy: i32) -> i32 {
+    (0..64).max_by_key(|&a| {
+        let (ux, uy) = dir64(a);
+        dx * ux + dy * uy
+    })
+    .unwrap_or(0)
+}
+
+/// How far apart two turret angles are, in 64ths, signed the short way round.
+fn angle_diff(from: i32, to: i32) -> i32 {
+    let d = (to - from).rem_euclid(64);
+    if d > 32 {
+        d - 64
+    } else {
+        d
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Doing {
     Idle,
+    LineUp,
     RunIn,
     RunOut,
     StandOff,
@@ -75,6 +121,7 @@ impl Doing {
     pub fn name(self) -> &'static str {
         match self {
             Doing::Idle => "IDLE",
+            Doing::LineUp => "LINING UP",
             Doing::RunIn => "ATTACK RUN IN",
             Doing::RunOut => "ATTACK RUN OUT",
             Doing::StandOff => "HOLDING AT RANGE",
@@ -85,6 +132,18 @@ impl Doing {
             Doing::Hold => "HOLDING",
         }
     }
+}
+
+/// A cannon: a 3x3 block whose centre pixel is the breech. It works while that pixel survives.
+#[derive(Clone, Debug)]
+pub struct Turret {
+    pub cell: usize,
+    /// Where the barrel points, in 64ths of a turn (0 north, clockwise).
+    pub aim: i32,
+    cool: i32,
+    turn_t: u32,
+    aim_off: (i32, i32),
+    aim_for: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -107,8 +166,10 @@ pub struct Ship {
     acc: i32,
     pub facing: u8,
     turn_t: i32,
+    /// 1 while a pixel survives, 0 once it's gone.
     pub hp: Vec<u8>,
     cool: Vec<i32>,
+    pub turrets: Vec<Turret>,
     pub alive: bool,
     pub doing: Doing,
     outbound: bool,
@@ -123,6 +184,8 @@ pub struct Ship {
     pub goal: Option<(i32, i32)>,
     pub trail: Vec<(i32, i32)>,
     dirty: bool,
+    /// The last move ran into a bigger enemy.
+    bumped: bool,
     /// The target pixel (relative to the target's centre) a lance ship is lining up on.
     aim_off: (i32, i32),
     aim_for: Option<usize>,
@@ -151,25 +214,36 @@ impl Ship {
     pub fn alive_cells(&self) -> Vec<Option<Part>> {
         self.shape.cells.iter().zip(&self.hp).map(|(c, &h)| if h > 0 { *c } else { None }).collect()
     }
-    pub fn hp_now(&self) -> i32 {
+    /// Pixels still standing.
+    pub fn px_now(&self) -> i32 {
         self.hp.iter().map(|&h| h as i32).sum()
     }
-    pub fn hp_full(&self) -> i32 {
-        self.shape.cells.iter().flatten().map(|p| p.hp() as i32).sum()
+    pub fn px_full(&self) -> i32 {
+        self.shape.cells.iter().flatten().count() as i32
     }
     pub fn speed_px_s(&self) -> i32 {
         isqrt(self.vx * self.vx + self.vy * self.vy) * 15 / 4
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kind {
+    Flak,
+    Lance,
+    Shell,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Shot {
     pub team: usize,
+    pub kind: Kind,
     pub line: Line,
     pub left: i32,
     pub speed: i32,
-    pub pen: i32,
-    pub lance: bool,
+    dmg: i32,
+    pen: i32,
+    /// The ship it was fired at, so other guns can spread their fire.
+    target: Option<usize>,
     pub prev: (i32, i32),
     /// Counted once in the shooter's hits, however many pixels it punches.
     connected: bool,
@@ -185,14 +259,27 @@ pub struct Debris {
     taken: bool,
 }
 
+/// A short-lived flash: a shot bouncing off plate, or a shell's blast.
+#[derive(Clone, Copy, Debug)]
+pub struct Spark {
+    pub x: i32,
+    pub y: i32,
+    pub t: u8,
+    pub blast: bool,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Score {
     pub placed: i32,
     pub lost: i32,
     pub px_lost: i32,
+    /// Pixels that broke away when cut off from the core.
+    pub broken: i32,
     pub mined: i32,
     pub fired: i32,
     pub hits: i32,
+    /// Hits that bounced off plate.
+    pub bounced: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -204,6 +291,7 @@ struct Snap {
     vx: i32,
     vy: i32,
     half: i32,
+    px: i32,
 }
 
 /// What a brain wants this tick.
@@ -220,6 +308,7 @@ pub struct Arena {
     pub ships: Vec<Ship>,
     pub shots: Vec<Shot>,
     pub debris: Vec<Debris>,
+    pub sparks: Vec<Spark>,
     pub rock: Vec<bool>,
     rock_px: Vec<(i32, i32)>,
     pub stars: Vec<(i32, i32, u8)>,
@@ -238,6 +327,7 @@ impl Arena {
             ships: Vec::new(),
             shots: Vec::new(),
             debris: Vec::new(),
+            sparks: Vec::new(),
             rock: vec![false; (AW * AH) as usize],
             rock_px: Vec::new(),
             stars: Vec::new(),
@@ -246,7 +336,7 @@ impl Arena {
             over: None,
             started: [false; 2],
         };
-        for (cx, cy, r) in [(AW / 2, AH / 2, 14), (AW / 2, 58, 9), (AW / 2, AH - 59, 9)] {
+        for (cx, cy, r) in [(AW / 2, AH / 2, 18), (AW / 2, 70, 11), (AW / 2, AH - 71, 11)] {
             for y in -r..=r {
                 for x in -r..=r {
                     let d = dist2(x, y, 0, 0);
@@ -258,10 +348,20 @@ impl Arena {
                 }
             }
         }
-        for _ in 0..90 {
+        for _ in 0..170 {
             let (x, y) = (a.rng.range(0, AW - 1), a.rng.range(0, AH - 1));
             let c = if a.rng.chance(15) { 2 } else if a.rng.chance(40) { 1 } else { 0 };
             a.stars.push((x, y, c));
+        }
+        a
+    }
+
+    /// The same rocks and stars with a different roll of the dice for the fight, so the headless
+    /// runs can tell a real result from one lucky replay. Seed 1 is the fight the window shows.
+    pub fn seeded(seed: u64) -> Arena {
+        let mut a = Arena::new();
+        if seed != 1 {
+            a.rng = Rng::new(seed);
         }
         a
     }
@@ -270,17 +370,24 @@ impl Arena {
         (0..AW).contains(&x) && (0..AH).contains(&y) && self.rock[(y * AW + x) as usize]
     }
 
-    /// Places a ship; refuses a design with no core.
+    /// Places a ship; refuses a design that can't fly (no core, two cores, loose pixels).
     pub fn add(&mut self, team: usize, slot: usize, d: &Design, x: i32, y: i32) -> bool {
-        let st = d.stats();
-        if st.cores == 0 {
+        if !d.check().ok() {
             return false;
         }
+        let st = d.stats();
         let shape = d.shape();
         let n = shape.cells.len();
-        let hp = shape.cells.iter().map(|c| c.map_or(0, |p| p.hp())).collect();
+        let hp = shape.cells.iter().map(|c| c.is_some() as u8).collect();
         // Stagger the guns so a broadside ripples instead of firing as one.
         let cool = (0..n).map(|i| (i as i32 * 7) % FLAK_PERIOD).collect();
+        let facing = if team == 0 { 1 } else { 3 };
+        let turrets = shape
+            .cannons
+            .iter()
+            .enumerate()
+            .map(|(k, &cell)| Turret { cell, aim: facing as i32 * 16, cool: (k as i32 * 11) % CANNON_PERIOD, turn_t: 0, aim_off: (0, 0), aim_for: None })
+            .collect();
         let mut s = Ship {
             team,
             slot,
@@ -295,10 +402,11 @@ impl Arena {
             vx: 0,
             vy: 0,
             acc: 0,
-            facing: if team == 0 { 1 } else { 3 },
+            facing,
             turn_t: 0,
             hp,
             cool,
+            turrets,
             alive: true,
             doing: Doing::Idle,
             outbound: false,
@@ -313,6 +421,7 @@ impl Arena {
             goal: None,
             trail: Vec::new(),
             dirty: false,
+            bumped: false,
             aim_off: (0, 0),
             aim_for: None,
             aim_t: 0,
@@ -356,7 +465,7 @@ impl Arena {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.alive)
-            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half() })
+            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), px: s.px_now() })
             .collect();
         let n = self.ships.len();
         for i in 0..n {
@@ -365,18 +474,24 @@ impl Arena {
                 self.fly(i, plan);
             }
         }
+        let mut pending = vec![0; n];
+        for t in self.shots.iter().filter_map(|s| s.target) {
+            pending[t] += 1;
+        }
         for i in 0..n {
             if self.ships[i].alive {
-                self.weapons(i, &snap);
+                self.weapons(i, &snap, &mut pending);
             }
         }
         self.shots_step();
+        self.break_off();
         self.debris_step();
         self.deaths();
         for s in self.ships.iter_mut().filter(|s| s.alive) {
             if s.dirty {
                 s.dirty = false;
-                s.st = stats_of(&s.alive_cells());
+                let cannons = s.turrets.iter().filter(|t| s.hp[t.cell] > 0).count() as i32;
+                s.st = stats_of(&s.alive_cells(), cannons);
             }
             if self.tick % 2 == 0 {
                 s.trail.push((s.x, s.y));
@@ -385,6 +500,10 @@ impl Arena {
                 }
             }
         }
+        for sp in &mut self.sparks {
+            sp.t = sp.t.saturating_sub(1);
+        }
+        self.sparks.retain(|sp| sp.t > 0);
         let (a, b) = (self.alive(0), self.alive(1));
         if self.started[0] && self.started[1] {
             if a == 0 && b == 0 {
@@ -407,7 +526,7 @@ impl Arena {
             let s = &self.ships[i];
             (s.team, s.x, s.y, s.order, s.home, s.st, s.last_hit)
         };
-        let armed = st.flak + st.lance > 0;
+        let armed = st.armed();
         let hurt = last_hit > 0 && self.tick.saturating_sub(last_hit) < SCARED;
         let station = STATIONS[team];
         let nearest = |maxd: i32, from: (i32, i32)| {
@@ -504,20 +623,38 @@ impl Arena {
         let d = isqrt(dist2(x, y, e.x, e.y));
         let t = d * 4 / vmax.max(1);
         let (tx, ty) = ((e.x + e.vx * t / 4).clamp(0, AW - 1), (e.y + e.vy * t / 4).clamp(0, AH - 1));
+        // Flying through only works on ships smaller than you. If this course would hit a
+        // bigger one before we could stop, peel off sideways: a strafing pass along its hull.
+        let peel = self.impact(i).map(|b| self.peel(i, b));
+        let lance_run = if !self.ships[i].outbound && self.ships[i].st.lance > 0 { Some(self.line_up(i, e, (tx, ty))) } else { None };
         let s = &mut self.ships[i];
         s.run_t += 1;
         if !s.outbound {
-            let dv = toward(x, y, tx, ty, vmax);
             let closing = (e.x - x) * vx + (e.y - y) * vy;
-            if d <= e.half + 6 || (d < 36 && closing < 0 && s.run_t > 8) {
+            if let Some(dv) = peel {
+                s.outbound = true;
+                s.run_t = 0;
+                return Plan { dv, face: axis_face(dv.0, dv.1), doing: Doing::RunOut, target: Some(e.idx), goal: None };
+            }
+            if d <= e.half + 6 || s.bumped || (d < 36 + e.half && closing < 0 && s.run_t > 8) {
                 s.outbound = true;
                 s.run_t = 0;
             }
+            if let Some(p) = lance_run {
+                return p;
+            }
+            let dv = toward(x, y, tx, ty, vmax);
             Plan { dv, face: axis_face(dv.0, dv.1), doing: Doing::RunIn, target: Some(e.idx), goal: Some((tx, ty)) }
         } else {
-            let dv = if vx == 0 && vy == 0 { toward(e.x, e.y, x, y, vmax) } else { toward(0, 0, vx, vy, vmax) };
+            let dv = if let Some(p) = peel {
+                p
+            } else if vx == 0 && vy == 0 {
+                toward(e.x, e.y, x, y, vmax)
+            } else {
+                toward(0, 0, vx, vy, vmax)
+            };
             let near_wall = x < 16 || y < 16 || x > AW - 17 || y > AH - 17;
-            if near_wall || (s.run_t > 8 && d > 48) || s.run_t > 30 {
+            if near_wall || (s.run_t > 8 && d > 48 + e.half) || s.run_t > 30 {
                 s.outbound = false;
                 s.run_t = 0;
             }
@@ -526,48 +663,34 @@ impl Arena {
     }
 
     /// Hold at weapon range. Ships with lances line up on the target's row or column so the lances
-    /// bear (they only fire straight ahead); flak-only ships close to flak range from wherever they are.
+    /// bear (they only fire straight ahead); cannon ships hold at cannon range and flak-only ships
+    /// close to flak range from wherever they are.
     fn stand_off(&mut self, i: usize, e: &Snap, snap: &[Snap]) -> Plan {
         let (x, y, h, st, team) = {
             let s = &self.ships[i];
             (s.x, s.y, s.half(), s.st, s.team)
         };
-        let pref = if st.lance > 0 { LANCE_RANGE * 3 / 4 } else { FLAK_RANGE * 2 / 3 } + e.half;
+        let pref = if st.lance > 0 {
+            LANCE_RANGE * 3 / 4
+        } else if st.cannon > 0 {
+            CANNON_RANGE * 2 / 3
+        } else {
+            FLAK_RANGE * 2 / 3
+        } + e.half;
         let inside = |(px, py): (i32, i32)| px >= h + 2 && py >= h + 2 && px <= AW - 3 - h && py <= AH - 3 - h;
         // Spots in line with the target, at a few distances; a spot a friend already holds costs
         // extra, so a group spreads into a firing line instead of stacking (own shots pass through
         // own ships, so a line behind a line still fires).
         let crowd = |(px, py): (i32, i32)| snap.iter().filter(|f| f.team == team && f.idx != i && cheb(f.x, f.y, px, py) <= f.half + h + 2).count() as i32;
         let lined_up = if st.lance > 0 {
-            // Line the lance up on one surviving pixel of the target, picked at random and
-            // re-picked after every shot, so a group works across the hull instead of drilling
-            // one tunnel that later shots fly straight through.
-            let stale = {
-                let s = &self.ships[i];
-                let ts = &self.ships[e.idx];
-                s.aim_for != Some(e.idx) || s.aim_t <= 0 || ts.cell_at(e.x + s.aim_off.0, e.y + s.aim_off.1).map_or(true, |c| ts.hp[c] == 0)
-            };
-            if stale {
-                let (px, py) = self.random_cell(e.idx);
-                let s = &mut self.ships[i];
-                s.aim_off = (px - e.x, py - e.y);
-                s.aim_for = Some(e.idx);
-                s.aim_t = LANCE_PERIOD;
-            }
-            let s = &mut self.ships[i];
-            s.aim_t -= 1;
-            let aim = s.aim_off;
-            let lance = (0..s.shape.cells.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance) && s.hp[c] > 0);
-            // Where the lance pixel sits relative to the ship's centre when facing `f`.
-            let lance_off = |f: u8| lance.map_or((0, 0), |c| s.shape.cell_xy(0, 0, f, c));
+            let aim = self.lance_aim(i, e);
             let mut spots = Vec::new();
             for d in [pref, pref - 14, pref + 14] {
-                let (ew, we) = (lance_off(3), lance_off(1));
-                let (so, no) = (lance_off(0), lance_off(2));
-                spots.push((e.x + d, e.y + aim.1 - ew.1));
-                spots.push((e.x - d, e.y + aim.1 - we.1));
-                spots.push((e.x + aim.0 - so.0, e.y + d));
-                spots.push((e.x + aim.0 - no.0, e.y - d));
+                // East of the target facing west, west facing east, south facing north, north facing south.
+                spots.push((e.x + d, self.lance_line(i, e, aim, 3, d)));
+                spots.push((e.x - d, self.lance_line(i, e, aim, 1, d)));
+                spots.push((self.lance_line(i, e, aim, 0, d), e.y + d));
+                spots.push((self.lance_line(i, e, aim, 2, d), e.y - d));
             }
             spots.into_iter().filter(|&p| inside(p)).min_by_key(|&p| dist2(p.0, p.1, x, y) + crowd(p) * 20_000)
         } else {
@@ -580,6 +703,82 @@ impl Arena {
         });
         let dv = self.arrive(i, point.0, point.1);
         Plan { dv, face: axis_face(e.x - x, e.y - y), doing: Doing::StandOff, target: Some(e.idx), goal: Some(point) }
+    }
+
+    // ----- Lances: a gun that fires like a rook on a ship that flies freely -----
+    // Any ship with a working lance, whatever its shape or flight style, gets where it needs to be
+    // through these two: the pixel to aim at, and where the ship has to sit for its lance to bear.
+
+    /// The pixel of target `e` (relative to its centre) that ship `i`'s lance lines up on: a
+    /// surviving one, picked at random and re-picked after every shot, so a group works across
+    /// the hull instead of drilling one tunnel that later shots fly straight through.
+    fn lance_aim(&mut self, i: usize, e: &Snap) -> (i32, i32) {
+        let stale = {
+            let s = &self.ships[i];
+            let ts = &self.ships[e.idx];
+            s.aim_for != Some(e.idx) || s.aim_t <= 0 || ts.cell_at(e.x + s.aim_off.0, e.y + s.aim_off.1).map_or(true, |c| ts.hp[c] == 0)
+        };
+        if stale {
+            let (px, py) = self.random_cell(e.idx);
+            let s = &mut self.ships[i];
+            s.aim_off = (px - e.x, py - e.y);
+            s.aim_for = Some(e.idx);
+            s.aim_t = LANCE_PERIOD;
+        }
+        let s = &mut self.ships[i];
+        s.aim_t -= 1;
+        s.aim_off
+    }
+
+    /// Where ship `i`'s centre has to be, across the line of fire, for its lance to bear on `aim`
+    /// when the ship faces `f` from `dist` px away: a y when facing east or west, an x when facing
+    /// north or south. It leads a moving target by the time a lance shot takes to cross `dist`.
+    fn lance_line(&self, i: usize, e: &Snap, aim: (i32, i32), f: u8, dist: i32) -> i32 {
+        let s = &self.ships[i];
+        let lance = (0..s.shape.cells.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance) && s.hp[c] > 0);
+        let (ox, oy) = lance.map_or((0, 0), |c| s.shape.cell_xy(0, 0, f, c));
+        let t = dist.abs() / LANCE_SPEED;
+        if f % 2 == 1 {
+            e.y + aim.1 + e.vy * t / 4 - oy
+        } else {
+            e.x + aim.0 + e.vx * t / 4 - ox
+        }
+    }
+
+    /// The run in for a ship with a lance: slide onto the target's row or column, then dive along
+    /// it with the lance pointed at the hull. Sliding across gets the speed it needs first; what's
+    /// left closes the distance, so a ship far off the line slows its approach until it's on.
+    fn line_up(&mut self, i: usize, e: &Snap, (tx, ty): (i32, i32)) -> Plan {
+        let aim = self.lance_aim(i, e);
+        let s = &self.ships[i];
+        let (x, y, h, st) = (s.x, s.y, s.half(), s.st);
+        let (ax, ay) = ((tx - x).abs(), (ty - y).abs());
+        // Dive along a row (facing east or west) or a column. Keep the current axis unless the
+        // other is much longer, so the choice doesn't flicker on a diagonal.
+        let row = if s.facing % 2 == 1 { ax * 2 >= ay } else { ax > ay * 2 };
+        let f = if row {
+            if tx >= x { 1 } else { 3 }
+        } else if ty >= y {
+            2
+        } else {
+            0
+        };
+        let want = if row {
+            self.lance_line(i, e, aim, f, ax).clamp(h + 2, AH - 3 - h)
+        } else {
+            self.lance_line(i, e, aim, f, ay).clamp(h + 2, AW - 3 - h)
+        };
+        let off = want - if row { y } else { x };
+        let brake = isqrt(8 * st.thrust * off.abs() / st.mass.max(1));
+        let side = off.signum() * st.vmax.min(brake).min(off.abs() * 4);
+        let ahead = isqrt(st.vmax * st.vmax - side * side);
+        let (dv, goal) = if row {
+            (((tx - x).signum() * ahead, side), (tx, want))
+        } else {
+            ((side, (ty - y).signum() * ahead), (want, ty))
+        };
+        let doing = if off.abs() > 1 { Doing::LineUp } else { Doing::RunIn };
+        Plan { dv, face: Some(f), doing, target: Some(e.idx), goal: Some(goal) }
     }
 
     fn harvest(&mut self, i: usize) -> Plan {
@@ -657,16 +856,25 @@ impl Arena {
             s.vx = s.vx * st.vmax / v;
             s.vy = s.vy * st.vmax / v;
         }
+        let mut turn_to = None;
         match p.face {
             Some(f) if f != s.facing && st.turn > 0 => {
                 s.turn_t += 1;
                 if s.turn_t >= st.turn {
                     s.turn_t = 0;
-                    s.facing = if (f + 4 - s.facing) % 4 == 3 { (s.facing + 3) % 4 } else { (s.facing + 1) % 4 };
+                    turn_to = Some(if (f + 4 - s.facing) % 4 == 3 { (s.facing + 3) % 4 } else { (s.facing + 1) % 4 });
                 }
             }
             _ => s.turn_t = 0,
         }
+        if let Some(nf) = turn_to {
+            // A turn can't swing a pixel into a bigger enemy's hull.
+            let (x, y, f0) = (self.ships[i].x, self.ships[i].y, self.ships[i].facing);
+            if self.overlap(i, x, y, nf).0 <= self.overlap(i, x, y, f0).0 {
+                self.ships[i].facing = nf;
+            }
+        }
+        let s = &mut self.ships[i];
         s.sx += s.vx;
         s.sy += s.vy;
         let (dx, dy) = (s.sx.div_euclid(4), s.sy.div_euclid(4));
@@ -683,8 +891,111 @@ impl Arena {
             s.vy = 0;
             s.sy = 0;
         }
-        s.x = cx;
-        s.y = cy;
+        // Bigger enemies are solid: a move into one is cut back axis by axis, so a fighter skims
+        // along a capital's plate instead of flying over it and shooting it from inside.
+        let (ox, oy) = (s.x, s.y);
+        let (mut fx, mut fy) = (cx, cy);
+        if self.blocked(i, ox, oy) {
+            // Already inside a bigger ship (it drifted onto us, or we were shoved): take the
+            // planned move if it clears the hull, or else head for the nearest clear spot in
+            // any of 8 directions, up to 2 px a tick.
+            if self.blocked(i, cx, cy) {
+                let mut exit: Option<(i32, (i32, i32))> = None;
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                    for k in 1..=24 {
+                        let (px, py) = (ox + dx * k, oy + dy * k);
+                        if px < h || py < h || px > AW - 1 - h || py > AH - 1 - h {
+                            break;
+                        }
+                        if !self.blocked(i, px, py) {
+                            if exit.map_or(true, |(best, _)| k < best) {
+                                exit = Some((k, (dx, dy)));
+                            }
+                            break;
+                        }
+                    }
+                }
+                (fx, fy) = exit.map_or((ox, oy), |(k, (dx, dy))| (ox + dx * k.min(2), oy + dy * k.min(2)));
+            }
+        } else if (fx, fy) != (ox, oy) && self.blocked(i, fx, fy) {
+            if !self.blocked(i, fx, oy) {
+                fy = oy;
+            } else if !self.blocked(i, ox, fy) {
+                fx = ox;
+            } else {
+                (fx, fy) = (ox, oy);
+            }
+        }
+        let s = &mut self.ships[i];
+        s.bumped = (fx, fy) != (cx, cy);
+        if fx != cx {
+            s.vx = 0;
+            s.sx = 0;
+        }
+        if fy != cy {
+            s.vy = 0;
+            s.sy = 0;
+        }
+        s.x = fx;
+        s.y = fy;
+    }
+
+    /// The bigger enemy ship `i` would run into if it held its course, looking ahead about as
+    /// many ticks as it needs to stop.
+    fn impact(&self, i: usize) -> Option<usize> {
+        let s = &self.ships[i];
+        let v = isqrt(s.vx * s.vx + s.vy * s.vy);
+        if v == 0 || s.st.thrust == 0 {
+            return None;
+        }
+        let ahead = (v * s.st.mass / s.st.thrust + 3).min(12);
+        (1..=ahead).find_map(|t| self.overlap(i, s.x + s.vx * t / 4, s.y + s.vy * t / 4, s.facing).1)
+    }
+
+    /// Full thrust square to the current course, on the side away from ship `big`'s centre.
+    fn peel(&self, i: usize, big: usize) -> (i32, i32) {
+        let (s, b) = (&self.ships[i], &self.ships[big]);
+        let (ax, ay) = (-s.vy, s.vx);
+        let away = (s.x - b.x) * ax + (s.y - b.y) * ay;
+        let side = if away > 0 || (away == 0 && i % 2 == 0) { 1 } else { -1 };
+        toward(0, 0, ax * side, ay * side, s.st.vmax)
+    }
+
+    /// Whether ship `i` centred on (x, y) would overlap a living pixel of a bigger enemy.
+    fn blocked(&self, i: usize, x: i32, y: i32) -> bool {
+        self.overlap(i, x, y, self.ships[i].facing).0 > 0
+    }
+
+    /// How many of ship `i`'s pixels would sit on living pixels of bigger enemies if it were
+    /// centred on (x, y) facing `facing`, and the first such enemy.
+    fn overlap(&self, i: usize, x: i32, y: i32, facing: u8) -> (i32, Option<usize>) {
+        let s = &self.ships[i];
+        let (w, h) = s.shape.dims(facing);
+        let (l, t) = (x - w / 2, y - h / 2);
+        let size = s.px_full();
+        let (mut n, mut first) = (0, None);
+        for (k, e) in self.ships.iter().enumerate() {
+            if !e.alive || e.team == s.team || e.px_full() <= size {
+                continue;
+            }
+            let (el, et, er, eb) = e.bbox();
+            if el > l + w - 1 || er < l || et > t + h - 1 || eb < t {
+                continue;
+            }
+            let m = (0..s.hp.len())
+                .filter(|&c| {
+                    s.hp[c] > 0 && {
+                        let (px, py) = s.shape.cell_xy(x, y, facing, c);
+                        e.cell_at(px, py).map_or(false, |j| e.hp[j] > 0)
+                    }
+                })
+                .count() as i32;
+            if m > 0 {
+                n += m;
+                first = first.or(Some(k));
+            }
+        }
+        (n, first)
     }
 
     // ----- Layer 2: the parts fire on reflex -----
@@ -698,7 +1009,7 @@ impl Arena {
         self.ships[idx].cell_xy(c)
     }
 
-    fn weapons(&mut self, i: usize, snap: &[Snap]) {
+    fn weapons(&mut self, i: usize, snap: &[Snap], pending: &mut [i32]) {
         let team = self.ships[i].team;
         for c in 0..self.ships[i].shape.cells.len() {
             let part = self.ships[i].shape.cells[c];
@@ -711,7 +1022,13 @@ impl Arena {
             }
             let (gx, gy) = self.ships[i].cell_xy(c);
             if part == Some(Part::Flak) {
-                let tgt = snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, gx, gy) <= FLAK_RANGE + e.half).min_by_key(|e| dist2(e.x, e.y, gx, gy)).copied();
+                // The nearest enemy in range, counting each shot already on its way to a target
+                // as extra distance, so several guns spread over several small targets.
+                let tgt = snap
+                    .iter()
+                    .filter(|e| e.team != team && cheb(e.x, e.y, gx, gy) <= FLAK_RANGE + e.half)
+                    .min_by_key(|e| isqrt(dist2(e.x, e.y, gx, gy)) + SPREAD * pending[e.idx])
+                    .copied();
                 if let Some(e) = tgt {
                     // Aim at a random surviving pixel (never the centre: that drills a tunnel later
                     // shots fly straight through), led by the target's velocity.
@@ -721,7 +1038,9 @@ impl Arena {
                     if aim == (gx, gy) {
                         aim = (px, py + 1);
                     }
-                    self.shots.push(Shot { team, line: Line::new(gx, gy, aim.0, aim.1), left: FLAK_RANGE + 12, speed: FLAK_SPEED, pen: 1, lance: false, prev: (gx, gy), connected: false });
+                    let line = Line::new(gx, gy, aim.0, aim.1);
+                    self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false });
+                    pending[e.idx] += 1;
                     self.ships[i].cool[c] = FLAK_PERIOD + self.rng.below(4) as i32;
                     self.score[team].fired += 1;
                 }
@@ -745,65 +1064,187 @@ impl Arena {
                 });
                 if in_line {
                     self.ships[i].aim_t = 0;
-                    self.shots.push(Shot {
-                        team,
-                        line: Line::new(gx, gy, gx + dx * 400, gy + dy * 400),
-                        left: LANCE_RANGE + 12,
-                        speed: LANCE_SPEED,
-                        pen: LANCE_PEN,
-                        lance: true,
-                        prev: (gx, gy),
-                        connected: false,
-                    });
+                    let line = Line::new(gx, gy, gx + dx * 400, gy + dy * 400);
+                    self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_RANGE + 12, speed: LANCE_SPEED, dmg: LANCE_DMG, pen: LANCE_PEN, target: None, prev: (gx, gy), connected: false });
                     self.ships[i].cool[c] = LANCE_PERIOD;
                     self.score[team].fired += 1;
                 }
             }
         }
+        for k in 0..self.ships[i].turrets.len() {
+            self.cannon(i, k, snap, pending);
+        }
+    }
+
+    /// A cannon turret swings toward the biggest enemy in range, slowly, and fires once its
+    /// barrel is on target. Fast ships close in change bearing faster than it turns.
+    fn cannon(&mut self, i: usize, k: usize, snap: &[Snap], pending: &mut [i32]) {
+        let (team, cell) = (self.ships[i].team, self.ships[i].turrets[k].cell);
+        if self.ships[i].hp[cell] == 0 {
+            return;
+        }
+        let (gx, gy) = self.ships[i].cell_xy(cell);
+        {
+            let t = &mut self.ships[i].turrets[k];
+            t.cool = (t.cool - 1).max(0);
+        }
+        let Some(e) = snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, gx, gy) <= CANNON_RANGE + e.half).max_by_key(|e| (e.px, -dist2(e.x, e.y, gx, gy))).copied() else {
+            return;
+        };
+        let stale = {
+            let t = &self.ships[i].turrets[k];
+            let ts = &self.ships[e.idx];
+            t.aim_for != Some(e.idx) || ts.cell_at(e.x + t.aim_off.0, e.y + t.aim_off.1).map_or(true, |c| ts.hp[c] == 0)
+        };
+        if stale {
+            let (px, py) = self.random_cell(e.idx);
+            let t = &mut self.ships[i].turrets[k];
+            t.aim_off = (px - e.x, py - e.y);
+            t.aim_for = Some(e.idx);
+        }
+        let t = &mut self.ships[i].turrets[k];
+        let (ax, ay) = (e.x + t.aim_off.0, e.y + t.aim_off.1);
+        let travel = isqrt(dist2(ax, ay, gx, gy)) / SHELL_SPEED;
+        let (lx, ly) = (ax + e.vx * travel / 4, ay + e.vy * travel / 4);
+        let want = angle_of(lx - gx, ly - gy);
+        let off = angle_diff(t.aim, want);
+        if off != 0 {
+            t.turn_t += 1;
+            if t.turn_t >= TURRET_TURN {
+                t.turn_t = 0;
+                t.aim = (t.aim + off.signum()).rem_euclid(64);
+            }
+        }
+        if t.cool == 0 && angle_diff(t.aim, want).abs() <= 1 && (lx, ly) != (gx, gy) {
+            // The barrel only has 64 angles, about 8 px apart at 85 px, so a shell sent along
+            // the barrel slips past small targets forever. Once the barrel is on target, the
+            // shell flies at the aim point itself (a 4 px barrel can't show the difference).
+            let line = Line::new(gx, gy, lx, ly);
+            t.cool = CANNON_PERIOD;
+            t.aim_for = None;
+            self.shots.push(Shot { team, kind: Kind::Shell, line, left: CANNON_RANGE + 12, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false });
+            pending[e.idx] += 1;
+            self.score[team].fired += 1;
+        }
+    }
+
+    /// Knocks one pixel off a ship; it drifts away as a loose pixel.
+    fn kill_cell(&mut self, id: usize, c: usize, (x, y): (i32, i32), (vx, vy): (i32, i32)) {
+        let s = &mut self.ships[id];
+        if s.hp[c] == 0 {
+            return;
+        }
+        s.hp[c] = 0;
+        s.last_hit = self.tick;
+        s.dirty = true;
+        let team = s.team;
+        self.score[team].px_lost += 1;
+        let drift = 2 + self.rng.below(4) as i32;
+        self.debris.push(Debris { x, y, vx, vy, drift, taken: false });
     }
 
     fn shots_step(&mut self) {
-        let mut shots = std::mem::take(&mut self.shots);
+        let shots = std::mem::take(&mut self.shots);
         let boxes: Vec<(usize, usize, (i32, i32, i32, i32))> = self.ships.iter().enumerate().filter(|(_, s)| s.alive).map(|(i, s)| (i, s.team, s.bbox())).collect();
-        shots.retain_mut(|sh| {
+        let mut keep = Vec::with_capacity(shots.len());
+        'shot: for mut sh in shots {
             for _ in 0..sh.speed {
                 sh.prev = (sh.line.x, sh.line.y);
                 sh.line.step();
                 sh.left -= 1;
-                let (x, y) = (sh.line.x, sh.line.y);
-                if sh.left <= 0 || x < 0 || y < 0 || x >= AW || y >= AH {
-                    return false;
+                let (nx, ny) = (sh.line.x, sh.line.y);
+                if sh.left <= 0 || nx < 0 || ny < 0 || nx >= AW || ny >= AH {
+                    continue 'shot;
                 }
-                for &(id, team, (l, t, r, b)) in &boxes {
-                    if team == sh.team || x < l || y < t || x > r || y > b {
-                        continue;
-                    }
-                    let Some(c) = self.ships[id].cell_at(x, y) else { continue };
-                    while self.ships[id].hp[c] > 0 && sh.pen > 0 {
-                        let s = &mut self.ships[id];
-                        s.hp[c] -= 1;
-                        s.last_hit = self.tick;
-                        s.dirty = true;
-                        sh.pen -= 1;
+                // A diagonal step clips the two pixels it squeezes between, so a staircase of
+                // plate (pixels touching only at corners) stops shots like the solid wall it looks.
+                let (px, py) = sh.prev;
+                let mut spots = vec![(nx, ny)];
+                if px != nx && py != ny {
+                    spots = vec![(nx, py), (px, ny), (nx, ny)];
+                }
+                for (x, y) in spots {
+                    for &(id, team, (l, t, r, b)) in &boxes {
+                        if team == sh.team || x < l || y < t || x > r || y > b {
+                            continue;
+                        }
+                        let Some(c) = self.ships[id].cell_at(x, y) else { continue };
+                        if self.ships[id].hp[c] == 0 {
+                            continue;
+                        }
                         if !sh.connected {
                             sh.connected = true;
                             self.score[sh.team].hits += 1;
                         }
-                        if s.hp[c] == 0 {
-                            self.score[team].px_lost += 1;
-                            let (vx, vy) = sh.line.dir();
-                            let drift = 2 + self.rng.below(4) as i32;
-                            self.debris.push(Debris { x, y, vx, vy, drift, taken: false });
+                        self.ships[id].last_hit = self.tick;
+                        let armor = self.ships[id].shape.cells[c].map_or(0, |p| p.armor());
+                        if sh.dmg <= armor {
+                            // Too weak for plate: it bounces off.
+                            self.score[sh.team].bounced += 1;
+                            self.sparks.push(Spark { x: sh.prev.0, y: sh.prev.1, t: 2, blast: false });
+                            continue 'shot;
                         }
-                    }
-                    if sh.pen == 0 {
-                        return false;
+                        if sh.kind == Kind::Shell {
+                            self.blast(x, y, sh.team, &boxes);
+                            continue 'shot;
+                        }
+                        self.kill_cell(id, c, (x, y), sh.line.dir());
+                        sh.pen -= 1 + armor;
+                        if sh.pen <= 0 {
+                            continue 'shot;
+                        }
                     }
                 }
             }
-            true
-        });
-        self.shots.append(&mut shots);
+            keep.push(sh);
+        }
+        keep.append(&mut self.shots);
+        self.shots = keep;
+    }
+
+    /// A shell bursts: every enemy pixel in the 3x3 around the hit goes, plate and all.
+    fn blast(&mut self, x: i32, y: i32, team: usize, boxes: &[(usize, usize, (i32, i32, i32, i32))]) {
+        self.sparks.push(Spark { x, y, t: 3, blast: true });
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let (px, py) = (x + dx, y + dy);
+                for &(id, t, (l, tp, r, b)) in boxes {
+                    if t == team || px < l || py < tp || px > r || py > b {
+                        continue;
+                    }
+                    if let Some(c) = self.ships[id].cell_at(px, py) {
+                        if self.ships[id].shape.cells[c].map_or(0, |p| p.armor()) < CANNON_DMG {
+                            self.kill_cell(id, c, (px, py), (dx, dy));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Any piece no longer joined to its core, edge to edge, breaks away as loose pixels.
+    fn break_off(&mut self) {
+        for i in 0..self.ships.len() {
+            let s = &self.ships[i];
+            if !s.alive || !s.dirty {
+                continue;
+            }
+            let Some(core) = s.shape.core() else { continue };
+            if s.hp[core] == 0 {
+                continue;
+            }
+            let seen = reach(s.shape.w, s.shape.h, core, |c| s.hp[c] > 0);
+            let cut: Vec<usize> = (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && !seen[c]).collect();
+            let (team, x, y) = (s.team, s.x, s.y);
+            for c in cut {
+                let (px, py) = self.ships[i].cell_xy(c);
+                self.ships[i].hp[c] = 0;
+                self.score[team].px_lost += 1;
+                self.score[team].broken += 1;
+                let drift = 3 + self.rng.below(5) as i32;
+                self.debris.push(Debris { x: px, y: py, vx: (px - x).signum(), vy: (py - y).signum(), drift, taken: false });
+            }
+        }
     }
 
     fn debris_step(&mut self) {
@@ -825,17 +1266,17 @@ impl Arena {
             }
         }
         self.debris.retain(|d| !d.taken);
-        if self.debris.len() > 1500 {
-            let n = self.debris.len() - 1500;
+        if self.debris.len() > 3000 {
+            let n = self.debris.len() - 3000;
             self.debris.drain(0..n);
         }
     }
 
-    /// A ship whose core pixels are all gone bursts into loose pixels.
+    /// A ship whose core is gone bursts into loose pixels.
     fn deaths(&mut self) {
         for i in 0..self.ships.len() {
             let s = &self.ships[i];
-            if !s.alive || s.shape.cells.iter().zip(&s.hp).any(|(c, &h)| *c == Some(Part::Core) && h > 0) {
+            if !s.alive || s.shape.core().map_or(false, |c| s.hp[c] > 0) {
                 continue;
             }
             let (team, x, y) = (s.team, s.x, s.y);
@@ -855,25 +1296,231 @@ impl Arena {
 mod tests {
     use super::*;
 
+    fn run(a: &mut Arena, max: u32) {
+        while a.over.is_none() && a.tick < max {
+            a.step();
+        }
+    }
+
     fn fight(blue: &[(usize, i32, i32)], red: &[(usize, i32, i32)]) -> Arena {
         let lib = defaults();
         let mut a = Arena::new();
         for &(slot, x, y) in blue {
-            a.add(0, slot, &lib[slot], x, y);
+            assert!(a.add(0, slot, &lib[slot], x, y));
         }
         for &(slot, x, y) in red {
-            a.add(1, slot, &lib[slot], x, y);
+            assert!(a.add(1, slot, &lib[slot], x, y));
         }
-        while a.over.is_none() {
-            a.step();
-        }
+        run(&mut a, TIME_LIMIT);
         a
     }
 
     #[test]
+    fn turret_angles_point_the_right_way() {
+        assert_eq!(dir64(0), (0, -1024));
+        assert_eq!(dir64(16), (1024, 0));
+        assert_eq!(dir64(32), (0, 1024));
+        assert_eq!(dir64(48), (-1024, 0));
+        assert_eq!(angle_of(10, 0), 16);
+        assert_eq!(angle_of(-5, -5), 56);
+        assert_eq!(angle_diff(62, 2), 4);
+        assert_eq!(angle_diff(2, 62), -4);
+    }
+
+    #[test]
     fn fights_end() {
-        let a = fight(&[(0, 60, 150), (0, 60, 170)], &[(2, 240, 150)]);
-        assert!(a.tick < TIME_LIMIT, "two fighters vs a frigate timed out");
+        let a = fight(&[(0, 150, 160), (0, 150, 180), (0, 150, 200), (0, 150, 220)], &[(1, 330, 160), (1, 330, 180), (1, 330, 200), (1, 330, 220)]);
+        assert!(a.over.is_some() && a.tick < TIME_LIMIT, "fighters vs lancers timed out");
+    }
+
+    #[test]
+    fn illegal_designs_are_refused() {
+        let mut a = Arena::new();
+        let mut d = Design::from_rows("LOOSE", Order::Hunt, &["g.g", "hch", "e.e"]);
+        d.set(0, 0, Some(Part::Hull));
+        assert!(!a.add(0, 0, &d, 100, 100));
+    }
+
+    #[test]
+    fn flak_bounces_off_plate_and_lances_break_it() {
+        let slab = Design::from_rows("SLAB", Order::Hold, &["ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
+        let lib = defaults();
+        let mut a = Arena::new();
+        a.add(1, 0, &slab, 300, 180);
+        for k in 0..4 {
+            a.add(0, 0, &lib[0], 150, 150 + k * 20);
+        }
+        run(&mut a, 15 * 20);
+        assert_eq!(a.score[1].px_lost, 0, "flak broke plate");
+        assert!(a.score[0].bounced > 10, "only {} bounces", a.score[0].bounced);
+
+        let mut a = Arena::new();
+        a.add(1, 0, &slab, 300, 180);
+        for k in 0..2 {
+            a.add(0, 1, &lib[1], 150, 170 + k * 20);
+        }
+        run(&mut a, 15 * 60);
+        assert_eq!(a.over, Some(Some(0)), "lancers never cracked the slab");
+    }
+
+    #[test]
+    fn a_cannon_shell_blasts_a_hole_through_plate() {
+        let slab = Design::from_rows("SLAB", Order::Hold, &["ppppppp", "ppppppp", "ppppppp", "pppcppp", "ppppppp", "ppppppp", "ppppppp"]);
+        let gun = Design::from_rows("GUN", Order::Hold, &["nnn", "nnn", "nnn", ".c."]);
+        let mut a = Arena::new();
+        a.add(0, 0, &gun, 200, 180);
+        a.add(1, 0, &slab, 290, 180);
+        while a.score[0].hits == 0 && a.tick < 15 * 10 {
+            a.step();
+        }
+        a.step();
+        assert!(a.score[1].px_lost >= 4, "one shell took only {} px", a.score[1].px_lost);
+    }
+
+    #[test]
+    fn a_cannon_hits_small_targets_that_sit_still() {
+        // Gunless, engineless hulks at odd bearings: the cannon must not keep missing between
+        // its 64 barrel angles.
+        let gun = Design::from_rows("GUN", Order::Hold, &["nnn", "nnn", "nnn", ".c."]);
+        let hulk = Design::from_rows("HULK", Order::Hold, &["hch"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &gun, 240, 180);
+        for (dx, dy) in [(90, 7), (70, 52), (-83, 31), (5, -101), (-61, -73), (47, -88)] {
+            a.add(1, 0, &hulk, 240 + dx, 180 + dy);
+        }
+        run(&mut a, 15 * 90);
+        assert_eq!(a.over, Some(Some(0)), "{} of 6 hulks still alive after 90 s", a.alive(1));
+    }
+
+    /// Runs `a` for `ticks` and counts, over every ship smaller than some enemy: ticks spent
+    /// bumping into a bigger ship, ticks spent overlapping one, and the longest overlap in a row.
+    fn crashes(a: &mut Arena, ticks: u32) -> (u32, u32, u32) {
+        let n = a.ships.len();
+        let (mut bumps, mut inside, mut longest) = (0, 0, 0);
+        let mut run = vec![0; n];
+        for _ in 0..ticks {
+            if a.over.is_some() {
+                break;
+            }
+            a.step();
+            for i in 0..n {
+                let s = &a.ships[i];
+                if !s.alive {
+                    continue;
+                }
+                bumps += s.bumped as u32;
+                if a.overlap(i, s.x, s.y, s.facing).0 > 0 {
+                    inside += 1;
+                    run[i] += 1;
+                    longest = longest.max(run[i]);
+                } else {
+                    run[i] = 0;
+                }
+            }
+        }
+        (bumps, inside, longest)
+    }
+
+    #[test]
+    fn small_ships_never_stay_inside_big_ones() {
+        let lib = defaults();
+        let mut a = Arena::new();
+        for &(team, slot, x, y) in &crate::pg::tests()[4].place {
+            a.add(team, slot, &lib[slot], x, y);
+        }
+        let (bumps, inside, longest) = crashes(&mut a, 15 * 60);
+        println!("capital vs 30 fighters: {bumps} bump ticks, {inside} ticks inside, longest {longest}");
+        assert!(longest <= 3, "a fighter spent {longest} ticks in a row inside the capital");
+    }
+
+    #[test]
+    fn attack_runs_peel_off_before_the_hull() {
+        // A big, unarmed slab: fighters dive at it again and again and should pass alongside,
+        // not plough into the plate and skim.
+        let mut rows = vec!["ppppppppppppppp"; 15];
+        rows[7] = "pppppppcppppppp";
+        let slab = Design::from_rows("SLAB", Order::Hold, &rows);
+        let lib = defaults();
+        let mut a = Arena::new();
+        a.add(1, 0, &slab, 300, 180);
+        for k in 0..6 {
+            a.add(0, 0, &lib[0], 150, 130 + k * 20);
+        }
+        let (bumps, inside, longest) = crashes(&mut a, 15 * 40);
+        println!("6 fighters vs slab: {bumps} bump ticks, {inside} ticks inside, longest {longest}");
+        assert!(bumps <= 30, "fighters bumped the slab for {bumps} ticks");
+        assert_eq!(inside, 0);
+    }
+
+    #[test]
+    fn lance_ships_line_up_before_they_dive() {
+        // A lance fires only straight ahead. Any drawing with one, wherever the lance sits, should
+        // slide onto the target's row or column during its attack run and fire from range, not
+        // dive at the centre and come into line only when it's about to pass.
+        let slab = Design::from_rows("SLAB", Order::Hold, &["ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
+        let ships = [
+            Design::from_rows("LANCER", Order::Hunt, &[".h.", ".l.", "hch", "e.e"]),
+            Design::from_rows("OFFSET", Order::Hunt, &["l..", "h..", "hch", "e.e"]),
+            Design::from_rows("WIDE", Order::Hunt, &["..l..", ".hhh.", "hhchh", "e...e"]),
+        ];
+        for d in &ships {
+            for (sx, sy) in [(200, 150), (200, 215), (330, 80)] {
+                let mut a = Arena::new();
+                a.add(1, 0, &slab, 300, 180);
+                assert!(a.add(0, 1, d, sx, sy));
+                let mut first = None;
+                while a.tick < 15 * 10 && first.is_none() {
+                    a.step();
+                    if a.score[0].fired > 0 {
+                        first = Some(isqrt(dist2(a.ships[1].x, a.ships[1].y, 300, 180)));
+                    }
+                }
+                let first = first.unwrap_or_else(|| panic!("{} from ({sx},{sy}) never fired", d.name));
+                let until = a.tick + 15 * 2;
+                run(&mut a, until);
+                println!("{} from ({sx},{sy}): first shot from {first} px, {} hits", d.name, a.score[0].hits);
+                assert!(first >= 40, "{} from ({sx},{sy}) first fired from only {first} px", d.name);
+                assert!(a.score[0].hits > 0, "{} from ({sx},{sy}) missed", d.name);
+            }
+        }
+    }
+
+    #[test]
+    fn a_severed_piece_breaks_away() {
+        let stick = Design::from_rows("STICK", Order::Hold, &["h", "h", "h", "c"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &stick, 200, 180);
+        a.ships[0].hp[2] = 0;
+        a.ships[0].dirty = true;
+        a.step();
+        assert_eq!(&a.ships[0].hp, &[0, 0, 0, 1]);
+        assert_eq!(a.score[0].broken, 2);
+        assert!(a.ships[0].alive);
+    }
+
+    #[test]
+    fn flak_spreads_over_several_targets() {
+        let battery = Design::from_rows("BATTERY", Order::Hold, &["ggg", "gcg", "ggg"]);
+        let lib = defaults();
+        let mut a = Arena::new();
+        a.add(0, 0, &battery, 240, 180);
+        for (x, y) in [(240, 145), (275, 180), (240, 215), (205, 180)] {
+            a.add(1, 0, &lib[0], x, y);
+            let s = a.ships.last_mut().unwrap();
+            s.order = Order::Hold;
+        }
+        let mut targets = Vec::new();
+        for _ in 0..12 {
+            a.step();
+            for sh in a.shots.iter().filter(|s| s.team == 0) {
+                if let Some(t) = sh.target {
+                    if !targets.contains(&t) {
+                        targets.push(t);
+                    }
+                }
+            }
+        }
+        assert!(targets.len() >= 3, "fire went to only {} of 4 targets", targets.len());
     }
 
     #[test]
@@ -881,20 +1528,20 @@ mod tests {
         let lib = defaults();
         let mut a = Arena::new();
         a.add(0, 0, &lib[0], 40, 40);
-        a.add(0, 3, &lib[3], 40, 200);
+        a.add(0, 4, &lib[4], 40, 200);
         a.ships[0].order = Order::Hold;
         a.ships[1].order = Order::Hold;
-        a.ships[0].home = (200, 40);
-        a.ships[1].home = (200, 200);
+        a.ships[0].home = (300, 40);
+        a.ships[1].home = (300, 200);
         for _ in 0..15 {
             a.step();
         }
-        assert!(a.ships[0].x - 40 > 3 * (a.ships[1].x - 40), "fighter {} capital {}", a.ships[0].x, a.ships[1].x);
+        assert!(a.ships[0].x - 40 > 3 * (a.ships[1].x - 40).max(1), "fighter {} capital {}", a.ships[0].x, a.ships[1].x);
     }
 
     #[test]
     fn an_armed_miner_shoots_back() {
-        let a = fight(&[(0, 120, 150)], &[(5, 170, 150)]);
+        let a = fight(&[(0, 200, 180)], &[(5, 250, 180)]);
         assert!(a.score[1].hits > 0, "the gunminer never hit the fighter");
     }
 }

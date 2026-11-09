@@ -1,51 +1,65 @@
-//! Proving-ground designs: a 15x15 pixel grid where every colour is a part, and the stats that
+//! Proving-ground designs: a 41x41 pixel grid where every colour is a part, and the stats that
 //! drawing implies. Nothing here knows what "kind" of ship a design is: a fighter is just a
 //! small drawing with engines to spare.
+//!
+//! Round 2 rules: every pixel must connect to the one core through other pixels (edges, not
+//! corners); plate shrugs off hits no stronger than it; the cannon is a 3x3 block.
 
-pub const GRID: i32 = 15;
+pub const GRID: i32 = 41;
 pub const FLAK_RANGE: i32 = 48;
 pub const LANCE_RANGE: i32 = 100;
-/// Ticks between shots, per gun pixel.
+pub const CANNON_RANGE: i32 = 130;
+/// Ticks between shots, per gun.
 pub const FLAK_PERIOD: i32 = 20;
 pub const LANCE_PERIOD: i32 = 45;
-/// Hit points a lance shot punches through before it stops.
-pub const LANCE_PEN: i32 = 5;
+pub const CANNON_PERIOD: i32 = 45;
+/// Damage per hit. A hit no stronger than a pixel's armour bounces off.
+pub const FLAK_DMG: i32 = 1;
+pub const LANCE_DMG: i32 = 2;
+pub const CANNON_DMG: i32 = 3;
+/// How far a lance shot punches: a bare pixel uses up 1, plate 2.
+pub const LANCE_PEN: i32 = 6;
 /// Pixels each scoop carries.
 pub const SCOOP_CARRY: i32 = 3;
+/// The first line of a round-2 save file.
+pub const SAVE_HEADER: &str = "#ROUND2";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Part {
     Hull,
-    Armor,
+    Plate,
     Flak,
     Lance,
+    Cannon,
     Engine,
     Scoop,
     Core,
 }
 
-pub const PARTS: [Part; 7] = [Part::Hull, Part::Armor, Part::Flak, Part::Lance, Part::Engine, Part::Scoop, Part::Core];
+pub const PARTS: [Part; 8] = [Part::Hull, Part::Plate, Part::Flak, Part::Lance, Part::Cannon, Part::Engine, Part::Scoop, Part::Core];
 
 impl Part {
-    pub fn hp(self) -> u8 {
-        if self == Part::Armor {
-            2
-        } else {
+    /// Hits this strong or weaker bounce off.
+    pub fn armor(self) -> i32 {
+        if self == Part::Plate {
             1
+        } else {
+            0
         }
     }
     pub fn mass(self) -> i32 {
         match self {
-            Part::Armor | Part::Lance => 2,
+            Part::Plate | Part::Lance | Part::Cannon => 2,
             _ => 1,
         }
     }
     pub fn ch(self) -> char {
         match self {
             Part::Hull => 'h',
-            Part::Armor => 'a',
+            Part::Plate => 'p',
             Part::Flak => 'g',
             Part::Lance => 'l',
+            Part::Cannon => 'n',
             Part::Engine => 'e',
             Part::Scoop => 's',
             Part::Core => 'c',
@@ -57,9 +71,10 @@ impl Part {
     pub fn name(self) -> &'static str {
         match self {
             Part::Hull => "HULL",
-            Part::Armor => "ARMOR",
+            Part::Plate => "PLATE",
             Part::Flak => "FLAK",
             Part::Lance => "LANCE",
+            Part::Cannon => "CANNON",
             Part::Engine => "ENGINE",
             Part::Scoop => "SCOOP",
             Part::Core => "CORE",
@@ -67,13 +82,14 @@ impl Part {
     }
     pub fn blurb(self) -> &'static str {
         match self {
-            Part::Hull => "HULL - TAKES 1 HIT, WEIGHS 1. HOLDS THE SHIP TOGETHER.",
-            Part::Armor => "ARMOR - TAKES 2 HITS, WEIGHS 2.",
-            Part::Flak => "FLAK - A TURRET. SHOOTS THE NEAREST ENEMY WITHIN 48 PX, LEADING ITS AIM. 1 HIT PER SHOT, ONE SHOT PER GUN EVERY 1.3 S.",
-            Part::Lance => "LANCE - SHOOTS STRAIGHT AHEAD ONLY, UP TO 100 PX. A SLOW SHOT THAT PUNCHES THROUGH 5 HITS. ONE SHOT EVERY 3 S. WEIGHS 2.",
+            Part::Hull => "HULL - HOLDS THE SHIP TOGETHER. ANY HIT BREAKS IT. WEIGHS 1.",
+            Part::Plate => "PLATE - FLAK BOUNCES OFF IT. LANCES AND CANNON SHELLS BREAK IT, AND IT SOAKS TWICE AS MUCH OF A LANCE. WEIGHS 2.",
+            Part::Flak => "FLAK - A TURRET. SHOOTS THE NEAREST ENEMY WITHIN 48 PX, LEADING ITS AIM, SPREADING FIRE OVER SEVERAL TARGETS. TOO WEAK FOR PLATE. ONE SHOT EVERY 1.3 S.",
+            Part::Lance => "LANCE - SHOOTS STRAIGHT AHEAD ONLY, UP TO 100 PX. PUNCHES THROUGH 6 PIXELS, OR 3 OF PLATE. ONE SHOT EVERY 3 S. WEIGHS 2.",
+            Part::Cannon => "CANNON - A BIG 3X3 TURRET, 130 PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL BLASTS A 3X3 HOLE, PLATE AND ALL. PREFERS THE BIGGEST TARGET. EVERY 3 S. WEIGHS 18.",
             Part::Engine => "ENGINE - THRUST. MORE THRUST FOR THE WEIGHT MEANS A HIGHER TOP SPEED AND QUICKER TURNS AND COURSE CHANGES.",
             Part::Scoop => "SCOOP - MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES 3.",
-            Part::Core => "CORE - THE SHIP'S LIFE. IT DIES WHEN EVERY CORE PIXEL IS GONE. NO CORE, NO SHIP.",
+            Part::Core => "CORE - THE SHIP'S LIFE: EXACTLY ONE PER SHIP. EVERY OTHER PIXEL MUST CONNECT TO IT THROUGH OTHERS, EDGE TO EDGE. CUT OFF, A PIECE BREAKS AWAY.",
         }
     }
 }
@@ -135,12 +151,12 @@ impl Flight {
 pub struct Stats {
     pub count: i32,
     pub mass: i32,
-    pub hp: i32,
     pub engines: i32,
+    pub plate: i32,
     pub flak: i32,
     pub lance: i32,
+    pub cannon: i32,
     pub scoops: i32,
-    pub cores: i32,
     pub thrust: i32,
     /// Top speed in quarter-pixels per tick.
     pub vmax: i32,
@@ -150,6 +166,9 @@ pub struct Stats {
 }
 
 impl Stats {
+    pub fn armed(&self) -> bool {
+        self.flak + self.lance + self.cannon > 0
+    }
     pub fn top_speed_px_s(&self) -> i32 {
         self.vmax * 15 / 4
     }
@@ -167,11 +186,12 @@ impl Stats {
     }
 }
 
-pub fn stats_of(cells: &[Option<Part>]) -> Stats {
+/// Stats from a set of cells. `cannons` is how many working cannons there are (a cannon is a
+/// block, so the cells alone can't say).
+pub fn stats_of(cells: &[Option<Part>], cannons: i32) -> Stats {
     let n = |p: Part| cells.iter().filter(|c| **c == Some(p)).count() as i32;
     let count = cells.iter().flatten().count() as i32;
     let mass: i32 = cells.iter().flatten().map(|p| p.mass()).sum();
-    let hp: i32 = cells.iter().flatten().map(|p| p.hp() as i32).sum();
     let engines = n(Part::Engine);
     let thrust = engines * 8;
     let vmax = if engines == 0 { 0 } else { (engines * 40 / mass.max(1) + 2).clamp(3, 12) };
@@ -183,7 +203,32 @@ pub fn stats_of(cells: &[Option<Part>]) -> Stats {
     } else {
         Flight::StandOff
     };
-    Stats { count, mass, hp, engines, flak: n(Part::Flak), lance: n(Part::Lance), scoops: n(Part::Scoop), cores: n(Part::Core), thrust, vmax, turn, flight }
+    Stats { count, mass, engines, plate: n(Part::Plate), flak: n(Part::Flak), lance: n(Part::Lance), cannon: cannons, scoops: n(Part::Scoop), thrust, vmax, turn, flight }
+}
+
+/// Which of a w x h grid's cells connect to `start` edge to edge, through cells where `on` holds.
+pub fn reach(w: i32, h: i32, start: usize, on: impl Fn(usize) -> bool) -> Vec<bool> {
+    let mut seen = vec![false; (w * h) as usize];
+    if !on(start) {
+        return seen;
+    }
+    seen[start] = true;
+    let mut todo = vec![start];
+    while let Some(i) = todo.pop() {
+        let (x, y) = (i as i32 % w, i as i32 / w);
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                continue;
+            }
+            let j = (ny * w + nx) as usize;
+            if !seen[j] && on(j) {
+                seen[j] = true;
+                todo.push(j);
+            }
+        }
+    }
+    seen
 }
 
 /// A design trimmed to its bounding box, facing north (up is forward).
@@ -192,6 +237,8 @@ pub struct Shape {
     pub w: i32,
     pub h: i32,
     pub cells: Vec<Option<Part>>,
+    /// The centre cell of each cannon block.
+    pub cannons: Vec<usize>,
 }
 
 impl Shape {
@@ -227,6 +274,35 @@ impl Shape {
         };
         let i = (dy * self.w + dx) as usize;
         self.cells[i].map(|_| i)
+    }
+    pub fn core(&self) -> Option<usize> {
+        self.cells.iter().position(|c| *c == Some(Part::Core))
+    }
+}
+
+/// What's wrong with a design, if anything.
+#[derive(Clone, Debug, Default)]
+pub struct Check {
+    pub cores: i32,
+    /// Cells not connected to the core (only worked out when there is exactly one core).
+    pub loose: Vec<(i32, i32)>,
+}
+
+impl Check {
+    pub fn ok(&self) -> bool {
+        self.cores == 1 && self.loose.is_empty()
+    }
+    pub fn problem(&self) -> Option<String> {
+        if self.cores == 0 {
+            Some("NO CORE: IT CAN'T FLY".into())
+        } else if self.cores > 1 {
+            Some(format!("{} CORES: ONLY ONE ALLOWED", self.cores))
+        } else if !self.loose.is_empty() {
+            let n = self.loose.len();
+            Some(format!("{n} LOOSE PIXEL{}: CONNECT TO CORE", if n == 1 { "" } else { "S" }))
+        } else {
+            None
+        }
     }
 }
 
@@ -266,26 +342,117 @@ impl Design {
         }
     }
 
+    /// Sets one cell with no regard for cannon blocks; the editor uses `put`.
     pub fn set(&mut self, x: i32, y: i32, p: Option<Part>) {
         if (0..GRID).contains(&x) && (0..GRID).contains(&y) {
             self.cells[(y * GRID + x) as usize] = p;
         }
     }
 
+    /// The top-left corner of every cannon block, and any cannon cells that don't make a whole
+    /// block. Blocks never overlap (the editor sees to that), so the first unclaimed cannon cell
+    /// in reading order is always some block's top-left corner.
+    pub fn cannon_blocks(&self) -> (Vec<(i32, i32)>, Vec<(i32, i32)>) {
+        let mut claimed = vec![false; self.cells.len()];
+        let (mut blocks, mut stray) = (Vec::new(), Vec::new());
+        for y in 0..GRID {
+            for x in 0..GRID {
+                let i = (y * GRID + x) as usize;
+                if claimed[i] || self.cells[i] != Some(Part::Cannon) {
+                    continue;
+                }
+                let whole = (0..3).all(|dy| (0..3).all(|dx| self.get(x + dx, y + dy) == Some(Part::Cannon) && !claimed[((y + dy) * GRID + x + dx) as usize]));
+                if whole {
+                    for dy in 0..3 {
+                        for dx in 0..3 {
+                            claimed[((y + dy) * GRID + x + dx) as usize] = true;
+                        }
+                    }
+                    blocks.push((x, y));
+                } else {
+                    claimed[i] = true;
+                    stray.push((x, y));
+                }
+            }
+        }
+        (blocks, stray)
+    }
+
+    /// The cannon block covering a cell, by its top-left corner.
+    pub fn cannon_at(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        self.cannon_blocks().0.into_iter().find(|&(bx, by)| (bx..bx + 3).contains(&x) && (by..by + 3).contains(&y))
+    }
+
+    fn clear_cannon(&mut self, (bx, by): (i32, i32)) {
+        for dy in 0..3 {
+            for dx in 0..3 {
+                self.set(bx + dx, by + dy, None);
+            }
+        }
+    }
+
+    /// The editor's paint: a cannon cell is only ever removed with its whole block, and a cannon
+    /// stamps a 3x3 block centred on the cell (refused if it doesn't fit). Returns whether
+    /// anything changed.
+    pub fn put(&mut self, x: i32, y: i32, p: Option<Part>) -> bool {
+        if !(0..GRID).contains(&x) || !(0..GRID).contains(&y) {
+            return false;
+        }
+        if p == Some(Part::Cannon) {
+            if x < 1 || y < 1 || x > GRID - 2 || y > GRID - 2 {
+                return false;
+            }
+            for (bx, by) in self.cannon_blocks().0 {
+                if (bx - (x - 1)).abs() < 3 && (by - (y - 1)).abs() < 3 {
+                    self.clear_cannon((bx, by));
+                }
+            }
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    self.set(x + dx, y + dy, Some(Part::Cannon));
+                }
+            }
+            return true;
+        }
+        if self.get(x, y) == p {
+            return false;
+        }
+        if self.get(x, y) == Some(Part::Cannon) {
+            match self.cannon_at(x, y) {
+                Some(b) => self.clear_cannon(b),
+                None => self.set(x, y, None),
+            }
+        }
+        self.set(x, y, p);
+        true
+    }
+
+    pub fn check(&self) -> Check {
+        let cores: Vec<usize> = (0..self.cells.len()).filter(|&i| self.cells[i] == Some(Part::Core)).collect();
+        let mut c = Check { cores: cores.len() as i32, loose: Vec::new() };
+        if cores.len() == 1 {
+            let seen = reach(GRID, GRID, cores[0], |i| self.cells[i].is_some());
+            c.loose = (0..self.cells.len()).filter(|&i| self.cells[i].is_some() && !seen[i]).map(|i| (i as i32 % GRID, i as i32 / GRID)).collect();
+        }
+        c.loose.extend(self.cannon_blocks().1);
+        c
+    }
+
     pub fn stats(&self) -> Stats {
-        stats_of(&self.cells)
+        stats_of(&self.cells, self.cannon_blocks().0.len() as i32)
     }
 
     pub fn shape(&self) -> Shape {
         let used: Vec<(i32, i32)> = (0..GRID * GRID).filter(|&i| self.cells[i as usize].is_some()).map(|i| (i % GRID, i / GRID)).collect();
         if used.is_empty() {
-            return Shape { w: 1, h: 1, cells: vec![None] };
+            return Shape { w: 1, h: 1, cells: vec![None], cannons: Vec::new() };
         }
         let (x0, x1) = (used.iter().map(|p| p.0).min().unwrap(), used.iter().map(|p| p.0).max().unwrap());
         let (y0, y1) = (used.iter().map(|p| p.1).min().unwrap(), used.iter().map(|p| p.1).max().unwrap());
         let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
         let cells = (0..w * h).map(|i| self.get(x0 + i % w, y0 + i / w)).collect();
-        Shape { w, h, cells }
+        let cannons = self.cannon_blocks().0.iter().map(|&(bx, by)| ((by + 1 - y0) * w + bx + 1 - x0) as usize).collect();
+        Shape { w, h, cells, cannons }
     }
 
     /// One line for the save file: `NAME|ORDER|row/row/...` with `.` for empty cells.
@@ -317,27 +484,81 @@ impl Design {
 pub fn defaults() -> Vec<Design> {
     vec![
         Design::from_rows("FIGHTER", Order::Hunt, &["g.g", "hch", "e.e"]),
-        Design::from_rows("LANCER", Order::Hunt, &[".l.", "hch", "e.e"]),
-        // Lances behind an armour row: a ship's own shots pass through its own pixels.
-        Design::from_rows("FRIGATE", Order::Hunt, &[".a.a.", ".lhl.", "ahhha", "ahcha", "ahhha", ".e.e."]),
+        // A hull pixel ahead of the lance soaks the first hit (own shots pass through own pixels).
+        Design::from_rows("LANCER", Order::Hunt, &[".h.", ".l.", "hch", "e.e"]),
+        // Flak and lance tucked inside plate (a ship's own shots pass through its own pixels);
+        // only the engines are bare.
+        Design::from_rows("FRIGATE", Order::Hunt, &["...ppp...", "..pplpp..", ".pphhhpp.", ".pghchgp.", ".pphhhpp.", ".pghhhgp.", "..ppppp..", "..e.e.e.."]),
+        // One cannon behind a plated prow; its flak sponsons are bolted on outside the plate.
+        Design::from_rows(
+            "DESTROYER",
+            Order::Hunt,
+            &[
+                ".....ppp.....",
+                "....pphpp....",
+                "...pphhhpp...",
+                "..pphhhhhpp..",
+                ".pphhnnnhhpp.",
+                ".phhhnnnhhhp.",
+                ".phhhnnnhhhp.",
+                ".phhhhhhhhhp.",
+                ".phhhhhhhhhp.",
+                "gphhhhhhhhhpg",
+                ".phhhhhhhhhp.",
+                ".phhhhchhhhp.",
+                ".phhhhhhhhhp.",
+                "gphhhhhhhhhpg",
+                ".phhhhhhhhhp.",
+                "..phhhhhhhp..",
+                "...ppppppp...",
+                "...e.e.e.e...",
+                "...e.e.e.e...",
+            ],
+        ),
+        // Sealed in plate all round: fighters can only strip its sponsons and engines.
         Design::from_rows(
             "CAPITAL",
             Order::Hunt,
             &[
-                "..aagagaa..",
-                ".ahhhhhhha.",
-                "aghhhhhhhga",
-                "ahhhhhhhhha",
-                "aghhccchhga",
-                "ahhhccchhha",
-                "aghhccchhga",
-                "ahhhhhhhhha",
-                "aghhhhhhhga",
-                ".ahhhhhhha.",
-                "..aeeeeea..",
+                ".........ppp.........",
+                "........pphpp........",
+                ".......pphhhpp.......",
+                "......pphhhhhpp......",
+                ".....pphhhhhhhpp.....",
+                "....pphhhhhhhhhpp....",
+                "...pphhhhnnnhhhhpp...",
+                "..pphhhhhnnnhhhhhpp..",
+                ".pphhhhhhnnnhhhhhhpp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                "gphhhhhhghhhghhhhhhpg",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhnnnhhhhhnnnhhhp.",
+                ".phhhnnnhhhhhnnnhhhp.",
+                ".phhhnnnhhhhhnnnhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhchhhhhhhhp.",
+                "gphhhhhhhhhhhhhhhhhpg",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhnnnhhhhhhhp.",
+                ".phhhhhhhnnnhhhhhhhp.",
+                ".phhhhhhhnnnhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                "gphhhhhhghhhghhhhhhpg",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhghhhghhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                ".phhhhhhhhhhhhhhhhhp.",
+                "..phhhhhhhhhhhhhhhp..",
+                "...ppppppppppppppp...",
+                "...e.e.e.e.e.e.e.e...",
             ],
         ),
-        Design::from_rows("MINER", Order::Harvest, &["s.s", "shs", "hch", ".e."]),
         Design::from_rows("GUNMINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]),
     ]
 }
@@ -347,15 +568,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_default_is_legal() {
+        for d in defaults() {
+            assert!(d.check().ok(), "{}: {:?}", d.name, d.check());
+        }
+    }
+
+    #[test]
     fn the_defaults_fly_the_way_their_drawings_suggest() {
         let d = defaults();
         assert_eq!(d[0].stats().flight, Flight::Runs, "fighter");
         assert_eq!(d[1].stats().flight, Flight::Runs, "lancer");
         assert_eq!(d[2].stats().flight, Flight::StandOff, "frigate");
-        assert_eq!(d[3].stats().flight, Flight::StandOff, "capital");
-        assert!(d[0].stats().vmax > d[2].stats().vmax && d[2].stats().vmax > d[3].stats().vmax);
-        assert_eq!(d[3].stats().flak, 10);
-        assert_eq!(d[3].stats().cores, 9);
+        assert_eq!(d[4].stats().flight, Flight::StandOff, "capital");
+        assert!(d[0].stats().vmax > d[2].stats().vmax);
+        assert!(d[2].stats().turn < d[3].stats().turn && d[3].stats().turn < d[4].stats().turn, "bigger ships turn slower");
+        assert_eq!(d[3].stats().cannon, 1);
+        assert_eq!(d[4].stats().cannon, 4);
+    }
+
+    #[test]
+    fn loose_pixels_and_extra_cores_are_flagged() {
+        let mut d = Design::from_rows("T", Order::Hunt, &["g.g", "hch", "e.e"]);
+        assert!(d.check().ok());
+        d.set(0, 0, Some(Part::Hull));
+        assert_eq!(d.check().loose, vec![(0, 0)]);
+        d.set(0, 0, None);
+        d.set(GRID / 2, GRID / 2 - 1, Some(Part::Core));
+        assert_eq!(d.check().cores, 2);
+        assert!(!d.check().ok());
+    }
+
+    #[test]
+    fn cannons_stamp_and_erase_as_whole_blocks() {
+        let mut d = Design::blank("T");
+        assert!(d.put(10, 10, Some(Part::Cannon)));
+        assert_eq!(d.stats().cannon, 1);
+        assert_eq!(d.stats().count, 9);
+        // Stamping over part of it replaces it rather than leaving scraps.
+        d.put(11, 10, Some(Part::Cannon));
+        assert_eq!(d.cannon_blocks(), (vec![(10, 9)], vec![]));
+        // Painting over any cell of a cannon removes the whole block.
+        d.put(10, 9, Some(Part::Hull));
+        assert_eq!(d.stats().cannon, 0);
+        assert_eq!(d.stats().count, 1);
+        // Too close to the edge to fit.
+        assert!(!d.put(0, 5, Some(Part::Cannon)));
+    }
+
+    #[test]
+    fn shapes_know_where_their_cannons_are() {
+        let d = &defaults()[3];
+        let s = d.shape();
+        assert_eq!(s.cannons.len(), 1);
+        let c = s.cannons[0];
+        assert_eq!((c as i32 % s.w, c as i32 / s.w), (6, 5));
     }
 
     #[test]

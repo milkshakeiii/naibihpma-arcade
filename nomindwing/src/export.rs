@@ -182,49 +182,76 @@ pub fn sim(n: u64) {
 pub fn pg_sim() {
     use crate::pg::design::defaults;
     use crate::pg::sim::Arena;
-    use crate::pg::TESTS;
+    use crate::pg::{block, tests};
     let lib = defaults();
-    let mut matchups: Vec<(String, Vec<(usize, usize, i32, i32)>)> = TESTS.iter().filter(|t| !t.place.is_empty()).map(|t| (t.name.to_string(), t.place.to_vec())).collect();
-    let line = |team: usize, slot: usize, n: i32, x: i32| (0..n).map(move |k| (team, slot, x, 150 - (n - 1) * 10 + k * 20)).collect::<Vec<_>>();
-    for (name, blue, red) in [
-        ("4 FIGHTERS VS 4 LANCERS", (0, 4), (1, 4)),
-        ("3 LANCERS VS 3 FRIGATES", (1, 3), (2, 3)),
-        ("2 GUNMINERS VS 1 FIGHTER", (5, 2), (0, 1)),
-        ("2 FRIGATES VS 2 FRIGATES", (2, 2), (2, 2)),
-    ] {
-        let mut p = line(0, blue.0, blue.1, 60);
-        p.extend(line(1, red.0, red.1, 244));
-        matchups.push((name.to_string(), p));
-    }
-    for (name, place) in matchups {
-        let mut a = Arena::new();
-        for &(team, slot, x, y) in &place {
-            a.add(team, slot, &lib[slot], x, y);
+    // One replay can be luck, so every matchup runs on SEEDS rolls of the dice. Seed 1 is the
+    // fight the window shows.
+    const SEEDS: u64 = 12;
+    let report = |name: &str, place: &[(usize, usize, i32, i32)]| {
+        let (mut wins, mut secs, mut lost, mut px, mut window) = ([0; 3], 0, [0; 2], [0; 2], String::new());
+        let mut placed = [0; 2];
+        for seed in 1..=SEEDS {
+            let mut a = Arena::seeded(seed);
+            for &(team, slot, x, y) in place {
+                a.add(team, slot, &lib[slot], x, y);
+            }
+            while a.over.is_none() {
+                a.step();
+            }
+            let k = match a.over.unwrap() {
+                Some(0) => 0,
+                Some(_) => 1,
+                None => 2,
+            };
+            wins[k] += 1;
+            secs += a.tick / 15;
+            for t in 0..2 {
+                lost[t] += a.score[t].lost;
+                px[t] += a.score[t].px_lost;
+                placed[t] = a.score[t].placed;
+            }
+            if seed == 1 {
+                let t = a.tick / 15;
+                window = format!("{} {}:{:02}", ["BLUE", "RED", "DRAW"][k], t / 60, t % 60);
+            }
         }
-        while a.over.is_none() {
-            a.step();
-        }
-        let who = match a.over.unwrap() {
-            Some(0) => "BLUE",
-            Some(_) => "RED ",
-            None => "DRAW",
-        };
-        let t = a.tick / 15;
-        let acc = |s: &crate::pg::sim::Score| if s.fired == 0 { 0 } else { s.hits * 100 / s.fired };
-        let (b, r) = (&a.score[0], &a.score[1]);
+        let n = SEEDS as i32;
+        let t = secs / SEEDS as u32;
         println!(
-            "{name:28} {who} {}:{:02}  blue lost {}/{} ({} px, {}% hits)  red lost {}/{} ({} px, {}% hits)",
+            "{name:34} blue {:2}  red {:2}  draw {:2}  avg {}:{:02}  lost: blue {}/{} ({} px)  red {}/{} ({} px)  window: {window}",
+            wins[0],
+            wins[1],
+            wins[2],
             t / 60,
             t % 60,
-            b.lost,
-            b.placed,
-            b.px_lost,
-            acc(b),
-            r.lost,
-            r.placed,
-            r.px_lost,
-            acc(r)
+            lost[0] / n,
+            placed[0],
+            px[0] / n,
+            lost[1] / n,
+            placed[1],
+            px[1] / n
         );
+    };
+    println!("wins out of {SEEDS} seeds; losses are averages; \"window\" is the fight the window replays");
+    println!("--- ready-made tests ---");
+    for t in tests().iter().filter(|t| !t.place.is_empty()) {
+        report(t.name, &t.place);
+    }
+    // Every pair of designs at (roughly) the same pixel budget: the swarm question.
+    let budget = 600;
+    println!("--- equal cost, about {budget} px a side ---");
+    let gap = |s: usize| {
+        let sh = lib[s].shape();
+        sh.w.max(sh.h) + 4
+    };
+    let count = |s: usize| (budget / lib[s].stats().count).max(1);
+    for a in 0..5 {
+        for b in a + 1..5 {
+            let mut place = block(0, a, count(a), 130, 180, gap(a));
+            place.extend(block(1, b, count(b), 350, 180, gap(b)));
+            let name = format!("{} {} VS {} {}", count(a), lib[a].name, count(b), lib[b].name);
+            report(&name, &place);
+        }
     }
 }
 
@@ -233,26 +260,36 @@ pub fn pg_sim() {
 pub fn pg_trace(blue: (usize, i32), red: (usize, i32), every: u32, until: u32) {
     use crate::pg::design::defaults;
     use crate::pg::sim::Arena;
+    use crate::pg::{block, tests};
     let lib = defaults();
     let mut a = Arena::new();
-    if blue.0 == 99 {
-        for &(team, slot, x, y) in crate::pg::TESTS[red.0].place {
-            a.add(team, slot, &lib[slot], x, y);
-        }
+    let place = if blue.0 == 99 {
+        tests()[red.0].place.clone()
     } else {
-        for (team, (slot, n), x) in [(0, blue, 60), (1, red, 244)] {
-            for k in 0..n {
-                a.add(team, slot, &lib[slot], x, 150 - (n - 1) * 10 + k * 20);
-            }
-        }
+        let mut p = block(0, blue.0, blue.1, 130, 180, 12);
+        p.extend(block(1, red.0, red.1, 350, 180, 12));
+        p
+    };
+    for &(team, slot, x, y) in &place {
+        a.add(team, slot, &lib[slot], x, y);
     }
     while a.over.is_none() && a.tick < until {
         a.step();
         if a.tick % every == 0 {
-            println!("tick {} shots {} | blue fired {} hit {} | red fired {} hit {}", a.tick, a.shots.len(), a.score[0].fired, a.score[0].hits, a.score[1].fired, a.score[1].hits);
+            println!(
+                "tick {} shots {} | blue fired {} hit {} bounced {} | red fired {} hit {} bounced {}",
+                a.tick,
+                a.shots.len(),
+                a.score[0].fired,
+                a.score[0].hits,
+                a.score[0].bounced,
+                a.score[1].fired,
+                a.score[1].hits,
+                a.score[1].bounced
+            );
             for s in a.ships.iter().filter(|s| s.alive) {
                 println!(
-                    "   {} {:9} ({:3},{:3}) v=({:3},{:3}) face {} {:16} hp {}/{} flak {} lance {}",
+                    "   {} {:9} ({:3},{:3}) v=({:3},{:3}) face {} {:16} px {}/{} flak {} lance {} cannon {}",
                     s.team,
                     s.name,
                     s.x,
@@ -261,10 +298,11 @@ pub fn pg_trace(blue: (usize, i32), red: (usize, i32), every: u32, until: u32) {
                     s.vy,
                     s.facing,
                     s.doing.name(),
-                    s.hp_now(),
-                    s.hp_full(),
+                    s.px_now(),
+                    s.px_full(),
                     s.st.flak,
-                    s.st.lance
+                    s.st.lance,
+                    s.st.cannon
                 );
             }
         }
@@ -278,6 +316,11 @@ pub fn pg_screenshots(dir: &Path) {
     let _ = std::fs::create_dir_all(dir);
     let mut fb = Framebuffer::new();
     let save = |fb: &Framebuffer, pg: &Pg, name: &str| fb.save_png(&dir.join(name), pg.palette());
+    let hover = |pg: &mut Pg, team: usize| {
+        if let Some(s) = pg.arena.ships.iter().filter(|s| s.alive && s.team == team).max_by_key(|s| s.px_full()) {
+            pg.mouse = (s.x - pg.cam.0, s.y - pg.cam.1);
+        }
+    };
 
     let mut pg = Pg::new(None, None);
     pg.draw(&mut fb);
@@ -287,46 +330,44 @@ pub fn pg_screenshots(dir: &Path) {
     pg.draw(&mut fb);
     save(&fb, &pg, "02_setup.png");
 
-    // Six fighters on the frigate: hover a fighter to show its run.
-    pg.running = true;
-    for _ in 0..40 {
-        pg.tick();
-    }
-    if let Some(s) = pg.arena.ships.iter().find(|s| s.alive && s.team == 0) {
-        pg.mouse = (s.x, s.y);
-    }
-    pg.draw(&mut fb);
-    save(&fb, &pg, "03_fighters_vs_frigate.png");
-    while pg.arena.over.is_none() {
-        pg.tick();
-    }
-    pg.mouse = (0, 0);
-    pg.draw(&mut fb);
-    save(&fb, &pg, "04_result.png");
-
-    for (t, ticks, name) in [(1, 150, "05_frigates_vs_capital.png"), (2, 90, "06_capital_vs_fighters.png"), (3, 100, "07_lancers_vs_capital.png"), (4, 120, "08_fighters_vs_miners.png")] {
+    for (t, ticks, team, name) in [
+        (0, 60, 1, "03_fighters_vs_frigate.png"),
+        (1, 120, 1, "04_lancers_vs_frigate.png"),
+        (3, 150, 0, "05_destroyer_vs_frigates.png"),
+        (4, 75, 0, "06_capital_vs_fighters.png"),
+        (5, 36, 0, "07_capital_vs_lancers.png"),
+    ] {
         pg.load_test(t);
         pg.running = true;
         for _ in 0..ticks {
             pg.tick();
         }
-        if let Some(s) = pg.arena.ships.iter().find(|s| s.alive && s.team == 1) {
-            pg.mouse = (s.x, s.y);
-        }
+        hover(&mut pg, team);
         pg.draw(&mut fb);
         save(&fb, &pg, name);
     }
+    while pg.arena.over.is_none() {
+        pg.tick();
+    }
+    pg.mouse = (0, 0);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "08_result.png");
 
     pg.running = false;
     pg.screen = Screen::Yard;
-    pg.slot = 3;
-    pg.mouse = (50, 80);
+    pg.slot = 4;
+    pg.mouse = (60, 90);
     pg.draw(&mut fb);
     save(&fb, &pg, "09_yard_capital.png");
-    pg.slot = 1;
-    pg.mouse = (110, 180);
+    // A design with a loose pixel and a second core, flagged in red.
+    pg.slot = 0;
+    pg.lib[0].set(22, 17, Some(crate::pg::design::Part::Hull));
+    pg.lib[0].set(18, 20, Some(crate::pg::design::Part::Core));
+    pg.lib[0].set(18, 20, Some(crate::pg::design::Part::Hull));
+    pg.part = crate::pg::design::Part::Cannon;
+    pg.mouse = (6 + 30 * 4 + 2, 26 + 12 * 4 + 2);
     pg.draw(&mut fb);
-    save(&fb, &pg, "10_yard_lancer.png");
+    save(&fb, &pg, "10_yard_loose_pixels.png");
     println!("exported proving-ground screenshots to {}", dir.display());
 }
 

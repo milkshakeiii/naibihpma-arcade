@@ -1,5 +1,6 @@
 //! The proving ground: draw ships in the shipyard, set them loose in the arena, and see whether
-//! they fly and fight the way their drawings suggest.
+//! they fly and fight the way their drawings suggest. Round 2: connected ships, plate, the cannon,
+//! a 41x41 grid and a scrolling arena.
 
 pub mod design;
 pub mod sim;
@@ -24,17 +25,40 @@ pub enum Screen {
 /// A ready-made matchup: (team, slot, x, y) for each ship.
 pub struct Test {
     pub name: &'static str,
-    pub place: &'static [(usize, usize, i32, i32)],
+    pub place: Vec<(usize, usize, i32, i32)>,
 }
 
-pub const TESTS: [Test; 6] = [
-    Test { name: "6 FIGHTERS VS 1 FRIGATE", place: &[(0, 0, 60, 110), (0, 0, 60, 126), (0, 0, 60, 142), (0, 0, 60, 158), (0, 0, 60, 174), (0, 0, 60, 190), (1, 2, 244, 150)] },
-    Test { name: "3 FRIGATES VS 1 CAPITAL", place: &[(0, 2, 60, 100), (0, 2, 60, 150), (0, 2, 60, 200), (1, 3, 240, 150)] },
-    Test { name: "1 CAPITAL VS 6 FIGHTERS", place: &[(0, 3, 64, 150), (1, 0, 244, 110), (1, 0, 244, 126), (1, 0, 244, 142), (1, 0, 244, 158), (1, 0, 244, 174), (1, 0, 244, 190)] },
-    Test { name: "3 LANCERS VS 1 CAPITAL", place: &[(0, 1, 60, 120), (0, 1, 60, 150), (0, 1, 60, 180), (1, 3, 240, 150)] },
-    Test { name: "4 FIGHTERS VS 4 MINERS", place: &[(0, 0, 40, 120), (0, 0, 40, 140), (0, 0, 40, 160), (0, 0, 40, 180), (1, 4, 236, 110), (1, 4, 236, 190), (1, 5, 256, 140), (1, 5, 256, 160)] },
-    Test { name: "OPEN FIELD", place: &[] },
-];
+/// `n` ships of one design in a block centred on (cx, cy), `gap` px apart, up to 9 to a column.
+pub fn block(team: usize, slot: usize, n: i32, cx: i32, cy: i32, gap: i32) -> Vec<(usize, usize, i32, i32)> {
+    let rows = n.clamp(1, 9);
+    let cols = (n + rows - 1) / rows;
+    (0..n)
+        .map(|k| {
+            let (col, row) = (k / rows, k % rows);
+            let in_col = if col == cols - 1 { n - col * rows } else { rows };
+            let x = cx + col * gap - (cols - 1) * gap / 2;
+            let y = cy + row * gap - (in_col - 1) * gap / 2;
+            // Blue's first column faces the enemy; red mirrors it.
+            let x = if team == 0 { 2 * cx - x } else { x };
+            (team, slot, x, y)
+        })
+        .collect()
+}
+
+/// Slots: 0 fighter, 1 lancer, 2 frigate, 3 destroyer, 4 capital, 5 gunminer.
+pub fn tests() -> Vec<Test> {
+    let vs = |name: &'static str, blue: Vec<(usize, usize, i32, i32)>, red: Vec<(usize, usize, i32, i32)>| Test { name, place: blue.into_iter().chain(red).collect() };
+    vec![
+        vs("6 FIGHTERS VS 1 FRIGATE", block(0, 0, 6, 150, 180, 10), block(1, 2, 1, 330, 180, 0)),
+        vs("6 LANCERS VS 1 FRIGATE", block(0, 1, 6, 150, 180, 10), block(1, 2, 1, 330, 180, 0)),
+        vs("6 FIGHTERS VS 6 LANCERS", block(0, 0, 6, 150, 180, 10), block(1, 1, 6, 330, 180, 10)),
+        vs("1 DESTROYER VS 4 FRIGATES", block(0, 3, 1, 150, 180, 0), block(1, 2, 4, 330, 180, 16)),
+        vs("1 CAPITAL VS 30 FIGHTERS", block(0, 4, 1, 130, 180, 0), block(1, 0, 30, 350, 180, 9)),
+        vs("1 CAPITAL VS 40 LANCERS", block(0, 4, 1, 130, 180, 0), block(1, 1, 40, 350, 180, 9)),
+        vs("4 FIGHTERS VS 4 GUNMINERS", block(0, 0, 4, 120, 180, 12), block(1, 5, 4, 330, 180, 14)),
+        Test { name: "OPEN FIELD", place: Vec::new() },
+    ]
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Placement {
@@ -45,41 +69,48 @@ pub struct Placement {
 }
 
 // Shipyard layout.
-const CELL: i32 = 9;
-const GRID_RECT: Rect = Rect::new(6, 28, GRID * CELL + 1, GRID * CELL + 1);
-const BTN_MIRROR: Rect = Rect::new(76, 221, 68, 15);
-const BTN_CLEAR: Rect = Rect::new(6, 240, 68, 15);
-const BTN_TO_ARENA: Rect = Rect::new(76, 240, 68, 15);
-const NAME_RECT: Rect = Rect::new(150, 26, 184, 18);
-const PREVIEW: Rect = Rect::new(338, 27, 58, 58);
-const FLIGHT_RECT: Rect = Rect::new(150, 90, 186, 10);
-const INFO_RECT: Rect = Rect::new(148, 216, 250, 82);
+const CELL: i32 = 4;
+const GRID_RECT: Rect = Rect::new(6, 26, GRID * CELL + 1, GRID * CELL + 1);
+const BTN_MIRROR: Rect = Rect::new(6, 261, 53, 15);
+const BTN_CLEAR: Rect = Rect::new(62, 261, 53, 15);
+const BTN_TO_ARENA: Rect = Rect::new(118, 261, 53, 15);
+const NAME_RECT: Rect = Rect::new(178, 26, 150, 18);
+const PREVIEW: Rect = Rect::new(342, 26, 54, 54);
+const STATS_X: i32 = 180;
+const STATUS_RECT: Rect = Rect::new(178, 150, 218, 11);
+const INFO_RECT: Rect = Rect::new(176, 196, 222, 102);
+/// The per-part stat lines under the preview: (part, y).
+const PART_LINES: [(Part, i32); 5] = [(Part::Plate, 100), (Part::Flak, 110), (Part::Lance, 120), (Part::Cannon, 130), (Part::Scoop, 140)];
 
 fn tab_rect(i: usize) -> Rect {
     Rect::new(4 + i as i32 * 66, 3, 63, 20)
 }
 fn part_rect(i: usize) -> Rect {
-    Rect::new(6 + (i as i32 % 2) * 70, 170 + (i as i32 / 2) * 17, 68, 15)
+    Rect::new(6 + (i as i32 % 2) * 84, 194 + (i as i32 / 2) * 16, 81, 15)
 }
 fn order_rect(i: usize) -> Rect {
-    Rect::new(150 + i as i32 * 62, 196, 60, 16)
+    Rect::new(178 + i as i32 * 55, 176, 52, 16)
 }
 
-// Arena layout.
-const FIELD: Rect = Rect::new(0, 0, AW, AH);
+// Arena layout: the field is a 304x300 window onto the 480x360 arena.
+const FIELD: Rect = Rect::new(0, 0, 304, 300);
 const BTN_TEAM: [Rect; 2] = [Rect::new(306, 4, 44, 16), Rect::new(352, 4, 44, 16)];
-const BTN_RUN: Rect = Rect::new(306, 172, 90, 16);
-const BTN_RESET: Rect = Rect::new(306, 190, 44, 16);
-const BTN_SPEED: Rect = Rect::new(352, 190, 44, 16);
-const BTN_TEST: Rect = Rect::new(306, 208, 90, 16);
-const BTN_EMPTY: Rect = Rect::new(306, 226, 44, 16);
-const BTN_YARD: Rect = Rect::new(352, 226, 44, 16);
+const BTN_RUN: Rect = Rect::new(306, 139, 90, 15);
+const BTN_RESET: Rect = Rect::new(306, 156, 44, 15);
+const BTN_SPEED: Rect = Rect::new(352, 156, 44, 15);
+const BTN_TEST: Rect = Rect::new(306, 173, 90, 15);
+const BTN_EMPTY: Rect = Rect::new(306, 190, 44, 15);
+const BTN_YARD: Rect = Rect::new(352, 190, 44, 15);
+/// The minimap: the whole arena at exactly 1/6 scale.
+const MINI_SCALE: i32 = 6;
+const MINI: Rect = Rect::new(310, 208, AW / MINI_SCALE + 2, AH / MINI_SCALE + 2);
+const CAM_STEP: i32 = 8;
 const HELP_RECT: Rect = Rect::new(10, 8, 380, 284);
 const QUIT_RECT: Rect = Rect::new(112, 108, 176, 70);
 const QUIT_BTNS: [Rect; 2] = [Rect::new(124, 150, 72, 18), Rect::new(204, 150, 72, 18)];
 
 fn roster_rect(i: usize) -> Rect {
-    Rect::new(306, 24 + i as i32 * 24, 90, 22)
+    Rect::new(306, 23 + i as i32 * 19, 90, 18)
 }
 
 pub fn team_name(t: usize) -> &'static str {
@@ -93,12 +124,27 @@ pub fn team_name(t: usize) -> &'static str {
 pub fn part_col(p: Part, team: usize) -> u8 {
     match p {
         Part::Hull => team_col(team, 1),
-        Part::Armor => STEEL,
+        Part::Plate => STEEL,
         Part::Flak => GUN,
         Part::Lance => LANCE,
+        Part::Cannon => CANNON,
         Part::Engine => ENGINE,
         Part::Scoop => SCOOP,
         Part::Core => CORE,
+    }
+}
+
+/// Which part shows when a downscaled icon has to pick one pixel for a block of cells.
+fn icon_rank(p: Part) -> i32 {
+    match p {
+        Part::Core => 7,
+        Part::Cannon => 6,
+        Part::Lance => 5,
+        Part::Flak => 4,
+        Part::Engine => 3,
+        Part::Scoop => 2,
+        Part::Plate => 1,
+        Part::Hull => 0,
     }
 }
 
@@ -109,8 +155,24 @@ fn pc(fb: &mut Framebuffer, clip: Rect, x: i32, y: i32, c: u8) {
     }
 }
 
+/// A Bresenham line clipped to a rectangle.
+fn clipped_line(fb: &mut Framebuffer, clip: Rect, x0: i32, y0: i32, x1: i32, y1: i32, c: u8, skip_first: bool) {
+    let mut l = Line::new(x0, y0, x1, y1);
+    let mut first = true;
+    loop {
+        if !(first && skip_first) {
+            pc(fb, clip, l.x, l.y, c);
+        }
+        first = false;
+        if (l.x, l.y) == (x1, y1) {
+            break;
+        }
+        l.step();
+    }
+}
+
 /// Draws a shape centred on (x, y): a 1px dark hull around the solid cells, the hull lit along
-/// its top edge, and checkerboard ghost dots where `ghost` says so.
+/// its top edge, each cannon's breech in gold, and checkerboard ghost dots where `ghost` says so.
 pub fn draw_shape(fb: &mut Framebuffer, clip: Rect, sh: &Shape, x: i32, y: i32, facing: u8, team: usize, solid: &dyn Fn(usize) -> bool, ghost: bool) {
     let (w, h) = sh.dims(facing);
     let (l, t) = (x - w / 2, y - h / 2);
@@ -145,8 +207,45 @@ pub fn draw_shape(fb: &mut Framebuffer, clip: Rect, sh: &Shape, x: i32, y: i32, 
             continue;
         }
         let open_above = py - t == 0 || !grid[((py - t - 1) * w + (px - l)) as usize];
-        let col = if p == Part::Hull && open_above { team_col(team, 2) } else { part_col(p, team) };
+        let col = if p == Part::Hull && open_above {
+            team_col(team, 2)
+        } else if p == Part::Cannon && sh.cannons.contains(&i) {
+            GOLD
+        } else {
+            part_col(p, team)
+        };
         pc(fb, clip, px, py, col);
+    }
+}
+
+/// A design's icon in a box: drawn 1:1 when it fits, otherwise at an exact 1/k scale where each
+/// icon pixel shows the most telling part in its k x k block.
+fn draw_icon(fb: &mut Framebuffer, d: &Design, r: Rect, team: usize) {
+    fb.rect_fill(r.x, r.y, r.w, r.h, SPACE);
+    let sh = d.shape();
+    if sh.w <= r.w - 2 && sh.h <= r.h - 2 {
+        draw_shape(fb, r, &sh, r.x + r.w / 2, r.y + r.h / 2, 0, team, &|_| true, false);
+        return;
+    }
+    let k = ((sh.w + r.w - 3) / (r.w - 2)).max((sh.h + r.h - 3) / (r.h - 2)).max(1);
+    let (iw, ih) = ((sh.w + k - 1) / k, (sh.h + k - 1) / k);
+    let (ox, oy) = (r.x + (r.w - iw) / 2, r.y + (r.h - ih) / 2);
+    for iy in 0..ih {
+        for ix in 0..iw {
+            let best = (0..k * k)
+                .filter_map(|j| {
+                    let (cx, cy) = (ix * k + j % k, iy * k + j / k);
+                    if cx < sh.w && cy < sh.h {
+                        sh.cells[(cy * sh.w + cx) as usize]
+                    } else {
+                        None
+                    }
+                })
+                .max_by_key(|&p| icon_rank(p));
+            if let Some(p) = best {
+                pc(fb, r, ox + ix, oy + iy, if p == Part::Cannon { GOLD } else { part_col(p, team) });
+            }
+        }
     }
 }
 
@@ -163,10 +262,16 @@ pub struct Pg {
     pub arena: Arena,
     pub setup: Vec<Placement>,
     pub test: Option<usize>,
+    tests: Vec<Test>,
     pub running: bool,
     pub speed: u32,
     pub team: usize,
     pub mouse: (i32, i32),
+    /// Top-left of the field's window onto the arena.
+    pub cam: (i32, i32),
+    held: [bool; 4],
+    latch: [bool; 4],
+    map_drag: bool,
     pub help: bool,
     confirm_quit: bool,
     crt: bool,
@@ -182,9 +287,19 @@ pub struct Pg {
 impl Pg {
     pub fn new(save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
         let mut lib = defaults();
-        if let Some(text) = save_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()) {
-            for (i, d) in text.lines().filter_map(Design::from_line).take(lib.len()).enumerate() {
-                lib[i] = d;
+        if let Some(p) = &save_path {
+            if let Ok(text) = std::fs::read_to_string(p) {
+                if text.lines().next() == Some(SAVE_HEADER) {
+                    for (i, d) in text.lines().skip(1).filter_map(Design::from_line).take(lib.len()).enumerate() {
+                        lib[i] = d;
+                    }
+                } else if !text.trim().is_empty() {
+                    // Round-1 designs use the old 15x15 grid and rules: keep them, start fresh.
+                    let backup = p.with_file_name("proving_ground_designs_round1.txt");
+                    if !backup.exists() {
+                        let _ = std::fs::write(&backup, &text);
+                    }
+                }
             }
         }
         let log = log_path.and_then(|p| OpenOptions::new().create(true).append(true).open(p).ok());
@@ -201,10 +316,15 @@ impl Pg {
             arena: Arena::new(),
             setup: Vec::new(),
             test: None,
+            tests: tests(),
             running: false,
             speed: 1,
             team: 0,
             mouse: (0, 0),
+            cam: ((AW - FIELD.w) / 2, (AH - FIELD.h) / 2),
+            held: [false; 4],
+            latch: [false; 4],
+            map_drag: false,
             help: true,
             confirm_quit: false,
             crt: true,
@@ -216,7 +336,7 @@ impl Pg {
             logged_over: false,
             notice: None,
         };
-        pg.log(&format!("##### proving ground session {} #####", crate::game::utc_stamp()));
+        pg.log(&format!("##### proving ground round 2 session {} #####", crate::game::utc_stamp()));
         pg.load_test(0);
         pg
     }
@@ -229,7 +349,7 @@ impl Pg {
 
     fn save(&mut self) {
         if let Some(p) = &self.save_path {
-            let text: String = self.lib.iter().map(|d| d.to_line() + "\n").collect();
+            let text: String = std::iter::once(SAVE_HEADER.to_string() + "\n").chain(self.lib.iter().map(|d| d.to_line() + "\n")).collect();
             let _ = std::fs::write(p, text);
         }
     }
@@ -240,7 +360,7 @@ impl Pg {
 
     pub fn load_test(&mut self, t: usize) {
         self.test = Some(t);
-        self.setup = TESTS[t].place.iter().map(|&(team, slot, x, y)| Placement { team, slot, x, y }).collect();
+        self.setup = self.tests[t].place.iter().map(|&(team, slot, x, y)| Placement { team, slot, x, y }).collect();
         self.reset();
     }
 
@@ -248,14 +368,15 @@ impl Pg {
     /// the same fight.
     pub fn reset(&mut self) {
         self.arena = Arena::new();
-        let mut missing = false;
+        let mut refused = None;
         for p in &self.setup {
             if !self.arena.add(p.team, p.slot, &self.lib[p.slot], p.x, p.y) {
-                missing = true;
+                refused = Some(p.slot);
             }
         }
-        if missing {
-            self.say("A DESIGN WITH NO CORE CAN'T BE PLACED");
+        if let Some(s) = refused {
+            let why = self.lib[s].check().problem().unwrap_or_default();
+            self.say(&format!("{} CAN'T FLY: {why}", self.lib[s].name));
         }
         self.running = false;
         self.logged_run = false;
@@ -263,7 +384,7 @@ impl Pg {
     }
 
     fn test_name(&self) -> &'static str {
-        self.test.map_or("YOUR SETUP", |t| TESTS[t].name)
+        self.test.map_or("YOUR SETUP", |t| self.tests[t].name)
     }
 
     fn set_running(&mut self, on: bool) {
@@ -323,7 +444,7 @@ impl Pg {
             (_, Key::Esc) => self.confirm_quit = true,
             (_, Key::Help) => self.help = true,
             (_, Key::Tab) => self.switch_screen(),
-            (Screen::Yard, Key::Num(n)) if (1..=7).contains(&n) => self.part = PARTS[n as usize - 1],
+            (Screen::Yard, Key::Num(n)) if (1..=PARTS.len() as u8).contains(&n) => self.part = PARTS[n as usize - 1],
             (Screen::Yard, Key::Letter('M')) => self.mirror = !self.mirror,
             (Screen::Arena, Key::Num(n)) if (1..=6).contains(&n) => self.slot = n as usize - 1,
             (Screen::Arena, Key::Space) => self.set_running(!self.running),
@@ -344,7 +465,7 @@ impl Pg {
     }
 
     fn next_test(&mut self) {
-        let t = self.test.map_or(0, |t| (t + 1) % TESTS.len());
+        let t = self.test.map_or(0, |t| (t + 1) % self.tests.len());
         self.load_test(t);
     }
 
@@ -396,15 +517,25 @@ impl Pg {
         let p = if erase { None } else { Some(self.part) };
         let mirror = self.mirror;
         let d = &mut self.lib[self.slot];
-        d.set(cx, cy, p);
-        if mirror {
-            d.set(GRID - 1 - cx, cy, p);
+        d.put(cx, cy, p);
+        let mx = GRID - 1 - cx;
+        // A mirrored cannon that would overlap its twin is skipped rather than replacing it.
+        if mirror && mx != cx && !(p == Some(Part::Cannon) && (mx - cx).abs() < 3) {
+            d.put(mx, cy, p);
         }
         self.edited = true;
     }
 
     /// Paints every cell between the last sample and this one, so a fast stroke leaves no gaps.
+    /// A cannon stamps once per click, not along the stroke.
     fn paint_to(&mut self, cell: (i32, i32), erase: bool) {
+        if !erase && self.part == Part::Cannon {
+            if self.last_cell.is_none() {
+                self.paint(cell, false);
+            }
+            self.last_cell = Some(cell);
+            return;
+        }
         let from = self.last_cell.unwrap_or(cell);
         let mut l = Line::new(from.0, from.1, cell.0, cell.1);
         loop {
@@ -415,6 +546,20 @@ impl Pg {
             l.step();
         }
         self.last_cell = Some(cell);
+    }
+
+    fn to_world(&self, x: i32, y: i32) -> (i32, i32) {
+        (x + self.cam.0, y + self.cam.1)
+    }
+
+    fn set_cam(&mut self, x: i32, y: i32) {
+        self.cam = (x.clamp(0, AW - FIELD.w), y.clamp(0, AH - FIELD.h));
+    }
+
+    /// Centres the view on the arena point under a minimap click.
+    fn cam_from_map(&mut self, x: i32, y: i32) {
+        let (wx, wy) = ((x - MINI.x - 1) * MINI_SCALE, (y - MINI.y - 1) * MINI_SCALE);
+        self.set_cam(wx - FIELD.w / 2, wy - FIELD.h / 2);
     }
 
     fn press(&mut self, x: i32, y: i32, right: bool) {
@@ -476,8 +621,9 @@ impl Pg {
                 self.say("PRESS R TO RESET, THEN PLACE");
                 return;
             }
+            let (wx, wy) = self.to_world(x, y);
             if right {
-                if let Some(i) = self.arena.ship_at(x, y) {
+                if let Some(i) = self.arena.ship_at(wx, wy) {
                     let (team, slot, (hx, hy)) = (self.arena.ships[i].team, self.arena.ships[i].slot, self.arena.ships[i].home);
                     let found = (0..self.setup.len())
                         .filter(|&k| self.setup[k].team == team && self.setup[k].slot == slot)
@@ -490,11 +636,12 @@ impl Pg {
                 }
                 return;
             }
-            if self.lib[self.slot].stats().cores == 0 {
-                self.say("THAT DESIGN HAS NO CORE");
+            if let Some(why) = self.lib[self.slot].check().problem() {
+                let s = format!("{} CAN'T FLY: {why}", self.lib[self.slot].name);
+                self.say(&s);
                 return;
             }
-            self.setup.push(Placement { team: self.team, slot: self.slot, x, y });
+            self.setup.push(Placement { team: self.team, slot: self.slot, x: wx, y: wy });
             self.test = None;
             self.reset();
             return;
@@ -502,7 +649,10 @@ impl Pg {
         if right {
             return;
         }
-        if let Some(t) = (0..2).find(|&t| BTN_TEAM[t].contains(x, y)) {
+        if MINI.contains(x, y) {
+            self.map_drag = true;
+            self.cam_from_map(x, y);
+        } else if let Some(t) = (0..2).find(|&t| BTN_TEAM[t].contains(x, y)) {
             self.team = t;
         } else if let Some(i) = (0..self.lib.len()).find(|&i| roster_rect(i).contains(x, y)) {
             self.slot = i;
@@ -532,6 +682,16 @@ impl Pg {
                 self.notice = None;
             }
         }
+        // Scroll the view with WASD or the arrows; a tap between ticks still counts.
+        let dirs: Vec<bool> = (0..4).map(|k| self.held[k] || self.latch[k]).collect();
+        self.latch = self.held;
+        if self.screen == Screen::Arena && !self.help && !self.confirm_quit {
+            let dx = (dirs[3] as i32 - dirs[2] as i32) * CAM_STEP;
+            let dy = (dirs[1] as i32 - dirs[0] as i32) * CAM_STEP;
+            if dx != 0 || dy != 0 {
+                self.set_cam(self.cam.0 + dx, self.cam.1 + dy);
+            }
+        }
         if self.screen != Screen::Arena || !self.running || self.help || self.confirm_quit {
             return;
         }
@@ -548,19 +708,8 @@ impl Pg {
                     None => "DRAW".into(),
                 };
                 let s = &self.arena.score;
-                let line = format!(
-                    "RESULT {who} at {}:{:02} | blue lost {}/{} ships, {} px, mined {} | red lost {}/{} ships, {} px, mined {}",
-                    t / 60,
-                    t % 60,
-                    s[0].lost,
-                    s[0].placed,
-                    s[0].px_lost,
-                    s[0].mined,
-                    s[1].lost,
-                    s[1].placed,
-                    s[1].px_lost,
-                    s[1].mined
-                );
+                let side = |k: usize| format!("lost {}/{} ships, {} px ({} broke away), {} bounced off plate, mined {}", s[k].lost, s[k].placed, s[k].px_lost, s[k].broken, s[1 - k].bounced, s[k].mined);
+                let line = format!("RESULT {who} at {}:{:02} | blue {} | red {}", t / 60, t % 60, side(0), side(1));
                 self.log(&line);
             }
         }
@@ -575,7 +724,7 @@ impl Pg {
         }
         if let Some((s, _)) = &self.notice {
             let w = Framebuffer::text_width(s, 1) + 12;
-            let r = Rect::new((AW - w) / 2, 22, w, 15);
+            let r = Rect::new((FIELD.w - w).max(4) / 2, 22, w, 15);
             ui::panel(fb, r);
             fb.text(s, r.x + 6, r.y + 4, GOLD, None, 1);
         }
@@ -591,12 +740,6 @@ impl Pg {
         }
     }
 
-    fn icon(&self, fb: &mut Framebuffer, d: &Design, r: Rect, team: usize) {
-        fb.rect_fill(r.x, r.y, r.w, r.h, SPACE);
-        let sh = d.shape();
-        draw_shape(fb, r, &sh, r.x + r.w / 2, r.y + r.h / 2, 0, team, &|_| true, false);
-    }
-
     fn draw_yard(&self, fb: &mut Framebuffer) {
         fb.rect_fill(0, 0, 400, 300, PANEL_LO);
         let m = self.mouse;
@@ -609,35 +752,43 @@ impl Pg {
             } else {
                 ui::panel(fb, r);
             }
-            self.icon(fb, d, Rect::new(r.x + 3, r.y + 3, 14, 14), 0);
+            draw_icon(fb, d, Rect::new(r.x + 3, r.y + 3, 14, 14), 0);
             let name: String = d.name.chars().take(7).collect();
-            fb.text(&name, r.x + 20, r.y + 7, if sel { ACCENT } else { TEXT }, None, 1);
+            let col = if !d.check().ok() { BAD } else if sel { ACCENT } else { TEXT };
+            fb.text(&name, r.x + 20, r.y + 7, col, None, 1);
         }
-        // The grid: every cell a part, up is the front.
+        // The grid: every cell a part, up is the front. Guide blocks are 5 cells, centred.
         let d = &self.lib[self.slot];
+        let check = d.check();
         let g = GRID_RECT;
         fb.rect_fill(g.x - 1, g.y - 1, g.w + 2, g.h + 2, PANEL_HI);
         fb.rect_fill(g.x, g.y, g.w, g.h, OUTLINE);
-        let hover = Self::cell_under(m.0, m.1);
+        let band = |c: i32| ((c - GRID / 2).abs() + 2) / 5;
+        let breeches: Vec<(i32, i32)> = d.cannon_blocks().0.iter().map(|&(x, y)| (x + 1, y + 1)).collect();
         for cy in 0..GRID {
             for cx in 0..GRID {
                 let (x, y) = (g.x + 1 + cx * CELL, g.y + 1 + cy * CELL);
                 let col = match d.get(cx, cy) {
+                    Some(Part::Cannon) if breeches.contains(&(cx, cy)) => GOLD,
                     Some(p) => part_col(p, 0),
                     None if cx == GRID / 2 => PANEL,
-                    None if (cx + cy) % 2 == 0 => PANEL_DEEP,
+                    None if (band(cx) + band(cy)) % 2 == 0 => PANEL_DEEP,
                     None => SPACE,
                 };
                 fb.rect_fill(x, y, CELL - 1, CELL - 1, col);
-                if d.get(cx, cy) == Some(Part::Hull) {
-                    fb.rect_fill(x, y, CELL - 1, 1, team_col(0, 2));
-                }
             }
         }
-        if let Some((cx, cy)) = hover {
-            fb.rect_outline(g.x + cx * CELL, g.y + cy * CELL, CELL + 1, CELL + 1, WHITE);
+        // Loose pixels get a red frame round the cell.
+        for &(cx, cy) in &check.loose {
+            fb.rect_outline(g.x + cx * CELL, g.y + cy * CELL, CELL + 1, CELL + 1, BAD);
+        }
+        if let Some((cx, cy)) = Self::cell_under(m.0, m.1) {
+            let foot = |cx: i32| if self.part == Part::Cannon && self.painting != Some(true) { (cx - 1, cy - 1, 3) } else { (cx, cy, 1) };
+            let (fx, fy, n) = foot(cx);
+            fb.rect_outline(g.x + fx * CELL, g.y + fy * CELL, n * CELL + 1, n * CELL + 1, WHITE);
             if self.mirror && cx != GRID - 1 - cx {
-                fb.rect_outline(g.x + (GRID - 1 - cx) * CELL, g.y + cy * CELL, CELL + 1, CELL + 1, TEXT_FAINT);
+                let (fx, fy, n) = foot(GRID - 1 - cx);
+                fb.rect_outline(g.x + fx * CELL, g.y + fy * CELL, n * CELL + 1, n * CELL + 1, TEXT_FAINT);
             }
         }
         for (i, &p) in PARTS.iter().enumerate() {
@@ -653,16 +804,18 @@ impl Pg {
             }
             fb.rect_fill(r.x + 4, r.y + 3, 9, 9, OUTLINE);
             fb.rect_fill(r.x + 5, r.y + 4, 7, 7, part_col(p, 0));
+            if p == Part::Cannon {
+                fb.rect_fill(r.x + 7, r.y + 6, 3, 3, GOLD);
+            }
             let tc = if sel { ACCENT } else if r.contains(m.0, m.1) { PANEL_DEEP } else { TEXT };
             fb.text(p.name(), r.x + 17, r.y + 4, tc, None, 1);
             fb.text(&format!("{}", i + 1), r.x + r.w - 9, r.y + 4, TEXT_FAINT, None, 1);
         }
-        ui::button(fb, BTN_MIRROR, if self.mirror { "MIRROR ON" } else { "MIRROR" }, BTN_MIRROR.contains(m.0, m.1), self.mirror);
+        ui::button(fb, BTN_MIRROR, "MIRROR", BTN_MIRROR.contains(m.0, m.1), self.mirror);
         ui::button(fb, BTN_CLEAR, "CLEAR", BTN_CLEAR.contains(m.0, m.1), false);
         ui::button(fb, BTN_TO_ARENA, "ARENA", BTN_TO_ARENA.contains(m.0, m.1), false);
-        fb.text("LEFT PAINTS", 6, 262, TEXT_FAINT, None, 1);
-        fb.text("RIGHT ERASES", 6, 272, TEXT_FAINT, None, 1);
-        fb.text("TAB: ARENA", 6, 282, TEXT_FAINT, None, 1);
+        fb.text("LEFT PAINTS  RIGHT ERASES", 6, 281, TEXT_FAINT, None, 1);
+        fb.text("TAB ARENA  M MIRROR", 6, 290, TEXT_FAINT, None, 1);
 
         // Name, preview and the stats the drawing implies.
         if self.naming {
@@ -677,53 +830,64 @@ impl Pg {
         draw_shape(fb, PREVIEW, &sh, PREVIEW.x + PREVIEW.w / 2, PREVIEW.y + PREVIEW.h / 2, 0, 0, &|_| true, false);
 
         let st = d.stats();
-        let x = 152;
-        let line = |fb: &mut Framebuffer, y: i32, s: &str, c: u8| fb.text(s, x, y, c, None, 1);
-        line(fb, 50, &format!("COST    {} PX", st.count), GOLD);
-        line(fb, 60, &format!("HP      {}", st.hp), TEXT);
-        line(fb, 70, &format!("WEIGHT  {}   ENGINES {}", st.mass, st.engines), TEXT);
-        line(fb, 80, &format!("THRUST  {}", st.thrust), TEXT);
-        line(fb, 92, &format!("FLIGHT  {}", st.flight.name()), ACCENT);
+        let line = |fb: &mut Framebuffer, y: i32, s: &str, c: u8| fb.text(s, STATS_X, y, c, None, 1);
         let ds = |d: i32| format!("{}.{} S", d / 10, d % 10);
+        line(fb, 48, &format!("COST    {} PX", st.count), GOLD);
+        line(fb, 58, &format!("WEIGHT  {}  ENGINES {}", st.mass, st.engines), TEXT);
+        line(fb, 68, &format!("FLIGHT  {}", st.flight.name()), ACCENT);
         if st.engines > 0 {
-            line(fb, 104, &format!("TOP SPEED     {} PX/S", st.top_speed_px_s()), TEXT);
-            line(fb, 114, &format!("0 TO TOP      {}", ds(st.zero_to_top_ds())), TEXT);
-            line(fb, 124, &format!("QUARTER TURN  {}", ds(st.turn_ds())), TEXT);
+            line(fb, 78, &format!("SPEED {} PX/S  TURN {}", st.top_speed_px_s(), ds(st.turn_ds())), TEXT);
+            line(fb, 88, &format!("0 TO TOP SPEED {}", ds(st.zero_to_top_ds())), TEXT);
         } else {
-            line(fb, 104, "NO ENGINES: IT STAYS PUT", TEXT_DIM);
-            line(fb, 114, "AND CAN'T TURN", TEXT_DIM);
+            line(fb, 78, "NO ENGINES: IT STAYS PUT", TEXT_DIM);
         }
-        line(fb, 136, &format!("FLAK   {}  TURRETS, 48 PX", st.flak), if st.flak > 0 { GUN } else { TEXT_FAINT });
-        line(fb, 146, &format!("LANCE  {}  STRAIGHT AHEAD, 100 PX", st.lance), if st.lance > 0 { LANCE } else { TEXT_FAINT });
-        line(fb, 156, &format!("SCOOPS {}  CARRIES {}", st.scoops, st.scoops * SCOOP_CARRY), if st.scoops > 0 { SCOOP } else { TEXT_FAINT });
-        if st.cores == 0 {
-            line(fb, 170, "NO CORE: IT CAN'T BE BUILT", BAD);
-        } else if st.flak + st.lance == 0 {
-            line(fb, 170, "NO GUNS: IT RUNS HOME WHEN HIT", TEXT_DIM);
+        for (p, y) in PART_LINES {
+            let (n, what, col) = match p {
+                Part::Plate => (st.plate, "FLAK BOUNCES OFF".to_string(), STEEL),
+                Part::Flak => (st.flak, "TURRETS, 48 PX".into(), GUN),
+                Part::Lance => (st.lance, "STRAIGHT AHEAD, 100 PX".into(), LANCE),
+                Part::Cannon => (st.cannon, "BIG SLOW TURRETS, 130 PX".into(), GOLD),
+                _ => (st.scoops, format!("CARRIES {}", st.scoops * SCOOP_CARRY), SCOOP),
+            };
+            let name: String = format!("{:7}", p.name());
+            line(fb, y, &format!("{name}{n:3}  {what}"), if n > 0 { col } else { TEXT_FAINT });
         }
-        fb.text("ORDER", 152, 186, TEXT_FAINT, None, 1);
+        let (status, col) = match check.problem() {
+            Some(why) => (why, BAD),
+            None if !st.armed() => ("NO GUNS: IT RUNS HOME WHEN HIT".into(), TEXT_DIM),
+            None => ("READY TO FLY".into(), GOOD),
+        };
+        fb.text(&status, STATUS_RECT.x + 2, STATUS_RECT.y + 2, col, None, 1);
+        fb.text("ORDER", STATS_X, 166, TEXT_FAINT, None, 1);
         for (i, &o) in ORDERS.iter().enumerate() {
             let r = order_rect(i);
             ui::button(fb, r, o.name(), r.contains(m.0, m.1), o == d.order);
         }
 
         ui::inset(fb, INFO_RECT);
+        let part_line = PART_LINES.iter().find(|&&(_, y)| (STATS_X..396).contains(&m.0) && (y - 1..y + 9).contains(&m.1)).map(|&(p, _)| p);
         let info: String = if let Some(i) = (0..PARTS.len()).find(|&i| part_rect(i).contains(m.0, m.1)) {
             format!("[{}] {}", i + 1, PARTS[i].blurb())
+        } else if let Some(p) = part_line {
+            p.blurb().into()
         } else if let Some(i) = (0..ORDERS.len()).find(|&i| order_rect(i).contains(m.0, m.1)) {
             ORDERS[i].blurb().into()
-        } else if FLIGHT_RECT.contains(m.0, m.1) || (150..336).contains(&m.0) && (100..132).contains(&m.1) {
-            "FLIGHT FOLLOWS FROM THE DRAWING. AT LEAST 1 THRUST PER WEIGHT (8 PER ENGINE): ATTACK RUNS, DIVING THROUGH THE TARGET AND LOOPING BACK. LESS: STAND-OFF, HOLDING AT WEAPON RANGE AND LINING UP SO LANCES BEAR. NO ENGINES: STAYS PUT.".into()
+        } else if STATUS_RECT.contains(m.0, m.1) {
+            "EVERY SHIP HAS EXACTLY ONE CORE, AND EVERY PIXEL MUST JOIN IT THROUGH OTHER PIXELS, EDGE TO EDGE (CORNERS DON'T COUNT). LOOSE PIXELS SHOW RED. IN A FIGHT, ANY PIECE CUT OFF FROM THE CORE BREAKS AWAY.".into()
+        } else if (STATS_X..340).contains(&m.0) && (56..96).contains(&m.1) {
+            "FLIGHT FOLLOWS FROM THE DRAWING. AT LEAST 1 THRUST PER WEIGHT (8 PER ENGINE): ATTACK RUNS, DIVING THROUGH THE TARGET AND LOOPING BACK. LESS: STAND-OFF, HOLDING AT WEAPON RANGE. NO ENGINES: STAYS PUT. HEAVIER SHIPS TURN SLOWER.".into()
         } else if BTN_MIRROR.contains(m.0, m.1) {
             "[M] MIRROR PAINTS BOTH SIDES OF THE CENTRE COLUMN AT ONCE.".into()
         } else if NAME_RECT.contains(m.0, m.1) {
             "CLICK TO RENAME. ENTER WHEN DONE.".into()
         } else if (0..self.lib.len()).any(|i| tab_rect(i).contains(m.0, m.1)) {
-            "YOUR SIX DESIGNS. THE TESTS IN THE ARENA USE THESE SLOTS, SO EDITING ONE CHANGES THE TESTS TOO.".into()
+            "YOUR SIX DESIGNS. THE TESTS IN THE ARENA USE THESE SLOTS, SO EDITING ONE CHANGES THE TESTS TOO. A RED NAME CAN'T FLY YET.".into()
+        } else if self.part == Part::Cannon {
+            "PAINTING CANNON. A CLICK STAMPS A 3X3 CANNON CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF IT TO REMOVE THE WHOLE THING. UP IS THE FRONT.".into()
         } else {
-            format!("PAINTING {}. LEFT-CLICK PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT: LANCES FIRE THAT WAY. EVERY PIXEL COSTS 1 AND WEIGHS 1 (ARMOR AND LANCE 2).", self.part.name())
+            format!("PAINTING {}. LEFT-CLICK PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT. ONE CORE PER SHIP, AND EVERY PIXEL JOINED TO IT EDGE TO EDGE.", self.part.name())
         };
-        for (i, l) in wrap(&info, 40).iter().enumerate().take(8) {
+        for (i, l) in wrap(&info, 35).iter().enumerate().take(10) {
             fb.text(l, INFO_RECT.x + 4, INFO_RECT.y + 4 + i as i32 * 9, TEXT, None, 1);
         }
     }
@@ -731,96 +895,124 @@ impl Pg {
     fn draw_arena(&self, fb: &mut Framebuffer) {
         let a = &self.arena;
         let m = self.mouse;
-        fb.rect_fill(FIELD.x, FIELD.y, FIELD.w, FIELD.h, SPACE);
+        let (cx, cy) = self.cam;
+        let f = FIELD;
+        fb.rect_fill(f.x, f.y, f.w, f.h, SPACE);
         for &(x, y, c) in &a.stars {
-            fb.pset(x, y, STAR + c);
+            pc(fb, f, x - cx, y - cy, STAR + c);
         }
-        for y in 0..AH {
-            for x in 0..AW {
-                if a.rock[(y * AW + x) as usize] {
+        for sy in 0..f.h {
+            for sx in 0..f.w {
+                let (x, y) = (sx + cx, sy + cy);
+                if a.rock_at(x, y) {
                     let lit = !a.rock_at(x, y - 1) || !a.rock_at(x - 1, y);
                     let dark = !a.rock_at(x, y + 1) || !a.rock_at(x + 1, y);
-                    fb.pset(x, y, if lit && !dark { ROCK + 3 } else if dark { ROCK } else { ROCK + 1 });
+                    fb.pset(sx, sy, if lit && !dark { ROCK + 3 } else if dark { ROCK } else { ROCK + 1 });
                 }
             }
         }
         for (t, &(sx, sy)) in STATIONS.iter().enumerate() {
-            fb.rect_fill(sx - 4, sy - 13, 9, 27, OUTLINE);
-            fb.rect_fill(sx - 3, sy - 12, 7, 25, team_col(t, 0));
+            let (sx, sy) = (sx - cx, sy - cy);
+            for (x, y, w, h, c) in [(sx - 4, sy - 13, 9, 27, OUTLINE), (sx - 3, sy - 12, 7, 25, team_col(t, 0))] {
+                for k in 0..w * h {
+                    pc(fb, f, x + k % w, y + k / w, c);
+                }
+            }
             for k in 0..5 {
-                fb.rect_fill(sx - 2, sy - 10 + k * 5, 5, 2, team_col(t, 2));
+                for j in 0..10 {
+                    pc(fb, f, sx - 2 + j % 5, sy - 10 + k * 5 + j / 5, team_col(t, 2));
+                }
             }
         }
         for d in &a.debris {
-            fb.pset(d.x, d.y, LOOSE);
+            pc(fb, f, d.x - cx, d.y - cy, LOOSE);
         }
         for s in a.ships.iter().filter(|s| s.alive) {
             for &(x, y) in &s.trail {
-                pc(fb, FIELD, x, y, team_col(s.team, 0));
+                pc(fb, f, x - cx, y - cy, team_col(s.team, 0));
             }
         }
-        let hovered = if FIELD.contains(m.0, m.1) { a.ship_at(m.0, m.1) } else { None };
+        let (wx, wy) = self.to_world(m.0, m.1);
+        let hovered = if f.contains(m.0, m.1) { a.ship_at(wx, wy) } else { None };
         if let Some(i) = hovered {
             let s = &a.ships[i];
             if let Some(t) = s.target.filter(|&t| a.ships[t].alive) {
-                crate::render::dotted(fb, FIELD, s.x, s.y, a.ships[t].x, a.ships[t].y, 3, TEXT_FAINT);
+                crate::render::dotted(fb, f, s.x - cx, s.y - cy, a.ships[t].x - cx, a.ships[t].y - cy, 3, TEXT_FAINT);
             }
             if let Some((gx, gy)) = s.goal {
                 for k in -2..=2 {
-                    pc(fb, FIELD, gx + k, gy, TEXT_DIM);
-                    pc(fb, FIELD, gx, gy + k, TEXT_DIM);
+                    pc(fb, f, gx - cx + k, gy - cy, TEXT_DIM);
+                    pc(fb, f, gx - cx, gy - cy + k, TEXT_DIM);
                 }
             }
         }
         for s in a.ships.iter().filter(|s| s.alive) {
-            draw_shape(fb, FIELD, &s.shape, s.x, s.y, s.facing, s.team, &|c| s.hp[c] > 0, false);
+            draw_shape(fb, f, &s.shape, s.x - cx, s.y - cy, s.facing, s.team, &|c| s.hp[c] > 0, false);
+            // Cannon barrels show where each turret is pointing.
+            for t in s.turrets.iter().filter(|t| s.hp[t.cell] > 0) {
+                let (gx, gy) = s.cell_xy(t.cell);
+                let (ux, uy) = dir64(t.aim);
+                let (ex, ey) = (gx + ux * BARREL / 1024, gy + uy * BARREL / 1024);
+                clipped_line(fb, f, gx - cx, gy - cy, ex - cx, ey - cy, GUN, true);
+            }
         }
         if let Some(i) = hovered {
             let (l, t, r, b) = a.ships[i].bbox();
-            fb.corners(l - 2, t - 2, r - l + 5, b - t + 5, 2, WHITE);
+            fb.corners(l - 2 - cx, t - 2 - cy, r - l + 5, b - t + 5, 2, WHITE);
         }
         for sh in &a.shots {
-            if sh.lance {
-                pc(fb, FIELD, sh.prev.0, sh.prev.1, LANCE);
-                pc(fb, FIELD, sh.line.x, sh.line.y, LANCE_HI);
+            let (p, q) = ((sh.prev.0 - cx, sh.prev.1 - cy), (sh.line.x - cx, sh.line.y - cy));
+            let (c0, c1) = match sh.kind {
+                Kind::Lance => (LANCE, LANCE_HI),
+                Kind::Shell => (GOLD, WHITE),
+                Kind::Flak => (team_col(sh.team, 1), team_col(sh.team, 3)),
+            };
+            pc(fb, f, p.0, p.1, c0);
+            pc(fb, f, q.0, q.1, c1);
+        }
+        for sp in &a.sparks {
+            let (x, y) = (sp.x - cx, sp.y - cy);
+            if sp.blast {
+                for k in 0..9 {
+                    let (dx, dy) = (k % 3 - 1, k / 3 - 1);
+                    let c = if sp.t >= 3 { if k == 4 { WHITE } else { GOLD } } else if dx == 0 || dy == 0 { SCOOP } else { continue };
+                    pc(fb, f, x + dx, y + dy, c);
+                }
             } else {
-                pc(fb, FIELD, sh.prev.0, sh.prev.1, team_col(sh.team, 1));
-                pc(fb, FIELD, sh.line.x, sh.line.y, team_col(sh.team, 3));
+                pc(fb, f, x, y, if sp.t >= 2 { WHITE } else { GOLD });
             }
         }
         // Where a click would place the selected design.
-        if a.tick == 0 && hovered.is_none() && FIELD.contains(m.0, m.1) && !self.help {
+        if a.tick == 0 && hovered.is_none() && f.contains(m.0, m.1) && !self.help {
             let sh = self.lib[self.slot].shape();
-            draw_shape(fb, FIELD, &sh, m.0, m.1, if self.team == 0 { 1 } else { 3 }, self.team, &|_| true, true);
+            draw_shape(fb, f, &sh, m.0, m.1, if self.team == 0 { 1 } else { 3 }, self.team, &|_| true, true);
         }
         fb.text(self.test_name(), 4, 3, TEXT_DIM, Some(OUTLINE), 1);
+        let t = a.tick / 15;
+        let clock = format!("{}:{:02}", t / 60, t % 60);
+        fb.text(&clock, f.w - 4 - Framebuffer::text_width(&clock, 1), 3, TEXT_DIM, Some(OUTLINE), 1);
 
         // Inspector.
         let bar: Option<Vec<String>> = if let Some(i) = hovered {
             let s = &a.ships[i];
-            let mut parts = vec![format!("{} PX/S", s.speed_px_s()), format!("{}/{} HP", s.hp_now(), s.hp_full())];
-            if s.st.flak > 0 {
-                parts.push(format!("FLAK {}", s.st.flak));
-            }
-            if s.st.lance > 0 {
-                parts.push(format!("LANCE {}", s.st.lance));
+            let mut parts = vec![format!("{} PX/S", s.speed_px_s()), format!("{}/{} PX", s.px_now(), s.px_full())];
+            for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON")] {
+                if n > 0 {
+                    parts.push(format!("{name} {n}"));
+                }
             }
             if s.carry > 0 {
                 parts.push(format!("CARRYING {}", s.carry));
             }
-            parts.push(s.st.flight.name().into());
             Some(vec![format!("{} {} - {} - {}", team_name(s.team), s.name, s.order.name(), s.doing.name()), parts.join("  ")])
-        } else if a.tick == 0 && FIELD.contains(m.0, m.1) {
-            Some(vec![
-                format!("CLICK PLACES A {} {}. RIGHT-CLICK REMOVES.", team_name(self.team), self.lib[self.slot].name),
-                "SPACE RUNS THE FIGHT.".into(),
-            ])
+        } else if a.tick == 0 && f.contains(m.0, m.1) {
+            Some(vec![format!("CLICK PLACES A {} {}. RIGHT-CLICK REMOVES.", team_name(self.team), self.lib[self.slot].name), "SPACE RUNS THE FIGHT. WASD SCROLLS.".into()])
         } else {
             None
         };
         if let Some(lines) = bar {
             let h = lines.len() as i32 * 9 + 6;
-            let r = Rect::new(0, AH - h, AW, h);
+            let r = Rect::new(0, f.h - h, f.w, h);
             ui::panel(fb, r);
             for (k, l) in lines.iter().enumerate() {
                 fb.text(l, 4, r.y + 4 + k as i32 * 9, TEXT, None, 1);
@@ -834,8 +1026,7 @@ impl Pg {
                 None => ("DRAW".to_string(), TEXT),
             };
             fb.text_centered(&head, r.x + r.w / 2, r.y + 8, col, Some(OUTLINE), 2);
-            let t = a.tick / 15;
-            fb.text_centered(&format!("IN {}:{:02}", t / 60, t % 60), r.x + r.w / 2, r.y + 28, TEXT, None, 1);
+            fb.text_centered(&format!("IN {clock}"), r.x + r.w / 2, r.y + 28, TEXT, None, 1);
             fb.text_centered("SPACE OR R REPLAYS", r.x + r.w / 2, r.y + 44, TEXT_FAINT, None, 1);
         }
 
@@ -862,38 +1053,37 @@ impl Pg {
             } else {
                 ui::panel(fb, r);
             }
-            self.icon(fb, d, Rect::new(r.x + 3, r.y + 3, 16, 16), self.team);
-            let tc = if hover && !sel { PANEL_DEEP } else { TEXT };
+            draw_icon(fb, d, Rect::new(r.x + 2, r.y + 2, 14, 14), self.team);
+            let ok = d.check().ok();
+            let tc = if !ok { BAD } else if hover && !sel { PANEL_DEEP } else { TEXT };
             let name: String = d.name.chars().take(10).collect();
-            fb.text(&name, r.x + 22, r.y + 3, tc, None, 1);
+            fb.text(&name, r.x + 19, r.y + 1, tc, None, 1);
             let st = d.stats();
-            fb.text(&format!("{} PX {}", st.count, &d.order.name()[..4]), r.x + 22, r.y + 12, if hover && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
-            fb.text(&format!("{}", i + 1), r.x + r.w - 8, r.y + 3, TEXT_FAINT, None, 1);
+            fb.text(&format!("{} PX {}", st.count, &d.order.name()[..4]), r.x + 19, r.y + 9, if hover && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
+            fb.text(&format!("{}", i + 1), r.x + r.w - 8, r.y + 1, TEXT_FAINT, None, 1);
         }
         let run_label = if self.running { "PAUSE" } else if a.over.is_some() { "REPLAY" } else { "RUN" };
         ui::button(fb, BTN_RUN, run_label, BTN_RUN.contains(m.0, m.1), self.running);
         ui::button(fb, BTN_RESET, "RESET", BTN_RESET.contains(m.0, m.1), false);
         ui::button(fb, BTN_SPEED, &format!("{}X", self.speed), BTN_SPEED.contains(m.0, m.1), self.speed > 1);
         let tl = match self.test {
-            Some(t) => format!("TEST {}/{}", t + 1, TESTS.len()),
+            Some(t) => format!("TEST {}/{}", t + 1, self.tests.len()),
             None => "NEXT TEST".into(),
         };
         ui::button(fb, BTN_TEST, &tl, BTN_TEST.contains(m.0, m.1), false);
         ui::button(fb, BTN_EMPTY, "EMPTY", BTN_EMPTY.contains(m.0, m.1), false);
         ui::button(fb, BTN_YARD, "YARD", BTN_YARD.contains(m.0, m.1), false);
+        self.draw_minimap(fb);
         let sc = &a.score;
         for t in 0..2 {
-            let y = 248 + t as i32 * 10;
+            let y = 274 + t as i32 * 11;
             fb.text(team_name(t), 308, y, team_col(t, 2), None, 1);
-            fb.text(&format!("{}/{}", a.alive(t), sc[t].placed), 340, y, TEXT, None, 1);
-            fb.text(&format!("-{}", sc[t].px_lost), 370, y, TEXT_DIM, None, 1);
+            fb.text(&format!("{}/{}", a.alive(t), sc[t].placed), 338, y, TEXT, None, 1);
+            fb.text(&format!("-{}", sc[t].px_lost), 368, y, TEXT_DIM, None, 1);
         }
-        let t = a.tick / 15;
-        fb.text(&format!("TIME {}:{:02}", t / 60, t % 60), 308, 272, TEXT_DIM, None, 1);
-        fb.text("SHIPS / PX LOST", 308, 286, TEXT_FAINT, None, 1);
 
         // Button tips go in the inspector's place when nothing in the field is hovered.
-        if !FIELD.contains(m.0, m.1) {
+        if !f.contains(m.0, m.1) {
             let tip = if BTN_RUN.contains(m.0, m.1) {
                 Some("[SPACE] RUN OR PAUSE THE FIGHT.")
             } else if BTN_RESET.contains(m.0, m.1) {
@@ -906,15 +1096,19 @@ impl Pg {
                 Some("REMOVE EVERY SHIP, FOR A SETUP OF YOUR OWN.")
             } else if BTN_YARD.contains(m.0, m.1) {
                 Some("[TAB] THE SHIPYARD, TO DRAW AND EDIT DESIGNS.")
+            } else if MINI.contains(m.0, m.1) {
+                Some("THE WHOLE ARENA AT 1/6 SCALE. CLICK OR DRAG TO MOVE THE VIEW, OR SCROLL WITH WASD OR THE ARROWS.")
             } else if (0..2).any(|t| BTN_TEAM[t].contains(m.0, m.1)) {
                 Some("[T] WHICH TEAM YOUR CLICKS PLACE.")
+            } else if (306..400).contains(&m.0) && m.1 >= 272 {
+                Some("SHIPS LEFT / PLACED, AND PIXELS LOST, FOR EACH TEAM.")
             } else {
-                (0..self.lib.len()).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|_| "[1-6] THE DESIGN YOUR CLICKS PLACE. EDIT IT IN THE YARD.")
+                (0..self.lib.len()).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|_| "[1-6] THE DESIGN YOUR CLICKS PLACE. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.")
             };
             if let Some(tip) = tip {
                 let lines = wrap(tip, 49);
                 let h = lines.len() as i32 * 9 + 6;
-                let r = Rect::new(0, AH - h, AW, h);
+                let r = Rect::new(0, f.h - h, f.w, h);
                 ui::panel(fb, r);
                 for (k, l) in lines.iter().enumerate() {
                     fb.text(l, 4, r.y + 4 + k as i32 * 9, TEXT, None, 1);
@@ -923,17 +1117,46 @@ impl Pg {
         }
     }
 
+    fn draw_minimap(&self, fb: &mut Framebuffer) {
+        let a = &self.arena;
+        let r = MINI;
+        ui::inset(fb, r);
+        let (ox, oy) = (r.x + 1, r.y + 1);
+        let inner = Rect::new(ox, oy, AW / MINI_SCALE, AH / MINI_SCALE);
+        fb.rect_fill(ox, oy, inner.w, inner.h, SPACE);
+        for my in 0..inner.h {
+            for mx in 0..inner.w {
+                if a.rock_at(mx * MINI_SCALE + MINI_SCALE / 2, my * MINI_SCALE + MINI_SCALE / 2) {
+                    fb.pset(ox + mx, oy + my, ROCK + 1);
+                }
+            }
+        }
+        for (t, &(sx, sy)) in STATIONS.iter().enumerate() {
+            for k in -2..=2 {
+                pc(fb, inner, ox + sx / MINI_SCALE, oy + sy / MINI_SCALE + k, team_col(t, 0));
+            }
+        }
+        for s in a.ships.iter().filter(|s| s.alive) {
+            let n = (s.half() * 2 / MINI_SCALE).max(1);
+            let (x, y) = (ox + s.x / MINI_SCALE - n / 2, oy + s.y / MINI_SCALE - n / 2);
+            for k in 0..n * n {
+                pc(fb, inner, x + k % n, y + k / n, team_col(s.team, 2));
+            }
+        }
+        let (cx, cy) = self.cam;
+        fb.rect_outline(ox + cx / MINI_SCALE, oy + cy / MINI_SCALE, FIELD.w / MINI_SCALE, FIELD.h / MINI_SCALE, WHITE);
+    }
+
     fn draw_help(&self, fb: &mut Framebuffer) {
         let r = HELP_RECT;
         ui::panel(fb, r);
         fb.text("PROVING GROUND", r.x + 10, r.y + 8, ACCENT, Some(OUTLINE), 2);
-        fb.text("NO MIND WING", r.x + r.w - 82, r.y + 12, TEXT_DIM, None, 1);
+        fb.text("ROUND 2", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
         let body = [
-            ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. NOTHING ELSE DECIDES WHAT IT IS."),
-            ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE, LINED UP SO ITS LANCES BEAR. HEAVIER SHIPS TURN AND CHANGE COURSE SLOWER."),
-            ("GUNS", "FLAK TURRETS FIRE AT THE NEAREST ENEMY IN RANGE WHATEVER THE ORDER. LANCES FIRE ONLY STRAIGHT AHEAD AND PUNCH THROUGH."),
-            ("ORDERS", "HUNT, GUARD, HARVEST OR HOLD, ONE PER DESIGN. A SHIP WITH NO GUNS LEFT RUNS HOME WHEN HIT."),
-            ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS. R REPLAYS THE SAME SETUP. HOVER A SHIP TO SEE WHAT IT'S DOING."),
+            ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. EXACTLY ONE CORE, AND EVERY PIXEL JOINED TO IT EDGE TO EDGE."),
+            ("NEW", "PLATE: FLAK BOUNCES OFF IT. CANNON: A BIG 3X3 TURRET THAT TURNS SLOWLY AND BLASTS HOLES, PLATE AND ALL. PIECES CUT OFF FROM THE CORE BREAK AWAY. FLAK SPREADS ITS FIRE. BIGGER ENEMIES ARE SOLID."),
+            ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE. HEAVIER SHIPS TURN SLOWER."),
+            ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW."),
             ("KEYS", "TAB YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT"),
         ];
         let mut y = r.y + 34;
@@ -946,11 +1169,11 @@ impl Pg {
             y += lines.len() as i32 * 9 + 6;
         }
         let ly = r.y + r.h - 40;
-        for (k, (p, name)) in [(Part::Flak, "FLAK"), (Part::Lance, "LANCE"), (Part::Engine, "ENGINE"), (Part::Scoop, "SCOOP"), (Part::Armor, "ARMOR"), (Part::Core, "CORE")].iter().enumerate() {
+        for (k, p) in [Part::Flak, Part::Lance, Part::Cannon, Part::Plate, Part::Engine, Part::Core].iter().enumerate() {
             let x = r.x + 14 + k as i32 * 60;
             fb.rect_fill(x - 1, ly - 1, 6, 6, OUTLINE);
             fb.rect_fill(x, ly, 4, 4, part_col(*p, 0));
-            fb.text(name, x + 8, ly - 1, TEXT_DIM, None, 1);
+            fb.text(p.name(), x + 8, ly - 1, TEXT_DIM, None, 1);
         }
         fb.text_centered("CLICK OR PRESS ANY KEY", r.x + r.w / 2, r.y + r.h - 18, ACCENT, None, 1);
     }
@@ -976,14 +1199,24 @@ impl App for Pg {
                         self.paint_to(cell, erase);
                     }
                 }
+                if self.map_drag {
+                    self.cam_from_map(x.clamp(MINI.x + 1, MINI.x + MINI.w - 2), y.clamp(MINI.y + 1, MINI.y + MINI.h - 2));
+                }
             }
             Ev::Press { x, y, right } => self.press(x, y, right),
             Ev::Release { .. } => {
+                self.map_drag = false;
                 if self.painting.take().is_some() {
                     self.last_cell = None;
                     self.save();
                 }
             }
+        }
+    }
+    fn hold(&mut self, dirs: [bool; 4]) {
+        self.held = dirs;
+        for k in 0..4 {
+            self.latch[k] |= dirs[k];
         }
     }
     fn tick(&mut self) {
@@ -1003,5 +1236,22 @@ impl App for Pg {
     }
     fn quit(&self) -> bool {
         self.quit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_test_places_every_ship() {
+        let lib = defaults();
+        for t in tests() {
+            let mut a = Arena::new();
+            for &(team, slot, x, y) in &t.place {
+                assert!(a.add(team, slot, &lib[slot], x, y), "{}", t.name);
+                assert!((0..AW).contains(&x) && (0..AH).contains(&y), "{} places a ship off the arena at {x},{y}", t.name);
+            }
+        }
     }
 }
