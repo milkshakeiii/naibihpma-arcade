@@ -25,7 +25,13 @@ pub const STATIONS: [(i32, i32); 2] = [(10, AH / 2), (AW - 11, AH / 2)];
 const FLAK_SPEED: i32 = 6;
 const LANCE_SPEED: i32 = 4;
 const SHELL_SPEED: i32 = 4;
-const GUARD_RADIUS: i32 = 100;
+/// A ship on GUARD fights what comes this near the spot it was built on: further than any gun
+/// reaches, so nothing can shell the factory beside it unanswered.
+pub const GUARD_RADIUS: i32 = 160;
+/// A ship on ESCORT fights what comes this near its king.
+pub const ESCORT_RADIUS: i32 = 110;
+/// Ticks ahead an escort aims: where its place round the king will be by then.
+const ESCORT_LEAD: i32 = 15;
 /// Ticks after a hit during which an unarmed ship keeps fleeing.
 const SCARED: u32 = 30;
 /// Extra distance (px) a flak turret counts for each shot already on its way to a target, so a
@@ -124,6 +130,7 @@ pub enum Doing {
     Guard,
     Hold,
     Escort,
+    WithKing,
     ToRock,
 }
 
@@ -141,6 +148,7 @@ impl Doing {
             Doing::Guard => "ON GUARD",
             Doing::Hold => "HOLDING",
             Doing::Escort => "NO GUNS: STAYING WITH THE GROUP",
+            Doing::WithKing => "ESCORTING THE KING",
             Doing::ToRock => "FLYING TO ITS ROCK",
         }
     }
@@ -512,7 +520,15 @@ impl Arena {
         if !d.check().ok() {
             return false;
         }
-        self.spawn(team, slot, d, x, y, if team == 0 { 1 } else { 3 }, false);
+        let i = self.spawn(team, slot, d, x, y, if team == 0 { 1 } else { 3 }, false);
+        // A seeded design is placed as it would stand on its rock in a match: planted, so solid to
+        // every enemy ship, until it flies (if it can).
+        self.ships[i].rooted = d.seeded;
+        // The arena is a fight, with no factory to guard and no king to escort: a design drawn on
+        // GUARD or ESCORT (the order it starts a match on) hunts here.
+        if self.eco.is_none() && matches!(d.order, Order::Guard | Order::Escort) {
+            self.ships[i].order = Order::Hunt;
+        }
         self.score[team].placed += 1;
         true
     }
@@ -750,6 +766,20 @@ impl Arena {
                 _ if !armed && hurt => self.flee(i, station),
                 _ => self.go(i, home, Doing::Guard),
             },
+            // With its king: it fights what comes near the king while it's near the king itself,
+            // and otherwise keeps its place in the rings round it. With no king to escort (the
+            // arena), it hunts.
+            Order::Escort => match self.escort_spot(i) {
+                Some((king, spot)) => match nearest(ESCORT_RADIUS, king) {
+                    Some(e) if armed && cheb(x, y, king.0, king.1) <= ESCORT_RADIUS + 50 => self.engage(i, &e, snap),
+                    _ => self.go(i, spot, Doing::WithKing),
+                },
+                None if !armed => self.with_group(i, snap),
+                None => match nearest(i32::MAX / 4, (x, y)) {
+                    Some(e) => self.engage(i, &e, snap),
+                    None => self.go(i, home, Doing::Idle),
+                },
+            },
             Order::Harvest => {
                 if !armed && hurt {
                     self.flee(i, station)
@@ -770,8 +800,10 @@ impl Arena {
                 p
             }
         };
-        // Friends keep a pixel or two apart instead of stacking into one sprite.
-        if st.thrust > 0 {
+        // Friends keep a pixel or two apart instead of stacking into one sprite. A miner after a
+        // rock pixel is the exception: it goes to that pixel, whether its own factory stands over
+        // it or a fleet is parked there. (Pushed off, it never gets its bite.)
+        if st.thrust > 0 && plan.doing != Doing::Mine {
             let h = self.ships[i].half();
             for f in snap.iter().filter(|f| f.team == team && f.idx != i && cheb(f.x, f.y, x, y) < f.half + h + 2) {
                 let (ax, ay) = if (f.x, f.y) == (x, y) { (if i < f.idx { -4 } else { 4 }, 0) } else { toward(f.x, f.y, x, y, 4) };
@@ -780,6 +812,32 @@ impl Arena {
             }
         }
         plan
+    }
+
+    /// Where a ship on ESCORT belongs: its king's position, and its own place in the rings round
+    /// the king. Escorts fill the rings in the order they were built (6 in the first ring, 12 in
+    /// the next, and so on) and close up when one is lost.
+    fn escort_spot(&self, i: usize) -> Option<((i32, i32), (i32, i32))> {
+        let s = &self.ships[i];
+        let k = &self.ships[self.eco.as_ref()?.king[s.team]];
+        if !k.alive {
+            return None;
+        }
+        let mut rank = self.ships[..i].iter().filter(|o| o.alive && o.team == s.team && o.order == Order::Escort && o.role == Role::Ship && o.grow.is_none() && o.warp == 0).count() as i32;
+        let (mut ring, mut room) = (0, 6);
+        while rank >= room {
+            rank -= room;
+            ring += 1;
+            room += 6;
+        }
+        // Each ring starts a little further round than the one inside it.
+        let (ux, uy) = dir64((rank * 64 / room + ring * 5) % 64);
+        let r = k.half() + 12 + ring * 14 + s.half();
+        // It flies for where its place will be a second from now, so it keeps up with a king on
+        // the move instead of braking for a spot the king has already left.
+        let (lx, ly) = (k.vx * ESCORT_LEAD / 4, k.vy * ESCORT_LEAD / 4);
+        let spot = ((k.x + ux * r / 1024 + lx).clamp(0, self.w - 1), (k.y + uy * r / 1024 + ly).clamp(0, self.h - 1));
+        Some(((k.x, k.y), spot))
     }
 
     /// A hunter with no guns left stays with its group: beside the nearest friend that still has
@@ -1035,11 +1093,14 @@ impl Arena {
                 let scoops = self.ships[i].st.scoops;
                 let s = &mut self.ships[i];
                 s.chew += 1;
-                if s.chew >= if scoops >= 2 { 3 } else { 6 } {
+                if s.chew >= if scoops >= 2 { CHEW_TICKS } else { 2 * CHEW_TICKS } {
                     s.chew = 0;
                     s.tpx = None;
                     s.carry += 1;
                     self.rock[(py * self.w + px) as usize] = false;
+                    // The bite shows: a spark where the pixel was. A miner at work hardly moves,
+                    // so without it there's no telling a working miner from a stuck one.
+                    self.sparks.push(Spark { x: px, y: py, t: 4, blast: false });
                 }
                 Plan { dv: (0, 0), face: None, doing: Doing::Mine, target: None, goal: Some((px, py)) }
             }
@@ -1705,7 +1766,7 @@ mod tests {
     fn small_ships_never_stay_inside_big_ones() {
         let lib = defaults();
         let mut a = Arena::new();
-        for &(team, slot, x, y) in &crate::pg::tests()[4].place {
+        for &(team, slot, x, y) in &crate::pg::reference_tests()[4].place {
             a.add(team, slot, &lib[slot], x, y);
         }
         let (bumps, inside, longest) = crashes(&mut a, 15 * 60);

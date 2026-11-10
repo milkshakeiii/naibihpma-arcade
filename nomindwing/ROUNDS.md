@@ -2,6 +2,13 @@
 
 This file keeps the iteration pointed in one direction. Each round names the goal it serves, lists every addition with what it's meant to prove, and records Henry's verdict on each one: **keep**, **cut** or **rework**. Anything considered but not built goes in the parking lot, so it isn't lost or added by accident.
 
+**Test numbers in this file** are the reference fleet's nine tests (`reference_tests()` in `src/pg/mod.rs`), which `--pg-sim` still fights. Since 2026-11-10 the window starts with the starter deck as your seven designs and lists tests made for that instead; see [MATCH.md](MATCH.md).
+
+**What Match round 2 changed in the arena (2026-11-10).** Three things reach the proving ground, and its reference results moved in one matchup only (4 fighters against 4 gunminers, 9–3 before and 11–1 now); the other 25 are exactly as they were.
+- **Guard hunts here.** A design's order is now also the order it starts a match on, and the starter deck's warships are drawn on Guard. The arena has no factory to guard, so a design drawn on Guard (or on the match's new Escort) hunts in the arena. Round 1's Guard, which held a spot and fought within 100 px of it, is gone from the arena. Say if you want it back as its own arena-only order.
+- **Mining is slower:** a ship with two or more scoops bites a rock pixel every 2.7 s (0.2 s before), to slow the match's economy.
+- **A miner goes to its rock pixel whoever is parked over it.** The rule that keeps friends a pixel or two apart no longer pushes a miner off the pixel it's after.
+
 ## North star
 
 > The mothership is the king and the root node of a tree of factories. You spawn off little self-propagating wings strategically. It's "the creativity of designing a TCG deck combined with the strategic thrill of outmaneuvering someone in chess."

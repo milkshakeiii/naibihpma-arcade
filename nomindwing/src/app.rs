@@ -6,6 +6,8 @@ use crate::palette::Pal;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Key {
     Num(u8),
+    /// A digit with Shift held.
+    ShiftNum(u8),
     Letter(char),
     Tab,
     Space,

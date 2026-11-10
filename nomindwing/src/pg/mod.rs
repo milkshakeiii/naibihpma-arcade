@@ -52,9 +52,55 @@ pub fn block(team: usize, slot: usize, n: i32, cx: i32, cy: i32, gap: i32) -> Ve
         .collect()
 }
 
-/// Slots: 0 fighter, 1 lancer, 2 frigate, 3 destroyer, 4 capital, 5 gunminer, 6 titan.
+impl Test {
+    /// What the test is, from the names of the designs in its slots: "6 FIGHTERS VS 1 FRIGATE".
+    /// It stays true when a design is redrawn, renamed or swapped for another.
+    pub fn title(&self, lib: &[Design]) -> String {
+        if self.place.is_empty() {
+            return self.name.into();
+        }
+        let side = |t: usize| {
+            let mut counts: Vec<(usize, usize)> = Vec::new();
+            for &(_, slot, _, _) in self.place.iter().filter(|p| p.0 == t) {
+                match counts.iter_mut().find(|c| c.0 == slot) {
+                    Some(c) => c.1 += 1,
+                    None => counts.push((slot, 1)),
+                }
+            }
+            counts.iter().map(|&(s, n)| format!("{n} {}{}", lib[s].name, if n > 1 { "S" } else { "" })).collect::<Vec<_>>().join(" + ")
+        };
+        format!("{} VS {}", side(0), side(1))
+    }
+}
+
+fn vs(name: &'static str, blue: Vec<(usize, usize, i32, i32)>, red: Vec<(usize, usize, i32, i32)>) -> Test {
+    Test { name, place: blue.into_iter().chain(red).collect() }
+}
+
+/// The arena's ready-made fights, for the starting library (the starter deck). Slots: 0 fighter,
+/// 1 lancer, 2 frigate, 3 miner, 4 outpost, 5 shipyard, 6 capital. The first three are the
+/// counter triangle; the last three are raids on a factory, which stands planted as it would on
+/// its rock. The window names each from what's in its slots (`Test::title`).
 pub fn tests() -> Vec<Test> {
-    let vs = |name: &'static str, blue: Vec<(usize, usize, i32, i32)>, red: Vec<(usize, usize, i32, i32)>| Test { name, place: blue.into_iter().chain(red).collect() };
+    vec![
+        vs("6 FIGHTERS VS 1 FRIGATE", block(0, 0, 6, 150, 180, 10), block(1, 2, 1, 330, 180, 0)),
+        vs("6 LANCERS VS 1 FRIGATE", block(0, 1, 6, 150, 180, 10), block(1, 2, 1, 330, 180, 0)),
+        vs("6 FIGHTERS VS 6 LANCERS", block(0, 0, 6, 150, 180, 10), block(1, 1, 6, 330, 180, 10)),
+        vs("4 FIGHTERS VS 4 MINERS", block(0, 0, 4, 120, 180, 12), block(1, 3, 4, 330, 180, 14)),
+        vs("1 CAPITAL VS 30 FIGHTERS", block(0, 6, 1, 130, 180, 0), block(1, 0, 30, 350, 180, 9)),
+        vs("1 CAPITAL VS 40 LANCERS", block(0, 6, 1, 130, 180, 0), block(1, 1, 40, 350, 180, 9)),
+        vs("12 LANCERS VS 1 OUTPOST", block(0, 1, 12, 150, 180, 10), block(1, 4, 1, 330, 180, 0)),
+        vs("4 FRIGATES VS 1 OUTPOST", block(0, 2, 4, 150, 180, 16), block(1, 4, 1, 330, 180, 0)),
+        vs("1 CAPITAL VS 1 SHIPYARD", block(0, 6, 1, 130, 180, 0), block(1, 5, 1, 350, 180, 0)),
+        Test { name: "OPEN FIELD", place: Vec::new() },
+    ]
+}
+
+/// The fights the proving ground's rounds were judged on, for the reference fleet (`defaults()`).
+/// Slots: 0 fighter, 1 lancer, 2 frigate, 3 destroyer, 4 capital, 5 gunminer, 6 titan. The
+/// headless runs and the checks still fight these, so a change to the sim shows up against the
+/// results the rounds recorded.
+pub fn reference_tests() -> Vec<Test> {
     vec![
         vs("6 FIGHTERS VS 1 FRIGATE", block(0, 0, 6, 150, 180, 10), block(1, 2, 1, 330, 180, 0)),
         vs("6 LANCERS VS 1 FRIGATE", block(0, 1, 6, 150, 180, 10), block(1, 2, 1, 330, 180, 0)),
@@ -269,8 +315,19 @@ pub struct Pg {
 }
 
 impl Pg {
+    /// The game as it starts: the starter deck as your seven designs (so there's a working match
+    /// deck to redraw from the first minute), unless a save says otherwise.
     pub fn new(save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
-        let mut lib = defaults();
+        Pg::with(starter_deck(), tests(), save_path, log_path)
+    }
+
+    /// The proving ground as its rounds left it: the reference fleet and the fights it was judged
+    /// on. Nothing is saved or logged.
+    pub fn reference() -> Pg {
+        Pg::with(defaults(), reference_tests(), None, None)
+    }
+
+    fn with(mut lib: Vec<Design>, tests: Vec<Test>, save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
         if let Some(p) = &save_path {
             if let Ok(text) = std::fs::read_to_string(p) {
                 if matches!(text.lines().next(), Some(SAVE_HEADER | OLD_SAVE_HEADER)) {
@@ -280,6 +337,13 @@ impl Pg {
                     // A design still exactly like an old default was never edited: give it the new one.
                     let now = defaults();
                     for (slot, old) in retired_defaults() {
+                        if lib[slot].to_line() == old.to_line() {
+                            lib[slot] = now[slot].clone();
+                        }
+                    }
+                    // The same for a starter-deck card as an earlier round drew it.
+                    let now = starter_deck();
+                    for (slot, old) in retired_starters() {
                         if lib[slot].to_line() == old.to_line() {
                             lib[slot] = now[slot].clone();
                         }
@@ -304,7 +368,7 @@ impl Pg {
             arena: Arena::new(),
             setup: Vec::new(),
             test: None,
-            tests: tests(),
+            tests,
             running: false,
             speed: 1,
             team: 0,
@@ -374,8 +438,8 @@ impl Pg {
         self.logged_over = false;
     }
 
-    fn test_name(&self) -> &'static str {
-        self.test.map_or("YOUR SETUP", |t| self.tests[t].name)
+    fn test_name(&self) -> String {
+        self.test.map_or("YOUR SETUP".into(), |t| self.tests[t].title(&self.lib))
     }
 
     fn set_running(&mut self, on: bool) {
@@ -435,7 +499,6 @@ impl Pg {
             (Screen::Match, Key::Esc) if self.cancel_planting() => {}
             (_, Key::Esc) => self.confirm_quit = true,
             (_, Key::Help) => self.help = true,
-            (Screen::Match, Key::Tab) => {}
             (Screen::Match, k) => self.key_match(k),
             (_, Key::Tab) => self.switch_screen(),
             (Screen::Yard, k) => self.key_yard(k),
@@ -736,7 +799,7 @@ impl Pg {
             let sh = self.lib[self.slot].shape();
             draw_shape(fb, f, &sh, m.0, m.1, if self.team == 0 { 1 } else { 3 }, self.team, &|_| true, true);
         }
-        fb.text(self.test_name(), 4, 3, TEXT_DIM, Some(OUTLINE), 1);
+        fb.text(&self.test_name(), 4, 3, TEXT_DIM, Some(OUTLINE), 1);
         let t = a.tick / 15;
         let clock = format!("{}:{:02}", t / 60, t % 60);
         fb.text(&clock, f.w - 4 - Framebuffer::text_width(&clock, 1), 3, TEXT_DIM, Some(OUTLINE), 1);
@@ -1000,12 +1063,47 @@ mod tests {
 
     #[test]
     fn every_test_places_every_ship() {
-        let lib = defaults();
-        for t in tests() {
+        for (lib, tests) in [(defaults(), reference_tests()), (starter_deck(), tests())] {
+            for t in tests {
+                let mut a = Arena::new();
+                for &(team, slot, x, y) in &t.place {
+                    assert!(a.add(team, slot, &lib[slot], x, y), "{}", t.name);
+                    assert!((0..AW).contains(&x) && (0..AH).contains(&y), "{} places a ship off the arena at {x},{y}", t.name);
+                }
+                // Each is named for what it places, and the name fits across the top of the field
+                // beside the clock.
+                assert_eq!(t.title(&lib), t.name);
+                assert!(4 + Framebuffer::text_width(&t.title(&lib), 1) <= FIELD.w - 40, "{}", t.name);
+            }
+        }
+    }
+
+    #[test]
+    fn the_game_starts_with_a_deck_that_plays_a_match() {
+        // A fresh library is the starter deck: every design legal, a seeded factory to plant, a
+        // miner on a build order, and nothing on any build order that could never be built.
+        let pg = Pg::new(None, None);
+        assert_eq!(pg.lib.len(), 7);
+        assert_eq!(pg.lib.iter().map(|d| d.to_line()).collect::<Vec<_>>(), starter_deck().iter().map(|d| d.to_line()).collect::<Vec<_>>());
+        assert!(pg.lib.iter().all(|d| d.check().ok()));
+        assert!(pg.lib.iter().any(|d| d.seeded && d.stats().factory > 0));
+        assert!(pg.lib.iter().filter(|d| d.seeded).any(|d| d.build.iter().any(|&b| pg.lib[b].stats().scoops > 0)));
+        for d in &pg.lib {
+            for &b in &d.build {
+                assert!(!pg.lib[b].seeded && pg.lib[b].stats().count <= d.stats().max_build(), "{} can't build {}", d.name, pg.lib[b].name);
+            }
+        }
+        // Every ready-made fight runs to an end with it, factories and all, and stays sound.
+        for t in tests().iter().filter(|t| !t.place.is_empty()) {
             let mut a = Arena::new();
             for &(team, slot, x, y) in &t.place {
-                assert!(a.add(team, slot, &lib[slot], x, y), "{}", t.name);
-                assert!((0..AW).contains(&x) && (0..AH).contains(&y), "{} places a ship off the arena at {x},{y}", t.name);
+                a.add(team, slot, &pg.lib[slot], x, y);
+            }
+            while a.over.is_none() {
+                a.step();
+                if let Err(e) = a.audit() {
+                    panic!("{} at tick {}: {e}", t.name, a.tick);
+                }
             }
         }
     }

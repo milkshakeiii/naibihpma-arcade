@@ -57,9 +57,24 @@ fn main() {
         export::pg_trace((n(1) as usize, n(2)), (n(3) as usize, n(4)), n(5).max(1) as u32, n(6).max(1) as u32);
         return;
     }
+    if let Some(file) = arg("--deck") {
+        export::deck_sheet(file.as_deref());
+        return;
+    }
     if let Some(i) = args.iter().position(|a| a == "--match-sim") {
         let n = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(4);
-        export::match_sim(n);
+        // --bots BLUE,RED picks who plays: ai (the default), clock, planter, expander, summoner.
+        let mut bots = [pg::sim::Bot::Ai; 2];
+        if let Some(Some(names)) = arg("--bots") {
+            for (k, name) in names.split(',').take(2).enumerate() {
+                bots[k] = pg::sim::Bot::from_name(name).unwrap_or_else(|| panic!("no bot called {name}"));
+            }
+        }
+        export::match_sim(n, arg("--blue").flatten().as_deref(), arg("--red").flatten().as_deref(), bots);
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--judge") {
+        export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5));
         return;
     }
     if arg("--pg-sim").is_some() {
@@ -240,7 +255,10 @@ fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
                 for p in polls.iter_mut() {
                     let down = p.vks.iter().any(|&vk| key_down(vk));
                     if down && !p.held {
-                        game.event(Ev::Key(p.key));
+                        game.event(Ev::Key(match p.key {
+                            Key::Num(n) if key_down(VK_SHIFT) => Key::ShiftNum(n),
+                            k => k,
+                        }));
                     }
                     p.held = down;
                 }

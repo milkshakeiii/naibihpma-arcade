@@ -1,5 +1,6 @@
-//! The match screen: fly your king, have it print your deck, plant seeds on rocks, and watch your
-//! factories grow and print. The AI plays the other side with the starter deck.
+//! The match screen: fly your king, have it print your deck, plant seeds on rocks, give your
+//! designs their standing orders, and watch your factories grow and print. The AI plays the other
+//! side with the starter deck.
 
 use super::design::*;
 use super::scene;
@@ -7,16 +8,22 @@ use super::sim::*;
 use super::{draw_icon, pc, team_name, Pg, Screen, FIELD};
 use crate::app::Key;
 use crate::framebuffer::{wrap, Framebuffer};
-use crate::geom::dist2;
+use crate::geom::{cheb, dist2};
 use crate::palette::*;
 use crate::ui::{self, Rect};
 
 /// The whole map at exactly 1/13 scale.
 const MINI_SCALE: i32 = 13;
-const MINI: Rect = Rect::new(306, 198, MW / MINI_SCALE + 2, MH / MINI_SCALE + 2);
-const BTN_PAUSE: Rect = Rect::new(306, 163, 44, 15);
-const BTN_SPEED: Rect = Rect::new(352, 163, 44, 15);
-const BTN_LEAVE: Rect = Rect::new(306, 180, 90, 15);
+const MINI: Rect = Rect::new(306, 200, MW / MINI_SCALE + 2, MH / MINI_SCALE + 2);
+/// The tactical map: the whole map at exactly 1/4 scale, in the field.
+const TAC_SCALE: i32 = 4;
+const TAC: Rect = Rect::new((FIELD.w - MW / TAC_SCALE) / 2, (FIELD.h - MH / TAC_SCALE) / 2 + 4, MW / TAC_SCALE, MH / TAC_SCALE);
+const BTN_CANCEL: Rect = Rect::new(385, 148, 11, 9);
+const BTN_PAUSE: Rect = Rect::new(306, 159, 44, 14);
+const BTN_SPEED: Rect = Rect::new(352, 159, 44, 14);
+const BTN_TAC: Rect = Rect::new(306, 175, 44, 14);
+const BTN_LEAVE: Rect = Rect::new(352, 175, 44, 14);
+const VIEW_NOTE_Y: i32 = 191;
 const OVER: Rect = Rect::new(52, 100, 200, 88);
 const OVER_BTNS: [Rect; 2] = [Rect::new(66, 162, 80, 16), Rect::new(158, 162, 80, 16)];
 const MENU: Rect = Rect::new(80, 80, 240, 130);
@@ -25,15 +32,32 @@ const MENU_BTNS: [Rect; 3] = [Rect::new(92, 168, 70, 18), Rect::new(166, 168, 76
 fn card_rect(i: usize) -> Rect {
     Rect::new(306, 14 + i as i32 * 18, 90, 17)
 }
+/// The order tag on a card: a click there switches the design's standing order.
+fn tag_rect(i: usize) -> Rect {
+    let r = card_rect(i);
+    Rect::new(r.x + 67, r.y + 8, 21, 8)
+}
+
+fn order_col(o: Order) -> u8 {
+    match o {
+        Order::Hunt => BAD,
+        Order::Guard => ACCENT_HI,
+        Order::Escort => GOLD,
+        Order::Harvest => GOOD,
+        Order::Hold => TEXT_DIM,
+    }
+}
 
 /// The match's rules panel, by heading.
-const MATCH_HELP: [(&str, &str); 7] = [
+const MATCH_HELP: [(&str, &str); 9] = [
     ("GOAL", "KILL THE ENEMY KING. LOSE YOURS AND YOU LOSE."),
-    ("KING", "WASD OR THE ARROWS FLY IT. 1-7 OR A CARD: IT PRINTS THAT DESIGN FROM YOUR BANK, AND IT ARRIVES BY HYPERSPACE."),
-    ("SEEDS", "A SEEDED CARD MAKES A SEED: CLICK A ROCK FOR IT. IT FLIES THERE AND GROWS ITS DESIGN OUT OF THE ROCK, PIXEL BY PIXEL. ONE WITH ENGINES FLIES OFF WHEN IT'S WHOLE."),
-    ("FACTORY", "IT PRINTS ITS BUILD ORDER ROUND AND ROUND, A PIXEL AT A TIME, SKIPPING WHAT IT'S TOO SMALL FOR AND WAITING WHEN THE BANK IS EMPTY."),
-    ("BANK", "MINERS HAUL TO THE NEAREST NODE (KING OR FACTORY). LINKED NODES SHARE A BANK; CUT A LINK AND IT SPLITS."),
-    ("SOLID", "WHAT'S PLANTED ON A ROCK IS SOLID TO EVERY ENEMY SHIP. AN ENEMY SHIP BIGGER THAN YOURS IS SOLID TO YOU. ROCKS STOP NOTHING."),
+    ("KING", "WASD OR ARROWS FLY IT. 1-7 OR A CARD: IT PRINTS THAT SHIP, A PIXEL AT A TIME. RIGHT-CLICK: IT KEEPS PRINTING IT. BACKSPACE: IT STOPS."),
+    ("SEEDS", "A SEEDED CARD COSTS ALL IT GROWS INTO, PAID AT ONCE. CLICK A ROCK: ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK, PIXEL BY PIXEL."),
+    ("FACTORY", "IT PRINTS ITS BUILD ORDER ROUND AND ROUND, A PIXEL AT A TIME, WAITING WHEN THE BANK IS EMPTY."),
+    ("BANK", "MINERS HAUL TO THE NEAREST NODE (KING OR FACTORY). LINKED NODES SHARE A BANK; NODES CUT OFF FROM YOUR KING KEEP THEIR OWN."),
+    ("ORDERS", "EVERY DESIGN THAT FLIES HAS A STANDING ORDER, ON ITS CARD: HUNT THE NEAREST ENEMY, GUARD WHERE IT WAS BUILT, OR ESCORT YOUR KING. CLICK THE TAG OR SHIFT+NUMBER: EVERY SHIP OF IT OBEYS AT ONCE."),
+    ("VIEW", "HOLD THE MOUSE ON THE SMALL MAP TO LOOK ELSEWHERE; STEERING BRINGS THE VIEW BACK. TAB: THE WHOLE MAP."),
+    ("SOLID", "WHAT'S PLANTED IS SOLID TO ENEMY SHIPS. SO IS AN ENEMY SHIP BIGGER THAN YOURS."),
     ("KEYS", "SPACE PAUSE  F SPEED  ESC CANCEL/QUIT  F1 HELP"),
 ];
 
@@ -42,13 +66,16 @@ pub struct Play {
     pub arena: Arena,
     pub cam: (i32, i32),
     pub follow: bool,
+    /// The field shows the whole map at quarter scale.
+    pub tactical: bool,
     /// A seeded card picked, waiting for you to click the rock its seed should go to.
     pub planting: Option<usize>,
     pub running: bool,
     pub speed: u32,
     pub starter: bool,
     pub seed: u64,
-    map_drag: bool,
+    /// A drag that moves the view is under way, on the whole map (true) or the small one.
+    map_drag: Option<bool>,
     logged_over: bool,
     next_log: u32,
 }
@@ -61,7 +88,7 @@ impl Pg {
     pub fn start_match(&mut self, starter: bool, seed: u64) {
         let mine = if starter { starter_deck() } else { self.lib.clone() };
         let arena = Arena::for_match(seed, [mine, starter_deck()], [false, true]);
-        let mut p = Play { arena, cam: (0, 0), follow: true, planting: None, running: true, speed: 1, starter, seed, map_drag: false, logged_over: false, next_log: 15 * 60 };
+        let mut p = Play { arena, cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60 };
         p.look_at_king();
         self.play = Some(p);
         self.menu = false;
@@ -69,7 +96,7 @@ impl Pg {
         // The rules first: Toy 1's were hard to work out from play alone.
         self.help = true;
         let deck = if starter { "STARTER DECK" } else { "YOUR DECK" };
-        self.log(&format!("MATCH START seed {seed}, {deck}"));
+        self.log(&format!("MATCH START round 2, seed {seed}, {deck}"));
         if !starter {
             for d in self.lib.clone() {
                 self.log(&format!("  DESIGN {}", d.to_line()));
@@ -101,7 +128,7 @@ impl Pg {
         if steer != (0, 0) {
             p.follow = true;
         }
-        if p.arena.eco.as_ref().is_some_and(|e| !e.ai[0]) {
+        if p.arena.eco.as_ref().is_some_and(|e| e.bot[0] == Bot::None) {
             p.arena.command(Cmd::Steer { team: 0, dx: steer.0, dy: steer.1 });
         }
         if p.running && p.arena.over.is_none() {
@@ -140,14 +167,24 @@ impl Pg {
         let Some(p) = self.play.as_mut() else { return };
         match k {
             Key::Num(n) if (1..=7).contains(&n) => self.card(n as usize - 1),
+            Key::ShiftNum(n) if (1..=7).contains(&n) => self.next_order(n as usize - 1),
             Key::Space | Key::Letter('P') => {
                 if p.arena.over.is_none() {
                     p.running = !p.running;
                 }
             }
             Key::Letter('F') => p.speed = if p.speed >= 4 { 1 } else { p.speed * 2 },
+            Key::Tab => self.toggle_tactical(),
+            Key::Back => self.cancel_print(),
             _ => {}
         }
+    }
+
+    fn toggle_tactical(&mut self) {
+        let Some(p) = self.play.as_mut() else { return };
+        p.tactical = !p.tactical;
+        let line = format!("TACTICAL {} at {}", if p.tactical { "ON" } else { "OFF" }, clock(p.arena.tick));
+        self.log(&line);
     }
 
     /// A card: the king prints a built design straight away; a seeded one waits for a rock.
@@ -159,6 +196,12 @@ impl Pg {
             return;
         }
         if card.seeded {
+            let bank = p.arena.bank(p.arena.eco.as_ref().unwrap().king[0]);
+            if bank < card.price() {
+                let s = format!("IT COSTS {} AND YOUR BANK HOLDS {bank}", card.price());
+                self.say(&s);
+                return;
+            }
             p.planting = Some(i);
             self.say("CLICK A ROCK FOR THE SEED. RIGHT-CLICK CANCELS");
         } else {
@@ -166,6 +209,40 @@ impl Pg {
                 Ok(_) => p.arena.command(Cmd::Print { team: 0, slot: i, target: None }),
                 Err(why) => self.say(why),
             }
+        }
+    }
+
+    /// A card's order tag: the design's next standing order.
+    fn next_order(&mut self, i: usize) {
+        let Some(p) = self.play.as_mut() else { return };
+        let Some(e) = p.arena.eco.as_ref() else { return };
+        let Some(card) = e.cards[0].get(i).copied().filter(|c| c.takes_orders()) else { return };
+        let (now, choices) = (e.orders[0][i], Order::in_match(card.order));
+        let next = choices[(choices.iter().position(|&o| o == now).map_or(0, |k| k + 1)) % choices.len()];
+        let line = format!("ORDER {} {} at {}", e.deck[0][i].name, next.name(), clock(p.arena.tick));
+        p.arena.command(Cmd::Order { team: 0, slot: i, order: next });
+        self.log(&line);
+    }
+
+    /// Right-click on a card: the king keeps printing it (or stops).
+    fn repeat(&mut self, i: usize) {
+        let Some(p) = self.play.as_mut() else { return };
+        let Some(e) = p.arena.eco.as_ref() else { return };
+        let Some(card) = e.cards[0].get(i).copied() else { return };
+        if !card.ok || card.seeded {
+            self.say("ONLY SHIPS YOUR KING PRINTS CAN REPEAT");
+            return;
+        }
+        let on = e.queue[0].iter().any(|j| j.slot == i && j.repeat);
+        let line = format!("REPEAT {} {} at {}", e.deck[0][i].name, if on { "OFF" } else { "ON" }, clock(p.arena.tick));
+        p.arena.command(Cmd::Repeat { team: 0, slot: i });
+        self.log(&line);
+    }
+
+    fn cancel_print(&mut self) {
+        let Some(p) = self.play.as_mut() else { return };
+        if p.arena.eco.as_ref().is_some_and(|e| !e.queue[0].is_empty()) {
+            p.arena.command(Cmd::Cancel { team: 0 });
         }
     }
 
@@ -177,6 +254,25 @@ impl Pg {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Plants the seed of `slot` on the rock nearest a world point, if there is one within `slack`.
+    fn plant(&mut self, slot: usize, at: (i32, i32), slack: i32) {
+        let Some(p) = self.play.as_mut() else { return };
+        match p.arena.rock_near(at, slack) {
+            Some(target) => {
+                p.planting = None;
+                match p.arena.can_print(0, slot, Some(target)) {
+                    Ok(cost) => {
+                        let line = format!("PLANT {} for {cost} at {}", p.arena.eco.as_ref().unwrap().deck[0][slot].name, clock(p.arena.tick));
+                        p.arena.command(Cmd::Print { team: 0, slot, target: Some(target) });
+                        self.log(&line);
+                    }
+                    Err(why) => self.say(why),
+                }
+            }
+            None => self.say("THAT'S NOT A ROCK: CLICK ON ONE"),
         }
     }
 
@@ -194,51 +290,52 @@ impl Pg {
             }
         }
         if right {
-            p.planting = None;
+            if p.planting.is_some() {
+                p.planting = None;
+            } else if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
+                self.repeat(i);
+            }
             return;
         }
         if FIELD.contains(x, y) {
-            if let Some(slot) = p.planting {
-                let at = (x + p.cam.0, y + p.cam.1);
-                match p.arena.rock_near(at, 6) {
-                    Some(target) => {
-                        p.planting = None;
-                        match p.arena.can_print(0, slot, Some(target)) {
-                            Ok(_) => p.arena.command(Cmd::Print { team: 0, slot, target: Some(target) }),
-                            Err(why) => self.say(why),
-                        }
-                    }
-                    None => self.say("THAT'S NOT A ROCK: CLICK ON ONE"),
+            match (p.planting, p.world_point(x, y)) {
+                (Some(slot), Some(at)) => {
+                    let slack = if p.tactical { 2 * TAC_SCALE } else { 6 };
+                    self.plant(slot, at, slack);
                 }
+                // A click on the tactical map moves the view, as on the small map.
+                (None, Some(at)) if p.tactical => {
+                    p.map_drag = Some(true);
+                    p.look_at(at);
+                }
+                _ => {}
             }
             return;
         }
-        if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
+        if let Some(i) = (0..7).find(|&i| tag_rect(i).contains(x, y) && p.arena.eco.as_ref().is_some_and(|e| e.cards[0].get(i).is_some_and(|c| c.takes_orders()))) {
+            self.next_order(i);
+        } else if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
             self.card(i);
         } else if MINI.contains(x, y) {
-            if let Some(slot) = p.planting {
-                // Planting from the minimap: the rock nearest the click.
-                let at = ((x - MINI.x - 1) * MINI_SCALE, (y - MINI.y - 1) * MINI_SCALE);
-                match p.arena.rock_near(at, MINI_SCALE) {
-                    Some(target) => {
-                        p.planting = None;
-                        match p.arena.can_print(0, slot, Some(target)) {
-                            Ok(_) => p.arena.command(Cmd::Print { team: 0, slot, target: Some(target) }),
-                            Err(why) => self.say(why),
-                        }
-                    }
-                    None => self.say("THAT'S NOT A ROCK: CLICK ON ONE"),
+            match (p.planting, p.world_point(x, y)) {
+                // Planting from the small map: the rock nearest the click.
+                (Some(slot), Some(at)) => self.plant(slot, at, MINI_SCALE),
+                (None, Some(at)) => {
+                    p.map_drag = Some(false);
+                    p.look_at(at);
                 }
-                return;
+                _ => {}
             }
-            p.map_drag = true;
-            p.cam_from_map(x, y);
+        } else if BTN_CANCEL.contains(x, y) {
+            self.cancel_print();
         } else if BTN_PAUSE.contains(x, y) {
             if p.arena.over.is_none() {
                 p.running = !p.running;
             }
         } else if BTN_SPEED.contains(x, y) {
             p.speed = if p.speed >= 4 { 1 } else { p.speed * 2 };
+        } else if BTN_TAC.contains(x, y) {
+            self.toggle_tactical();
         } else if BTN_LEAVE.contains(x, y) {
             self.leave_match();
         }
@@ -246,15 +343,19 @@ impl Pg {
 
     pub(super) fn drag_match(&mut self, x: i32, y: i32) {
         if let Some(p) = self.play.as_mut() {
-            if p.map_drag {
-                p.cam_from_map(x.clamp(MINI.x + 1, MINI.x + MINI.w - 2), y.clamp(MINI.y + 1, MINI.y + MINI.h - 2));
+            if let Some(whole) = p.map_drag {
+                // The drag stays on the map it began on, however far the pointer strays.
+                let r = if whole && p.tactical { TAC } else { Rect::new(MINI.x + 1, MINI.y + 1, MINI.w - 2, MINI.h - 2) };
+                if let Some(at) = p.world_point(x.clamp(r.x, r.x + r.w - 1), y.clamp(r.y, r.y + r.h - 1)) {
+                    p.look_at(at);
+                }
             }
         }
     }
 
     pub(super) fn release_match(&mut self) {
         if let Some(p) = self.play.as_mut() {
-            p.map_drag = false;
+            p.map_drag = None;
         }
     }
 
@@ -295,63 +396,58 @@ impl Pg {
         let a = &p.arena;
         let e = a.eco.as_ref().unwrap();
         let m = self.mouse;
-        let (cx, cy) = p.cam;
         let f = FIELD;
-        scene::backdrop(fb, f, a, p.cam);
-        // Network links: dotted lines between linked nodes.
-        let nodes: Vec<usize> = (0..a.ships.len()).filter(|&i| a.is_node(i)).collect();
-        for (k, &i) in nodes.iter().enumerate() {
-            for &j in &nodes[k + 1..] {
-                let (si, sj) = (&a.ships[i], &a.ships[j]);
-                let r = reach(si) + reach(sj);
-                if si.team == sj.team && e.net.get(i) == e.net.get(j) && dist2(si.x, si.y, sj.x, sj.y) <= r * r {
-                    crate::render::dotted(fb, f, si.x - cx, si.y - cy, sj.x - cx, sj.y - cy, 4, team_col(si.team, 0));
-                }
+        // The world point under the pointer, on whichever view the field shows.
+        let at = if f.contains(m.0, m.1) { p.world_point(m.0, m.1) } else { None };
+        let hovered = match at {
+            Some((wx, wy)) if p.planting.is_none() && !p.tactical => a.ship_at(wx, wy),
+            Some((wx, wy)) if p.planting.is_none() => (0..a.ships.len()).filter(|&i| a.ships[i].alive && a.ships[i].warp == 0 && cheb(a.ships[i].x, a.ships[i].y, wx, wy) <= a.ships[i].half() + 2 * TAC_SCALE).min_by_key(|&i| dist2(a.ships[i].x, a.ships[i].y, wx, wy)),
+            _ => None,
+        };
+        // Where a world box lands on the field.
+        let on_field = |l: i32, t: i32, r: i32, b: i32| {
+            if p.tactical {
+                (TAC.x + l / TAC_SCALE, TAC.y + t / TAC_SCALE, (r - l) / TAC_SCALE + 1, (b - t) / TAC_SCALE + 1)
+            } else {
+                (l - p.cam.0, t - p.cam.1, r - l + 1, b - t + 1)
             }
-        }
-        scene::drift(fb, f, a, p.cam);
-        let (wx, wy) = (m.0 + cx, m.1 + cy);
-        let hovered = if f.contains(m.0, m.1) && p.planting.is_none() { a.ship_at(wx, wy) } else { None };
-        // Our seeds' courses.
-        for s in a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Seed) {
-            if let Some((_, (tx, ty))) = s.seed_for {
-                crate::render::dotted(fb, f, s.x - cx, s.y - cy, tx - cx, ty - cy, 3, TEXT_FAINT);
-            }
-        }
-        for s in a.ships.iter().filter(|s| s.alive) {
-            scene::ship(fb, f, s, p.cam);
+        };
+        if p.tactical {
+            p.draw_tactical(fb);
+        } else {
+            p.draw_field(fb);
         }
         if let Some(i) = hovered {
-            scene::corners(fb, &a.ships[i], p.cam);
+            let (l, t, r, b) = a.ships[i].bbox();
+            let (x, y, w, h) = on_field(l, t, r, b);
+            fb.corners(x - 2, y - 2, w + 4, h + 4, 2, WHITE);
         }
-        scene::fire(fb, f, a, p.cam);
         // Planting: the rock under the pointer and whether the design fits on it.
         let mut bar: Option<Vec<String>> = None;
-        if let Some(slot) = p.planting {
-            if f.contains(m.0, m.1) {
-                let need = e.cards[0][slot].count;
-                match a.rock_near((wx, wy), 6) {
-                    Some(px) => {
-                        let rock = a.rock_blob(px);
-                        let (l, t) = (rock.iter().map(|q| q.0).min().unwrap(), rock.iter().map(|q| q.1).min().unwrap());
-                        let (r, b) = (rock.iter().map(|q| q.0).max().unwrap(), rock.iter().map(|q| q.1).max().unwrap());
-                        let fits = rock.len() as i32 >= need;
-                        // Something already planted on this rock, whoever's: the two will grow up
-                        // against each other, so neither is likely to finish.
-                        let here = a.ships.iter().find(|s| {
-                            let (sl, st, sr, sb) = s.bbox();
-                            s.alive && s.rooted && sl <= r + 2 && sr >= l - 2 && st <= b + 2 && sb >= t - 2
-                        });
-                        fb.corners(l - 2 - cx, t - 2 - cy, r - l + 5, b - t + 5, 3, if fits && here.is_none() { GOOD } else { GOLD });
-                        let fit = match here {
-                            Some(s) => format!("{} {} IS PLANTED HERE ALREADY: THEY'LL WALL EACH OTHER IN.", team_name(s.team), s.name),
-                            None if fits => "IT FITS.".to_string(),
-                            None => format!("IT'LL STAY {}% GROWN.", rock.len() as i32 * 100 / need.max(1)),
-                        };
-                        bar = Some(wrap(&format!("PLANT {} HERE: ROCK {} PX, NEEDS {}. {fit} RIGHT-CLICK OR ESC CANCELS.", e.deck[0][slot].name, rock.len(), need), 49));
-                    }
-                    None => bar = Some(vec![format!("PLANT {}: CLICK A ROCK", e.deck[0][slot].name), "RIGHT-CLICK OR ESC CANCELS".into()]),
+        if let (Some(slot), Some(at)) = (p.planting, at) {
+            let need = e.cards[0][slot].count;
+            match a.rock_near(at, if p.tactical { 2 * TAC_SCALE } else { 6 }) {
+                Some(px) => {
+                    let rock = a.rock_blob(px);
+                    let (l, t) = (rock.iter().map(|q| q.0).min().unwrap(), rock.iter().map(|q| q.1).min().unwrap());
+                    let (r, b) = (rock.iter().map(|q| q.0).max().unwrap(), rock.iter().map(|q| q.1).max().unwrap());
+                    let fits = rock.len() as i32 >= need;
+                    // Something already planted on this rock, whoever's: the two will grow up
+                    // against each other, so neither is likely to finish.
+                    let here = a.ships.iter().find(|s| {
+                        let (sl, st, sr, sb) = s.bbox();
+                        s.alive && s.rooted && sl <= r + 2 && sr >= l - 2 && st <= b + 2 && sb >= t - 2
+                    });
+                    let (x, y, w, h) = on_field(l, t, r, b);
+                    fb.corners(x - 2, y - 2, w + 4, h + 4, 3, if fits && here.is_none() { GOOD } else { GOLD });
+                    let fit = match here {
+                        Some(s) => format!("{} {} IS PLANTED HERE ALREADY: THEY'LL WALL EACH OTHER IN.", team_name(s.team), s.name),
+                        None if fits => "IT FITS.".to_string(),
+                        None => format!("IT'LL STAY {}% GROWN.", rock.len() as i32 * 100 / need.max(1)),
+                    };
+                    bar = Some(wrap(&format!("PLANT {} HERE FOR {} PX: ROCK {} PX, NEEDS {}. {fit} RIGHT-CLICK OR ESC CANCELS.", e.deck[0][slot].name, e.cards[0][slot].price(), rock.len(), need), 49));
                 }
+                None => bar = Some(vec![format!("PLANT {}: CLICK A ROCK", e.deck[0][slot].name), "RIGHT-CLICK OR ESC CANCELS".into()]),
             }
         }
         fb.text(&clock(a.tick), 4, 3, TEXT_DIM, Some(OUTLINE), 1);
@@ -361,8 +457,8 @@ impl Pg {
         if bar.is_none() {
             bar = if let Some(i) = hovered {
                 Some(ship_lines(a, i))
-            } else if f.contains(m.0, m.1) {
-                a.rock_near((wx, wy), 2).map(|px| vec![format!("ROCK: {} PX LEFT. ANYONE CAN MINE IT, AND A SEED CAN GROW A FACTORY OUT OF IT.", a.rock_blob(px).len())])
+            } else if let Some(at) = at {
+                a.rock_near(at, if p.tactical { TAC_SCALE } else { 2 }).map(|px| vec![format!("ROCK: {} PX LEFT. ANYONE CAN MINE IT, AND A SEED CAN GROW A FACTORY OUT OF IT.", a.rock_blob(px).len())])
             } else {
                 self.match_tip().map(|t| wrap(&t, 49))
             };
@@ -399,11 +495,19 @@ impl Pg {
         // Sidebar.
         ui::panel(fb, Rect::new(304, 0, 96, 300));
         let k = e.king[0];
-        fb.text(&format!("BANK {}", a.bank(k)), 308, 4, GOLD, None, 1);
+        let bank = a.bank(k);
+        fb.text(&format!("BANK {bank}"), 308, 4, GOLD, None, 1);
+        // What nodes cut off from the king hold: yours, but not yours to plant with.
+        let cut = cut_off(a);
+        if cut > 0 {
+            let s = format!("+{cut}");
+            fb.text(&s, 396 - Framebuffer::text_width(&s, 1), 4, TEXT_DIM, None, 1);
+        }
         for i in 0..7 {
             let r = card_rect(i);
             let hov = r.contains(m.0, m.1);
             let busy = e.queue[0].first().is_some_and(|j| j.slot == i);
+            let repeats = e.queue[0].iter().any(|j| j.slot == i && j.repeat);
             let picked = p.planting == Some(i);
             if picked || busy {
                 fb.rect_bevel(r.x, r.y, r.w, r.h, PANEL_DEEP, PANEL_LO, PANEL_HI);
@@ -413,35 +517,56 @@ impl Pg {
             } else {
                 ui::panel(fb, r);
             }
+            // A card the king keeps printing wears a blue frame, as in Toy 1.
+            if repeats {
+                fb.rect_outline(r.x, r.y, r.w, r.h, ACCENT_HI);
+            }
             let Some(d) = e.deck[0].get(i) else { continue };
             let card = e.cards[0][i];
+            let lit = hov && !(busy || picked);
+            // A seeded card you can't pay for yet is greyed, with its price in red.
+            let short = card.ok && card.seeded && bank < card.price();
             draw_icon(fb, d, Rect::new(r.x + 2, r.y + 1, 14, 14), 0);
             let name: String = d.name.chars().take(10).collect();
-            fb.text(&name, r.x + 19, r.y + 1, if !card.ok { BAD } else if hov && !(busy || picked) { PANEL_DEEP } else { TEXT }, None, 1);
+            fb.text(&name, r.x + 19, r.y + 1, if !card.ok { BAD } else if short { TEXT_DIM } else if lit { PANEL_DEEP } else { TEXT }, None, 1);
             let what = if card.seeded { format!("SEED {}", card.price()) } else { format!("{} PX", card.price()) };
-            fb.text(&what, r.x + 19, r.y + 9, if hov && !(busy || picked) { PANEL_LO } else if card.seeded { FACTORY } else { TEXT_DIM }, None, 1);
+            fb.text(&what, r.x + 19, r.y + 9, if short { BAD } else if lit { PANEL_LO } else if card.seeded { FACTORY } else { TEXT_DIM }, None, 1);
             fb.text(&format!("{}", i + 1), r.x + r.w - 8, r.y + 1, TEXT_FAINT, None, 1);
+            if card.takes_orders() {
+                let t = tag_rect(i);
+                let o = e.orders[0][i];
+                fb.rect_fill(t.x, t.y, t.w, t.h, if t.contains(m.0, m.1) { OUTLINE } else { PANEL_DEEP });
+                fb.text(o.tag(), t.x + 2, t.y + 1, order_col(o), None, 1);
+            }
         }
         // What the king is printing.
         match e.queue[0].first() {
             Some(j) => {
-                let name = e.deck[0].get(j.slot).map_or("?".into(), |d| if e.cards[0][j.slot].seeded { format!("SEED: {}", d.name) } else { d.name.clone() });
-                let name: String = name.chars().take(15).collect();
+                let name: String = e.deck[0].get(j.slot).map_or("?".into(), |d| d.name.clone()).chars().take(10).collect();
                 fb.text(&name, 308, 142, TEXT, None, 1);
-                fb.rect_fill(308, 151, 86, 4, PANEL_DEEP);
-                fb.rect_fill(308, 151, 86 * j.paid / j.cost.max(1), 4, ACCENT);
                 if e.queue[0].len() > 1 {
-                    fb.text(&format!("+{}", e.queue[0].len() - 1), 380, 142, TEXT_DIM, None, 1);
+                    let more = format!("+{}", e.queue[0].len() - 1);
+                    fb.text(&more, 396 - Framebuffer::text_width(&more, 1), 142, TEXT_DIM, None, 1);
                 }
+                fb.rect_fill(308, 151, 74, 4, PANEL_DEEP);
+                fb.rect_fill(308, 151, 74 * j.paid / j.cost.max(1), 4, if j.repeat { ACCENT_HI } else { ACCENT });
+                ui::button(fb, BTN_CANCEL, "X", BTN_CANCEL.contains(m.0, m.1), false);
             }
             None => fb.text("KING IDLE", 308, 142, TEXT_FAINT, None, 1),
         }
         ui::button(fb, BTN_PAUSE, if p.running { "PAUSE" } else { "RUN" }, BTN_PAUSE.contains(m.0, m.1), !p.running);
         ui::button(fb, BTN_SPEED, &format!("{}X", p.speed), BTN_SPEED.contains(m.0, m.1), p.speed > 1);
+        ui::button(fb, BTN_TAC, "MAP", BTN_TAC.contains(m.0, m.1), p.tactical);
         ui::button(fb, BTN_LEAVE, "LEAVE", BTN_LEAVE.contains(m.0, m.1), false);
+        // How the view works, where the eye goes to look at the map.
+        if p.follow {
+            fb.text("HOLD TO LOOK", 308, VIEW_NOTE_Y, TEXT_DIM, None, 1);
+        } else {
+            fb.text("STEER TO RETURN", 306, VIEW_NOTE_Y, GOLD, None, 1);
+        }
         p.draw_minimap(fb);
         for t in 0..2 {
-            let y = 274 + t as i32 * 11;
+            let y = 274 + t as i32 * 10;
             let ships = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.grow.is_none() && !s.node).count();
             let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.node).count();
             fb.text(team_name(t), 308, y, team_col(t, 2), None, 1);
@@ -456,14 +581,22 @@ impl Pg {
         if let Some(i) = (0..7).find(|&i| card_rect(i).contains(m.0, m.1)) {
             let d = e.deck[0].get(i)?;
             let c = e.cards[0][i];
+            if c.takes_orders() && tag_rect(i).contains(m.0, m.1) {
+                let (now, choices) = (e.orders[0][i], Order::in_match(c.order));
+                let next = choices[(choices.iter().position(|&o| o == now).map_or(0, |k| k + 1)) % choices.len()];
+                return Some(format!("[SHIFT+{}] EVERY {} IS ON {} CLICK FOR {}.", i + 1, d.name, match_blurb(now), next.name()));
+            }
             let builds: Vec<String> = d.build.iter().filter_map(|&b| e.deck[0].get(b)).map(|o| o.name.clone()).collect();
             let what = if c.seeded {
-                format!("[{}] {}: YOUR KING PRINTS A SEED ({} PX) THAT GROWS IT OUT OF A ROCK YOU CLICK. IT NEEDS {} PX OF ROCK.", i + 1, d.name, SEED_COST, c.count)
+                format!("[{}] {}: {} PX, PAID IN FULL WHEN YOU PICK ITS ROCK. ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK, WHICH HAS TO HOLD {} PX.", i + 1, d.name, c.price(), c.count)
             } else {
-                format!("[{}] {}: YOUR KING PRINTS IT FOR {} PX AND IT ARRIVES BY HYPERSPACE.", i + 1, d.name, c.cost)
+                format!("[{}] {}: YOUR KING PRINTS IT FOR {} PX, A PIXEL AT A TIME. RIGHT-CLICK: IT KEEPS PRINTING THEM.", i + 1, d.name, c.cost)
             };
             let builds = if builds.is_empty() { String::new() } else { format!(" ITS FACTORY PIXELS PRINT {}.", builds.join(", ")) };
             return Some(what + &builds);
+        }
+        if BTN_CANCEL.contains(m.0, m.1) && !e.queue[0].is_empty() {
+            return Some("[BACKSPACE] DROP WHAT YOUR KING IS PRINTING. YOU GET BACK WHAT IT HAD PAID.".into());
         }
         if BTN_PAUSE.contains(m.0, m.1) {
             return Some("[SPACE] PAUSE OR RUN THE MATCH.".into());
@@ -471,14 +604,19 @@ impl Pg {
         if BTN_SPEED.contains(m.0, m.1) {
             return Some("[F] 1X, 2X OR 4X. THE FRAMES STAY AT 15 FPS; FAST SKIPS AHEAD.".into());
         }
+        if BTN_TAC.contains(m.0, m.1) {
+            return Some("[TAB] THE WHOLE MAP IN THE FIELD. YOUR KING STILL FLIES, AND YOU CAN PLANT AND GIVE ORDERS FROM IT.".into());
+        }
         if BTN_LEAVE.contains(m.0, m.1) {
             return Some("GIVE UP THE MATCH AND GO BACK TO THE YARD.".into());
         }
-        if MINI.contains(m.0, m.1) {
-            return Some("THE WHOLE MAP. CLICK OR DRAG TO LOOK AROUND; FLYING YOUR KING BRINGS THE VIEW BACK. WHILE PLANTING, A CLICK PICKS THE ROCK.".into());
+        if MINI.contains(m.0, m.1) || (306..400).contains(&m.0) && (VIEW_NOTE_Y - 1..VIEW_NOTE_Y + 8).contains(&m.1) {
+            return Some("THE WHOLE MAP. HOLD THE MOUSE BUTTON ON IT TO LOOK ELSEWHERE; FLYING YOUR KING BRINGS THE VIEW BACK. WHILE PLANTING, A CLICK PICKS THE ROCK.".into());
         }
         if (306..400).contains(&m.0) && (0..12).contains(&m.1) {
-            return Some("BANK: THE PIXELS STORED IN YOUR KING'S NETWORK. YOUR MINERS HAUL TO THE NEAREST NODE; YOUR KING AND FACTORIES PRINT FROM THEIR OWN NETWORK.".into());
+            let cut = cut_off(&p.arena);
+            let more = if cut > 0 { format!(" +{cut}: HELD BY NODES OF YOURS CUT OFF FROM YOUR KING. FLY NEAR THEM, OR PLANT A LINK, TO SPEND IT.") } else { String::new() };
+            return Some(format!("BANK: THE PIXELS STORED IN YOUR KING'S NETWORK. YOUR KING MAKES 1 EVERY {} S; MINERS HAUL TO THE NEAREST NODE.{more}", secs(KING_MAKES_EVERY as i32)));
         }
         if (306..400).contains(&m.0) && (140..158).contains(&m.1) {
             return Some("WHAT YOUR KING IS PRINTING, PAID A PIXEL AT A TIME FROM ITS NETWORK.".into());
@@ -490,18 +628,31 @@ impl Pg {
         let r = Rect::new(10, 8, 380, 284);
         ui::panel(fb, r);
         fb.text("THE MATCH", r.x + 10, r.y + 8, ACCENT, Some(OUTLINE), 2);
-        fb.text("ROUND 1", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
-        let mut y = r.y + 34;
+        fb.text("ROUND 2", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
+        let mut y = r.y + 32;
         for (head, text) in MATCH_HELP {
             fb.text(head, r.x + 10, y, GOLD, None, 1);
             let lines = wrap(text, 49);
             for (i, l) in lines.iter().enumerate() {
                 fb.text(l, r.x + 64, y + i as i32 * 9, TEXT, None, 1);
             }
-            y += lines.len() as i32 * 9 + 6;
+            y += lines.len() as i32 * 9 + 4;
         }
-        fb.text_centered("CLICK OR PRESS ANY KEY", r.x + r.w / 2, r.y + r.h - 18, ACCENT, None, 1);
+        fb.text_centered("CLICK OR PRESS ANY KEY", r.x + r.w / 2, r.y + r.h - 14, ACCENT, None, 1);
     }
+}
+
+/// An order's blurb as it reads in a match: without what it does in the arena.
+fn match_blurb(o: Order) -> String {
+    o.blurb().replace("IN A MATCH, ", "").replace(" IN THE ARENA IT HUNTS.", "")
+}
+
+/// Pixels held by a side's nodes that aren't in its king's network.
+fn cut_off(a: &Arena) -> i32 {
+    let e = a.eco.as_ref().unwrap();
+    let k = e.king[0];
+    let net = e.net.get(k).copied().unwrap_or(usize::MAX);
+    (0..a.ships.len()).filter(|&j| j != k && a.ships[j].alive && a.ships[j].team == 0 && e.net.get(j).is_some_and(|&n| n != net || n == usize::MAX)).map(|j| a.ships[j].store).sum()
 }
 
 impl Play {
@@ -511,10 +662,117 @@ impl Play {
         self.cam = ((k.x - FIELD.w / 2).clamp(0, MW - FIELD.w), (k.y - FIELD.h / 2).clamp(0, MH - FIELD.h));
     }
 
-    fn cam_from_map(&mut self, x: i32, y: i32) {
-        let (wx, wy) = ((x - MINI.x - 1) * MINI_SCALE, (y - MINI.y - 1) * MINI_SCALE);
+    /// Centres the view on a world point and leaves it there until the king is steered.
+    fn look_at(&mut self, (wx, wy): (i32, i32)) {
         self.follow = false;
         self.cam = ((wx - FIELD.w / 2).clamp(0, MW - FIELD.w), (wy - FIELD.h / 2).clamp(0, MH - FIELD.h));
+    }
+
+    /// The world point under a screen point: on the field (or the tactical map, when that's
+    /// showing) or on the small map.
+    fn world_point(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let inner = Rect::new(MINI.x + 1, MINI.y + 1, MINI.w - 2, MINI.h - 2);
+        if inner.contains(x, y) {
+            Some(((x - inner.x) * MINI_SCALE + MINI_SCALE / 2, (y - inner.y) * MINI_SCALE + MINI_SCALE / 2))
+        } else if !FIELD.contains(x, y) {
+            None
+        } else if !self.tactical {
+            Some((x + self.cam.0, y + self.cam.1))
+        } else if TAC.contains(x, y) {
+            Some(((x - TAC.x) * TAC_SCALE + TAC_SCALE / 2, (y - TAC.y) * TAC_SCALE + TAC_SCALE / 2))
+        } else {
+            None
+        }
+    }
+
+    /// The field: the map at full size, where the camera is.
+    fn draw_field(&self, fb: &mut Framebuffer) {
+        let a = &self.arena;
+        let e = a.eco.as_ref().unwrap();
+        let (f, (cx, cy)) = (FIELD, self.cam);
+        scene::backdrop(fb, f, a, self.cam);
+        // Network links: dotted lines between linked nodes.
+        for (i, j) in links(a) {
+            let (si, sj) = (&a.ships[i], &a.ships[j]);
+            crate::render::dotted(fb, f, si.x - cx, si.y - cy, sj.x - cx, sj.y - cy, 4, team_col(si.team, 0));
+        }
+        scene::drift(fb, f, a, self.cam);
+        // Our seeds' courses.
+        for s in a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Seed) {
+            if let Some((_, (tx, ty))) = s.seed_for {
+                crate::render::dotted(fb, f, s.x - cx, s.y - cy, tx - cx, ty - cy, 3, TEXT_FAINT);
+            }
+        }
+        for s in a.ships.iter().filter(|s| s.alive) {
+            scene::ship(fb, f, s, self.cam);
+        }
+        scene::fire(fb, f, a, self.cam);
+        let _ = e;
+    }
+
+    /// The tactical map: everything on the map at a quarter of its size. A ship is a block as big
+    /// as it is (at least a pixel), so a capital reads as a capital and a swarm as a swarm.
+    fn draw_tactical(&self, fb: &mut Framebuffer) {
+        let a = &self.arena;
+        let (f, r, sc) = (FIELD, TAC, TAC_SCALE);
+        fb.rect_fill(f.x, f.y, f.w, f.h, PANEL_DEEP);
+        fb.rect_checker(f.x, f.y, f.w, f.h, PANEL_LO, 0);
+        fb.rect_bevel(r.x - 2, r.y - 2, r.w + 4, r.h + 4, SPACE, PANEL_LO, PANEL_HI);
+        // Rock, shaded by how much of each 4x4 block of the map is rock.
+        for ty in 0..r.h {
+            for tx in 0..r.w {
+                let n = (0..sc * sc).filter(|k| a.rock_at(tx * sc + k % sc, ty * sc + k / sc)).count();
+                if n > 0 {
+                    fb.pset(r.x + tx, r.y + ty, if n >= 12 { ROCK + 2 } else if n >= 5 { ROCK + 1 } else { ROCK });
+                }
+            }
+        }
+        let at = |x: i32, y: i32| (r.x + x / sc, r.y + y / sc);
+        for d in &a.debris {
+            let (x, y) = at(d.x, d.y);
+            pc(fb, r, x, y, LOOSE);
+        }
+        for (i, j) in links(a) {
+            let ((x0, y0), (x1, y1)) = (at(a.ships[i].x, a.ships[i].y), at(a.ships[j].x, a.ships[j].y));
+            crate::render::dotted(fb, r, x0, y0, x1, y1, 3, team_col(a.ships[i].team, 0));
+        }
+        for s in a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Seed) {
+            if let Some((_, (tx, ty))) = s.seed_for {
+                let ((x0, y0), (x1, y1)) = (at(s.x, s.y), at(tx, ty));
+                crate::render::dotted(fb, r, x0, y0, x1, y1, 2, TEXT_FAINT);
+            }
+        }
+        for s in a.ships.iter().filter(|s| s.alive && s.warp == 0) {
+            let (l, t, rr, b) = s.bbox();
+            let ((x, y), w, h) = (at(l, t), (rr - l + 1 + sc / 2) / sc, (b - t + 1 + sc / 2) / sc);
+            let (w, h) = (w.max(1), h.max(1));
+            let c = team_col(s.team, 2);
+            if s.role == Role::King {
+                let (kx, ky) = at(s.x, s.y);
+                fb.rect_fill(kx - 3, ky - 3, 7, 7, OUTLINE);
+                fb.rect_fill(kx - 2, ky - 2, 5, 5, team_col(s.team, 3));
+                fb.pset(kx, ky, WHITE);
+            } else if s.rooted {
+                // Planted: outlined, and dithered until it has finished growing.
+                fb.rect_fill(x - 1, y - 1, w + 2, h + 2, OUTLINE);
+                if s.grow.is_some() {
+                    fb.rect_fill(x, y, w, h, team_col(s.team, 0));
+                    fb.rect_checker(x, y, w, h, c, 0);
+                } else {
+                    fb.rect_fill(x, y, w, h, c);
+                }
+            } else {
+                fb.rect_fill(x, y, w, h, if s.role == Role::Seed { team_col(s.team, 3) } else { c });
+            }
+        }
+        for sh in &a.shots {
+            let (x, y) = at(sh.line.x, sh.line.y);
+            pc(fb, r, x, y, team_col(sh.team, 3));
+        }
+        let (vx, vy) = at(self.cam.0, self.cam.1);
+        fb.rect_outline(vx, vy, f.w / sc, f.h / sc, TEXT_DIM);
+        fb.text("THE WHOLE MAP", r.x, r.y - 14, ACCENT, Some(OUTLINE), 1);
+        fb.text("TAB RETURNS", r.x + r.w - 66, r.y - 14, TEXT_DIM, Some(OUTLINE), 1);
     }
 
     fn draw_minimap(&self, fb: &mut Framebuffer) {
@@ -541,6 +799,23 @@ fn reach(s: &Ship) -> i32 {
     }
 }
 
+/// Every pair of linked nodes: same side, same network, reaches overlapping.
+fn links(a: &Arena) -> Vec<(usize, usize)> {
+    let e = a.eco.as_ref().unwrap();
+    let nodes: Vec<usize> = (0..a.ships.len()).filter(|&i| a.is_node(i)).collect();
+    let mut out = Vec::new();
+    for (k, &i) in nodes.iter().enumerate() {
+        for &j in &nodes[k + 1..] {
+            let (si, sj) = (&a.ships[i], &a.ships[j]);
+            let r = reach(si) + reach(sj);
+            if si.team == sj.team && e.net.get(i) == e.net.get(j) && dist2(si.x, si.y, sj.x, sj.y) <= r * r {
+                out.push((i, j));
+            }
+        }
+    }
+    out
+}
+
 /// One line of how both sides stand, for the log and the headless runs.
 pub fn state_line(a: &Arena) -> String {
     let e = a.eco.as_ref().unwrap();
@@ -549,10 +824,11 @@ pub fn state_line(a: &Arena) -> String {
         let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.node).count();
         let tl = e.tally[t];
         format!(
-            "{} bank {} (peak {}), {} factories, {} ships; planted {}, printed {}, summoned {}, mined {}, lost {} ships",
+            "{} bank {} (peak {}, {} in all its nodes), {} factories, {} ships; planted {}, printed {}, summoned {}, mined {}, lost {} ships",
             team_name(t),
             a.bank(e.king[t]),
             tl.bank_peak,
+            a.ships.iter().filter(|s| s.alive && s.team == t).map(|s| s.store).sum::<i32>(),
             factories,
             ships,
             tl.planted,
@@ -615,9 +891,91 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_match_screen_drives_everything_through_its_keys_and_buttons() {
+        use crate::app::{App, Ev};
+        let mut pg = Pg::new(None, None);
+        pg.start_match(true, 3);
+        pg.help = false;
+        let click = |pg: &mut Pg, r: Rect, right: bool| {
+            let (x, y) = (r.x + r.w / 2, r.y + r.h / 2);
+            pg.event(Ev::Move(x, y));
+            pg.event(Ev::Press { x, y, right });
+            pg.event(Ev::Release { x, y, right });
+            pg.tick();
+        };
+        let eco = |pg: &Pg| pg.play.as_ref().unwrap().arena.eco.as_ref().unwrap().orders[0].clone();
+        let queue = |pg: &Pg| pg.play.as_ref().unwrap().arena.eco.as_ref().unwrap().queue[0].clone();
+        // Orders: the tag, then Shift+number, step a fighter GUARD, ESCORT, HUNT, GUARD.
+        assert_eq!(eco(&pg)[0], Order::Guard);
+        click(&mut pg, tag_rect(0), false);
+        assert_eq!(eco(&pg)[0], Order::Escort);
+        assert!(queue(&pg).is_empty(), "a click on the tag also printed the card");
+        pg.event(Ev::Key(Key::ShiftNum(1)));
+        pg.tick();
+        assert_eq!(eco(&pg)[0], Order::Hunt);
+        pg.event(Ev::Key(Key::ShiftNum(1)));
+        pg.tick();
+        assert_eq!(eco(&pg)[0], Order::Guard);
+        // A miner steps through four, and comes back to HARVEST. A factory has no tag to click:
+        // a click there is a click on the card.
+        for want in [Order::Hunt, Order::Guard, Order::Escort, Order::Harvest] {
+            pg.event(Ev::Key(Key::ShiftNum(4)));
+            pg.tick();
+            assert_eq!(eco(&pg)[3], want);
+        }
+        pg.event(Ev::Key(Key::ShiftNum(5)));
+        pg.tick();
+        assert_eq!(eco(&pg)[4], Order::Hold);
+        // Right-click a card: it repeats. Again: it stops. Backspace or X: the king drops it.
+        click(&mut pg, card_rect(1), true);
+        assert!(queue(&pg).len() == 1 && queue(&pg)[0].slot == 1 && queue(&pg)[0].repeat);
+        click(&mut pg, card_rect(1), true);
+        assert!(queue(&pg).len() == 1 && !queue(&pg)[0].repeat);
+        pg.event(Ev::Key(Key::Back));
+        pg.tick();
+        assert!(queue(&pg).is_empty());
+        pg.event(Ev::Key(Key::Num(3)));
+        pg.tick();
+        assert_eq!(queue(&pg).len(), 1);
+        click(&mut pg, BTN_CANCEL, false);
+        assert!(queue(&pg).is_empty());
+        // The shipyard costs more than the bank holds: its card won't start a planting.
+        click(&mut pg, card_rect(5), false);
+        assert_eq!(pg.play.as_ref().unwrap().planting, None);
+        // The whole map: Tab and the button. A click on it moves the view and leaves it there,
+        // and steering brings it back to the king.
+        pg.event(Ev::Key(Key::Tab));
+        assert!(pg.play.as_ref().unwrap().tactical);
+        click(&mut pg, BTN_TAC, false);
+        assert!(!pg.play.as_ref().unwrap().tactical);
+        click(&mut pg, BTN_TAC, false);
+        let home = pg.play.as_ref().unwrap().cam;
+        let far = Rect::new(TAC.x + TAC.w - 20, TAC.y + 10, 1, 1);
+        click(&mut pg, far, false);
+        let p = pg.play.as_ref().unwrap();
+        assert!(!p.follow && p.cam != home && p.cam.0 > MW / 2, "the view didn't move to the click: {:?}", p.cam);
+        // Planting from the whole map: the outpost's card, then the home rock.
+        click(&mut pg, card_rect(4), false);
+        assert_eq!(pg.play.as_ref().unwrap().planting, Some(4));
+        let rock = {
+            let a = &pg.play.as_ref().unwrap().arena;
+            let (kx, ky) = KING_STARTS[0];
+            a.rock_near((kx + 125, ky + 35), 40).unwrap()
+        };
+        click(&mut pg, Rect::new(TAC.x + rock.0 / TAC_SCALE, TAC.y + rock.1 / TAC_SCALE, 1, 1), false);
+        let p = pg.play.as_ref().unwrap();
+        assert_eq!(p.planting, None);
+        assert!(p.arena.ships.iter().any(|s| s.alive && s.team == 0 && s.role == Role::Seed), "no seed set off");
+        pg.hold([false, false, false, true]);
+        pg.tick();
+        let p = pg.play.as_ref().unwrap();
+        assert!(p.follow && p.cam.0 < MW / 2, "steering didn't bring the view back");
+    }
+
+    #[test]
     fn the_match_rules_fit_their_panel() {
-        // Headings start 34 px down a 284 px panel; the last line of the panel is 18 px from its foot.
-        let lines: i32 = MATCH_HELP.iter().map(|(_, t)| wrap(t, 49).len() as i32 * 9 + 6).sum();
-        assert!(34 + lines <= 284 - 22, "the rules run {} px too far", 34 + lines - (284 - 22));
+        // Headings start 32 px down a 284 px panel; the last line of the panel is 14 px from its foot.
+        let lines: i32 = MATCH_HELP.iter().map(|(_, t)| wrap(t, 49).len() as i32 * 9 + 4).sum();
+        assert!(32 + lines <= 284 - 18, "the rules run {} px too far", 32 + lines - (284 - 18));
     }
 }

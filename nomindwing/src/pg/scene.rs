@@ -6,6 +6,7 @@
 //! Everything takes the field it draws into and the camera: the world point at the field's top
 //! left. A world point (x, y) lands on screen at (x - cam.0, y - cam.1).
 
+use super::design::{Part, SCOOP_CARRY};
 use super::sim::*;
 use super::{clipped_line, draw_shape, pc};
 use crate::framebuffer::Framebuffer;
@@ -71,6 +72,15 @@ pub fn ship(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
         }
     }
     draw_shape(fb, f, &s.shape, x, y, s.facing, s.team, &|c| s.hp[c] > 0, false);
+    // What it's carrying shows in its scoops: one turns the colour of loose pixels for each
+    // scoopful aboard, so a miner fills up before your eyes and flies home full.
+    if s.carry > 0 {
+        let full = ((s.carry + SCOOP_CARRY - 1) / SCOOP_CARRY) as usize;
+        for c in (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && s.shape.cells[c] == Some(Part::Scoop)).take(full) {
+            let (px, py) = s.cell_xy(c);
+            pc(fb, f, px - cx, py - cy, LOOSE);
+        }
+    }
     for t in s.turrets.iter().filter(|t| s.hp[t.cell] > 0) {
         let (gx, gy) = s.cell_xy(t.cell);
         let (ux, uy) = dir64(t.aim);

@@ -8,14 +8,17 @@ use super::*;
 pub const MW: i32 = 1200;
 pub const MH: i32 = 900;
 pub const KING_STARTS: [(i32, i32); 2] = [(150, MH - 150), (MW - 1 - 150, 149)];
-pub const START_BANK: i32 = 300;
-/// Pixels a second the king prints.
-pub const KING_RATE: i32 = 6;
+pub const START_BANK: i32 = 190;
+/// The king prints ships the way a factory does, as if it had this many factory pixels: a little
+/// slower than the starter deck's outpost (20), and with no limit on size.
+pub const KING_FACTORY: i32 = 16;
+/// The king makes a pixel by itself every this many ticks: a floor under the economy, so a side
+/// that has lost every miner can still print one.
+pub const KING_MAKES_EVERY: u32 = 60;
 /// The king flies like Toy 1's: straight from the keys, this many pixels a tick.
 pub const KING_SPEED: i32 = 3;
-pub const SEED_COST: i32 = 20;
 /// Pixels a second a seed eats into its factory, before the factory pixels it has grown join in.
-pub const GROW_RATE: i32 = 4;
+pub const GROW_RATE: i32 = 6;
 pub const WARP_TICKS: u32 = 30;
 /// How far a node reaches: two of a team's nodes link when their reaches overlap.
 pub const NODE_RANGE: i32 = 80;
@@ -26,6 +29,11 @@ pub const SPILL_CAP: i32 = 300;
 pub const MATCH_LIMIT: u32 = 15 * 60 * 40;
 pub const KING_SLOT: usize = 100;
 pub const SEED_SLOT: usize = 101;
+/// A wave needs this many pixels of warships, and is called home after this long.
+const WAVE_MIN: i32 = 100;
+const WAVE_TICKS: u32 = 15 * 240;
+/// An enemy warship this near a bot's king or anything it has planted is a raid.
+const ALARM_RANGE: i32 = 200;
 /// Accumulators count in 60ths of a pixel per tick: a factory pixel adds 1 a tick, so it prints a
 /// pixel every 4 s.
 const UNIT: i32 = PRINT_TICKS;
@@ -54,8 +62,75 @@ pub enum Making {
 pub enum Cmd {
     /// The king's keys: -1, 0 or 1 on each axis, held until the next one.
     Steer { team: usize, dx: i32, dy: i32 },
-    /// The king prints a deck slot. A seeded design's seed flies to the rock pixel `target`.
+    /// The king prints a deck slot. A seeded design is paid for in full on the spot, and its seed
+    /// flies to the rock pixel `target`.
     Print { team: usize, slot: usize, target: Option<(i32, i32)> },
+    /// A design's standing order: every ship of it, flying or still to be printed, takes it.
+    Order { team: usize, slot: usize, order: Order },
+    /// The king prints a deck slot again each time it finishes one, or stops doing so.
+    Repeat { team: usize, slot: usize },
+    /// The king drops what it's printing and gets back what it had paid.
+    Cancel { team: usize },
+}
+
+/// Who plays a side: a person (through the window's commands), the AI, or one of the scripted
+/// openings the AI is measured against. They all play by commands, like a person.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Bot {
+    None,
+    /// The opponent: plants when it can pay, keeps miners working, masses its warships on GUARD
+    /// and sends them out in waves, and has its king print what counters the enemy's fleet.
+    Ai,
+    /// Round 1's opponent: one more factory every 75 s by the clock. Everything on HUNT.
+    Clock,
+    /// Plants the cheapest factory every time the bank allows. Everything on HUNT.
+    Planter,
+    /// The AI's economy with everything on HUNT: ships go out as they're made.
+    Expander,
+    /// One factory, and a king that prints warships without a pause. Everything on HUNT.
+    Summoner,
+}
+
+impl Bot {
+    pub fn from_name(s: &str) -> Option<Bot> {
+        Some(match s.to_ascii_lowercase().as_str() {
+            "ai" => Bot::Ai,
+            "clock" => Bot::Clock,
+            "planter" => Bot::Planter,
+            "expander" => Bot::Expander,
+            "summoner" => Bot::Summoner,
+            _ => return None,
+        })
+    }
+}
+
+/// What a bot remembers between thoughts.
+#[derive(Clone, Debug, Default)]
+struct Mind {
+    next: u32,
+    /// A wave is out: when it was called, what the fleet was worth then, and the tick each design
+    /// is let go (the slow ones first, so the wave arrives together).
+    wave: bool,
+    wave_from: u32,
+    wave_worth: i32,
+    release: Vec<u32>,
+    /// When the last wave came home.
+    rested: u32,
+    last_plant: u32,
+    big_at: u32,
+    turn: usize,
+}
+
+/// What a warship is to the counter triangle: small with flak, small with a lance or cannon, or
+/// big.
+fn class_of(st: &Stats) -> usize {
+    if st.count > 20 {
+        2
+    } else if st.lance + st.cannon > 0 {
+        1
+    } else {
+        0
+    }
 }
 
 /// Whoever is printing this tick: a king working through its queue, or a factory (by ship index).
@@ -93,6 +168,8 @@ pub struct Job {
     pub target: Option<(i32, i32)>,
     pub paid: i32,
     pub cost: i32,
+    /// Printed again each time it's finished.
+    pub repeat: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -101,6 +178,8 @@ pub struct Tally {
     pub printed: i32,
     pub summoned: i32,
     pub bank_peak: i32,
+    /// Times a design's standing order was changed.
+    pub orders: i32,
 }
 
 /// A rock as generated: its middle and its pixels (some may since have been eaten or mined).
@@ -118,6 +197,9 @@ pub struct Card {
     pub count: i32,
     pub cost: i32,
     pub seeded: bool,
+    pub st: Stats,
+    /// The order it was drawn with: the one it starts the match on.
+    pub order: Order,
 }
 
 pub struct Eco {
@@ -125,15 +207,16 @@ pub struct Eco {
     pub cards: [Vec<Card>; 2],
     pub king: [usize; 2],
     pub queue: [Vec<Job>; 2],
+    /// Each design's standing order: what ships of it do, and what new ones are printed with.
+    pub orders: [Vec<Order>; 2],
     king_acc: [i32; 2],
     /// The king's keys this tick: -1, 0 or 1 on each axis.
     steer: [(i32, i32); 2],
     /// Commands waiting for the next tick, and every command applied so far with its tick.
     inbox: Vec<Cmd>,
     pub log: Vec<(u32, Cmd)>,
-    pub ai: [bool; 2],
-    ai_next: [u32; 2],
-    ai_big: [u32; 2],
+    pub bot: [Bot; 2],
+    mind: [Mind; 2],
     /// Network id per ship (usize::MAX: not a node).
     pub net: Vec<usize>,
     /// The tick each team's network last split (0: never).
@@ -144,26 +227,48 @@ pub struct Eco {
     /// nodes (spilled or not). With what's mined and what's stored, these must always add up.
     pub spent: [i32; 2],
     pub spilt: [i32; 2],
+    /// Pixels each king has made by itself.
+    pub made: [i32; 2],
+    /// Pixels handed out to printers so far: who's first in line moves round with it.
+    turn: usize,
 }
 
 impl Card {
     fn of(d: &Design) -> Card {
         let st = d.stats();
-        Card { ok: d.check().ok(), count: st.count, cost: st.cost, seeded: d.seeded }
+        Card { ok: d.check().ok(), count: st.count, cost: st.cost, seeded: d.seeded, st, order: d.order }
     }
-    /// What the king pays to print it: a seed for a seeded design, the ship itself otherwise.
+    /// What the king pays to print it. A ship is paid for a pixel at a time as it's printed; a
+    /// seeded design is paid for in full, everything it will grow into, before its seed sets off.
     pub fn price(&self) -> i32 {
-        if self.seeded {
-            SEED_COST
-        } else {
-            self.cost
-        }
+        self.cost
+    }
+    /// A ship that mines.
+    pub fn miner(&self) -> bool {
+        self.ok && !self.seeded && self.st.scoops > 0 && self.order == Order::Harvest
+    }
+    /// A ship that flies and fights.
+    pub fn warship(&self) -> bool {
+        self.ok && !self.seeded && self.st.armed() && self.st.thrust > 0 && !self.miner() && self.order != Order::Hold
+    }
+    /// A seeded design that prints.
+    pub fn factory(&self) -> bool {
+        self.ok && self.seeded && self.st.factory > 0
+    }
+    /// Whether its standing order can be switched in a match: anything that flies.
+    pub fn takes_orders(&self) -> bool {
+        self.ok && self.st.thrust > 0
     }
 }
 
 impl Arena {
     /// A match on a mirrored map: each side starts with its king and a bank, nothing else.
     pub fn for_match(seed: u64, deck: [Vec<Design>; 2], ai: [bool; 2]) -> Arena {
+        Arena::for_bots(seed, deck, [if ai[0] { Bot::Ai } else { Bot::None }, if ai[1] { Bot::Ai } else { Bot::None }])
+    }
+
+    /// The same, saying who plays each side.
+    pub fn for_bots(seed: u64, deck: [Vec<Design>; 2], bot: [Bot; 2]) -> Arena {
         let mut a = Arena::blank(MW, MH, seed);
         let rocks = a.match_rocks();
         for _ in 0..900 {
@@ -184,24 +289,27 @@ impl Arena {
             kings[t] = i;
         }
         let cards = [deck[0].iter().map(Card::of).collect(), deck[1].iter().map(Card::of).collect()];
+        let orders = [deck[0].iter().map(|d| d.order).collect(), deck[1].iter().map(|d| d.order).collect()];
         a.eco = Some(Eco {
             deck,
             cards,
             king: kings,
             queue: [Vec::new(), Vec::new()],
+            orders,
             king_acc: [0; 2],
             steer: [(0, 0); 2],
             inbox: Vec::new(),
             log: Vec::new(),
-            ai,
-            ai_next: [0; 2],
-            ai_big: [0; 2],
+            bot,
+            mind: [Mind::default(), Mind::default()],
             net: Vec::new(),
             split_at: [0; 2],
             tally: [Tally::default(); 2],
             rocks,
             spent: [0; 2],
             spilt: [0; 2],
+            made: [0; 2],
+            turn: 0,
         });
         a
     }
@@ -353,9 +461,9 @@ impl Arena {
 
     pub(super) fn eco_pre(&mut self) {
         for t in 0..2 {
-            if self.eco().ai[t] && self.tick >= self.eco().ai_next[t] {
-                self.ai_think(t);
-                self.eco_mut().ai_next[t] = self.tick + 15;
+            if self.eco().bot[t] != Bot::None && self.tick >= self.eco().mind[t].next {
+                self.bot_think(t);
+                self.eco_mut().mind[t].next = self.tick + 15;
             }
             self.apply_commands();
             self.steer_king(t);
@@ -387,7 +495,58 @@ impl Arena {
                 Cmd::Print { team, slot, target } => {
                     // One that's no longer allowed (it was checked when it was given) is dropped.
                     let Ok(cost) = self.can_print(team, slot, target) else { continue };
-                    self.eco_mut().queue[team].push(Job { slot, target, paid: 0, cost });
+                    if self.eco().cards[team][slot].seeded {
+                        // A seed is paid for in full, now, and sets off at once.
+                        let k = self.eco().king[team];
+                        for _ in 0..cost {
+                            let paid = self.take_px(k);
+                            debug_assert!(paid, "the bank was counted before the seed was sold");
+                        }
+                        self.deliver(team, Job { slot, target, paid: cost, cost, repeat: false });
+                    } else {
+                        self.eco_mut().queue[team].push(Job { slot, target, paid: 0, cost, repeat: false });
+                    }
+                }
+                Cmd::Order { team, slot, order } => {
+                    if self.eco().orders[team].get(slot).map_or(true, |&o| o == order) {
+                        continue;
+                    }
+                    let e = self.eco_mut();
+                    e.orders[team][slot] = order;
+                    e.tally[team].orders += 1;
+                    for s in self.ships.iter_mut().filter(|s| s.alive && s.team == team && s.slot == slot && s.role == Role::Ship) {
+                        s.order = order;
+                    }
+                }
+                Cmd::Repeat { team, slot } => {
+                    let queued = self.eco().queue[team].iter().any(|j| j.slot == slot);
+                    if !queued {
+                        // Nothing of it queued: queue one, on repeat.
+                        match self.can_print(team, slot, None) {
+                            Ok(cost) if !self.eco().cards[team][slot].seeded => self.eco_mut().queue[team].push(Job { slot, target: None, paid: 0, cost, repeat: true }),
+                            _ => continue,
+                        }
+                    } else {
+                        let q = &mut self.eco_mut().queue[team];
+                        let on = q.iter().any(|j| j.slot == slot && j.repeat);
+                        for j in q.iter_mut().filter(|j| j.slot == slot) {
+                            j.repeat = false;
+                        }
+                        if !on {
+                            q.iter_mut().find(|j| j.slot == slot).unwrap().repeat = true;
+                        }
+                    }
+                }
+                Cmd::Cancel { team } => {
+                    let k = self.eco().king[team];
+                    if self.eco().queue[team].is_empty() || !self.ships[k].alive {
+                        continue;
+                    }
+                    let job = self.eco_mut().queue[team].remove(0);
+                    self.ships[k].store += job.paid;
+                    let e = self.eco_mut();
+                    e.spent[team] -= job.paid;
+                    e.king_acc[team] = 0;
                 }
             }
             self.eco_mut().log.push((tick, c));
@@ -403,8 +562,12 @@ impl Arena {
         let mut printers: Vec<Printer> = Vec::new();
         for t in 0..2 {
             let k = self.eco().king[t];
+            if self.ships[k].alive && self.tick % KING_MAKES_EVERY == 0 {
+                self.ships[k].store += 1;
+                self.eco_mut().made[t] += 1;
+            }
             if self.ships[k].alive && !self.eco().queue[t].is_empty() {
-                self.eco_mut().king_acc[t] += KING_RATE * UNIT / 15;
+                self.eco_mut().king_acc[t] += KING_FACTORY;
                 printers.push(Printer::King(t));
             }
         }
@@ -760,14 +923,18 @@ impl Arena {
     }
 
     /// Everyone printing takes turns, a pixel each, until each has printed what its rate allows or
-    /// can't get a pixel. Who goes first moves round every tick, so when the bank is short it's
-    /// shared out evenly, not handed to whoever was built first.
+    /// can't get a pixel. Who goes first moves round with every pixel handed out, so when the
+    /// bank is short it's shared out evenly, not handed to whoever was built first. (It used to
+    /// move round with the clock, and pixels that arrive on a steady beat, like the king's own,
+    /// then always found the same printer first in line.)
     fn take_turns(&mut self, mut printers: Vec<Printer>) {
         if printers.is_empty() {
             return;
         }
-        let first = self.tick as usize % printers.len();
+        let first = self.eco().turn % printers.len();
         printers.rotate_left(first);
+        let spent = |a: &Arena| (a.eco().spent[0] + a.eco().spent[1]) as usize;
+        let before = spent(self);
         while !printers.is_empty() {
             let mut again = Vec::new();
             for p in printers {
@@ -777,6 +944,8 @@ impl Arena {
             }
             printers = again;
         }
+        let handed = spent(self) - before;
+        self.eco_mut().turn += handed;
     }
 
     /// One printer's turn: one pixel, paid for from its network as it goes down. True if it printed
@@ -798,6 +967,9 @@ impl Arena {
                 e.queue[t][0].paid += 1;
                 if e.queue[t][0].paid >= e.queue[t][0].cost {
                     let job = e.queue[t].remove(0);
+                    if job.repeat {
+                        e.queue[t].push(Job { paid: 0, ..job });
+                    }
                     self.deliver(t, job);
                     return false;
                 }
@@ -867,6 +1039,7 @@ impl Arena {
         let sh = d.shape();
         let (x, y, f) = self.beside(i, &sh);
         let c = self.spawn(team, slot, &d, x, y, f, true);
+        self.ships[c].order = self.eco().orders[team][slot];
         let start = d.start_cell().unwrap_or(0);
         self.ships[c].grow = Some(Grow { pending: Design::growth_order(&sh, start), food: Vec::new(), eats: false, acc: 0 });
         self.ships[c].maker = Some(i);
@@ -928,11 +1101,14 @@ impl Arena {
         let d = if seeded { seed() } else { self.eco().deck[t][job.slot].clone() };
         let (x, y, f) = self.beside(k, &d.shape());
         let i = self.spawn(t, if seeded { SEED_SLOT } else { job.slot }, &d, x, y, f, false);
+        let order = self.eco().orders[t][job.slot];
         let s = &mut self.ships[i];
         s.warp = WARP_TICKS;
         if seeded {
             s.role = Role::Seed;
             s.seed_for = Some((job.slot, job.target.unwrap_or((x, y))));
+        } else {
+            s.order = order;
         }
         self.score[t].placed += 1;
         if !seeded {
@@ -949,6 +1125,9 @@ impl Arena {
         }
         if card.seeded && target.is_none() {
             return Err("A SEED NEEDS A ROCK");
+        }
+        if card.seeded && self.bank(self.eco().king[t]) < card.price() {
+            return Err("NOT ENOUGH IN THE BANK: A SEED IS PAID FOR IN FULL");
         }
         Ok(card.price())
     }
@@ -991,6 +1170,7 @@ impl Arena {
         let Some(c0) = d.start_cell() else { return };
         let (ox, oy) = sh.cell_xy(0, 0, 0, c0);
         let f = self.spawn(team, slot, &d, start.0 - ox, start.1 - oy, 0, true);
+        self.ships[f].order = self.eco().orders[team][slot];
         self.ships[f].rooted = true;
         self.ships[f].grow = Some(Grow { pending: Design::growth_order(&sh, c0), food, eats: true, acc: 0 });
         // The seed's own core is the factory's first pixel.
@@ -1002,83 +1182,256 @@ impl Arena {
         self.eco_mut().tally[team].planted += 1;
     }
 
-    // ----- The AI -----
+    // ----- The bots -----
 
-    /// A scripted opponent: it keeps its king home and out of reach, plants a factory on the best
-    /// free rock every so often (an outpost first, shipyards once it has two), and later has its
-    /// king summon its biggest ship now and then.
-    fn ai_think(&mut self, t: usize) {
+    /// A bot's thought, once a second. Everything it does is a command, the same ones a person
+    /// gives: steer, print, plant, change a design's standing order.
+    fn bot_think(&mut self, t: usize) {
+        let bot = self.eco().bot[t];
         let k = self.eco().king[t];
         if !self.ships[k].alive {
             return;
         }
-        let (kx, ky) = (self.ships[k].x, self.ships[k].y);
-        let home = KING_STARTS[t];
-        let threat = self.ships.iter().filter(|s| s.alive && s.team != t && s.st.armed() && cheb(s.x, s.y, kx, ky) < 90).min_by_key(|s| dist2(s.x, s.y, kx, ky));
-        let steer = match threat {
-            Some(s) => ((kx - s.x).signum(), (ky - s.y).signum()),
-            None if cheb(kx, ky, home.0, home.1) > 6 => ((home.0 - kx).signum(), (home.1 - ky).signum()),
-            None => (0, 0),
-        };
-        self.command(Cmd::Steer { team: t, dx: steer.0, dy: steer.1 });
-        if !self.eco().queue[t].is_empty() {
-            return;
-        }
+        self.bot_steer(t);
+        let tick = self.tick;
         let cards = self.eco().cards[t].clone();
-        let mut seeded: Vec<usize> = (0..cards.len()).filter(|&s| cards[s].ok && cards[s].seeded).collect();
-        seeded.sort_by_key(|&s| cards[s].count);
-        let factories = self.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.node).count();
-        let seeds = self.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Seed && s.seed_for.is_some()).count();
-        let want = 1 + (self.tick / (15 * 75)) as usize;
-        if seeds == 0 && factories < want.min(9) && !seeded.is_empty() {
-            let big = *seeded.last().unwrap();
-            let pick = if factories >= 2 && seeded.len() > 1 { [big, seeded[0]] } else { [seeded[0], seeded[0]] };
-            for slot in pick {
-                if let Some(target) = self.ai_rock(t, cards[slot].count) {
+        let mut left = self.bank(k);
+        let mut mind = self.eco().mind[t].clone();
+        let is = |s: &Ship, f: fn(&Card) -> bool| cards.get(s.slot).is_some_and(f);
+        // What it has.
+        let own = |s: &&Ship| s.alive && s.team == t && s.role == Role::Ship;
+        let factories = self.ships.iter().filter(|s| own(s) && is(s, Card::factory)).count();
+        let seeds = self.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Seed).count();
+        let theirs = self.ships.iter().filter(|s| s.alive && s.team != t && s.role == Role::Ship && s.rooted && s.st.factory > 0).count();
+        let queued_miners = self.eco().queue[t].iter().filter(|j| cards[j.slot].miner()).count();
+        let miners = self.ships.iter().filter(|s| own(s) && is(s, Card::miner)).count() + queued_miners;
+        let fleet: Vec<(usize, i32)> = self.ships.iter().filter(|s| own(s) && s.grow.is_none() && s.warp == 0 && is(s, Card::warship)).map(|s| (s.slot, s.px_now())).collect();
+        let army: i32 = fleet.iter().map(|f| f.1).sum();
+        // What it faces: the enemy's warships by class, and whether any is near its king or
+        // anything it has planted.
+        let foe = |s: &&Ship| s.alive && s.team != t && s.role == Role::Ship && s.grow.is_none() && s.warp == 0 && s.st.armed() && s.st.thrust > 0 && s.order != Order::Harvest;
+        let mut faced = [0i32; 3];
+        for s in self.ships.iter().filter(foe) {
+            faced[class_of(&s.st)] += s.px_now();
+        }
+        let enemy_army: i32 = faced.iter().sum();
+        let alarm = self.ships.iter().filter(foe).any(|f| self.ships.iter().any(|s| s.alive && s.team == t && (s.role == Role::King || s.rooted) && cheb(s.x, s.y, f.x, f.y) <= ALARM_RANGE));
+
+        // Orders. The AI masses its warships on GUARD and sends them out as a wave: when it's the
+        // stronger side, or after a rest if it's not much the weaker, or after a long rest
+        // whatever the odds. The scripted bots leave everything on HUNT.
+        let warships: Vec<usize> = (0..cards.len()).filter(|&s| cards[s].warship()).collect();
+        if bot == Bot::Ai {
+            let rest = tick - mind.rested;
+            if mind.wave {
+                // The wave is spent, or has been out long enough: home, and mass again.
+                if army * 5 < mind.wave_worth * 2 || tick - mind.wave_from > WAVE_TICKS {
+                    mind.wave = false;
+                    mind.rested = tick;
+                }
+            } else if army >= WAVE_MIN && (army * 4 >= enemy_army * 5 || (rest > 15 * 120 && army * 5 >= enemy_army * 4) || rest > 15 * 240) {
+                // The slow designs leave first and the fast ones wait, so the wave reaches the
+                // enemy king's side of the map together.
+                let (ek, mk) = (&self.ships[self.eco().king[1 - t]], &self.ships[k]);
+                let far = isqrt(dist2(ek.x, ek.y, mk.x, mk.y));
+                let trip = |s: usize| far * 4 / cards[s].st.vmax.max(1);
+                let longest = warships.iter().filter(|&&s| fleet.iter().any(|f| f.0 == s)).map(|&s| trip(s)).max().unwrap_or(0);
+                mind.release = (0..cards.len()).map(|s| tick + (longest - trip(s)).max(0) as u32).collect();
+                mind.wave = true;
+                mind.wave_from = tick;
+                mind.wave_worth = army;
+            }
+        }
+        for &s in &warships {
+            let out = bot != Bot::Ai || alarm || (mind.wave && mind.release.get(s).is_some_and(|&r| tick >= r));
+            let want = if out { Order::Hunt } else { Order::Guard };
+            if self.eco().orders[t][s] != want {
+                self.command(Cmd::Order { team: t, slot: s, order: want });
+            }
+        }
+
+        // Planting: the next factory, as soon as the bank holds its price.
+        let mut facts: Vec<usize> = (0..cards.len()).filter(|&s| cards[s].factory()).collect();
+        facts.sort_by_key(|&s| cards[s].cost);
+        let (small, big) = (facts.first().copied(), facts.last().copied());
+        let n = factories + seeds;
+        let pick = match bot {
+            Bot::Planter => small,
+            Bot::Summoner => small.filter(|_| n == 0),
+            Bot::Clock => (if n >= 2 { big } else { small }).filter(|_| seeds == 0 && n < (1 + (tick / (15 * 75)) as usize).min(9)),
+            _ => {
+                // Two small ones, then big ones: six in all. A big one it has waited four minutes
+                // for gives way to a small one. And it doesn't let itself be out-built: while the
+                // enemy has more factories than it has, it plants small ones as fast as it can
+                // pay for them, past six if need be.
+                let waited = tick - mind.last_plant > 15 * 240;
+                let behind = theirs > n;
+                (if n < 2 || waited || behind { small } else { big }).filter(|_| n < 6 || (behind && n < 14))
+            }
+        };
+        // It keeps something back for the new factory to print with, and more under attack.
+        let spare = match bot {
+            Bot::Ai | Bot::Expander if alarm => 150,
+            Bot::Ai | Bot::Expander => 40,
+            _ => 0,
+        };
+        let mut saving = 0;
+        if let Some(slot) = pick {
+            let rock = |s: usize| self.ai_rock(t, cards[s].count).map(|r| (s, r));
+            if let Some((slot, target)) = rock(slot).or_else(|| small.filter(|&s| s != slot).and_then(rock)) {
+                saving = cards[slot].price() + spare;
+                if left >= saving {
                     self.command(Cmd::Print { team: t, slot, target: Some(target) });
-                    return;
+                    mind.last_plant = tick;
+                    left -= cards[slot].price();
+                    saving = 0;
                 }
             }
         }
-        // From four minutes on, the king summons its biggest built ship every two and a half
-        // minutes, paying for it a pixel at a time alongside the factories.
-        if self.tick > 15 * 240 && self.tick >= self.eco().ai_big[t] {
-            let best = (0..cards.len()).filter(|&s| cards[s].ok && !cards[s].seeded).max_by_key(|&s| cards[s].cost);
-            if let Some(s) = best {
-                self.command(Cmd::Print { team: t, slot: s, target: None });
-                self.eco_mut().ai_big[t] = self.tick + 15 * 150;
+
+        // The king's own printing, one thing at a time.
+        if self.eco().queue[t].is_empty() {
+            let cheapest = |f: fn(&Card) -> bool| (0..cards.len()).filter(|&s| f(&cards[s])).min_by_key(|&s| cards[s].cost);
+            let short_of_miners = miners < factories.max(1) + 1;
+            let print = match bot {
+                // Miners first: one more than it has factories, whatever the factories add.
+                Bot::Ai | Bot::Expander if short_of_miners && cheapest(Card::miner).is_some() => cheapest(Card::miner),
+                // Then guns: against a raid, something small right now; with more in the bank
+                // than the next factory needs, the best counter it can pay for.
+                Bot::Ai if alarm => Self::counter(&cards, faced, left.min(100)),
+                Bot::Ai if left >= saving + 120 => Self::counter(&cards, faced, left - saving),
+                Bot::Summoner => {
+                    // Every warship but its dearest, in turn, without a pause.
+                    let mut w = warships.clone();
+                    w.sort_by_key(|&s| cards[s].cost);
+                    if w.len() > 1 {
+                        w.pop();
+                    }
+                    mind.turn += 1;
+                    w.get(mind.turn % w.len().max(1)).copied()
+                }
+                Bot::Clock if tick > 15 * 240 && tick >= mind.big_at => {
+                    mind.big_at = tick + 15 * 150;
+                    warships.iter().copied().max_by_key(|&s| cards[s].cost)
+                }
+                _ => None,
+            };
+            if let Some(slot) = print {
+                self.command(Cmd::Print { team: t, slot, target: None });
             }
         }
+        self.eco_mut().mind[t] = mind;
     }
 
-    /// The free rock nearest the AI's king that's big enough, nearer to it than to the enemy king:
-    /// nobody's growing on it and none of our seeds is headed there. Returns the rock pixel nearest
-    /// its middle.
+    /// A bot's king stays home, and backs away from any armed enemy that comes near. The AI's
+    /// king is also its link: when nodes cut off from it hold a good many pixels, it flies over
+    /// until they're in its network, and goes home once it has spent them.
+    fn bot_steer(&mut self, t: usize) {
+        let k = self.eco().king[t];
+        let (kx, ky) = (self.ships[k].x, self.ships[k].y);
+        let mut post = KING_STARTS[t];
+        if self.eco().bot[t] == Bot::Ai {
+            let net = &self.eco().net;
+            let mine = net.get(k).copied().unwrap_or(usize::MAX);
+            // The cut-off network holding the most, if it's worth the trip (or the king is there
+            // already and it still holds something).
+            let cut: Vec<usize> = (0..self.ships.len()).filter(|&j| self.ships[j].alive && self.ships[j].team == t && self.is_node(j) && net.get(j).is_some_and(|&n| n != mine)).collect();
+            let held = |id: usize| cut.iter().filter(|&&j| net[j] == id).map(|&j| self.ships[j].store).sum::<i32>();
+            let away = cheb(kx, ky, post.0, post.1) > 20;
+            let rich = cut.iter().map(|&j| net[j]).max_by_key(|&id| held(id)).filter(|&id| held(id) >= 200);
+            let here = (0..self.ships.len()).filter(|&j| j != k && self.ships[j].alive && self.ships[j].rooted && net.get(j) == Some(&mine)).min_by_key(|&j| dist2(self.ships[j].x, self.ships[j].y, kx, ky));
+            if let Some(id) = rich {
+                // Fly to the nearest of its nodes, stopping where the link is made.
+                let j = cut.iter().copied().filter(|&j| net[j] == id).min_by_key(|&j| dist2(self.ships[j].x, self.ships[j].y, kx, ky)).unwrap();
+                post = (self.ships[j].x, self.ships[j].y);
+                let near = KING_RANGE + NODE_RANGE - 30;
+                if dist2(kx, ky, post.0, post.1) <= near * near {
+                    post = (kx, ky);
+                }
+            } else if let (true, Some(j)) = (away && self.bank(k) >= 60, here) {
+                // Linked up away from home, with pixels still to spend: stay where it is.
+                let _ = j;
+                post = (kx, ky);
+            }
+        }
+        let threat = self.ships.iter().filter(|s| s.alive && s.team != t && s.st.armed() && cheb(s.x, s.y, kx, ky) < 90).min_by_key(|s| dist2(s.x, s.y, kx, ky));
+        let steer = match threat {
+            Some(s) => ((kx - s.x).signum(), (ky - s.y).signum()),
+            None if cheb(kx, ky, post.0, post.1) > 6 => ((post.0 - kx).signum(), (post.1 - ky).signum()),
+            None => (0, 0),
+        };
+        self.command(Cmd::Steer { team: t, dx: steer.0, dy: steer.1 });
+    }
+
+    /// The warship to print against what the enemy is fielding: against small flak ships
+    /// something big, against small lance ships a flak swarm, against big ships lances. Of that
+    /// class, the dearest that `bank` covers, or failing that the cheapest.
+    fn counter(cards: &[Card], faced: [i32; 3], bank: i32) -> Option<usize> {
+        let most = (0..3).max_by_key(|&c| faced[c]).filter(|&c| faced[c] > 0);
+        let want = match most {
+            Some(0) | None => 2,
+            Some(1) => 0,
+            Some(_) => 1,
+        };
+        let of = |class: usize| (0..cards.len()).filter(move |&s| cards[s].warship() && class_of(&cards[s].st) == class);
+        let pool: Vec<usize> = if of(want).next().is_some() { of(want).collect() } else { (0..cards.len()).filter(|&s| cards[s].warship()).collect() };
+        let dearest = pool.iter().copied().filter(|&s| cards[s].cost <= bank).max_by_key(|&s| cards[s].cost);
+        dearest.or_else(|| pool.iter().copied().min_by_key(|&s| cards[s].cost))
+    }
+
+    /// The free rock nearest a bot's king that's big enough: nobody's growing on it and none of
+    /// its seeds is headed there. First choice is a rock on its own side where a factory would
+    /// link to its king's network (so what's mined there reaches the bank it plants from), then
+    /// any rock on its own side, then any rock at least 300 px from the enemy king. Returns the
+    /// rock pixel nearest the rock's middle.
     fn ai_rock(&self, t: usize, need: i32) -> Option<(i32, i32)> {
         let (k, ek) = (self.eco().king[t], self.eco().king[1 - t]);
         let (kx, ky) = (self.ships[k].x, self.ships[k].y);
         let (ex, ey) = (self.ships[ek].x, self.ships[ek].y);
         let rocks = &self.eco().rocks;
-        let mut best: Option<(i32, (i32, i32))> = None;
-        for r in rocks {
-            let left = self.rock_left(r);
-            if left < need {
-                continue;
+        // Where its king's network reaches: the king's post at home, what's planted in the
+        // network, and the rocks its seeds are headed for that will link in their turn.
+        let net = self.eco().net.get(k).copied().unwrap_or(usize::MAX);
+        let home = KING_STARTS[t];
+        let mut reach: Vec<(i32, i32, i32)> = vec![(home.0, home.1, KING_RANGE)];
+        reach.extend((0..self.ships.len()).filter(|&j| self.ships[j].alive && self.ships[j].rooted && net != usize::MAX && self.eco().net.get(j) == Some(&net)).map(|j| (self.ships[j].x, self.ships[j].y, NODE_RANGE)));
+        let linked = |reach: &[(i32, i32, i32)], x: i32, y: i32| reach.iter().any(|&(nx, ny, far)| dist2(x, y, nx, ny) <= (far + NODE_RANGE - 20) * (far + NODE_RANGE - 20));
+        let mut seeds: Vec<(i32, i32)> = self.ships.iter().filter(|s| s.alive && s.team == t).filter_map(|s| s.seed_for).map(|(_, p)| p).collect();
+        while let Some(i) = seeds.iter().position(|&(x, y)| linked(&reach, x, y)) {
+            let (x, y) = seeds.remove(i);
+            reach.push((x, y, NODE_RANGE));
+        }
+        for pass in 0..3 {
+            let mut best: Option<(i32, (i32, i32))> = None;
+            for r in rocks {
+                let left = self.rock_left(r);
+                if left < need {
+                    continue;
+                }
+                let rad = isqrt(left / 3) + 4;
+                let taken = self.ships.iter().any(|s| s.alive && s.role == Role::Ship && (s.node || s.grow.as_ref().is_some_and(|g| g.eats)) && cheb(s.x, s.y, r.cx, r.cy) <= rad + s.half())
+                    || self.ships.iter().any(|s| s.alive && s.seed_for.is_some_and(|(_, p)| cheb(p.0, p.1, r.cx, r.cy) <= rad));
+                let (mine, theirs) = (dist2(r.cx, r.cy, kx, ky), dist2(r.cx, r.cy, ex, ey));
+                let links = linked(&reach, r.cx, r.cy);
+                let allowed = match pass {
+                    0 => mine < theirs && links,
+                    1 => mine < theirs,
+                    _ => theirs >= 300 * 300,
+                };
+                if taken || !allowed {
+                    continue;
+                }
+                if best.map_or(true, |(b, _)| mine < b) {
+                    if let Some(target) = r.px.iter().copied().filter(|&(x, y)| self.rock_at(x, y)).min_by_key(|&(x, y)| dist2(x, y, r.cx, r.cy)) {
+                        best = Some((mine, target));
+                    }
+                }
             }
-            let rad = isqrt(left / 3) + 4;
-            let taken = self.ships.iter().any(|s| s.alive && s.role == Role::Ship && (s.node || s.grow.as_ref().is_some_and(|g| g.eats)) && cheb(s.x, s.y, r.cx, r.cy) <= rad + s.half())
-                || self.ships.iter().any(|s| s.alive && s.seed_for.is_some_and(|(_, p)| cheb(p.0, p.1, r.cx, r.cy) <= rad));
-            let ours = dist2(r.cx, r.cy, kx, ky) < dist2(r.cx, r.cy, ex, ey);
-            if taken || !ours {
-                continue;
-            }
-            let d = dist2(r.cx, r.cy, kx, ky);
-            if best.map_or(true, |(b, _)| d < b) {
-                let target = r.px.iter().copied().filter(|&(x, y)| self.rock_at(x, y)).min_by_key(|&(x, y)| dist2(x, y, r.cx, r.cy))?;
-                best = Some((d, target));
+            if best.is_some() {
+                return best.map(|(_, p)| p);
             }
         }
-        best.map(|(_, p)| p)
+        None
     }
 }
 
@@ -1163,15 +1516,17 @@ mod tests {
         let Making::Child(c) = a.ships[f].making else { unreachable!() };
         assert_eq!(a.ships[c].name, "MINER");
         assert!(a.ships[c].maker == Some(f) && a.ships[c].px_now() >= 1);
-        // Empty the bank: printing stops where it is.
+        // Empty the bank: from here it prints only the pixels the king makes, as they come.
         for i in 0..a.ships.len() {
             a.ships[i].store = 0;
         }
-        let stuck = a.ships[c].px_now();
+        let (stuck, made) = (a.ships[c].px_now(), a.eco.as_ref().unwrap().made[0]);
         for _ in 0..15 * 10 {
             a.step();
         }
-        assert_eq!(a.ships[c].px_now(), stuck, "it printed with an empty bank");
+        let trickle = a.eco.as_ref().unwrap().made[0] - made;
+        assert_eq!(a.ships[c].px_now() - stuck, trickle, "with an empty bank it should print what the king makes and no more");
+        assert!(trickle <= 3, "the king made {trickle} px in ten seconds");
         assert_eq!(a.ships[f].making, Making::Child(c));
         // Pixels arrive: it carries on, then launches the finished miner.
         a.ships[k].store = 100;
@@ -1393,6 +1748,7 @@ mod tests {
         let mut d = blue[0].clone();
         d.name = "SPROUT".into();
         d.seeded = true;
+        d.order = Order::Hunt;
         assert!(d.stats().thrust > 0, "the test needs a design that can fly");
         blue[4] = d;
         let mut a = Arena::for_match(1, [blue, starter_deck()], [false, false]);
@@ -1496,7 +1852,7 @@ mod tests {
             let e = a.eco.as_ref().unwrap();
             for t in 0..2 {
                 let stored: i32 = a.ships.iter().filter(|s| s.team == t).map(|s| s.store).sum();
-                assert_eq!(START_BANK + a.score[t].mined, stored + e.spent[t] + e.spilt[t], "team {t}'s books are off at tick {}", a.tick);
+                assert_eq!(START_BANK + a.score[t].mined + e.made[t], stored + e.spent[t] + e.spilt[t], "team {t}'s books are off at tick {}", a.tick);
             }
             for s in a.ships.iter().filter(|s| s.alive) {
                 let (l, t, r, b) = s.bbox();
@@ -1517,9 +1873,10 @@ mod tests {
 
     #[test]
     fn factories_short_of_pixels_take_turns() {
-        // Two small yards in one network, one printing fighters and one lancers (7 px each), fed
-        // one pixel a second when between them they could print four. Each should get half: before
-        // turns, whichever was built first took the lot and the other printed nothing.
+        // Two small yards in one network, one printing fighters and one lancers (7 px each), with
+        // nothing coming in but the pixels the king makes: less than the two could print. Each
+        // should get half. Before turns, whichever was built first took the lot and the other
+        // printed nothing.
         let yard = |name: &str, build: Vec<usize>| {
             let mut d = Design::from_rows(name, Order::Hold, &["hhhhh", "hfffh", "hfcfh", "hfffh", "hhhhh"]);
             d.seeded = true;
@@ -1546,21 +1903,230 @@ mod tests {
             a.step();
             assert!(a.tick < 15 * 120, "the two yards never finished growing");
         }
-        let k = a.eco.as_ref().unwrap().king[0];
+        // 16 factory pixels between them: together they can print more than the king makes.
+        assert!(16 * KING_MAKES_EVERY as i32 > PRINT_TICKS, "the yards aren't short of pixels at this pace");
         let made = |a: &Arena, name: &str| a.ships.iter().filter(|s| s.team == 0 && s.name == name && s.maker.is_none() && s.grow.is_none()).count() as i32;
         let (f0, l0) = (made(&a, "FIGHTER"), made(&a, "LANCER"));
         for i in 0..a.ships.len() {
             a.ships[i].store = 0;
         }
-        for t in 0..15 * 180 {
-            if t % 15 == 0 {
-                a.ships[k].store += 1;
-            }
+        let fed0 = a.eco.as_ref().unwrap().made[0];
+        for _ in 0..15 * 600 {
             a.step();
         }
+        let fed = a.eco.as_ref().unwrap().made[0] - fed0;
         let (f, l) = (made(&a, "FIGHTER") - f0, made(&a, "LANCER") - l0);
-        println!("two yards fed 180 px: {f} fighters, {l} lancers");
-        assert!(f >= 8 && l >= 8 && (f - l).abs() <= 2, "180 px should make about 12 of each: {f} fighters, {l} lancers");
+        println!("two yards fed {fed} px: {f} fighters, {l} lancers");
+        assert!(f + l >= fed / 7 - 2 && (f - l).abs() <= 2, "{fed} px should make about {} of each: {f} fighters, {l} lancers", fed / 14);
+    }
+
+    // ----- Match round 2 -----
+
+    #[test]
+    fn a_seed_is_paid_for_in_full_or_not_sold() {
+        let mut a = quiet();
+        let (_, target) = home_rock(&a);
+        let k = a.eco.as_ref().unwrap().king[0];
+        let price = a.eco.as_ref().unwrap().cards[0][4].price();
+        assert_eq!(price, starter_deck()[4].stats().cost, "a seed costs what it grows into");
+        assert_eq!(a.can_print(0, 4, Some(target)), Ok(price));
+        a.command(Cmd::Print { team: 0, slot: 4, target: Some(target) });
+        a.step();
+        // Paid in one go, and the seed is on its way by hyperspace.
+        assert_eq!(a.bank(k), START_BANK - price);
+        assert_eq!(a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Seed && s.warp > 0).count(), 1);
+        assert!(a.eco.as_ref().unwrap().queue[0].is_empty(), "a seed doesn't wait in the king's queue");
+        // The shipyard costs more than is left: it's refused, and an order given anyway is dropped
+        // without touching the bank or the log.
+        let dear = a.eco.as_ref().unwrap().cards[0][5].price();
+        assert!(dear > a.bank(k));
+        assert!(a.can_print(0, 5, Some(target)).is_err());
+        let (bank, logged) = (a.bank(k), a.eco.as_ref().unwrap().log.len());
+        a.command(Cmd::Print { team: 0, slot: 5, target: Some(target) });
+        a.step();
+        assert_eq!((a.bank(k), a.eco.as_ref().unwrap().log.len()), (bank, logged));
+        assert_eq!(a.ships.iter().filter(|s| s.alive && s.role == Role::Seed).count(), 1);
+        a.audit().unwrap();
+    }
+
+    #[test]
+    fn the_king_makes_a_pixel_now_and_then() {
+        // Nothing mined, nothing spent: after a minute each bank is up by what its king made.
+        let mut a = quiet();
+        for _ in 0..15 * 60 {
+            a.step();
+            a.audit().unwrap();
+        }
+        let e = a.eco.as_ref().unwrap();
+        assert_eq!(e.made, [(15 * 60 / KING_MAKES_EVERY) as i32; 2]);
+        assert_eq!(a.bank(e.king[0]), START_BANK + e.made[0]);
+    }
+
+    #[test]
+    fn every_ship_of_a_design_takes_its_new_order() {
+        // Three fighters arrive on GUARD (the starter deck's order) and stay where they arrived
+        // while the king flies off. On ESCORT they catch it up and stay with it. On HUNT they go
+        // for the enemy, and a fighter printed after the switch is a hunter from the start.
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        a.ships[k].store = 500;
+        a.score[0].mined += 500 - START_BANK;
+        for _ in 0..3 {
+            a.command(Cmd::Print { team: 0, slot: 0, target: None });
+        }
+        let fighters = |a: &Arena| (0..a.ships.len()).filter(|&i| a.ships[i].alive && a.ships[i].team == 0 && a.ships[i].name == "FIGHTER" && a.ships[i].warp == 0).collect::<Vec<_>>();
+        while fighters(&a).len() < 3 {
+            a.step();
+            assert!(a.tick < 15 * 120, "the king never printed three fighters");
+        }
+        assert!(fighters(&a).iter().all(|&i| a.ships[i].order == Order::Guard));
+        let run = |a: &mut Arena, secs: u32| {
+            for _ in 0..15 * secs {
+                a.step();
+                a.audit().unwrap();
+            }
+        };
+        let far = |a: &Arena, i: usize| isqrt(dist2(a.ships[i].x, a.ships[i].y, a.ships[k].x, a.ships[k].y));
+        // The king flies 300 px up the map; the guards stay behind.
+        a.command(Cmd::Steer { team: 0, dx: 0, dy: -1 });
+        run(&mut a, 300 / (KING_SPEED as u32 * 15) + 1);
+        a.command(Cmd::Steer { team: 0, dx: 0, dy: 0 });
+        run(&mut a, 5);
+        assert!(fighters(&a).iter().all(|&i| far(&a, i) > 200), "a guard left its post to follow the king");
+        // ESCORT: all three form up on the king, and follow when it moves on.
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Escort });
+        run(&mut a, 20);
+        assert!(fighters(&a).iter().all(|&i| a.ships[i].order == Order::Escort && far(&a, i) < 40), "an escort isn't with the king");
+        a.command(Cmd::Steer { team: 0, dx: 1, dy: 0 });
+        run(&mut a, 6);
+        a.command(Cmd::Steer { team: 0, dx: 0, dy: 0 });
+        run(&mut a, 8);
+        assert!(fighters(&a).iter().all(|&i| far(&a, i) < 40), "an escort lost the king");
+        // HUNT: off they go, and the next one printed is a hunter from the start.
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Hunt });
+        run(&mut a, 8);
+        let f = fighters(&a);
+        assert!(f.len() == 3 && f.iter().all(|&i| a.ships[i].order == Order::Hunt && far(&a, i) > 150), "a hunter stayed at home");
+        a.command(Cmd::Print { team: 0, slot: 0, target: None });
+        let n = a.ships.len();
+        while a.ships.len() == n {
+            a.step();
+            assert!(a.tick < 15 * 300, "the fourth fighter never arrived");
+        }
+        assert_eq!((a.ships[n].name.as_str(), a.ships[n].order), ("FIGHTER", Order::Hunt));
+        assert_eq!(a.eco.as_ref().unwrap().tally[0].orders, 2);
+        // The other side's fighters, and this side's other designs, were never touched.
+        let e = a.eco.as_ref().unwrap();
+        assert_eq!(e.orders[1][0], Order::Guard);
+        assert_eq!(e.orders[0][1], Order::Guard);
+    }
+
+    #[test]
+    fn a_repeated_card_keeps_printing_and_a_cancelled_one_is_refunded() {
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        // Right-click on the fighter with nothing queued: one is queued, on repeat.
+        a.command(Cmd::Repeat { team: 0, slot: 0 });
+        let summoned = |a: &Arena| a.eco.as_ref().unwrap().tally[0].summoned;
+        while summoned(&a) < 3 {
+            a.step();
+            a.audit().unwrap();
+            assert!(a.tick < 15 * 240, "the king stopped repeating");
+        }
+        let q = &a.eco.as_ref().unwrap().queue[0];
+        assert!(q.len() == 1 && q[0].slot == 0 && q[0].repeat, "{q:?}");
+        // Again: it finishes the one it's on and stops.
+        a.command(Cmd::Repeat { team: 0, slot: 0 });
+        a.step();
+        assert!(!a.eco.as_ref().unwrap().queue[0][0].repeat);
+        while !a.eco.as_ref().unwrap().queue[0].is_empty() {
+            a.step();
+            assert!(a.tick < 15 * 300);
+        }
+        assert_eq!(summoned(&a), 4);
+        // A frigate, dropped part-way: what was paid comes back, and nothing arrives.
+        a.command(Cmd::Print { team: 0, slot: 2, target: None });
+        while a.eco.as_ref().unwrap().queue[0].first().map_or(0, |j| j.paid) < 10 {
+            a.step();
+        }
+        let (bank, paid) = (a.bank(k), a.eco.as_ref().unwrap().queue[0][0].paid);
+        a.command(Cmd::Cancel { team: 0 });
+        a.step();
+        a.audit().unwrap();
+        assert!(a.eco.as_ref().unwrap().queue[0].is_empty());
+        assert!(a.bank(k) >= bank + paid, "the king got back {} of the {paid} px it had paid", a.bank(k) - bank);
+        assert_eq!(summoned(&a), 4);
+        // A seeded card can't repeat: there's no rock to send every seed to.
+        a.command(Cmd::Repeat { team: 0, slot: 4 });
+        a.step();
+        assert!(a.eco.as_ref().unwrap().queue[0].is_empty());
+    }
+
+    #[test]
+    fn miners_keep_working_with_a_fleet_parked_on_their_rock() {
+        // The AI's warships gather on GUARD beside the factory that printed them, which stands on
+        // the rock its miners work. Ships in flight keep apart, but a miner still has to reach
+        // rock under a parked friend or under its own factory: before that was so, mining
+        // stopped at 72 px a side by 4:00.
+        let mut a = Arena::for_match(1, [starter_deck(), starter_deck()], [true, true]);
+        while a.tick < 15 * 240 {
+            a.step();
+        }
+        assert!(a.score[0].mined >= 200 && a.score[1].mined >= 200, "mined {} and {} px by 4:00", a.score[0].mined, a.score[1].mined);
+    }
+
+    #[test]
+    fn the_ai_keeps_what_it_plants_in_its_kings_network() {
+        // Six minutes in, with nothing lost yet, every node of each AI shares its king's bank:
+        // nothing it has mined is stranded where it can't plant with it.
+        let mut a = Arena::for_match(1, [starter_deck(), starter_deck()], [true, true]);
+        while a.tick < 15 * 360 {
+            a.step();
+        }
+        let e = a.eco.as_ref().unwrap();
+        for t in 0..2 {
+            let nodes: Vec<usize> = (0..a.ships.len()).filter(|&i| a.ships[i].team == t && a.is_node(i)).collect();
+            assert!(nodes.len() >= 3, "team {t} has only {} nodes at 6:00", nodes.len());
+            assert!(nodes.iter().all(|&i| e.net[i] == e.net[e.king[t]]), "team {t} has a node cut off from its king");
+        }
+    }
+
+    #[test]
+    fn the_ai_is_not_out_built_by_a_greedy_planter() {
+        // The planter puts down an outpost every time its bank holds the price. Left to its own
+        // plan (two outposts, then save for a shipyard), the AI fell behind and only broke even
+        // with it. Now it matches the planter factory for factory: at every minute up to ten it
+        // has planted at least as many, give or take the one it's saving for.
+        for (seed, ai) in [(1, 0), (2, 1)] {
+            let bots = if ai == 0 { [Bot::Ai, Bot::Planter] } else { [Bot::Planter, Bot::Ai] };
+            let mut a = Arena::for_bots(seed, [starter_deck(), starter_deck()], bots);
+            while a.over.is_none() && a.tick < 15 * 600 {
+                a.step();
+                if a.tick % (15 * 60) == 0 {
+                    let e = a.eco.as_ref().unwrap();
+                    let (mine, theirs) = (e.tally[ai].planted, e.tally[1 - ai].planted);
+                    assert!(mine + 1 >= theirs, "seed {seed}, minute {}: the AI has planted {mine} factories to the planter's {theirs}", a.tick / (15 * 60));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_ai_masses_then_attacks_and_the_scripts_just_hunt() {
+        // By 8:00 the AI has sent its warships out and called them back at least once each way,
+        // without switching every few seconds. A scripted side sets HUNT once per warship design
+        // and never again.
+        let mut a = Arena::for_bots(2, [starter_deck(), starter_deck()], [Bot::Ai, Bot::Planter]);
+        while a.over.is_none() && a.tick < 15 * 480 {
+            a.step();
+        }
+        let e = a.eco.as_ref().unwrap();
+        let switches = |t: usize| e.log.iter().filter(|(_, c)| matches!(c, Cmd::Order { team, .. } if *team == t)).count();
+        assert_eq!(switches(1), 4, "the planter sets its four warships to HUNT, once");
+        let hunts = e.log.iter().filter(|(_, c)| matches!(c, Cmd::Order { team: 0, order: Order::Hunt, .. })).count();
+        let guards = e.log.iter().filter(|(_, c)| matches!(c, Cmd::Order { team: 0, order: Order::Guard, .. })).count();
+        assert!(hunts >= 4 && guards >= 1, "the AI sent {hunts} designs out and called {guards} back in eight minutes");
+        assert!(switches(0) <= 80, "the AI changed orders {} times in eight minutes", switches(0));
     }
 
     #[test]

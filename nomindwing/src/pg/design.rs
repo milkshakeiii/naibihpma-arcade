@@ -25,6 +25,9 @@ pub const LANCE_DMG: i32 = 2;
 pub const CANNON_DMG: i32 = 3;
 /// How far a lance shot punches: a bare pixel uses up 1, plate 2.
 pub const LANCE_PEN: i32 = 6;
+/// Ticks a ship with two or more scoops takes to bite a pixel out of a rock (one scoop takes
+/// twice as long).
+pub const CHEW_TICKS: i32 = 40;
 /// Pixels each scoop carries.
 pub const SCOOP_CARRY: i32 = 3;
 /// The first line of a save file. Round 4 saves each design trimmed to its drawing, with where it
@@ -32,7 +35,7 @@ pub const SCOOP_CARRY: i32 = 3;
 pub const SAVE_HEADER: &str = "#ROUND4";
 pub const OLD_SAVE_HEADER: &str = "#ROUND2";
 /// Ticks for one factory pixel to print one ship pixel (4 s).
-pub const PRINT_TICKS: i32 = 60;
+pub const PRINT_TICKS: i32 = 400;
 /// Ship pixels a factory can build per factory pixel: the biggest ship it can make.
 pub const FACTORY_REACH: i32 = 10;
 /// What the second core costs on top of the ship's pixels. Each core after that costs twice the
@@ -308,28 +311,50 @@ impl Part {
 pub enum Order {
     Hunt,
     Guard,
+    Escort,
     Harvest,
     Hold,
 }
 
-pub const ORDERS: [Order; 4] = [Order::Hunt, Order::Guard, Order::Harvest, Order::Hold];
+pub const ORDERS: [Order; 5] = [Order::Hunt, Order::Guard, Order::Escort, Order::Harvest, Order::Hold];
 
 impl Order {
     pub fn name(self) -> &'static str {
         match self {
             Order::Hunt => "HUNT",
             Order::Guard => "GUARD",
+            Order::Escort => "ESCORT",
             Order::Harvest => "HARVEST",
             Order::Hold => "HOLD",
+        }
+    }
+    /// Three letters, for a card's order tag in a match.
+    pub fn tag(self) -> &'static str {
+        match self {
+            Order::Hunt => "HNT",
+            Order::Guard => "GRD",
+            Order::Escort => "ESC",
+            Order::Harvest => "HRV",
+            Order::Hold => "HLD",
         }
     }
     pub fn blurb(self) -> &'static str {
         match self {
             Order::Hunt => "HUNT - GOES AFTER THE NEAREST ENEMY, WHEREVER IT IS.",
-            Order::Guard => "GUARD - STAYS WHERE IT WAS PLACED AND FIGHTS ANYTHING THAT COMES WITHIN 100 PX OF THAT SPOT.",
+            Order::Guard => "GUARD - IN A MATCH, HOLDS WHERE IT WAS BUILT AND FIGHTS WHAT COMES WITHIN 160 PX OF THAT SPOT. IN THE ARENA IT HUNTS.",
+            Order::Escort => "ESCORT - IN A MATCH, FORMS UP ON YOUR KING, GOES WHERE IT FLIES AND FIGHTS WHAT COMES NEAR IT. IN THE ARENA IT HUNTS.",
             Order::Harvest => "HARVEST - MINES THE NEAREST ROCK AND HAULS THE PIXELS HOME. ITS GUNS STILL FIRE ON THE WAY.",
             Order::Hold => "HOLD - STAYS EXACTLY WHERE IT WAS PLACED, TURNING ITS LANCES TO FACE ANY ENEMY IN RANGE.",
         }
+    }
+    /// The orders a design can be switched between in a match: the three a warship takes, and
+    /// first the one it was drawn with if that's another (a miner can be sent back to mining).
+    pub fn in_match(drawn: Order) -> Vec<Order> {
+        let mut v = vec![Order::Hunt, Order::Guard, Order::Escort];
+        if !v.contains(&drawn) {
+            v.insert(0, drawn);
+        }
+        v
     }
     fn from_name(s: &str) -> Option<Order> {
         ORDERS.iter().copied().find(|o| o.name() == s)
@@ -1197,9 +1222,19 @@ pub fn starter_deck() -> Vec<Design> {
     );
     outpost.seeded = true;
     outpost.build = vec![3, 3, 0, 0, 1, 2];
-    let mut miner = Design::from_rows("MINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]);
-    miner.order = Order::Harvest;
-    vec![d[0].clone(), d[1].clone(), d[2].clone(), miner, outpost, shipyard(), d[4].clone()]
+    let miner = Design::from_rows("MINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]);
+    // Its warships are drawn on GUARD: in a match they gather where they're built until you send
+    // them, instead of trickling out one at a time.
+    let guard = |d: &Design| Design { order: Order::Guard, ..d.clone() };
+    vec![guard(&d[0]), guard(&d[1]), guard(&d[2]), miner, outpost, shipyard(), guard(&d[4])]
+}
+
+/// The starter deck's cards as they were before a round changed them, by slot. A saved design
+/// still exactly like one of these was never edited, so loading swaps in the current card (match
+/// round 2 drew the four warships on GUARD).
+pub fn retired_starters() -> Vec<(usize, Design)> {
+    let d = defaults();
+    vec![(0, d[0].clone()), (1, d[1].clone()), (2, d[2].clone()), (6, d[4].clone())]
 }
 
 /// A big seeded factory: an octagon plated all round, with two rings of factory pixels (88 of

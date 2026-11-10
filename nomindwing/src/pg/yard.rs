@@ -49,8 +49,10 @@ fn part_rect(i: usize, n: usize) -> Rect {
 fn tool_rect(i: usize) -> Rect {
     Rect::new(6 + i as i32 * 25, 264, 23, 16)
 }
+/// The order buttons, each as wide as its name needs, so all five fit the column.
 fn order_rect(i: usize) -> Rect {
-    Rect::new(210 + i as i32 * 47, 147, 45, 16)
+    let w = |k: usize| ORDERS[k].name().len() as i32 * 6 + 5;
+    Rect::new(210 + (0..i).map(|k| w(k) + 1).sum::<i32>(), 147, w(i), 16)
 }
 fn chip_rect(k: usize) -> Rect {
     Rect::new(250 + k as i32 * 12, BUILD_Y, 11, 11)
@@ -152,6 +154,7 @@ pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order) -> (Str
             let what = match order {
                 Order::Hunt => "NO GUNS: STAYS WITH ITS GROUP",
                 Order::Hold => "NO GUNS: IT JUST HOLDS",
+                Order::Escort => "NO GUNS: IT FOLLOWS YOUR KING",
                 _ => "NO GUNS: RUNS HOME WHEN HIT",
             };
             (what.into(), TEXT_DIM)
@@ -1017,16 +1020,19 @@ mod tests {
 
     #[test]
     fn every_design_opens_framed_at_a_whole_zoom() {
-        let mut pg = Pg::new(None, None);
-        for i in 0..pg.lib.len() {
-            pg.select_slot(i);
-            let (x0, y0, x1, y1) = pg.lib[i].used_box().unwrap();
-            // Both corners of the drawing are on the canvas.
-            for c in [(x0, y0), (x1, y1)] {
-                let (sx, sy) = pg.cell_screen(c);
-                assert!(CANVAS.contains(sx, sy), "{} at {}x: cell {:?} lands at {sx},{sy}", pg.lib[i].name, pg.ed.zoom, c);
+        // The starting library (the starter deck), then the reference fleet with its titan.
+        for mut pg in [Pg::new(None, None), Pg::reference()] {
+            for i in 0..pg.lib.len() {
+                pg.select_slot(i);
+                let (x0, y0, x1, y1) = pg.lib[i].used_box().unwrap();
+                // Both corners of the drawing are on the canvas.
+                for c in [(x0, y0), (x1, y1)] {
+                    let (sx, sy) = pg.cell_screen(c);
+                    assert!(CANVAS.contains(sx, sy), "{} at {}x: cell {:?} lands at {sx},{sy}", pg.lib[i].name, pg.ed.zoom, c);
+                }
             }
         }
+        let mut pg = Pg::reference();
         pg.select_slot(0);
         assert_eq!(pg.ed.zoom, 8, "a fighter opens at 8x");
         pg.select_slot(6);

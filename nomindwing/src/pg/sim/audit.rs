@@ -80,11 +80,12 @@ impl Arena {
                 if self.ships.get(e.king[t]).map_or(true, |s| s.role != Role::King || s.team != t) {
                     return Err(format!("team {t}'s king isn't a king of team {t}"));
                 }
-                // The books: what's mined, plus the starting bank, is what's held, spent or lost.
+                // The books: what's mined and what the king has made, plus the starting bank, is
+                // what's held, spent or lost.
                 let held: i32 = self.ships.iter().filter(|s| s.team == t).map(|s| s.store).sum();
-                let (had, has) = (START_BANK + self.score[t].mined, held + e.spent[t] + e.spilt[t]);
+                let (had, has) = (START_BANK + self.score[t].mined + e.made[t], held + e.spent[t] + e.spilt[t]);
                 if had != has {
-                    return Err(format!("team {t}'s books are off: {had} px mined and started with, {has} held, spent and lost"));
+                    return Err(format!("team {t}'s books are off: {had} px mined, made and started with, {has} held, spent and lost"));
                 }
                 if e.queue[t].iter().any(|j| j.paid >= j.cost || j.slot >= e.cards[t].len()) {
                     return Err(format!("team {t}'s king has a finished or impossible job queued"));
@@ -225,7 +226,7 @@ mod tests {
     fn every_arena_test_stays_sound() {
         let lib = defaults();
         let mut longest = 0;
-        for t in crate::pg::tests().iter().filter(|t| !t.place.is_empty()) {
+        for t in crate::pg::reference_tests().iter().filter(|t| !t.place.is_empty()) {
             let mut a = Arena::new();
             for &(team, slot, x, y) in &t.place {
                 a.add(team, slot, &lib[slot], x, y);
@@ -332,7 +333,17 @@ mod tests {
                     }
                     a.command(Cmd::Steer { team, dx, dy });
                 }
-                if rng.chance(6) && queued < 2 {
+                // Orders for any design, sensible or not; repeats; and cancelled prints.
+                if rng.chance(3) {
+                    a.command(Cmd::Order { team, slot: rng.below(7) as usize, order: ORDERS[rng.below(ORDERS.len() as u32) as usize] });
+                }
+                if rng.chance(1) {
+                    a.command(Cmd::Repeat { team, slot: rng.below(7) as usize });
+                }
+                if rng.chance(1) {
+                    a.command(Cmd::Cancel { team });
+                }
+                if rng.chance(6) && queued < 4 {
                     // Mostly factories, and miners to pay for them.
                     let slot = match rng.below(100) {
                         0..=44 => 4 + rng.below(2) as usize,
