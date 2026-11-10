@@ -182,20 +182,87 @@ For that to work, the ships you design have to be the strategy. The proving grou
 
 ---
 
-**Next:** power, once round 4's verdicts are in. It's the first new category: reactors, and how a gun's real cost becomes space and shape (parking lot: fitting and power).
+## Round 5: power (2026-11-08)
+
+**Goal:** give modules a real cost in space, so ship design is about choosing modules wisely (goal 1), and stop the best gun fitting on the tiniest hull (2.3).
+
+**Decided in the talk before building:**
+- **A simple pool, then that's it.** Henry: no fine-grained layout mechanics, "because eventually your ship would stop working as soon as it lost a single functional pixel". One pool per ship; power reaches every pixel. Since a ship is one connected piece, this only matters when it's cut apart: each piece runs on its own.
+- **Why it carries its weight** (Henry): nothing else makes design "about choosing your modules wisely". Without it, "a big box of modules surrounded by some plate would be a pretty degenerate design", the piles-of-modules problem he saw in Dual Universe. Power "essentially gives modules a variable pixel cost, which they absolutely need I think (weight isn't enough) while keeping the 1:1 pixel relationship that we wanted."
+- **Hull makes the power.** Henry suggested calling reactors "inner hull" (it explains why fancy modules need volume) and giving plain hull a reason to exist, Dual Universe's other problem. A separate inner hull could only differ from hull by weight, and weight stops mattering on big ships (top speed and turning already sit at their floors on the capital and titan), so plain hull would go unused again. Making hull itself the power answers both. Plate or hull is now a real choice for every pixel: protection or power.
+- **The core makes a little**, enough for a fighter, so small ships stay as they are.
+- **Short of power, everything scales evenly**, as the baseline any other rule gets compared with.
+- **Cannons need 6–8 pixels of power.** Henry: putting the best gun on the tiniest fighter "is a broken balance issue". The numbers are a balance lever, "which is mostly the point".
+- **Shields come next round**, once power is settled.
+
+| # | Addition | Serves | What to look for | Verdict |
+|---|---|---|---|---|
+| 5.1 | **Power from hull and cores.** Every hull pixel makes 1, every core 4. Plate, scoops and modules make none. | 1 | Does every pixel feel like a choice between hull (power), plate (protection) and modules? Can you still build the ships you want? | **Keep.** |
+| 5.2 | **Engines and guns use it.** Engine 1, flak 1, lance 2, cannon 8 (per 3x3 block). | 1, 2.3 | Does the cannon boat problem go away? Do module-packed designs need visibly more hull? | **Keep.** |
+| 5.3 | **Short of power, everything runs at the fraction it has.** At 75%, guns reload a third slower and engines push a quarter less (and speed, turning and even flight style follow from thrust). As hull is shot off, a ship weakens gradually. | 1, 4 | Do battered ships slowing down read clearly in a fight? | **Keep.** |
+| 5.4 | **Readouts.** A fourth gauge in the yard: power used / made, red when short. The status line says "UNDERPOWERED: RUNS AT 44%" (allowed, just weaker). Hovering a ship in the arena shows "POWER 66%" once it's short. | 1 | Is it clear why a design is short and what to add? | **Keep.** |
+
+**Numbers that follow** (all defaults run at full power, so nothing old moved):
+
+| Design | Uses | Makes |
+|---|---|---|
+| Fighter | 4 | 6 |
+| Frigate (the tightest default) | 9 | 15 |
+| Capital | 52 | 471 |
+| Titan | 123 | 2,525 |
+| Henry's three-core dumbbell fighter | 8 | 26 |
+| A cannon on a bare core (11 px) | 9 | 4: runs at 44%, firing every 6.8 s instead of 3, at 3 thrust instead of 8 |
+
+That cannon boat needs 5 hull to run at full power (11 px becomes 16), and each further cannon needs 8 more. If the lone boat should cost more, raise the cannon's draw or lower the core's output.
+
+**What the headless runs showed:** all 26 matchups (12 seeds each) came out exactly as before power, splits included. No default runs short, and none of the pieces cut off in those fights did either.
+
+**Henry's notes:**
+- "It was fun, the mechanics are working."
+- Lancers look overpowered for their pixel cost. He designed a ship purely to beat lancers at the same cost and only just broke even (the log shows 40 lancers losing to his last one, and 80 beating it). That's fine for now. Maybe raise the lance's power draw by one. (A +1 alone wouldn't touch the default lancer: it uses 4 of the 7 its hull and core make, so 5 of 7 would still be full power. The core's 4 power shelters small ships, so to make power bite on lancers, the lance's draw has to go well up or the core's output down. Or change the lance itself.)
+
+---
+
+**Next: the match** (Henry chose it over shields, 2026-11-09). The full plan is in **[MATCH.md](MATCH.md)**; this is the log of how we got there. A 1v1 against an AI, with PvP needed eventually (keep the sim deterministic for lockstep). Decided so far:
+- Killing the king wins, as the baseline.
+- You bring your designs as your deck and can't edit them mid-match.
+- The king builds seeds that grow into factories, and factories build ships. So factories have to be designable, and build orders settable, before the game is playable. A Homeworld-style hyperspace arrival for big ships is an idea.
+- The AI gets a fixed deck and build order.
+- **Slower than Toy 1.** Henry: "RTSs that go too fast are all click-spamming and reflexes without strategy or advanced tactics."
+- Network links, split pools and claiming rocks get a design pass before anything is built: "eyes wide open".
+- **Agreed from the design pass:**
+  - **Network links:** your structures and node-carrying ships link when in range, and a linked network shares one bank.
+  - **Split pools:** pixels are stored at nodes, so a cut divides the bank by where the pixels sit, and a destroyed node spills its stock.
+  - **Pace:** about 15–20 minute matches, with a real decision every 10–30 s.
+- **Factories:** factory pixels set both how fast a factory builds and the biggest thing it can build, by count (Henry chose count over slipway shape), for example 10 ship pixels per factory pixel. The king is the exception: it can build anything, and its builds arrive by hyperspace, revealed by a blue line like Homeworld's.
+- **Seeds grow factories pixel by pixel** (Henry: "exactly the feel we're going for with this game"). You design the factory, not the seed. The king prints a seed for a factory design, and the seed flies to a rock and grows the design out from its core, one rock pixel per factory pixel, connected at every step. It works while it grows, and stays unfinished if the rock runs out.
+- **Factory pixels go on ordinary ships too: carriers** (Henry).
+- **Build order rules:**
+  - A factory builds the next thing on its list that it's big enough for. Anything too big is skipped and shown greyed out until the factory grows into it.
+  - A factory that loses factory pixels partway through a ship finishes it more slowly. The size limit only applies when it starts the next one.
+  - In the yard, a ship on a factory design's list that even the full-grown factory could never build is flagged.
+  - Short of pixels, a factory waits. It never skips to something cheaper.
+  - **It pays as it prints**, as in Toy 1: one pixel at a time from its network's bank, so the ship appears pixel by pixel. If the bank runs dry, it stops half-printed and carries on when pixels arrive. Factories sharing a bank take turns, a pixel each.
+  - **Print speed is factory pixels times a rate**, and the size limit is factory pixels times 10. So every factory takes the same time to build the biggest ship it's allowed to (40 s at a placeholder of one pixel per factory pixel every 4 s), and smaller ships come out faster. It's one number to tune.
+- **Build orders are fixed per factory design** (Henry, leaning): the counter game is which factory to plant where and what the king builds, not editing build orders mid-match.
+- **Rock claims should be organic**, with no ownership state and no arbitrary timers, unless that turns out not to work. Henry: "I would lean toward an organic version as my first plan if nobody told me for sure it wouldn't work."
 
 ---
 
 ## Parking lot (considered, not built)
 
 - **Beam lasers**: a held beam that carves a groove. Mostly for the cool factor.
-- **Fitting and power**: reactors power the guns near them, so a gun's real cost is space and shape. This keeps "pixels are money" honest without price tags. Henry expects it to stop cannons going on tiny hulls (2.3). The first new part category after round 4.
+- **Fitting by placement**: reactors that only power the guns near them. Round 5 built the simple pool instead; Henry doesn't want ships that stop working when one functional pixel goes.
 - **Small guns chip heavy armor**: flak doing a tiny bit of damage to plate. Needs an HP system.
-- **Shields and counter-shields.**
-- **Sub-orders**: Hunt → attack runs, orbit or kite. Also a hunting group size (Toy 1's packs of 3, generalized). In a real game, maybe a button per ship type to switch its AI live.
+- **Shields and counter-shields.** Next (round 6); they'll draw power.
+- **Smarter pixel targeting** (Henry): guns aim at a random surviving pixel of the ship they pick. Aiming for modules, engines or the hull that powers them could come later.
+- **Scoop spam**: scoops make and use no power, so a ship can carry as many as it likes. In the arena that only raises the "mined" count; as structure they're worse than hull (no power) and plate (no armor). It'll matter once mining feeds an economy (Toy 2), where scoops might draw power.
+- **The yard's Power category is empty**: hull makes the power and lives under hull & armor. Storage, or shields, could go there.
+- **Sub-orders**: Hunt → attack runs, orbit or kite, at least. Also a hunting group size (Toy 1's packs of 3, generalized). Henry still wants these (2026-11-09), and later quite possibly switching a design's orders mid-match: hold a type defensive, then send it all on a timing attack. Both are in MATCH.md's later rounds.
 - **Reactionless drive** (campaign): a special engine that works buried inside armor, as an exception to the exposed-engine rule.
 - **Hangars and launching**: a big ship carrying your fighter design, or a piece of it with its own core and engines detaching on command.
 - **Torpedoes or bombs** for small ships to threaten plate, if lances aren't enough.
 - **Per-part prices or multiple materials**: only if weight and fitting can't carry the costs.
+- **Lancers are strong for their cost** (Henry, round 5): his best anti-lancer design at equal cost only broke even. Levers: the lance's power draw (it has to rise a lot to matter, since the core powers a lancer on its own), the core's 4 power, or the lance's reload, punch or range.
 - **Lancers vs big ships, balance**: 40 lancers kill a 620 px capital in 4 s. Good as a counter for now; revisit once fights are bigger (bigger cores, half-pixel death, or cores that resist small guns were the options).
 - **Resource networks, split pools, rock claiming by network reach**: the Toy 2 match direction, waiting on ship design.

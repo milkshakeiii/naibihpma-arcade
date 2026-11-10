@@ -9,6 +9,11 @@ use super::design::*;
 use crate::geom::{cheb, dist2, Line};
 use crate::rng::Rng;
 
+mod audit;
+mod eco;
+mod space;
+pub use eco::*;
+
 pub const AW: i32 = 480;
 pub const AH: i32 = 360;
 pub const TIME_LIMIT: u32 = 15 * 180;
@@ -119,6 +124,7 @@ pub enum Doing {
     Guard,
     Hold,
     Escort,
+    ToRock,
 }
 
 impl Doing {
@@ -135,6 +141,7 @@ impl Doing {
             Doing::Guard => "ON GUARD",
             Doing::Hold => "HOLDING",
             Doing::Escort => "NO GUNS: STAYING WITH THE GROUP",
+            Doing::ToRock => "FLYING TO ITS ROCK",
         }
     }
 }
@@ -198,6 +205,29 @@ pub struct Ship {
     aim_off: (i32, i32),
     aim_for: Option<usize>,
     aim_t: i32,
+    /// What it is in a match: an ordinary ship, a king or a seed.
+    pub role: Role,
+    /// Pixels stored here. Nodes (kings, and anything with factory pixels) hold the bank.
+    pub store: i32,
+    pub node: bool,
+    /// Its build order (deck slots), and where it is in it.
+    pub build: Vec<usize>,
+    pub build_i: usize,
+    print_acc: i32,
+    pub making: Making,
+    make_off: (i32, i32),
+    /// Cells still to grow: a factory growing out of its rock, or a ship being printed.
+    pub grow: Option<Grow>,
+    /// The factory printing this ship, while it's being printed.
+    pub maker: Option<usize>,
+    /// Ticks left of a hyperspace arrival.
+    pub warp: u32,
+    /// A seed's design (deck slot) and the rock pixel it's flying to.
+    pub seed_for: Option<(usize, (i32, i32))>,
+    /// Planted: grown out of a rock and still standing where its seed came down. A factory stays
+    /// planted for good; a seeded design with engines stops being planted the moment it flies.
+    /// Anything planted is solid to every enemy ship (see `sim/space.rs`).
+    pub rooted: bool,
 }
 
 impl Ship {
@@ -289,6 +319,18 @@ impl Ship {
             aim_for: None,
             aim_t: 0,
             pose0: (x, y, self.facing),
+            role: Role::Ship,
+            store: 0,
+            node: cells.iter().any(|&c| self.shape.cells[c] == Some(Part::Factory)),
+            build_i: 0,
+            print_acc: 0,
+            making: Making::None,
+            make_off: (0, 0),
+            grow: None,
+            maker: None,
+            warp: 0,
+            seed_for: None,
+            rooted: false,
             ..self.clone()
         }
     }
@@ -396,28 +438,41 @@ pub struct Arena {
     last_loss: u32,
     /// The tick anyone last fired, or an armed ship got closer to an enemy.
     last_push: u32,
+    /// The map's size: the proving ground's arena is AW x AH, a match's map bigger.
+    pub w: i32,
+    pub h: i32,
+    /// A match's kings, factories, banks and networks; None in the proving ground.
+    pub eco: Option<Eco>,
 }
 
 impl Arena {
-    /// Always the same arena, so the same setup replays the same fight.
-    pub fn new() -> Arena {
-        let mut a = Arena {
+    /// An empty map.
+    fn blank(w: i32, h: i32, seed: u64) -> Arena {
+        Arena {
             tick: 0,
             ships: Vec::new(),
             shots: Vec::new(),
             debris: Vec::new(),
             sparks: Vec::new(),
-            rock: vec![false; (AW * AH) as usize],
+            rock: vec![false; (w * h) as usize],
             rock_px: Vec::new(),
             stars: Vec::new(),
-            rng: Rng::new(1),
+            rng: Rng::new(seed),
             score: [Score::default(); 2],
             over: None,
             stalemate: false,
             started: [false; 2],
             last_loss: 0,
             last_push: 0,
-        };
+            w,
+            h,
+            eco: None,
+        }
+    }
+
+    /// Always the same arena, so the same setup replays the same fight.
+    pub fn new() -> Arena {
+        let mut a = Arena::blank(AW, AH, 1);
         for (cx, cy, r) in [(AW / 2, AH / 2, 18), (AW / 2, 70, 11), (AW / 2, AH - 71, 11)] {
             for y in -r..=r {
                 for x in -r..=r {
@@ -449,7 +504,7 @@ impl Arena {
     }
 
     pub fn rock_at(&self, x: i32, y: i32) -> bool {
-        (0..AW).contains(&x) && (0..AH).contains(&y) && self.rock[(y * AW + x) as usize]
+        (0..self.w).contains(&x) && (0..self.h).contains(&y) && self.rock[(y * self.w + x) as usize]
     }
 
     /// Places a ship; refuses a design that can't fly (no core, loose pixels, buried engines).
@@ -457,13 +512,20 @@ impl Arena {
         if !d.check().ok() {
             return false;
         }
+        self.spawn(team, slot, d, x, y, if team == 0 { 1 } else { 3 }, false);
+        self.score[team].placed += 1;
+        true
+    }
+
+    /// Puts a ship on the map facing one way, without checking the design; `empty` leaves every
+    /// pixel still to grow. Returns its index.
+    pub fn spawn(&mut self, team: usize, slot: usize, d: &Design, x: i32, y: i32, facing: u8, empty: bool) -> usize {
         let st = d.stats();
         let shape = d.shape();
         let n = shape.cells.len();
-        let hp = shape.cells.iter().map(|c| c.is_some() as u8).collect();
+        let hp = shape.cells.iter().map(|c| (c.is_some() && !empty) as u8).collect();
         // Stagger the guns so a broadside ripples instead of firing as one.
         let cool = (0..n).map(|i| (i as i32 * 7) % FLAK_PERIOD).collect();
-        let facing = if team == 0 { 1 } else { 3 };
         let turrets = shape
             .cannons
             .iter()
@@ -508,15 +570,30 @@ impl Arena {
             aim_for: None,
             aim_t: 0,
             pose0: (x, y, facing),
+            role: Role::Ship,
+            store: 0,
+            node: d.cells.contains(&Some(Part::Factory)),
+            build: d.build.clone(),
+            build_i: 0,
+            print_acc: 0,
+            making: Making::None,
+            make_off: (0, 0),
+            grow: None,
+            maker: None,
+            warp: 0,
+            seed_for: None,
+            rooted: false,
         };
         let h = s.half();
-        s.x = x.clamp(h, AW - 1 - h);
-        s.y = y.clamp(h, AH - 1 - h);
+        s.x = x.clamp(h, self.w - 1 - h); // spawn
+        s.y = y.clamp(h, self.h - 1 - h); // spawn
         s.home = (s.x, s.y);
         s.pose0 = (s.x, s.y, facing);
+        if empty {
+            s.st = stats_of(&s.alive_cells(), 0);
+        }
         self.ships.push(s);
-        self.score[team].placed += 1;
-        true
+        self.ships.len() - 1
     }
 
     /// The living ship under a point (with a pixel of slack).
@@ -552,11 +629,15 @@ impl Arena {
         for s in &mut self.ships {
             s.pose0 = (s.x, s.y, s.facing);
         }
+        if self.eco.is_some() {
+            self.eco_pre();
+        }
+        // Ships still arriving by hyperspace aren't there yet.
         let snap: Vec<Snap> = self
             .ships
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.alive)
+            .filter(|(_, s)| s.alive && s.warp == 0)
             .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full() })
             .collect();
         let n = self.ships.len();
@@ -569,10 +650,13 @@ impl Arena {
         };
         let before: Vec<i32> = (0..n).map(|i| if pushing(self, i) { near(self, i) } else { i32::MAX }).collect();
         for i in 0..n {
-            if self.ships[i].alive {
-                let plan = self.brain(i, &snap);
+            if self.ships[i].alive && self.moves(i) {
+                let plan = if self.ships[i].role == Role::Seed { self.seed_plan(i) } else { self.brain(i, &snap) };
                 self.fly(i, plan);
             }
+        }
+        if self.eco.is_some() {
+            self.eco_follow();
         }
         if (0..n).any(|i| before[i] != i32::MAX && pushing(self, i) && near(self, i) < before[i]) {
             self.last_push = self.tick;
@@ -583,7 +667,7 @@ impl Arena {
         }
         let fired = self.score[0].fired + self.score[1].fired;
         for i in 0..n {
-            if self.ships[i].alive {
+            if self.ships[i].alive && self.ships[i].warp == 0 && self.ships[i].maker.is_none() {
                 self.weapons(i, &snap, &mut pending);
             }
         }
@@ -594,6 +678,9 @@ impl Arena {
         self.break_off();
         self.debris_step();
         self.deaths();
+        if self.eco.is_some() {
+            self.eco_post();
+        }
         for s in self.ships.iter_mut().filter(|s| s.alive) {
             if s.dirty {
                 s.dirty = false;
@@ -611,6 +698,10 @@ impl Arena {
             sp.t = sp.t.saturating_sub(1);
         }
         self.sparks.retain(|sp| sp.t > 0);
+        if self.eco.is_some() {
+            // A match ends when a king dies (eco_post decides).
+            return;
+        }
         let (a, b) = (self.alive(0), self.alive(1));
         if self.started[0] && self.started[1] {
             if a == 0 && b == 0 {
@@ -639,7 +730,7 @@ impl Arena {
         };
         let armed = st.armed();
         let hurt = last_hit > 0 && self.tick.saturating_sub(last_hit) < SCARED;
-        let station = STATIONS[team];
+        let station = self.station(i).0;
         let nearest = |maxd: i32, from: (i32, i32)| {
             snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, from.0, from.1) <= maxd).min_by_key(|e| dist2(e.x, e.y, x, y)).copied()
         };
@@ -703,7 +794,7 @@ impl Arena {
         };
         let gap = f.half + s.half() + 4;
         let (ux, uy) = if (s.x, s.y) == (f.x, f.y) { (64, 0) } else { toward(f.x, f.y, s.x, s.y, 64) };
-        let spot = ((f.x + ux * gap / 64).clamp(0, AW - 1), (f.y + uy * gap / 64).clamp(0, AH - 1));
+        let spot = ((f.x + ux * gap / 64).clamp(0, self.w - 1), (f.y + uy * gap / 64).clamp(0, self.h - 1));
         let mut p = self.go(i, spot, Doing::Escort);
         p.target = Some(f.idx);
         p
@@ -747,7 +838,7 @@ impl Arena {
         };
         let d = isqrt(dist2(x, y, e.x, e.y));
         let t = d * 4 / vmax.max(1);
-        let (tx, ty) = ((e.x + e.vx * t / 4).clamp(0, AW - 1), (e.y + e.vy * t / 4).clamp(0, AH - 1));
+        let (tx, ty) = ((e.x + e.vx * t / 4).clamp(0, self.w - 1), (e.y + e.vy * t / 4).clamp(0, self.h - 1));
         // Flying through only works on ships smaller than you. If this course would hit a
         // bigger one before we could stop, peel off sideways: a strafing pass along its hull.
         let peel = self.impact(i).map(|b| self.peel(i, b));
@@ -778,7 +869,7 @@ impl Arena {
             } else {
                 toward(0, 0, vx, vy, vmax)
             };
-            let near_wall = x < 16 || y < 16 || x > AW - 17 || y > AH - 17;
+            let near_wall = x < 16 || y < 16 || x > self.w - 17 || y > self.h - 17;
             if near_wall || (s.run_t > 8 && d > 48 + e.half) || s.run_t > 30 {
                 s.outbound = false;
                 s.run_t = 0;
@@ -802,7 +893,8 @@ impl Arena {
         } else {
             FLAK_RANGE * 2 / 3
         } + e.half;
-        let inside = |(px, py): (i32, i32)| px >= h + 2 && py >= h + 2 && px <= AW - 3 - h && py <= AH - 3 - h;
+        let (aw, ah) = (self.w, self.h);
+        let inside = |(px, py): (i32, i32)| px >= h + 2 && py >= h + 2 && px <= aw - 3 - h && py <= ah - 3 - h;
         // Spots in line with the target, at a few distances; a spot a friend already holds costs
         // extra, so a group spreads into a firing line instead of stacking (own shots pass through
         // own ships, so a line behind a line still fires).
@@ -824,7 +916,7 @@ impl Arena {
         let point = lined_up.unwrap_or_else(|| {
             let (ux, uy) = toward(e.x, e.y, x, y, 64);
             let (ux, uy) = if (ux, uy) == (0, 0) { (-64, 0) } else { (ux, uy) };
-            ((e.x + ux * pref / 64).clamp(h + 2, AW - 3 - h), (e.y + uy * pref / 64).clamp(h + 2, AH - 3 - h))
+            ((e.x + ux * pref / 64).clamp(h + 2, self.w - 3 - h), (e.y + uy * pref / 64).clamp(h + 2, self.h - 3 - h))
         });
         let dv = self.arrive(i, point.0, point.1);
         Plan { dv, face: axis_face(e.x - x, e.y - y), doing: Doing::StandOff, target: Some(e.idx), goal: Some(point) }
@@ -889,9 +981,9 @@ impl Arena {
             0
         };
         let want = if row {
-            self.lance_line(i, e, aim, f, ax).clamp(h + 2, AH - 3 - h)
+            self.lance_line(i, e, aim, f, ax).clamp(h + 2, self.h - 3 - h)
         } else {
-            self.lance_line(i, e, aim, f, ay).clamp(h + 2, AW - 3 - h)
+            self.lance_line(i, e, aim, f, ay).clamp(h + 2, self.w - 3 - h)
         };
         let off = want - if row { y } else { x };
         let brake = isqrt(8 * st.thrust * off.abs() / st.mass.max(1));
@@ -914,11 +1006,14 @@ impl Arena {
         if cap == 0 {
             return self.go(i, home, Doing::Idle);
         }
-        let station = STATIONS[team];
+        let (station, reach, node) = self.station(i);
         if self.ships[i].hauling || carry >= cap {
             self.ships[i].hauling = true;
-            if cheb(x, y, station.0, station.1) <= 10 {
+            if cheb(x, y, station.0, station.1) <= reach {
                 self.score[team].mined += carry;
+                if let Some(j) = node {
+                    self.ships[j].store += carry;
+                }
                 let s = &mut self.ships[i];
                 s.carry = 0;
                 s.hauling = false;
@@ -944,7 +1039,7 @@ impl Arena {
                     s.chew = 0;
                     s.tpx = None;
                     s.carry += 1;
-                    self.rock[(py * AW + px) as usize] = false;
+                    self.rock[(py * self.w + px) as usize] = false;
                 }
                 Plan { dv: (0, 0), face: None, doing: Doing::Mine, target: None, goal: Some((px, py)) }
             }
@@ -967,6 +1062,8 @@ impl Arena {
         s.goal = p.goal;
         let st = s.st;
         if st.thrust > 0 {
+            // Something grown out of a rock that can fly has lifted off: it's a ship like any other.
+            s.rooted = false;
             s.acc += st.thrust;
             let budget = (s.acc / st.mass.max(1)).min(8);
             s.acc %= st.mass.max(1);
@@ -993,11 +1090,7 @@ impl Arena {
             _ => s.turn_t = 0,
         }
         if let Some(nf) = turn_to {
-            // A turn can't swing a pixel into a bigger enemy's hull.
-            let (x, y, f0) = (self.ships[i].x, self.ships[i].y, self.ships[i].facing);
-            if self.overlap(i, x, y, nf).0 <= self.overlap(i, x, y, f0).0 {
-                self.ships[i].facing = nf;
-            }
+            self.try_turn(i, nf);
         }
         let s = &mut self.ships[i];
         s.sx += s.vx;
@@ -1007,7 +1100,7 @@ impl Arena {
         s.sy = s.sy.rem_euclid(4);
         let h = s.half();
         let (nx, ny) = (s.x + dx, s.y + dy);
-        let (cx, cy) = (nx.clamp(h, AW - 1 - h), ny.clamp(h, AH - 1 - h));
+        let (cx, cy) = (nx.clamp(h, self.w - 1 - h), ny.clamp(h, self.h - 1 - h));
         if cx != nx {
             s.vx = 0;
             s.sx = 0;
@@ -1016,41 +1109,8 @@ impl Arena {
             s.vy = 0;
             s.sy = 0;
         }
-        // Bigger enemies are solid: a move into one is cut back axis by axis, so a fighter skims
-        // along a capital's plate instead of flying over it and shooting it from inside.
-        let (ox, oy) = (s.x, s.y);
-        let (mut fx, mut fy) = (cx, cy);
-        if self.blocked(i, ox, oy) {
-            // Already inside a bigger ship (it drifted onto us, or we were shoved): take the
-            // planned move if it clears the hull, or else head for the nearest clear spot in
-            // any of 8 directions, up to 2 px a tick.
-            if self.blocked(i, cx, cy) {
-                let mut exit: Option<(i32, (i32, i32))> = None;
-                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
-                    for k in 1..=24 {
-                        let (px, py) = (ox + dx * k, oy + dy * k);
-                        if px < h || py < h || px > AW - 1 - h || py > AH - 1 - h {
-                            break;
-                        }
-                        if !self.blocked(i, px, py) {
-                            if exit.map_or(true, |(best, _)| k < best) {
-                                exit = Some((k, (dx, dy)));
-                            }
-                            break;
-                        }
-                    }
-                }
-                (fx, fy) = exit.map_or((ox, oy), |(k, (dx, dy))| (ox + dx * k.min(2), oy + dy * k.min(2)));
-            }
-        } else if (fx, fy) != (ox, oy) && self.blocked(i, fx, fy) {
-            if !self.blocked(i, fx, oy) {
-                fy = oy;
-            } else if !self.blocked(i, ox, fy) {
-                fx = ox;
-            } else {
-                (fx, fy) = (ox, oy);
-            }
-        }
+        // The move itself, as far as whatever is solid to this ship allows.
+        let (fx, fy) = self.shift(i, cx, cy);
         let s = &mut self.ships[i];
         s.bumped = (fx, fy) != (cx, cy);
         if fx != cx {
@@ -1061,8 +1121,6 @@ impl Arena {
             s.vy = 0;
             s.sy = 0;
         }
-        s.x = fx;
-        s.y = fy;
     }
 
     /// The bigger enemy ship `i` would run into if it held its course, looking ahead about as
@@ -1086,41 +1144,25 @@ impl Arena {
         toward(0, 0, ax * side, ay * side, s.st.vmax)
     }
 
-    /// Whether ship `i` centred on (x, y) would overlap a living pixel of a bigger enemy.
-    fn blocked(&self, i: usize, x: i32, y: i32) -> bool {
-        self.overlap(i, x, y, self.ships[i].facing).0 > 0
+    /// Where a ship delivers what it mines and runs to when hurt: the proving ground's station,
+    /// or in a match the nearest node of its own (with how close counts as there).
+    fn station(&self, i: usize) -> ((i32, i32), i32, Option<usize>) {
+        let s = &self.ships[i];
+        if self.eco.is_some() {
+            let best = self.ships.iter().enumerate().filter(|&(j, o)| j != i && o.alive && o.team == s.team && o.node && o.warp == 0 && o.maker.is_none()).min_by_key(|(_, o)| dist2(o.x, o.y, s.x, s.y));
+            return match best {
+                Some((j, o)) => ((o.x, o.y), o.half() + 4, Some(j)),
+                None => ((s.x, s.y), 0, None),
+            };
+        }
+        (STATIONS[s.team], 10, None)
     }
 
-    /// How many of ship `i`'s pixels would sit on living pixels of bigger enemies if it were
-    /// centred on (x, y) facing `facing`, and the first such enemy.
-    fn overlap(&self, i: usize, x: i32, y: i32, facing: u8) -> (i32, Option<usize>) {
+    /// Whether a ship flies itself this tick: kings are steered, and ships growing, being printed
+    /// or arriving by hyperspace stay where they are.
+    fn moves(&self, i: usize) -> bool {
         let s = &self.ships[i];
-        let (w, h) = s.shape.dims(facing);
-        let (l, t) = (x - w / 2, y - h / 2);
-        let size = s.px_full();
-        let (mut n, mut first) = (0, None);
-        for (k, e) in self.ships.iter().enumerate() {
-            if !e.alive || e.team == s.team || e.px_full() <= size {
-                continue;
-            }
-            let (el, et, er, eb) = e.bbox();
-            if el > l + w - 1 || er < l || et > t + h - 1 || eb < t {
-                continue;
-            }
-            let m = (0..s.hp.len())
-                .filter(|&c| {
-                    s.hp[c] > 0 && {
-                        let (px, py) = s.shape.cell_xy(x, y, facing, c);
-                        e.cell_at(px, py).map_or(false, |j| e.hp[j] > 0)
-                    }
-                })
-                .count() as i32;
-            if m > 0 {
-                n += m;
-                first = first.or(Some(k));
-            }
-        }
-        (n, first)
+        s.role != Role::King && s.warp == 0 && s.grow.is_none()
     }
 
     // ----- Layer 2: the parts fire on reflex -----
@@ -1166,7 +1208,8 @@ impl Arena {
                     let line = Line::new(gx, gy, aim.0, aim.1);
                     self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick });
                     pending[e.idx] += 1;
-                    self.ships[i].cool[c] = FLAK_PERIOD + self.rng.below(4) as i32;
+                    // A ship short of power reloads slower.
+                    self.ships[i].cool[c] = self.ships[i].st.reload(FLAK_PERIOD) + self.rng.below(4) as i32;
                     self.score[team].fired += 1;
                 }
             } else {
@@ -1191,7 +1234,7 @@ impl Arena {
                     self.ships[i].aim_t = 0;
                     let line = Line::new(gx, gy, gx + dx * 400, gy + dy * 400);
                     self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_RANGE + 12, speed: LANCE_SPEED, dmg: LANCE_DMG, pen: LANCE_PEN, target: None, prev: (gx, gy), connected: false, born: self.tick });
-                    self.ships[i].cool[c] = LANCE_PERIOD;
+                    self.ships[i].cool[c] = self.ships[i].st.reload(LANCE_PERIOD);
                     self.score[team].fired += 1;
                 }
             }
@@ -1238,6 +1281,7 @@ impl Arena {
             t.aim_off = (px - e.x, py - e.y);
             t.aim_for = Some(e.idx);
         }
+        let reload = self.ships[i].st.reload(CANNON_PERIOD);
         let t = &mut self.ships[i].turrets[k];
         let (ax, ay) = (e.x + t.aim_off.0, e.y + t.aim_off.1);
         let travel = isqrt(dist2(ax, ay, gx, gy)) / SHELL_SPEED;
@@ -1256,7 +1300,7 @@ impl Arena {
             // the barrel slips past small targets forever. Once the barrel is on target, the
             // shell flies at the aim point itself (a 4 px barrel can't show the difference).
             let line = Line::new(gx, gy, lx, ly);
-            t.cool = CANNON_PERIOD;
+            t.cool = reload;
             t.aim_for = None;
             self.shots.push(Shot { team, kind: Kind::Shell, line, left: CANNON_RANGE + 12, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick });
             pending[e.idx] += 1;
@@ -1289,6 +1333,8 @@ impl Arena {
         let shots = std::mem::take(&mut self.shots);
         let boxes: Vec<(usize, usize, (i32, i32, i32, i32))> = self.ships.iter().enumerate().filter(|(_, s)| s.alive).map(|(i, s)| (i, s.team, s.bbox())).collect();
         let mut keep = Vec::with_capacity(shots.len());
+        // In tests: the path of every shot that flew on, to check it skipped nothing.
+        let mut flown: Vec<(Vec<(i32, i32)>, usize, u32)> = Vec::new();
         'shot: for mut sh in shots {
             // The shot's own flight this tick, a pixel at a time.
             let mut path = vec![(sh.line.x, sh.line.y)];
@@ -1297,7 +1343,7 @@ impl Arena {
                 sh.line.step();
                 sh.left -= 1;
                 let (nx, ny) = (sh.line.x, sh.line.y);
-                if sh.left <= 0 || nx < 0 || ny < 0 || nx >= AW || ny >= AH {
+                if sh.left <= 0 || nx < 0 || ny < 0 || nx >= self.w || ny >= self.h {
                     gone = true;
                     break;
                 }
@@ -1312,7 +1358,7 @@ impl Arena {
             // of plate (pixels touching only at corners) stops shots like the wall it looks.
             let mut meets: Vec<(i32, usize, usize)> = Vec::new();
             for (id, s) in self.ships.iter().enumerate() {
-                if !s.alive || s.team == sh.team {
+                if !s.alive || s.team == sh.team || s.warp > 0 {
                     continue;
                 }
                 // A shot fired this tick was fired after the ships moved.
@@ -1326,6 +1372,10 @@ impl Arena {
                         meets.push((t, id, c));
                     }
                 };
+                // A shot that starts the tick inside a living pixel meets that pixel first. It can
+                // only be there because the pixel grew or arrived round it, or because it was fired
+                // from inside: either way it can't skip the pixel it's in.
+                meet(0, s.shape.cell_at(x0, y0, f0, s0.0, s0.1));
                 if (x0, y0, f0) == (s.x, s.y, s.facing) {
                     // The ship held still: the relative path is the shot's own.
                     for j in 1..=m {
@@ -1391,10 +1441,18 @@ impl Arena {
                 continue;
             }
             sh.prev = path[(m as usize).saturating_sub(1)];
+            if cfg!(test) {
+                flown.push((path, sh.team, sh.born));
+            }
             keep.push(sh);
         }
         keep.append(&mut self.shots);
         self.shots = keep;
+        if cfg!(test) {
+            if let Err(what) = self.audit_shots().and_then(|_| self.audit_paths(&flown)) {
+                panic!("tick {}: {what}", self.tick);
+            }
+        }
     }
 
     /// A shell bursts: every enemy pixel in the 3x3 around the hit goes, plate and all.
@@ -1472,8 +1530,8 @@ impl Arena {
     fn debris_step(&mut self) {
         for d in &mut self.debris {
             if d.drift > 0 {
-                d.x = (d.x + d.vx).clamp(0, AW - 1);
-                d.y = (d.y + d.vy).clamp(0, AH - 1);
+                d.x = (d.x + d.vx).clamp(0, self.w - 1);
+                d.y = (d.y + d.vy).clamp(0, self.h - 1);
                 d.drift -= 1;
             }
         }
@@ -1971,5 +2029,49 @@ mod tests {
         }
         assert!(targets.len() >= 3, "only {} shells", targets.len());
         assert!(targets.windows(2).all(|w| w[0] == w[1]), "it changed target: {targets:?}");
+    }
+
+    #[test]
+    fn losing_hull_drains_power() {
+        // Exactly powered: a cannon and an engine use 9; five hull and a core make 9. Shooting off
+        // three hull pixels leaves 6 of 9, so the cannon reloads slower and the engine pushes less.
+        let boat = Design::from_rows("BOAT", Order::Hold, &["nnn", "nnn", "nnn", "hch", "hhh", ".e."]);
+        let mut a = Arena::new();
+        a.add(0, 0, &boat, 240, 180);
+        assert_eq!(a.ships[0].st.power_pct(), 100);
+        let full = a.ships[0].st.thrust;
+        for (x, y) in [(0, 3), (0, 4), (2, 4)] {
+            let c = (y * a.ships[0].shape.w + x) as usize;
+            assert_eq!(a.ships[0].shape.cells[c], Some(Part::Hull));
+            let at = a.ships[0].cell_xy(c);
+            a.kill_cell(0, c, at, (0, 0));
+        }
+        a.step();
+        let st = a.ships[0].st;
+        assert!(a.ships[0].alive);
+        assert_eq!((st.made, st.used, st.power_pct()), (6, 9, 66));
+        assert!(st.reload(CANNON_PERIOD) > CANNON_PERIOD && st.thrust < full, "{:?}", st);
+    }
+
+    #[test]
+    fn a_shot_that_starts_inside_a_pixel_hits_that_pixel() {
+        // A pixel can grow round a shot in flight, a ship can arrive round one, and a gun can
+        // fire from inside an enemy. The shot can't skip the pixel it's in: on plate, flak bounces.
+        let pod = Design::from_rows("POD", Order::Hold, &["ppp", "pgp", "pcp", "ppp"]);
+        let mut a = Arena::new();
+        a.add(1, 0, &pod, 200, 180);
+        a.tick = 5;
+        let s = &a.ships[0];
+        let gun = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Flak)).unwrap();
+        let (gx, gy) = s.cell_xy(gun);
+        let (dx, dy) = [(1, 0), (-1, 0), (0, 1), (0, -1)].into_iter().find(|&(dx, dy)| s.cell_at(gx + dx, gy + dy).map_or(false, |c| s.shape.cells[c] == Some(Part::Plate))).unwrap();
+        // The shot sits on the plate beside the gun, heading through the gun.
+        let shot = flak_at(&a, (gx + dx, gy + dy), (gx - dx * 50, gy - dy * 50));
+        a.shots.push(shot);
+        let s = &mut a.ships[0];
+        s.pose0 = (s.x, s.y, s.facing);
+        a.shots_step();
+        assert_eq!(a.ships[0].hp[gun], 1, "the shot skipped the plate it started in and killed the gun");
+        assert_eq!(a.score[0].bounced, 1, "it should bounce off the plate it's in");
     }
 }

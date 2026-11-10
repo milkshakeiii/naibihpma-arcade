@@ -6,7 +6,7 @@ A DOS-style arcade RTS: arcade on top, RTS underneath. You fly your king (mother
 
 There are two toys so far:
 
-- **Proving ground** (the default): draw ships, set them loose, and see whether they fly and fight the way their drawings suggest. Iterated in rounds, logged in [ROUNDS.md](ROUNDS.md).
+- **Proving ground** (the default): draw ships, set them loose, and see whether they fly and fight the way their drawings suggest. Iterated in rounds, logged in [ROUNDS.md](ROUNDS.md). From its yard, **MATCH** plays the match (below), planned in [MATCH.md](MATCH.md).
 - **Toy 1** (`--toy1`): the first playable match, testing the tree of factories.
 
 ```
@@ -19,7 +19,7 @@ cargo run --release -- --toy1
 
 Toy 1's playtest found good feel and no depth. The planned fix is that strategy flows through the army you design, so every ship has to be drawn, not picked. The hard part, and where the 2020 version stalled ("sketchy enemy mind stuff"), is ship AI that works for any drawing. This toy tests one answer: a three-layer brain where none of the layers knows what kind of ship it is.
 
-The proving ground is iterated in rounds. **[ROUNDS.md](ROUNDS.md)** has the goals, every round's additions, the verdicts and the parking lot. This is round 4.
+The proving ground is iterated in rounds. **[ROUNDS.md](ROUNDS.md)** has the goals, every round's additions, the verdicts and the parking lot. This is round 5.
 
 1. **The order says where to go.** Each design has one: Hunt, Guard, Harvest or Hold.
 2. **The parts fire on reflex.** Flak turrets fire at the nearest enemy in range whatever the order, so an armed miner shoots back while it mines. A hunter with no guns left stays beside the nearest friend that still has some; guards and miners with no guns run home when hit.
@@ -27,18 +27,20 @@ The proving ground is iterated in rounds. **[ROUNDS.md](ROUNDS.md)** has the goa
 
 **Ship rules (since round 3):** a ship needs at least one core, and all its pixels must join up into one piece, edge to edge. Corners don't count. Every engine needs a straight 3-wide way out of the ship for its exhaust, like a rook's move: in one of the four directions, the engine's own line and the lines either side of it must be empty right out past the edge of the ship. So there's always a straight line of fire to every engine; plate can't fold round one (round 4; in round 3 the way out could bend). Loose pixels and buried engines show red in the yard, and the ship can't fly until they're fixed. Extra cores cost more each: the second +8, the third +16, the fourth +32. A ship's cost is its pixels plus its extra cores. In a fight, a ship dies when its last core goes. If it's cut apart, every piece that still holds a core flies on as a ship of its own, and pieces without one break away.
 
-**Parts**, in the yard's six categories (keys 1-6; press again for the category's next part). Power has no parts yet.
+**Power (round 5):** hull makes it and engines and guns use it, from one pool per ship (each piece of a split ship runs on its own). A ship short of power runs everything at the fraction it has: at 75%, guns reload a third slower and engines push a quarter less. As hull is shot off, it weakens gradually. Short is allowed, just weaker; the yard shows "UNDERPOWERED", and the arena's hover shows the percentage.
 
-| Category | Part | Weight | Does |
-|---|---|---|---|
-| Hull & armor | Hull | 1 | Holds the ship together. Any hit breaks it. |
-| | Plate | 2 | Flak bounces off it. Lances and cannon shells break it. |
-| Weapons | Flak | 1 | Turret, 48 px, 1 damage. Leads its aim and spreads its fire over several targets. One shot per 1.3 s. |
-| | Lance | 2 | Fires straight ahead only, 100 px, 2 damage. Punches through 6 pixels, or 3 of plate. One shot per 3 s. |
-| | Cannon | 18 (3x3) | A big turret, 130 px, turning about 42° a second. Its shell blasts a 3x3 hole, plate and all. Goes for the big ships in range (anything at least 2/3 the size of the biggest), and of those the one its barrel reaches soonest, so it stays on its target. One shot per 3 s. |
-| Drive | Engine | 1 | Thrust. Needs a straight 3-wide way out. |
-| Industry | Scoop | 1 | Mines and carries 3. |
-| Command | Core | 1 | At least one per ship; extras cost +8, +16, +32. The ship dies when its last core is gone. |
+**Parts**, in the yard's six categories (keys 1-6; press again for the category's next part). The Power category is still empty: hull is the power.
+
+| Category | Part | Weight | Power | Does |
+|---|---|---|---|---|
+| Hull & armor | Hull | 1 | makes 1 | Holds the ship together. Any hit breaks it. |
+| | Plate | 2 | | Flak bounces off it. Lances and cannon shells break it. |
+| Weapons | Flak | 1 | uses 1 | Turret, 48 px, 1 damage. Leads its aim and spreads its fire over several targets. One shot per 1.3 s. |
+| | Lance | 2 | uses 2 | Fires straight ahead only, 100 px, 2 damage. Punches through 6 pixels, or 3 of plate. One shot per 3 s. |
+| | Cannon | 18 (3x3) | uses 8 | A big turret, 130 px, turning about 42° a second. Its shell blasts a 3x3 hole, plate and all. Goes for the big ships in range (anything at least 2/3 the size of the biggest), and of those the one its barrel reaches soonest, so it stays on its target. One shot per 3 s. |
+| Drive | Engine | 1 | uses 1 | Thrust. Needs a straight 3-wide way out. |
+| Industry | Scoop | 1 | | Mines and carries 3. |
+| Command | Core | 1 | makes 4 | At least one per ship; extras cost +8, +16, +32. The ship dies when its last core is gone. |
 
 **Shipyard (round 4):** designs go up to 99x99, odd so the mirror has a centre column. The canvas zooms in whole steps with Q/E, the mouse wheel or the -/+ buttons: 1x is the ship at its real size, as in the arena; 2x shows the whole grid; 4x and 8x are for fine work, and at 8x each cell shows its part's shape. WASD or the arrows scroll. A design opens framed at the biggest zoom that shows all of it.
 
@@ -53,16 +55,37 @@ The proving ground is iterated in rounds. **[ROUNDS.md](ROUNDS.md)** has the goa
 
 The right-hand column is icons and numbers, with the details on hover: cost, flight style, gauges for top speed, turning and thrust per weight (the gold mark is 1 thrust per weight, where attack runs start), a tally of the parts the ship has, and the status line.
 
-Stats change as pixels are shot off: lose your engines and you slow down. Enemies bigger than you are solid, so you can't fly into them and shoot them from inside their plate. An attack run peels off sideways before it would hit one, so small ships make strafing passes along a big ship's hull.
+Stats change as pixels are shot off: lose your engines and you slow down; lose hull and you may run short of power. Enemies bigger than you are solid, so you can't fly into them and shoot them from inside their plate. Ships move a pixel at a time, so they stop flush against whatever is solid to them and can't skip across something thin. An attack run peels off sideways before it would hit one, so small ships make strafing passes along a big ship's hull.
 
 **Arena:** 480x360, seen through a 304x300 window. Scroll it with WASD, the arrows or the 1/6-scale minimap. Nine ready-made tests use the seven design slots, so editing a design changes the tests. Keys 1-7 pick the design to place. The arena is deterministic: R replays exactly the same fight. A fight ends when one side is wiped out, after 3 minutes, or as a stalemate (a draw) once 20 seconds pass with nobody firing, nothing shot off and no armed ship closing in. The result names any side with no working guns left. Hover a ship to see its order, what it's doing, its target and where it's heading. Faint trails show recent flight paths; gold barrels show where cannons point; white sparks are shots bouncing off plate.
 
 **Headless tools:**
 - `--pg-sim`: every test, every pair of the first five designs at about 600 px of cost a side, and the titan against frigates, destroyers and capitals at its own cost, each fought on 12 seeds (seed 1 is the fight the window replays). Draws are split out into stalemates, and splits count the ships that broke in two.
 - `--pg-trace BLUE_SLOT N RED_SLOT N EVERY UNTIL`: ship-by-ship state. Use blue slot 99 to run test number RED_SLOT.
-- `--export-screenshots DIR`: proving-ground screenshots.
+- `--match-sim N`: N matches of AI against AI with the starter deck (seeds 1 to N), with how each ended and a line every two minutes of the first.
+- `--export-screenshots DIR`: proving-ground and match screenshots.
 
-Sessions append to `proving_ground.log` (each run's designs and result). Designs persist in `proving_ground_designs.txt`, each trimmed to its drawing with its place on the grid (round 2 and 3 files, which saved the whole 41x41 grid, load centred); round-1 designs (15x15, old rules) were moved aside to `proving_ground_designs_round1.txt`. A saved design still exactly like an old default is swapped for the current one when it loads. All three files are gitignored.
+## The match (Match round 1)
+
+A 1v1 against the AI on a mirrored 1200x900 map: kill its king. From the yard, **MATCH** asks whether you play your 7 designs as your deck or the starter deck; the AI plays the starter deck. Each side starts with its king and a 300 px bank, nothing else.
+
+| Input | Does |
+|---|---|
+| WASD / arrows | Fly your king (like Toy 1's, straight from the keys). |
+| 1–7 or click a card | Your king prints it, a pixel at a time from its network's bank. Built designs arrive beside it by hyperspace. |
+| A seeded card, then a rock | The king prints a seed (20 px), which flies to the rock and grows the design out of it, one rock pixel per pixel. Right-click or Esc cancels. |
+| Minimap | Click or drag to look around; flying your king brings the view back. |
+| Space / PAUSE, F / speed, F1 | Pause, 1x/2x/4x, the rules. |
+
+- **Designs are built or seeded** (yard: BUILT / SEEDED). A seeded design's core stays at the grid's centre, where its seed lands, and it grows outward from there. It needs a rock at least as big as itself, or it stays unfinished. A seeded design may have engines and guns: it grows out of its rock, then flies off when it's whole.
+- **Factory pixels** (Industry, 1 power each) print a design's build order (yard: BUILDS / ADD, by deck slot). Each prints 1 pixel every 4 s, and each lets the factory build ships up to 10 px bigger, so the biggest ship a factory can make always takes 40 s. It builds the next thing on its list that it's big enough for, pays as it prints, and waits when the bank is empty; printers sharing a bank take turns, a pixel each. Nothing grows, prints or arrives by hyperspace into an enemy's pixels: it waits or grows round. While a seeded factory grows, its factory pixels help it grow instead. Carriers (built ships with factory pixels) print the same way.
+- **The network:** your king and anything with factory pixels are nodes. Nodes store pixels and link (dotted lines) when within reach of each other, and linked nodes share a bank. Miners haul to the nearest node. Cut a link and the bank splits by where the pixels sit; a destroyed node spills what it held.
+- **Rocks have no owners.** Anyone can mine any rock, and a seed can eat any rock. The planted factory is the claim.
+- **Factories stay put, keep apart and are solid.** No factory grows into another, yours or the enemy's: a seed sent where one already stands comes down beside it and grows what it has room for (the planting bar warns you first). Whatever is planted on a rock is solid to every enemy ship, whatever its size: a king flown at an enemy factory stops against its plate. Your own ships fly over your own factories. A bigger ship does pass over a drifting hulk with no engines, without pushing it. Rocks themselves stop nothing.
+
+For anyone changing the sim: every part is one row of `PART_INFO` (`src/pg/design.rs`); every rule about where pixels may be is in `src/pg/sim/space.rs`; all match input is a `Cmd`; the arena and the match draw the world through `src/pg/scene.rs`. `cargo test --release` runs soak tests that audit every tick of every arena test, an AI match and four matches driven by random commands (`src/pg/sim/audit.rs`).
+
+Sessions append to `proving_ground.log` (each run's designs and result, and each match's start, a line a minute and its result). Designs persist in `proving_ground_designs.txt`, each trimmed to its drawing with its place on the grid (round 2 and 3 files, which saved the whole 41x41 grid, load centred); round-1 designs (15x15, old rules) were moved aside to `proving_ground_designs_round1.txt`. A saved design still exactly like an old default is swapped for the current one when it loads. All three files are gitignored.
 
 What the rounds found so far is in [ROUNDS.md](ROUNDS.md).
 

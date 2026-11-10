@@ -15,16 +15,21 @@ use crate::ui::{self, Rect};
 // Layout. The canvas is exactly the whole grid at 2x.
 pub const CANVAS: Rect = Rect::new(6, 26, 198, 198);
 pub const NAME_RECT: Rect = Rect::new(210, 26, 186, 18);
-pub const STATUS_RECT: Rect = Rect::new(210, 123, 186, 11);
-const INFO_RECT: Rect = Rect::new(208, 156, 190, 142);
+pub const STATUS_RECT: Rect = Rect::new(210, 133, 186, 11);
+const INFO_RECT: Rect = Rect::new(208, 213, 190, 85);
+/// Built or seeded, and the build order: the deck slots it prints, and buttons to add them.
+const KIND_BTNS: [Rect; 2] = [Rect::new(210, 167, 44, 13), Rect::new(256, 167, 50, 13)];
+const BUILD_Y: i32 = 183;
+const ADD_Y: i32 = 198;
 const COL_X: i32 = 212;
 const COST_Y: i32 = 47;
 const FLIGHT_Y: i32 = 58;
-const GAUGE_Y: [i32; 3] = [69, 79, 89];
-const TALLY_Y: i32 = 101;
+const GAUGE_Y: [i32; 4] = [69, 79, 89, 99];
+const TALLY_Y: i32 = 111;
 const BTN_ZOOM_OUT: Rect = Rect::new(6, 282, 16, 15);
 const BTN_ZOOM_IN: Rect = Rect::new(70, 282, 16, 15);
-const BTN_TO_ARENA: Rect = Rect::new(148, 282, 56, 15);
+const BTN_TO_ARENA: Rect = Rect::new(122, 282, 40, 15);
+pub const BTN_MATCH: Rect = Rect::new(164, 282, 40, 15);
 pub const ZOOMS: [i32; 4] = [1, 2, 4, 8];
 /// Screen pixels the canvas scrolls per tick while a direction is held.
 const SCROLL: i32 = 16;
@@ -45,10 +50,16 @@ fn tool_rect(i: usize) -> Rect {
     Rect::new(6 + i as i32 * 25, 264, 23, 16)
 }
 fn order_rect(i: usize) -> Rect {
-    Rect::new(210 + i as i32 * 47, 137, 45, 16)
+    Rect::new(210 + i as i32 * 47, 147, 45, 16)
+}
+fn chip_rect(k: usize) -> Rect {
+    Rect::new(250 + k as i32 * 12, BUILD_Y, 11, 11)
+}
+fn add_rect(k: usize) -> Rect {
+    Rect::new(250 + k as i32 * 14, ADD_Y, 12, 12)
 }
 fn tally_rect(k: usize) -> Rect {
-    Rect::new(COL_X + (k as i32 % 4) * 46, TALLY_Y + (k as i32 / 4) * 11, 44, 10)
+    Rect::new(COL_X + (k as i32 % 5) * 37, TALLY_Y + (k as i32 / 5) * 11, 36, 10)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -131,10 +142,12 @@ fn canvas_centre() -> (i32, i32) {
     (CANVAS.x + CANVAS.w / 2, CANVAS.y + CANVAS.h / 2)
 }
 
-/// The yard's one-line status: what's wrong with the design, or how it will behave.
-pub fn yard_status(check: &Check, armed: bool, order: Order) -> (String, u8) {
+/// The yard's one-line status: what's wrong with the design, or how it will behave. `power` is
+/// the percent of the power it needs that it has.
+pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order) -> (String, u8) {
     match check.problem() {
         Some(why) => (why, BAD),
+        None if power < 100 => (format!("UNDERPOWERED: RUNS AT {power}%"), GOLD),
         None if !armed => {
             let what = match order {
                 Order::Hunt => "NO GUNS: STAYS WITH ITS GROUP",
@@ -268,6 +281,7 @@ impl Pg {
             let (_, cells) = self.ed.undo.remove(k);
             if cells != now {
                 self.lib[slot].cells = cells;
+                self.lock_seed();
                 self.edited = true;
                 self.save();
                 return;
@@ -337,10 +351,38 @@ impl Pg {
             Btn::Clear => {
                 self.remember();
                 self.lib[self.slot].cells.iter_mut().for_each(|c| *c = None);
+                self.lock_seed();
                 self.edited = true;
                 self.save();
             }
         }
+    }
+
+    /// A seeded design keeps its seed core at the grid's centre, whatever is painted over it.
+    fn lock_seed(&mut self) {
+        let d = &mut self.lib[self.slot];
+        if d.seeded && d.get(SEED_CELL.0, SEED_CELL.1) != Some(Part::Core) {
+            if let Some(b) = d.cannon_at(SEED_CELL.0, SEED_CELL.1) {
+                d.fill_box(b, (b.0 + 2, b.1 + 2), None);
+            }
+            d.set(SEED_CELL.0, SEED_CELL.1, Some(Part::Core));
+        }
+    }
+
+    /// Built or seeded. Seeding puts the seed core at the grid's centre.
+    fn set_kind(&mut self, seeded: bool) {
+        if self.lib[self.slot].seeded == seeded {
+            return;
+        }
+        self.remember();
+        self.lib[self.slot].seeded = seeded;
+        self.lock_seed();
+        self.edited = true;
+        self.save();
+    }
+
+    fn has_factory(&self) -> bool {
+        self.lib[self.slot].cells.contains(&Some(Part::Factory))
     }
 
     /// The pencil on one cell, and its mirror.
@@ -355,6 +397,7 @@ impl Pg {
             changed |= d.put(mx, cy, p);
         }
         self.edited |= changed;
+        self.lock_seed();
     }
 
     /// Paints every cell between the last sample and this one, so a fast stroke leaves no gaps.
@@ -392,6 +435,7 @@ impl Pg {
                     changed |= d.flood((mirror_x(cell.0), cell.1), p).unwrap_or(false);
                 }
                 self.edited |= changed;
+                self.lock_seed();
             }
             Err(why) => self.say(why),
         }
@@ -414,6 +458,7 @@ impl Pg {
             changed |= d.fill_box((mirror_x(x1), y0), (mirror_x(x0), y1), p);
         }
         self.edited |= changed;
+        self.lock_seed();
     }
 
     /// Where a held stamp's mirror image goes, if it doesn't overlap the stamp itself.
@@ -432,6 +477,7 @@ impl Pg {
             changed |= d.paste(&st.flipped(), mo);
         }
         self.edited |= changed;
+        self.lock_seed();
     }
 
     fn finish_edit(&mut self) {
@@ -471,6 +517,15 @@ impl Pg {
             }
             return;
         }
+        if let Some(k) = (0..self.lib[self.slot].build.len()).find(|&k| chip_rect(k).contains(x, y)) {
+            // Right-click takes an entry off the build order.
+            if right {
+                self.lib[self.slot].build.remove(k);
+                self.edited = true;
+                self.save();
+            }
+            return;
+        }
         if right {
             // Right-click off the canvas puts a held stamp down.
             self.ed.stamp = None;
@@ -493,6 +548,20 @@ impl Pg {
             self.zoom_by(1, canvas_centre());
         } else if BTN_TO_ARENA.contains(x, y) {
             self.switch_screen();
+        } else if BTN_MATCH.contains(x, y) {
+            self.end_naming();
+            self.menu = true;
+        } else if let Some(k) = (0..2).find(|&k| KIND_BTNS[k].contains(x, y)) {
+            self.set_kind(k == 1);
+        } else if let Some(k) = (0..self.lib.len()).find(|&k| self.has_factory() && add_rect(k).contains(x, y)) {
+            let d = &mut self.lib[self.slot];
+            if d.build.len() < BUILD_MAX {
+                d.build.push(k);
+                self.edited = true;
+                self.save();
+            } else {
+                self.say("A BUILD ORDER HOLDS 12 AT MOST");
+            }
         } else if NAME_RECT.contains(x, y) {
             self.naming = true;
         }
@@ -612,9 +681,10 @@ impl Pg {
         ui::button(fb, BTN_ZOOM_IN, "+", BTN_ZOOM_IN.contains(m.0, m.1), false);
         fb.text_centered(&format!("ZOOM {}X", e.zoom), 46, 286, TEXT_DIM, None, 1);
         if let Some((cx, cy)) = self.cell_under(m.0, m.1) {
-            fb.text(&format!("{cx},{cy}"), 92, 286, TEXT_FAINT, None, 1);
+            fb.text(&format!("{cx},{cy}"), 90, 286, TEXT_FAINT, None, 1);
         }
         ui::button(fb, BTN_TO_ARENA, "ARENA", BTN_TO_ARENA.contains(m.0, m.1), false);
+        ui::button(fb, BTN_MATCH, "MATCH", BTN_MATCH.contains(m.0, m.1), false);
 
         // The name, and what the drawing implies.
         if self.naming {
@@ -628,11 +698,11 @@ impl Pg {
         fb.text(&cost, COL_X, COST_Y, GOLD, None, 1);
         icons::draw(fb, Icon::Flight(st.flight), COL_X, FLIGHT_Y, ACCENT);
         fb.text(st.flight.name(), COL_X + 11, FLIGHT_Y, ACCENT, None, 1);
-        for (k, (icon, segs, mark, value)) in gauges(&st).into_iter().enumerate() {
+        for (k, (icon, segs, mark, value, lit)) in gauges(&st).into_iter().enumerate() {
             let y = GAUGE_Y[k];
             icons::draw(fb, icon, COL_X, y, TEXT_DIM);
             for s in 0..10 {
-                fb.rect_fill(COL_X + 11 + s * 6, y + 1, 5, 5, if s < segs { ACCENT } else { PANEL_DEEP });
+                fb.rect_fill(COL_X + 11 + s * 6, y + 1, 5, 5, if s < segs { lit } else { PANEL_DEEP });
             }
             if let Some(mk) = mark {
                 fb.rect_fill(COL_X + 11 + mk * 6 - 1, y - 1, 1, 9, GOLD);
@@ -644,16 +714,45 @@ impl Pg {
             swatch(fb, r.x, r.y, p);
             fb.text(&n.to_string(), r.x + 12, r.y + 1, TEXT, None, 1);
         }
-        let (status, col) = yard_status(&check, st.armed(), d.order);
+        let (status, col) = yard_status(&check, st.armed(), st.power_pct(), d.order);
         fb.text(&status, STATUS_RECT.x + 2, STATUS_RECT.y + 2, col, None, 1);
         for (i, &o) in ORDERS.iter().enumerate() {
             let r = order_rect(i);
             ui::button(fb, r, o.name(), r.contains(m.0, m.1), o == d.order);
         }
 
+        // Built or seeded, and what its factory pixels print.
+        for (k, label) in ["BUILT", "SEEDED"].iter().enumerate() {
+            let r = KIND_BTNS[k];
+            ui::button(fb, r, label, r.contains(m.0, m.1), d.seeded == (k == 1));
+        }
+        if d.seeded {
+            fb.text(&format!("ROCK {}", st.count), 312, 170, TEXT_DIM, None, 1);
+        }
+        if st.factory > 0 || d.cells.contains(&Some(Part::Factory)) {
+            fb.text("BUILDS", 210, BUILD_Y + 2, TEXT_FAINT, None, 1);
+            for (k, &b) in d.build.iter().enumerate() {
+                let r = chip_rect(k);
+                let bad = self.build_problem(d, b).is_some();
+                fb.rect_fill(r.x, r.y, r.w, r.h, if bad { BAD_DIM } else { PANEL_DEEP });
+                fb.text_centered(&format!("{}", b + 1), r.x + r.w / 2, r.y + 2, if bad { BAD } else if r.contains(m.0, m.1) { WHITE } else { ACCENT }, None, 1);
+            }
+            if d.build.is_empty() {
+                fb.text("NOTHING YET", 250, BUILD_Y + 2, TEXT_FAINT, None, 1);
+            }
+            fb.text("ADD", 210, ADD_Y + 3, TEXT_FAINT, None, 1);
+            for k in 0..self.lib.len() {
+                let r = add_rect(k);
+                ui::button(fb, r, &format!("{}", k + 1), r.contains(m.0, m.1), false);
+            }
+        } else {
+            fb.text("NO FACTORY PIXELS,", 210, BUILD_Y + 2, TEXT_FAINT, None, 1);
+            fb.text("SO NO BUILD ORDER", 210, ADD_Y + 3, TEXT_FAINT, None, 1);
+        }
+
         ui::inset(fb, INFO_RECT);
         let info = self.yard_info(d, &st);
-        for (i, l) in wrap(&info, ((INFO_RECT.w - 8) / 6) as usize).iter().enumerate().take(14) {
+        for (i, l) in wrap(&info, ((INFO_RECT.w - 8) / 6) as usize).iter().enumerate().take(9) {
             fb.text(l, INFO_RECT.x + 4, INFO_RECT.y + 4 + i as i32 * 9, TEXT, None, 1);
         }
     }
@@ -785,7 +884,24 @@ impl Pg {
             };
         }
         if at(BTN_ZOOM_OUT) || at(BTN_ZOOM_IN) || ((6..148).contains(&m.0) && (282..297).contains(&m.1)) {
-            return "[Q] [E] OR THE MOUSE WHEEL ZOOM IN WHOLE STEPS. 1X IS THE SHIP AT ITS REAL SIZE, AS IN THE ARENA; 2X SHOWS THE WHOLE 99X99 GRID; 4X AND 8X ARE FOR FINE WORK. WASD OR THE ARROWS SCROLL. THE NUMBERS ARE THE CELL UNDER THE POINTER.".into();
+            return format!("[Q] [E] OR THE MOUSE WHEEL ZOOM IN WHOLE STEPS. 1X IS THE SHIP AT ITS REAL SIZE, AS IN THE ARENA; 2X SHOWS THE WHOLE {GRID}X{GRID} GRID; 4X AND 8X ARE FOR FINE WORK. WASD OR THE ARROWS SCROLL. THE NUMBERS ARE THE CELL UNDER THE POINTER.");
+        }
+        if let Some(k) = (0..d.build.len()).find(|&k| at(chip_rect(k))) {
+            let b = d.build[k];
+            let what = self.lib.get(b).map_or("AN EMPTY SLOT".to_string(), |o| format!("{} ({} PX)", o.name, o.stats().cost));
+            return match self.build_problem(d, b) {
+                Some(why) => format!("{}: {what}. {why} RIGHT-CLICK TAKES IT OFF.", b + 1),
+                None => format!("{}: {what}. RIGHT-CLICK TAKES IT OFF THE BUILD ORDER.", b + 1),
+            };
+        }
+        if (0..self.lib.len()).any(|k| at(add_rect(k))) {
+            return "ADD A DESIGN FROM YOUR DECK TO THE END OF THE BUILD ORDER. ITS FACTORY PIXELS PRINT THE LIST ROUND AND ROUND, SKIPPING WHAT IT'S TOO SMALL FOR.".into();
+        }
+        if KIND_BTNS.iter().any(|&r| at(r)) {
+            return "BUILT: A FACTORY OR YOUR KING PRINTS IT. SEEDED: YOUR KING PRINTS A SEED THAT GROWS IT OUT OF A ROCK, PIXEL BY PIXEL FROM ITS CORE; THE ROCK MUST HOLD AS MANY PIXELS AS THE SHIP. ITS SEED CORE STAYS AT THE CENTRE.".into();
+        }
+        if at(BTN_MATCH) {
+            return "PLAY A MATCH AGAINST THE AI WITH YOUR SEVEN DESIGNS AS YOUR DECK, OR WITH THE STARTER DECK.".into();
         }
         if at(BTN_TO_ARENA) {
             return "[TAB] THE ARENA, TO WATCH YOUR DESIGNS FIGHT.".into();
@@ -807,20 +923,38 @@ impl Pg {
         }
         if on_row(GAUGE_Y[2]) {
             let (a, b) = (st.zero_to_top_ds() / 10, st.zero_to_top_ds() % 10);
-            return format!("THRUST {} FOR WEIGHT {} (8 PER ENGINE). AT THE GOLD MARK OR PAST IT, 1 THRUST PER WEIGHT, IT MAKES ATTACK RUNS; SHORT OF IT, IT HOLDS AT RANGE. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
+            let short = if st.thrust < st.engines * 8 { format!(", DOWN FROM {} FOR WANT OF POWER", st.engines * 8) } else { String::new() };
+            return format!("THRUST {}{short}, FOR WEIGHT {} (8 PER ENGINE). AT THE GOLD MARK OR PAST IT, 1 THRUST PER WEIGHT, IT MAKES ATTACK RUNS; SHORT OF IT, IT HOLDS AT RANGE. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
         }
-        if let Some(k) = (0..8).find(|&k| at(tally_rect(k))) {
+        if on_row(GAUGE_Y[3]) {
+            return format!("POWER: IT USES {} OF THE {} IT MAKES. MADE PER PIXEL: {}. USED: {}. SHORT OF POWER, IT ALL SLOWS IN STEP: AT 75%, GUNS RELOAD A THIRD SLOWER.", st.used, st.made, Part::power_list(true), Part::power_list(false));
+        }
+        if let Some(k) = (0..10).find(|&k| at(tally_rect(k))) {
             if let Some((p, _)) = tally(d, st).get(k) {
                 return p.blurb().into();
             }
         }
         if at(STATUS_RECT) {
-            return "A SHIP NEEDS A CORE, AND ITS PIXELS MUST ALL JOIN UP EDGE TO EDGE (CORNERS DON'T COUNT); LOOSE PIXELS SHOW RED. EVERY ENGINE NEEDS A STRAIGHT 3-WIDE WAY OUT OF THE SHIP, ITS OWN LINE AND THE ONES EITHER SIDE CLEAR; BURIED ONES SHOW RED. CUT APART, EACH PIECE WITH A CORE FLIES ON AS A SHIP.".into();
+            return "A SHIP NEEDS A CORE, AND ITS PIXELS MUST ALL JOIN UP EDGE TO EDGE (CORNERS DON'T COUNT). EVERY ENGINE NEEDS A STRAIGHT WAY OUT OF THE SHIP, 3 WIDE. LOOSE PIXELS AND BURIED ENGINES SHOW RED. CUT APART, EACH PIECE WITH A CORE FLIES ON.".into();
         }
         if let Some(i) = (0..ORDERS.len()).find(|&i| at(order_rect(i))) {
             return ORDERS[i].blurb().into();
         }
         self.tool_info(self.ed.tool)
+    }
+
+    /// Why a build order entry won't print, if it won't.
+    fn build_problem(&self, d: &Design, b: usize) -> Option<&'static str> {
+        let o = self.lib.get(b)?;
+        if o.seeded {
+            Some("A SEEDED DESIGN GROWS FROM A SEED: ONLY THE KING MAKES THOSE.")
+        } else if o.stats().count > d.stats().max_build() {
+            Some("TOO BIG EVEN WHEN THE FACTORY IS FULLY GROWN.")
+        } else if !o.check().ok() {
+            Some("IT CAN'T FLY YET.")
+        } else {
+            None
+        }
     }
 
     fn tool_info(&self, t: Tool) -> String {
@@ -837,17 +971,20 @@ impl Pg {
     }
 }
 
-/// The three gauges: (icon, segments lit out of 10, a mark, the number beside it).
-fn gauges(st: &Stats) -> [(Icon, i32, Option<i32>, String); 3] {
-    let moves = st.engines > 0;
+/// The gauges: (icon, segments lit out of 10, a mark, the number beside it, the lit colour).
+fn gauges(st: &Stats) -> [(Icon, i32, Option<i32>, String, u8); 4] {
+    let moves = st.thrust > 0;
     let speed = if moves { st.vmax * 10 / 12 } else { 0 };
     let turn = if moves { (25 - st.turn) * 10 / 24 } else { 0 };
     // Half the bar is 1 thrust per weight, where attack runs start.
     let push = if st.mass > 0 { (st.thrust * 5 / st.mass).min(10) } else { 0 };
+    // Power is a load: how much of what the ship makes it uses. Over 100% the bar turns red.
+    let load = if st.used == 0 { 0 } else if st.used > st.made { 10 } else { ((st.used * 10 + st.made - 1) / st.made.max(1)).min(10) };
     [
-        (Icon::Speed, speed, None, format!("{} PX/S", st.top_speed_px_s())),
-        (Icon::TurnRate, turn, None, if moves { format!("{}.{} S", st.turn_ds() / 10, st.turn_ds() % 10) } else { "-".into() }),
-        (Icon::Thrust, push, Some(5), format!("{}/{}", st.thrust, st.mass)),
+        (Icon::Speed, speed, None, format!("{} PX/S", st.top_speed_px_s()), ACCENT),
+        (Icon::TurnRate, turn, None, if moves { format!("{}.{} S", st.turn_ds() / 10, st.turn_ds() % 10) } else { "-".into() }, ACCENT),
+        (Icon::Thrust, push, Some(5), format!("{}/{}", st.thrust, st.mass), ACCENT),
+        (Icon::Cat(Cat::Power), load, None, format!("{}/{}", st.used, st.made), if st.used > st.made { BAD } else { ACCENT }),
     ]
 }
 
@@ -856,16 +993,8 @@ fn tally(d: &Design, st: &Stats) -> Vec<(Part, i32)> {
     PARTS
         .iter()
         .map(|&p| {
-            let n = match p {
-                Part::Hull => d.cells.iter().filter(|c| **c == Some(Part::Hull)).count() as i32,
-                Part::Plate => st.plate,
-                Part::Flak => st.flak,
-                Part::Lance => st.lance,
-                Part::Cannon => st.cannon,
-                Part::Engine => st.engines,
-                Part::Scoop => st.scoops,
-                Part::Core => st.cores,
-            };
+            // Cannons count by the block; everything else by the pixel.
+            let n = if p == Part::Cannon { st.cannon } else { d.cells.iter().filter(|c| **c == Some(p)).count() as i32 };
             (p, n)
         })
         .filter(|&(_, n)| n > 0)
@@ -958,13 +1087,69 @@ mod tests {
     fn the_readouts_fit_their_column() {
         for d in defaults() {
             let st = d.stats();
-            for (_, segs, _, value) in gauges(&st) {
+            for (_, segs, _, value, _) in gauges(&st) {
                 assert!((0..=10).contains(&segs), "{}", d.name);
                 assert!(COL_X + 76 + Framebuffer::text_width(&value, 1) <= 400, "{}: {value}", d.name);
             }
-            assert!(tally(&d, &st).len() <= 8);
+            assert!(tally(&d, &st).len() <= 10);
             let cost = format!("COST {} PX (+{} CORES)", st.cost, st.cost - st.count);
             assert!(COL_X + Framebuffer::text_width(&cost, 1) <= 400, "{cost}");
         }
+    }
+
+    #[test]
+    fn every_hover_text_in_the_yard_fits_its_box() {
+        // Move the pointer over the whole screen for a few designs, then try every tool, stamp
+        // and part over the canvas, and check the info box never has more to say than it has
+        // lines for.
+        let cols = ((INFO_RECT.w - 8) / 6) as usize;
+        let rows = ((INFO_RECT.h - 4) / 9) as usize;
+        let mut pg = Pg::new(None, None);
+        pg.lib = starter_deck();
+        let mut long: Vec<(usize, String)> = Vec::new();
+        let mut look = |pg: &Pg, st: &Stats| {
+            let info = pg.yard_info(&pg.lib[pg.slot], st);
+            let n = wrap(&info, cols).len();
+            if n > rows && !long.iter().any(|(_, t)| *t == info) {
+                long.push((n, info));
+            }
+        };
+        for slot in [0, 4, 5, 6] {
+            pg.select_slot(slot);
+            let st = pg.lib[slot].stats();
+            for y in (0..300).step_by(2) {
+                for x in (0..400).step_by(2) {
+                    pg.mouse = (x, y);
+                    look(&pg, &st);
+                }
+            }
+            // The parts row and the default text change with the category, tool and stamp.
+            pg.mouse = canvas_centre();
+            for tool in [Tool::Pencil, Tool::Rect, Tool::Fill, Tool::Copy] {
+                for stamp in [false, true] {
+                    pg.ed.tool = tool;
+                    pg.ed.stamp = (stamp && tool == Tool::Copy).then(|| pg.lib[0].as_stamp());
+                    for p in PARTS {
+                        pg.ed.part = p;
+                        pg.ed.cat = Cat::of(p);
+                        for mirror in [false, true] {
+                            pg.ed.mirror = mirror;
+                            look(&pg, &st);
+                        }
+                    }
+                }
+            }
+            for &cat in &CATS {
+                pg.ed.cat = cat;
+                for i in 0..cat.parts().len() {
+                    let r = part_rect(i, cat.parts().len());
+                    pg.mouse = (r.x + 2, r.y + 2);
+                    look(&pg, &st);
+                }
+            }
+        }
+        long.sort();
+        let list: Vec<String> = long.iter().map(|(n, t)| format!("{n} lines: {t}")).collect();
+        assert!(long.is_empty(), "the box has {rows} lines; these need more:\n{}", list.join("\n"));
     }
 }

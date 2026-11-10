@@ -57,6 +57,11 @@ fn main() {
         export::pg_trace((n(1) as usize, n(2)), (n(3) as usize, n(4)), n(5).max(1) as u32, n(6).max(1) as u32);
         return;
     }
+    if let Some(i) = args.iter().position(|a| a == "--match-sim") {
+        let n = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(4);
+        export::match_sim(n);
+        return;
+    }
     if arg("--pg-sim").is_some() {
         export::pg_sim();
         return;

@@ -270,6 +270,32 @@ pub fn pg_sim() {
     }
 }
 
+/// Plays `n` AI-vs-AI matches with the starter deck on seeds 1..=n and prints how each went,
+/// with a line every two minutes of the first.
+pub fn match_sim(n: u64) {
+    use crate::pg::design::starter_deck;
+    use crate::pg::play::{clock, state_line};
+    use crate::pg::sim::Arena;
+    for seed in 1..=n {
+        let mut a = Arena::for_match(seed, [starter_deck(), starter_deck()], [true, true]);
+        let mut next = 15 * 120;
+        let t0 = std::time::Instant::now();
+        while a.over.is_none() {
+            a.step();
+            if seed == 1 && a.tick >= next {
+                next += 15 * 120;
+                println!("    {} {}", clock(a.tick), state_line(&a));
+            }
+        }
+        let who = match a.over.unwrap() {
+            Some(0) => "BLUE",
+            Some(_) => "RED",
+            None => "DRAW",
+        };
+        println!("seed {seed}: {who} at {} ({} ms) | {}", clock(a.tick), t0.elapsed().as_millis(), state_line(&a));
+    }
+}
+
 /// Prints every ship's state every few ticks of one matchup: `blue` and `red` are (slot, count).
 /// A blue slot of 99 plays ready-made test number `red.0` instead.
 pub fn pg_trace(blue: (usize, i32), red: (usize, i32), every: u32, until: u32) {
@@ -408,6 +434,13 @@ pub fn pg_screenshots(dir: &Path) {
     pg.mouse = pg.cell_screen((c - 9, c));
     pg.draw(&mut fb);
     save(&fb, &pg, "13_yard_stamp.png");
+    // Round 5: a cannon on a bare core, short of power, with the power gauge's hover.
+    pg.lib[5] = crate::pg::design::Design::from_rows("CANNONBOAT", crate::pg::design::Order::Hunt, &["nnn", "nnn", "nnn", ".c.", ".e."]);
+    pg.select_slot(5);
+    pg.ed.stamp = None;
+    pg.mouse = (240, 100);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "15_yard_underpowered.png");
     pg.lib = crate::pg::design::defaults();
     pg.screen = Screen::Arena;
     pg.load_test(7);
@@ -418,6 +451,109 @@ pub fn pg_screenshots(dir: &Path) {
     hover(&mut pg, 0);
     pg.draw(&mut fb);
     save(&fb, &pg, "14_titan_vs_capitals.png");
+    // The match.
+    pg.lib = crate::pg::design::starter_deck();
+    pg.screen = Screen::Yard;
+    pg.select_slot(4);
+    pg.mouse = (262, 189);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "16_yard_seeded_factory.png");
+    pg.menu = true;
+    pg.mouse = (200, 177);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "17_match_menu.png");
+    pg.menu = false;
+    pg.start_match(true, 3);
+    pg.help = false;
+    // The king summons a fighter: it arrives by hyperspace.
+    pg.play.as_mut().unwrap().arena.command(crate::pg::sim::Cmd::Print { team: 0, slot: 0, target: None });
+    for _ in 0..15 * 5 {
+        let a = &mut pg.play.as_mut().unwrap().arena;
+        if a.ships.iter().any(|s| s.alive && s.team == 0 && s.warp > 0 && s.warp < 16) {
+            break;
+        }
+        a.step();
+    }
+    pg.mouse = (350, 290);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "18_match_hyperspace.png");
+    pg.play.as_mut().unwrap().arena.eco.as_mut().unwrap().ai[0] = true;
+    // Look at something: the camera centred on a point, the pointer on a ship.
+    let look = |pg: &mut Pg, (x, y): (i32, i32), hover: Option<(i32, i32)>| {
+        let p = pg.play.as_mut().unwrap();
+        p.follow = false;
+        p.cam = ((x - 152).clamp(0, crate::pg::sim::MW - 304), (y - 150).clamp(0, crate::pg::sim::MH - 300));
+        let cam = p.cam;
+        pg.mouse = hover.map_or((350, 290), |(hx, hy)| (hx - cam.0, hy - cam.1));
+    };
+    let step_until = |pg: &mut Pg, max: u32, done: &dyn Fn(&crate::pg::sim::Arena) -> bool| {
+        for _ in 0..max {
+            let a = &mut pg.play.as_mut().unwrap().arena;
+            if done(a) || a.over.is_some() {
+                break;
+            }
+            a.step();
+        }
+    };
+    // A seed's factory growing out of its rock.
+    step_until(&mut pg, 15 * 120, &|a| a.ships.iter().any(|s| s.alive && s.team == 0 && s.grow.as_ref().is_some_and(|g| g.eats) && s.px_now() * 2 > s.px_full()));
+    if let Some(s) = pg.play.as_ref().unwrap().arena.ships.iter().find(|s| s.alive && s.team == 0 && s.grow.as_ref().is_some_and(|g| g.eats)) {
+        let (x, y) = (s.x, s.y);
+        look(&mut pg, (x, y), Some((x, y)));
+    }
+    pg.draw(&mut fb);
+    save(&fb, &pg, "19_match_factory_growing.png");
+    // A factory printing a ship beside it.
+    step_until(&mut pg, 15 * 120, &|a| a.ships.iter().any(|s| s.alive && s.team == 0 && s.maker.is_some() && s.px_now() * 3 > s.px_full()));
+    if let Some(s) = pg.play.as_ref().unwrap().arena.ships.iter().find(|s| s.alive && s.team == 0 && s.maker.is_some()) {
+        let m = &pg.play.as_ref().unwrap().arena.ships[s.maker.unwrap()];
+        let (x, y, hx, hy) = (m.x, m.y, m.x, m.y);
+        look(&mut pg, (x, y), Some((hx, hy)));
+    }
+    pg.draw(&mut fb);
+    save(&fb, &pg, "20_match_factory_printing.png");
+    // Planting: a seed card picked, the pointer on a rock.
+    {
+        let p = pg.play.as_mut().unwrap();
+        let k = p.arena.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (p.arena.ships[k].x, p.arena.ships[k].y);
+        let rock = p.arena.eco.as_ref().unwrap().rocks.iter().filter(|r| p.arena.rock_left(r) > 300).min_by_key(|r| crate::geom::dist2(r.cx, r.cy, kx, ky + 200)).map(|r| (r.cx, r.cy));
+        p.planting = Some(5);
+        if let Some(c) = rock {
+            look(&mut pg, c, Some(c));
+        }
+    }
+    pg.draw(&mut fb);
+    save(&fb, &pg, "22_match_planting.png");
+    // Planting on a rock that already has a factory on it: the bar says they'll wall each other in.
+    {
+        let p = pg.play.as_mut().unwrap();
+        let spot = p.arena.ships.iter().find(|s| s.alive && s.team == 0 && s.rooted).and_then(|s| p.arena.rock_near((s.x, s.y), 30).map(|r| ((s.x, s.y), r)));
+        p.planting = Some(4);
+        if let Some((c, r)) = spot {
+            look(&mut pg, c, Some(r));
+        }
+    }
+    pg.draw(&mut fb);
+    save(&fb, &pg, "24_match_planting_taken.png");
+    pg.play.as_mut().unwrap().planting = None;
+    // The match's rules panel.
+    pg.help = true;
+    pg.draw(&mut fb);
+    save(&fb, &pg, "25_match_rules.png");
+    pg.help = false;
+    // The thick of it: the camera on a fight.
+    step_until(&mut pg, 15 * 300, &|a| a.shots.len() > 40);
+    if let Some(sh) = pg.play.as_ref().unwrap().arena.shots.get(20) {
+        let (x, y) = (sh.line.x, sh.line.y);
+        look(&mut pg, (x, y), None);
+    }
+    pg.draw(&mut fb);
+    save(&fb, &pg, "21_match_battle.png");
+    step_until(&mut pg, 15 * 60 * 30, &|_| false);
+    pg.mouse = (0, 0);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "23_match_over.png");
     println!("exported proving-ground screenshots to {}", dir.display());
 }
 

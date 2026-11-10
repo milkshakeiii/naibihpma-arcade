@@ -9,6 +9,8 @@
 //! Round 4: ships up to 99x99 (odd, so the mirror has a centre column), parts sorted into
 //! categories, and the editing tools big ships need: rectangles, fills and stamps.
 
+use crate::palette as pal;
+
 pub const GRID: i32 = 99;
 pub const FLAK_RANGE: i32 = 48;
 pub const LANCE_RANGE: i32 = 100;
@@ -29,6 +31,10 @@ pub const SCOOP_CARRY: i32 = 3;
 /// sits on the grid; round 2 and 3 files saved the whole 41x41 grid and still load, centred.
 pub const SAVE_HEADER: &str = "#ROUND4";
 pub const OLD_SAVE_HEADER: &str = "#ROUND2";
+/// Ticks for one factory pixel to print one ship pixel (4 s).
+pub const PRINT_TICKS: i32 = 60;
+/// Ship pixels a factory can build per factory pixel: the biggest ship it can make.
+pub const FACTORY_REACH: i32 = 10;
 /// What the second core costs on top of the ship's pixels. Each core after that costs twice the
 /// one before: +8, +16, +32 and so on.
 pub const CORE_EXTRA: i32 = 8;
@@ -52,9 +58,12 @@ pub enum Part {
     Engine,
     Scoop,
     Core,
+    /// Prints ships (match only): speed and the biggest ship it can build come from the count.
+    Factory,
 }
 
-pub const PARTS: [Part; 8] = [Part::Hull, Part::Plate, Part::Flak, Part::Lance, Part::Cannon, Part::Engine, Part::Scoop, Part::Core];
+/// The parts in the order the yard shows them.
+pub const PARTS: [Part; 9] = [Part::Hull, Part::Plate, Part::Flak, Part::Lance, Part::Cannon, Part::Engine, Part::Scoop, Part::Factory, Part::Core];
 
 /// The yard's part categories, keys 1-6. Power is empty until its parts arrive.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -80,74 +89,218 @@ impl Cat {
             Cat::Command => "COMMAND",
         }
     }
-    pub fn parts(self) -> &'static [Part] {
-        match self {
-            Cat::Armor => &[Part::Hull, Part::Plate],
-            Cat::Weapons => &[Part::Flak, Part::Lance, Part::Cannon],
-            Cat::Drive => &[Part::Engine],
-            Cat::Power => &[],
-            Cat::Industry => &[Part::Scoop],
-            Cat::Command => &[Part::Core],
-        }
+    /// The category's parts, in the yard's order.
+    pub fn parts(self) -> Vec<Part> {
+        PARTS.iter().copied().filter(|p| p.info().cat == self).collect()
     }
     pub fn of(p: Part) -> Cat {
-        *CATS.iter().find(|c| c.parts().contains(&p)).expect("every part has a category")
+        p.info().cat
     }
 }
 
+/// Everything about a part that isn't behaviour, in one place. A new part is a variant of `Part`,
+/// a row here and a place in `PARTS`; the yard, the stats, the save format and the drawing all
+/// read from this.
+pub struct PartInfo {
+    /// Its letter in designs and save files.
+    pub ch: char,
+    pub name: &'static str,
+    pub cat: Cat,
+    /// Weight of one pixel.
+    pub mass: i32,
+    /// Hits this strong or weaker bounce off.
+    pub armor: i32,
+    /// Power one pixel makes, and what one uses (round 5). A cannon's is for the whole block.
+    pub makes: i32,
+    pub uses: i32,
+    /// Pixels in one of it: 9 for the cannon's 3x3 block, 1 for everything else.
+    pub block: i32,
+    /// Its palette colour. None is the team's own colour (hull).
+    pub colour: Option<u8>,
+    /// Which part shows when a shrunken icon has one pixel for a block of cells: highest wins.
+    pub rank: i32,
+    /// The 7x7 shape drawn inside its colour, so parts stay easy to tell apart.
+    pub glyph: [&'static str; 7],
+    /// What it does. Its numbers come from the constants; power and weight are added from above.
+    pub about: fn() -> String,
+}
+
+/// A number of ticks as seconds, to a tenth: "1.3", or "3" when it's whole.
+pub fn secs(ticks: i32) -> String {
+    let tenths = ticks * 10 / 15;
+    if tenths % 10 == 0 {
+        format!("{}", tenths / 10)
+    } else {
+        format!("{}.{}", tenths / 10, tenths % 10)
+    }
+}
+
+/// One row per part, in the order of the `Part` enum.
+pub const PART_INFO: [PartInfo; 9] = [
+    PartInfo {
+        ch: 'h',
+        name: "HULL",
+        cat: Cat::Armor,
+        mass: 1,
+        armor: 0,
+        makes: 1,
+        uses: 0,
+        block: 1,
+        colour: None,
+        rank: 0,
+        glyph: [".......", ".......", ".......", ".......", ".......", ".......", "......."],
+        about: || "HOLDS THE SHIP TOGETHER, AND IS WHERE ITS POWER COMES FROM. ANY HIT BREAKS IT.".into(),
+    },
+    PartInfo {
+        ch: 'p',
+        name: "PLATE",
+        cat: Cat::Armor,
+        mass: 2,
+        armor: 1,
+        makes: 0,
+        uses: 0,
+        block: 1,
+        colour: Some(pal::STEEL),
+        rank: 1,
+        glyph: [".......", ".#...#.", ".......", ".......", ".......", ".#...#.", "......."],
+        about: || "FLAK BOUNCES OFF IT. LANCES AND CANNON SHELLS BREAK IT, AND IT SOAKS TWICE AS MUCH OF A LANCE.".into(),
+    },
+    PartInfo {
+        ch: 'g',
+        name: "FLAK",
+        cat: Cat::Weapons,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::GUN),
+        rank: 4,
+        glyph: [".......", "...#...", "...#...", "..###..", "..###..", ".......", "......."],
+        about: || format!("A TURRET. SHOOTS THE NEAREST ENEMY WITHIN {FLAK_RANGE} PX, LEADING ITS AIM AND SPREADING FIRE OVER SEVERAL TARGETS. TOO WEAK FOR PLATE. ONE SHOT EVERY {} S.", secs(FLAK_PERIOD)),
+    },
+    PartInfo {
+        ch: 'l',
+        name: "LANCE",
+        cat: Cat::Weapons,
+        mass: 2,
+        armor: 0,
+        makes: 0,
+        uses: 2,
+        block: 1,
+        colour: Some(pal::LANCE),
+        rank: 5,
+        glyph: ["...#...", "..###..", ".#.#.#.", "...#...", "...#...", "...#...", "......."],
+        about: || format!("SHOOTS STRAIGHT AHEAD ONLY, UP TO {LANCE_RANGE} PX. PUNCHES THROUGH {LANCE_PEN} PIXELS, OR {} OF PLATE. ONE SHOT EVERY {} S.", LANCE_PEN / 2, secs(LANCE_PERIOD)),
+    },
+    PartInfo {
+        ch: 'n',
+        name: "CANNON",
+        cat: Cat::Weapons,
+        mass: 2,
+        armor: 0,
+        makes: 0,
+        uses: 8,
+        block: 9,
+        colour: Some(pal::CANNON),
+        rank: 6,
+        glyph: [".......", "..###..", ".#...#.", ".#...#.", ".#...#.", "..###..", "......."],
+        about: || format!("A BIG 3X3 TURRET, {CANNON_RANGE} PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL BLASTS A 3X3 HOLE, PLATE AND ALL. IT GOES FOR THE BIG SHIPS IN RANGE. ONE SHOT EVERY {} S.", secs(CANNON_PERIOD)),
+    },
+    PartInfo {
+        ch: 'e',
+        name: "ENGINE",
+        cat: Cat::Drive,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::ENGINE),
+        rank: 3,
+        glyph: ["#.....#", ".#...#.", "..#.#..", "#..#..#", ".#...#.", "..#.#..", "...#..."],
+        about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER AND QUICKER TO TURN. ITS EXHAUST NEEDS A STRAIGHT WAY OUT, 3 WIDE, IN ONE OF THE FOUR DIRECTIONS. A BURIED ENGINE SHOWS RED.".into(),
+    },
+    PartInfo {
+        ch: 's',
+        name: "SCOOP",
+        cat: Cat::Industry,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 0,
+        block: 1,
+        colour: Some(pal::SCOOP),
+        rank: 2,
+        glyph: [".......", ".#...#.", ".#...#.", ".#...#.", "..###..", ".......", "......."],
+        about: || format!("MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES {SCOOP_CARRY}."),
+    },
+    PartInfo {
+        ch: 'c',
+        name: "CORE",
+        cat: Cat::Command,
+        mass: 1,
+        armor: 0,
+        makes: 4,
+        uses: 0,
+        block: 1,
+        colour: Some(pal::CORE),
+        rank: 8,
+        glyph: ["...#...", "..#.#..", ".#...#.", "#.....#", ".#...#.", "..#.#..", "...#..."],
+        about: || format!("THE SHIP'S LIFE: IT DIES WHEN ITS LAST CORE GOES. EXTRA CORES COST +{}, +{}, +{}. CUT IN TWO, EVERY PIECE WITH A CORE FLIES ON AS A SHIP.", CORE_EXTRA, CORE_EXTRA * 2, CORE_EXTRA * 4),
+    },
+    PartInfo {
+        ch: 'f',
+        name: "FACTORY",
+        cat: Cat::Industry,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::FACTORY),
+        rank: 7,
+        glyph: [".......", ".#.#.#.", ".......", ".#.#.#.", ".......", ".#.#.#.", "......."],
+        about: || format!("IN A MATCH, PRINTS ITS BUILD ORDER FROM YOUR BANK: 1 PIXEL EVERY {} S EACH, AND SHIPS UP TO {FACTORY_REACH} PX BIGGER EACH. A SHIP WITH ANY STORES PIXELS AND LINKS YOUR NETWORK.", secs(PRINT_TICKS)),
+    },
+];
+
 impl Part {
+    pub fn info(self) -> &'static PartInfo {
+        &PART_INFO[self as usize]
+    }
     /// Hits this strong or weaker bounce off.
     pub fn armor(self) -> i32 {
-        if self == Part::Plate {
-            1
-        } else {
-            0
-        }
+        self.info().armor
     }
     pub fn mass(self) -> i32 {
-        match self {
-            Part::Plate | Part::Lance | Part::Cannon => 2,
-            _ => 1,
-        }
+        self.info().mass
     }
     pub fn ch(self) -> char {
-        match self {
-            Part::Hull => 'h',
-            Part::Plate => 'p',
-            Part::Flak => 'g',
-            Part::Lance => 'l',
-            Part::Cannon => 'n',
-            Part::Engine => 'e',
-            Part::Scoop => 's',
-            Part::Core => 'c',
-        }
+        self.info().ch
     }
     pub fn from_ch(c: char) -> Option<Part> {
         PARTS.iter().copied().find(|p| p.ch() == c)
     }
     pub fn name(self) -> &'static str {
-        match self {
-            Part::Hull => "HULL",
-            Part::Plate => "PLATE",
-            Part::Flak => "FLAK",
-            Part::Lance => "LANCE",
-            Part::Cannon => "CANNON",
-            Part::Engine => "ENGINE",
-            Part::Scoop => "SCOOP",
-            Part::Core => "CORE",
-        }
+        self.info().name
     }
-    pub fn blurb(self) -> &'static str {
-        match self {
-            Part::Hull => "HULL - HOLDS THE SHIP TOGETHER. ANY HIT BREAKS IT. WEIGHS 1.",
-            Part::Plate => "PLATE - FLAK BOUNCES OFF IT. LANCES AND CANNON SHELLS BREAK IT, AND IT SOAKS TWICE AS MUCH OF A LANCE. WEIGHS 2.",
-            Part::Flak => "FLAK - A TURRET. SHOOTS THE NEAREST ENEMY WITHIN 48 PX, LEADING ITS AIM, SPREADING FIRE OVER SEVERAL TARGETS. TOO WEAK FOR PLATE. ONE SHOT EVERY 1.3 S.",
-            Part::Lance => "LANCE - SHOOTS STRAIGHT AHEAD ONLY, UP TO 100 PX. PUNCHES THROUGH 6 PIXELS, OR 3 OF PLATE. ONE SHOT EVERY 3 S. WEIGHS 2.",
-            Part::Cannon => "CANNON - A BIG 3X3 TURRET, 130 PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL BLASTS A 3X3 HOLE, PLATE AND ALL. IT GOES FOR THE BIG SHIPS IN RANGE, AND OF THOSE THE ONE ITS BARREL REACHES SOONEST. EVERY 3 S. WEIGHS 18.",
-            Part::Engine => "ENGINE - THRUST. ITS EXHAUST NEEDS A STRAIGHT 3-WIDE WAY OUT: ITS OWN LINE AND THE ONES EITHER SIDE EMPTY RIGHT OUT OF THE SHIP, IN ANY OF THE FOUR DIRECTIONS. A BURIED ENGINE SHOWS RED. MORE THRUST FOR THE WEIGHT MEANS A HIGHER TOP SPEED AND QUICKER TURNS.",
-            Part::Scoop => "SCOOP - MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES 3.",
-            Part::Core => "CORE - THE SHIP'S LIFE: IT DIES WHEN ITS LAST CORE IS GONE. EXTRA CORES COST MORE EACH: +8, +16, +32. CUT IN TWO, EVERY PIECE WITH A CORE FLIES ON AS A SHIP; PIECES WITHOUT ONE BREAK AWAY.",
-        }
+    /// The yard's description: what it does, then its power and weight from the table.
+    pub fn blurb(self) -> String {
+        let i = self.info();
+        let power = match (i.makes, i.uses) {
+            (0, 0) => "NO POWER".to_string(),
+            (m, 0) => format!("MAKES {m} POWER"),
+            (_, u) => format!("USES {u} POWER"),
+        };
+        format!("{} - {} {power}. WEIGHS {}.", i.name, (i.about)(), i.mass * i.block)
+    }
+    /// Who makes power and who uses it, for the help and the power gauge: "HULL 1, CORE 4". A part
+    /// that comes as a block (the cannon) says so, since its number is for the whole block.
+    pub fn power_list(makers: bool) -> String {
+        let of = |p: &Part| if makers { p.info().makes } else { p.info().uses };
+        let block = |p: &Part| if p.info().block > 1 { " (3X3)" } else { "" };
+        PARTS.iter().filter(|p| of(p) > 0).map(|p| format!("{}{} {}", p.name(), block(p), of(p))).collect::<Vec<_>>().join(", ")
     }
 }
 
@@ -204,7 +357,7 @@ impl Flight {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Stats {
     pub count: i32,
     pub cores: i32,
@@ -212,11 +365,15 @@ pub struct Stats {
     pub cost: i32,
     pub mass: i32,
     pub engines: i32,
-    pub plate: i32,
     pub flak: i32,
     pub lance: i32,
     pub cannon: i32,
     pub scoops: i32,
+    pub factory: i32,
+    /// Power made (hull and cores) and used (engines and guns).
+    pub made: i32,
+    pub used: i32,
+    /// Thrust after any power shortage.
     pub thrust: i32,
     /// Top speed in quarter-pixels per tick.
     pub vmax: i32,
@@ -228,6 +385,26 @@ pub struct Stats {
 impl Stats {
     pub fn armed(&self) -> bool {
         self.flak + self.lance + self.cannon > 0
+    }
+    /// The biggest ship (in pixels) its factory pixels can build.
+    pub fn max_build(&self) -> i32 {
+        self.factory * FACTORY_REACH
+    }
+    /// How much of the power it needs the ship has, in percent (at most 100).
+    pub fn power_pct(&self) -> i32 {
+        if self.used <= self.made {
+            100
+        } else {
+            self.made * 100 / self.used
+        }
+    }
+    /// A gun's ticks between shots, stretched by any power shortage.
+    pub fn reload(&self, period: i32) -> i32 {
+        if self.used <= self.made {
+            period
+        } else {
+            (period * self.used + self.made.max(1) - 1) / self.made.max(1)
+        }
     }
     pub fn top_speed_px_s(&self) -> i32 {
         self.vmax * 15 / 4
@@ -253,19 +430,25 @@ pub fn stats_of(cells: &[Option<Part>], cannons: i32) -> Stats {
     let count = cells.iter().flatten().count() as i32;
     let mass: i32 = cells.iter().flatten().map(|p| p.mass()).sum();
     let engines = n(Part::Engine);
-    let thrust = engines * 8;
-    let vmax = if engines == 0 { 0 } else { (engines * 40 / mass.max(1) + 2).clamp(3, 12) };
-    let turn = if engines == 0 { 0 } else { (mass * 2 / thrust).clamp(1, 24) };
-    let flight = if engines == 0 {
+    let (flak, lance, cores, factory) = (n(Part::Flak), n(Part::Lance), n(Part::Core), n(Part::Factory));
+    // Power (round 5): what each pixel makes and uses comes from the part table. A cannon's draw
+    // is per working cannon, not per pixel of its block.
+    let made: i32 = PARTS.iter().map(|&p| n(p) * p.info().makes).sum();
+    let used: i32 = PARTS.iter().map(|&p| if p == Part::Cannon { cannons } else { n(p) } * p.info().uses).sum();
+    // Engines push in proportion to the power they get.
+    let full = engines * 8;
+    let thrust = if used > made { full * made / used } else { full };
+    let vmax = if thrust == 0 { 0 } else { (thrust * 5 / mass.max(1) + 2).clamp(3, 12) };
+    let turn = if thrust == 0 { 0 } else { (mass * 2 / thrust).clamp(1, 24) };
+    let flight = if thrust == 0 {
         Flight::Still
     } else if thrust >= mass {
         Flight::Runs
     } else {
         Flight::StandOff
     };
-    let cores = n(Part::Core);
     let cost = count + core_cost(cores);
-    Stats { count, cores, cost, mass, engines, plate: n(Part::Plate), flak: n(Part::Flak), lance: n(Part::Lance), cannon: cannons, scoops: n(Part::Scoop), thrust, vmax, turn, flight }
+    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
 }
 
 /// Which of a w x h grid's cells connect to `start` edge to edge, through cells where `on` holds.
@@ -359,16 +542,20 @@ pub struct Check {
     pub loose: Vec<(i32, i32)>,
     /// Engines with no straight 3-wide way out of the ship for their exhaust.
     pub buried: Vec<(i32, i32)>,
+    /// A seeded design whose seed cell (the grid's centre) isn't a core.
+    pub no_seed: bool,
 }
 
 impl Check {
     pub fn ok(&self) -> bool {
-        self.cores >= 1 && self.loose.is_empty() && self.buried.is_empty()
+        self.cores >= 1 && self.loose.is_empty() && self.buried.is_empty() && !self.no_seed
     }
     pub fn problem(&self) -> Option<String> {
         let s = |n: usize| if n == 1 { "" } else { "S" };
         if self.cores == 0 {
             Some("NO CORE: IT CAN'T FLY".into())
+        } else if self.no_seed {
+            Some("NO CORE ON THE SEED".into())
         } else if !self.loose.is_empty() {
             let n = self.loose.len();
             Some(format!("{n} LOOSE PIXEL{}", s(n)))
@@ -405,11 +592,21 @@ pub struct Design {
     pub order: Order,
     /// GRID x GRID, row-major, north up.
     pub cells: Vec<Option<Part>>,
+    /// Grown from a seed on a rock (match only), rather than printed by a factory or the king.
+    /// Its seed is a core at the grid's centre, which the yard keeps there.
+    pub seeded: bool,
+    /// What its factory pixels print, by deck slot, round and round (match only).
+    pub build: Vec<usize>,
 }
+
+/// Where a seeded design's seed core sits on the grid.
+pub const SEED_CELL: (i32, i32) = (GRID / 2, GRID / 2);
+/// The longest build order the yard allows.
+pub const BUILD_MAX: usize = 12;
 
 impl Design {
     pub fn blank(name: &str) -> Design {
-        Design { name: name.into(), order: Order::Hunt, cells: vec![None; (GRID * GRID) as usize] }
+        Design { name: name.into(), order: Order::Hunt, cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new() }
     }
 
     /// A design from art rows, centred in the grid.
@@ -524,7 +721,7 @@ impl Design {
     /// (so all its cores are joined too), whole cannon blocks, and no buried engines.
     pub fn check(&self) -> Check {
         let cores: Vec<usize> = (0..self.cells.len()).filter(|&i| self.cells[i] == Some(Part::Core)).collect();
-        let mut c = Check { cores: cores.len() as i32, ..Default::default() };
+        let mut c = Check { cores: cores.len() as i32, no_seed: self.seeded && self.get(SEED_CELL.0, SEED_CELL.1) != Some(Part::Core), ..Default::default() };
         // The ship is the biggest piece with a core in it; anything else is loose.
         let ship = cores.iter().map(|&k| reach(GRID, GRID, k, |i| self.cells[i].is_some())).max_by_key(|seen| seen.iter().filter(|&&b| b).count());
         if let Some(seen) = ship {
@@ -692,14 +889,17 @@ impl Design {
         Ok(true)
     }
 
-    /// One line for the save file: `NAME|ORDER|X,Y|row/row/...`, the drawing trimmed to its box
-    /// with the box's top-left on the grid, and `.` for empty cells.
+    /// One line for the save file: `NAME|ORDER|X,Y|row/row/...|KIND|BUILD`. The drawing is
+    /// trimmed to its box with the box's top-left on the grid and `.` for empty cells; KIND is
+    /// BUILT or SEEDED, and BUILD the build order as deck slots (round 5 lines stop after the rows).
     pub fn to_line(&self) -> String {
+        let kind = if self.seeded { "SEEDED" } else { "BUILT" };
+        let build: Vec<String> = self.build.iter().map(|b| b.to_string()).collect();
         let Some((x0, y0, x1, y1)) = self.used_box() else {
-            return format!("{}|{}|0,0|.", self.name, self.order.name());
+            return format!("{}|{}|0,0|.|{kind}|{}", self.name, self.order.name(), build.join(","));
         };
         let rows: Vec<String> = (y0..=y1).map(|y| (x0..=x1).map(|x| self.get(x, y).map_or('.', |p| p.ch())).collect()).collect();
-        format!("{}|{}|{x0},{y0}|{}", self.name, self.order.name(), rows.join("/"))
+        format!("{}|{}|{x0},{y0}|{}|{kind}|{}", self.name, self.order.name(), rows.join("/"), build.join(","))
     }
 
     /// Reads a save line. A round 2 or 3 line (the whole 41x41 grid, no position) is centred.
@@ -707,7 +907,7 @@ impl Design {
         let f: Vec<&str> = s.trim().split('|').collect();
         let (name, order) = (*f.first()?, Order::from_name(f.get(1)?)?);
         let (at, rows) = match f.len() {
-            4 => {
+            4 | 6 => {
                 let (x, y) = f[2].split_once(',')?;
                 ((x.parse::<i32>().ok()?, y.parse::<i32>().ok()?), f[3])
             }
@@ -727,7 +927,50 @@ impl Design {
                 d.set(at.0 + x as i32, at.1 + y as i32, Part::from_ch(c));
             }
         }
+        if f.len() == 6 {
+            d.seeded = f[4] == "SEEDED";
+            d.build = f[5].split(',').filter_map(|b| b.trim().parse().ok()).take(BUILD_MAX).collect();
+        }
         Some(d)
+    }
+
+    /// The shape's cells in the order they grow: outward from `start` edge to edge, so what's
+    /// grown is one connected piece at every step. Ties go in reading order.
+    pub fn growth_order(sh: &Shape, start: usize) -> Vec<usize> {
+        let (w, h) = (sh.w, sh.h);
+        let mut seen = vec![false; sh.cells.len()];
+        let mut order = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+        if sh.cells.get(start).copied().flatten().is_some() {
+            seen[start] = true;
+            queue.push_back(start);
+        }
+        while let Some(c) = queue.pop_front() {
+            order.push(c);
+            let (x, y) = (c as i32 % w, c as i32 / w);
+            for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx >= 0 && ny >= 0 && nx < w && ny < h {
+                    let k = (ny * w + nx) as usize;
+                    if !seen[k] && sh.cells[k].is_some() {
+                        seen[k] = true;
+                        queue.push_back(k);
+                    }
+                }
+            }
+        }
+        order
+    }
+
+    /// The shape cell where a seeded design's seed core sits, or the first core of any other.
+    pub fn start_cell(&self) -> Option<usize> {
+        let (x0, y0, _, _) = self.used_box()?;
+        let sh = self.shape();
+        if self.seeded {
+            let c = ((SEED_CELL.1 - y0) * sh.w + SEED_CELL.0 - x0) as usize;
+            return sh.is_core(c).then_some(c);
+        }
+        (0..sh.cells.len()).find(|&c| sh.is_core(c))
     }
 }
 
@@ -895,6 +1138,107 @@ fn titan() -> Design {
     d
 }
 
+/// The king (match only): a fixed design for now. It flies like Toy 1's (straight from the keys,
+/// no inertia), prints anything in the deck, and is the root node of its network.
+pub fn king() -> Design {
+    Design::from_rows(
+        "KING",
+        Order::Hold,
+        &[
+            "......ppppp......",
+            "....pphhhhhpp....",
+            "...phhhhghhhhp...",
+            "..phhhhhhhhhhhp..",
+            ".phhhhhhhhhhhhhp.",
+            ".phhhchhhhhchhhp.",
+            "gphhhhhhhhhhhhhpg",
+            "phhhhhhhhhhhhhhhp",
+            "phhhhhhhchhhhhhhp",
+            "phhhhhhhhhhhhhhhp",
+            "gphhhhhhhhhhhhhpg",
+            ".phhhhhhhhhhhhhp.",
+            ".phhhhhhhhhhhhhp.",
+            "..phhhhhhhhhhhp..",
+            "...ppphhhhhppp...",
+            ".....hhhhhhh.....",
+            ".....e.e.e.e.....",
+        ],
+    )
+}
+
+/// A seed (match only): a core and an engine, unarmed. The king prints one for a seeded design;
+/// it flies to a rock and grows the design out of it.
+pub fn seed() -> Design {
+    Design::from_rows("SEED", Order::Hunt, &["c", "e"])
+}
+
+/// The deck the AI plays, and the one you can borrow before you've drawn factories of your own.
+/// Slots: 0 fighter, 1 lancer, 2 frigate, 3 miner, 4 outpost, 5 shipyard, 6 capital.
+pub fn starter_deck() -> Vec<Design> {
+    let d = defaults();
+    let mut outpost = Design::from_rows(
+        "OUTPOST",
+        Order::Hold,
+        &[
+            ".....ppp.....",
+            "...pphhhpp...",
+            "..phhhghhhp..",
+            ".phhfffffhhp.",
+            ".phfhhhhhfhp.",
+            "phhfhhhhhfhhp",
+            "pghfhhchhfhgp",
+            "phhfhhhhhfhhp",
+            ".phfhhhhhfhp.",
+            ".phhfffffhhp.",
+            "..phhhghhhp..",
+            "...pphhhpp...",
+            ".....ppp.....",
+        ],
+    );
+    outpost.seeded = true;
+    outpost.build = vec![3, 3, 0, 0, 1, 2];
+    let mut miner = Design::from_rows("MINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]);
+    miner.order = Order::Harvest;
+    vec![d[0].clone(), d[1].clone(), d[2].clone(), miner, outpost, shipyard(), d[4].clone()]
+}
+
+/// A big seeded factory: an octagon plated all round, with two rings of factory pixels (88 of
+/// them, so it builds ships up to 880 px) and flak behind the plate.
+fn shipyard() -> Design {
+    let mut d = Design::blank("SHIPYARD");
+    let c = GRID / 2;
+    for y in -12i32..=12 {
+        for x in -12i32..=12 {
+            if x.abs() + y.abs() <= 17 {
+                d.set(c + x, c + y, Some(Part::Hull));
+            }
+        }
+    }
+    let skin: Vec<(i32, i32)> = (0..GRID * GRID)
+        .map(|i| (i % GRID, i / GRID))
+        .filter(|&(x, y)| d.get(x, y) == Some(Part::Hull) && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| d.get(x + dx, y + dy).is_none()))
+        .collect();
+    for (x, y) in skin {
+        d.set(x, y, Some(Part::Plate));
+    }
+    for y in -8i32..=8 {
+        for x in -8i32..=8 {
+            let m = x.abs().max(y.abs());
+            if m == 3 || m == 8 {
+                d.set(c + x, c + y, Some(Part::Factory));
+            }
+        }
+    }
+    for (x, y) in [(10, 0), (-10, 0), (0, 10), (0, -10), (6, 6), (-6, 6), (6, -6), (-6, -6)] {
+        d.set(c + x, c + y, Some(Part::Flak));
+    }
+    d.set(c, c, Some(Part::Core));
+    d.order = Order::Hold;
+    d.seeded = true;
+    d.build = vec![3, 2, 2, 6];
+    d
+}
+
 /// Earlier versions of the defaults, by slot. A saved design still exactly like one of these was
 /// never edited, so loading swaps in the current default (round 3 buried the old destroyer's
 /// front engines and gave the capital extra cores).
@@ -999,7 +1343,7 @@ mod tests {
         assert!(d.check().ok());
         // Clicking the ring swaps the whole ring.
         assert_eq!(d.flood((c - 2, c - 2), Some(Part::Hull)), Ok(true));
-        assert_eq!(d.stats().plate, 0);
+        assert!(!d.cells.contains(&Some(Part::Plate)));
         assert!(d.flood((c, c - 1), Some(Part::Cannon)).is_err());
     }
 
@@ -1138,5 +1482,103 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn power_comes_from_hull_and_cores() {
+        // A fighter: 2 hull and a core make 6; 2 flak and 2 engines use 4.
+        let st = defaults()[0].stats();
+        assert_eq!((st.made, st.used, st.power_pct()), (6, 4, 100));
+        // Every default has the power it needs, so the old matchups don't move.
+        for d in defaults() {
+            let st = d.stats();
+            assert!(st.used <= st.made, "{} uses {} of {}", d.name, st.used, st.made);
+        }
+        // A cannon on a bare core: 4 made, 9 used. Its gun reloads 9/4 as slow and its engine
+        // pushes 4/9 as hard.
+        let boat = Design::from_rows("BOAT", Order::Hunt, &["nnn", "nnn", "nnn", ".c.", ".e."]);
+        let st = boat.stats();
+        assert_eq!((st.made, st.used, st.power_pct()), (4, 9, 44));
+        assert_eq!(st.reload(45), 102);
+        assert_eq!(st.thrust, 8 * 4 / 9);
+        // Five pixels of hull bring it up to full power.
+        let fed = Design::from_rows("BOAT", Order::Hunt, &["nnn", "nnn", "nnn", "hch", "hhh", ".e."]);
+        assert_eq!(fed.stats().power_pct(), 100);
+        assert_eq!(fed.stats().reload(45), 45);
+    }
+
+    #[test]
+    fn the_match_designs_are_legal() {
+        assert!(king().check().ok(), "{:?}", king().check());
+        assert!(seed().check().ok());
+        let deck = starter_deck();
+        assert_eq!(deck.len(), 7);
+        for d in &deck {
+            assert!(d.check().ok(), "{}: {:?}", d.name, d.check());
+            assert!(d.stats().power_pct() == 100, "{} is short of power", d.name);
+            if d.seeded {
+                let c = d.start_cell().expect("a seed core");
+                assert!(d.shape().is_core(c));
+            }
+            // Everything on a build order is a built design the full-grown factory can make.
+            for &b in &d.build {
+                assert!(!deck[b].seeded && deck[b].stats().count <= d.stats().max_build(), "{} can't build {}", d.name, deck[b].name);
+            }
+        }
+        assert_eq!(deck[5].stats().factory, 88);
+    }
+
+    #[test]
+    fn seeded_designs_and_build_orders_save() {
+        let deck = starter_deck();
+        for d in &deck {
+            let back = Design::from_line(&d.to_line()).expect("parses");
+            assert_eq!((back.seeded, &back.build), (d.seeded, &d.build));
+            assert_eq!(back.to_line(), d.to_line());
+        }
+        // A seeded design whose seed cell isn't a core can't fly.
+        let mut d = deck[4].clone();
+        d.set(SEED_CELL.0, SEED_CELL.1, Some(Part::Hull));
+        assert!(d.check().no_seed && !d.check().ok());
+    }
+
+    #[test]
+    fn growth_goes_outward_and_stays_in_one_piece() {
+        let d = &starter_deck()[5];
+        let sh = d.shape();
+        let order = Design::growth_order(&sh, d.start_cell().unwrap());
+        assert_eq!(order.len() as i32, d.stats().count);
+        assert!(sh.is_core(order[0]));
+        // Every cell after the first touches one grown before it.
+        let mut grown = vec![false; sh.cells.len()];
+        for (k, &c) in order.iter().enumerate() {
+            let (x, y) = (c as i32 % sh.w, c as i32 / sh.w);
+            let touches = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| {
+                let (nx, ny) = (x + dx, y + dy);
+                nx >= 0 && ny >= 0 && nx < sh.w && ny < sh.h && grown[(ny * sh.w + nx) as usize]
+            });
+            assert!(k == 0 || touches, "cell {c} grew out of nowhere");
+            grown[c] = true;
+        }
+    }
+
+    #[test]
+    fn the_part_table_lines_up_with_the_parts() {
+        // Every part finds its own row: the table is in the order of the enum.
+        assert_eq!(PARTS.len(), PART_INFO.len());
+        for p in PARTS {
+            let info = p.info();
+            assert_eq!(format!("{p:?}").to_uppercase(), info.name, "{:?} got {}'s row", p, info.name);
+            assert_eq!(Part::from_ch(info.ch), Some(p));
+            assert!(info.glyph.iter().all(|r| r.chars().count() == 7), "{}'s shape isn't 7x7", info.name);
+        }
+        // No two parts share a letter or a name.
+        for a in &PART_INFO {
+            assert_eq!(PART_INFO.iter().filter(|b| b.ch == a.ch || b.name == a.name).count(), 1, "{}", a.name);
+        }
+        assert_eq!(Part::Cannon.blurb().matches("WEIGHS 18.").count(), 1);
+        assert_eq!(Part::power_list(true), "HULL 1, CORE 4");
+        assert_eq!(secs(20), "1.3");
+        assert_eq!(secs(45), "3");
     }
 }

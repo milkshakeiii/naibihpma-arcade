@@ -22,6 +22,8 @@ pub const LANCE: u8 = 27;
 pub const LANCE_HI: u8 = 28;
 /// Cannon housing (the breech is drawn in GOLD).
 pub const CANNON: u8 = 29;
+/// Factory pixels (the match's printers).
+pub const FACTORY: u8 = 30;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -80,6 +82,7 @@ pub fn game() -> Pal {
     set(&mut p, LANCE, (232, 92, 216));
     set(&mut p, LANCE_HI, (255, 196, 248));
     set(&mut p, CANNON, (172, 116, 60));
+    set(&mut p, FACTORY, (64, 188, 164));
 
     set(&mut p, PANEL_LO, (36, 40, 56));
     set(&mut p, PANEL, (60, 66, 88));

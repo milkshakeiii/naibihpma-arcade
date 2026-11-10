@@ -4,11 +4,14 @@
 
 pub mod design;
 mod icons;
+pub mod play;
+mod scene;
 pub mod sim;
 mod yard;
 
 use self::design::*;
 use self::sim::*;
+use self::play::Play;
 use self::yard::{Ed, NAME_RECT};
 use crate::app::{App, Ev, Key};
 use crate::framebuffer::{wrap, Framebuffer};
@@ -23,6 +26,7 @@ use std::path::PathBuf;
 pub enum Screen {
     Yard,
     Arena,
+    Match,
 }
 
 /// A ready-made matchup: (team, slot, x, y) for each ship.
@@ -73,6 +77,18 @@ pub struct Placement {
     pub y: i32,
 }
 
+/// The proving ground's help, by heading. The power numbers come from the part table.
+fn help_body() -> Vec<(&'static str, String)> {
+    vec![
+        ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. IT NEEDS A CORE, EVERY PIXEL JOINED EDGE TO EDGE, AND A STRAIGHT 3-WIDE WAY OUT FOR EVERY ENGINE.".into()),
+        ("POWER", format!("MADE PER PIXEL: {}. USED: {}. SHORT OF POWER, GUNS RELOAD SLOWER AND ENGINES PUSH LESS, IN STEP.", Part::power_list(true), Part::power_list(false))),
+        ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. KEYS 1-6 PICK A PART CATEGORY. P PENCIL, R RECTANGLE, F FILL, C COPY A STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
+        ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE. HEAVIER SHIPS TURN SLOWER.".into()),
+        ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW.".into()),
+        ("KEYS", "TAB YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
+    ]
+}
+
 /// A notice over the arena, wrapped to fit inside the field with room for its panel.
 fn notice_lines(s: &str) -> Vec<String> {
     wrap(s, ((FIELD.w - 8 - 12) / 6) as usize)
@@ -108,30 +124,12 @@ pub fn team_name(t: usize) -> &'static str {
 }
 
 pub fn part_col(p: Part, team: usize) -> u8 {
-    match p {
-        Part::Hull => team_col(team, 1),
-        Part::Plate => STEEL,
-        Part::Flak => GUN,
-        Part::Lance => LANCE,
-        Part::Cannon => CANNON,
-        Part::Engine => ENGINE,
-        Part::Scoop => SCOOP,
-        Part::Core => CORE,
-    }
+    p.info().colour.unwrap_or(team_col(team, 1))
 }
 
 /// Which part shows when a downscaled icon has to pick one pixel for a block of cells.
 fn icon_rank(p: Part) -> i32 {
-    match p {
-        Part::Core => 7,
-        Part::Cannon => 6,
-        Part::Lance => 5,
-        Part::Flak => 4,
-        Part::Engine => 3,
-        Part::Scoop => 2,
-        Part::Plate => 1,
-        Part::Hull => 0,
-    }
+    p.info().rank
 }
 
 #[inline]
@@ -265,6 +263,9 @@ pub struct Pg {
     logged_run: bool,
     logged_over: bool,
     notice: Option<(String, u32)>,
+    /// The "play a match" panel over the yard.
+    pub menu: bool,
+    pub play: Option<Play>,
 }
 
 impl Pg {
@@ -322,8 +323,10 @@ impl Pg {
             logged_run: false,
             logged_over: false,
             notice: None,
+            menu: false,
+            play: None,
         };
-        pg.log(&format!("##### proving ground round 4 session {} #####", crate::game::utc_stamp()));
+        pg.log(&format!("##### proving ground round 5 session {} #####", crate::game::utc_stamp()));
         pg.load_test(0);
         pg.fit_view();
         pg
@@ -429,8 +432,11 @@ impl Pg {
             return;
         }
         match (self.screen, k) {
+            (Screen::Match, Key::Esc) if self.cancel_planting() => {}
             (_, Key::Esc) => self.confirm_quit = true,
             (_, Key::Help) => self.help = true,
+            (Screen::Match, Key::Tab) => {}
+            (Screen::Match, k) => self.key_match(k),
             (_, Key::Tab) => self.switch_screen(),
             (Screen::Yard, k) => self.key_yard(k),
             (Screen::Arena, Key::Num(n)) if (1..=self.lib.len()).contains(&(n as usize)) => self.slot = n as usize - 1,
@@ -475,6 +481,7 @@ impl Pg {
                 self.frame_if_new();
                 Screen::Yard
             }
+            Screen::Match => Screen::Match,
         };
     }
 
@@ -518,9 +525,14 @@ impl Pg {
         if self.naming && !NAME_RECT.contains(x, y) {
             self.end_naming();
         }
+        if self.menu {
+            self.press_menu(x, y);
+            return;
+        }
         match self.screen {
             Screen::Yard => self.press_yard(x, y, right),
             Screen::Arena => self.press_arena(x, y, right),
+            Screen::Match => self.press_match(x, y, right),
         }
     }
 
@@ -601,8 +613,11 @@ impl Pg {
                 self.set_cam(self.cam.0 + dx, self.cam.1 + dy);
             }
         }
-        if self.screen == Screen::Yard && !self.help && !self.confirm_quit && !self.naming {
+        if self.screen == Screen::Yard && !self.help && !self.confirm_quit && !self.naming && !self.menu {
             self.scroll_yard(&dirs);
+        }
+        if self.screen == Screen::Match && !self.help && !self.confirm_quit {
+            self.step_match(&dirs);
         }
         if self.screen != Screen::Arena || !self.running || self.help || self.confirm_quit {
             return;
@@ -647,6 +662,10 @@ impl Pg {
         match self.screen {
             Screen::Yard => self.draw_yard(fb),
             Screen::Arena => self.draw_arena(fb),
+            Screen::Match => self.draw_match(fb),
+        }
+        if self.menu && self.screen == Screen::Yard {
+            self.draw_menu(fb);
         }
         if let Some((s, _)) = &self.notice {
             let lines = notice_lines(s);
@@ -657,7 +676,9 @@ impl Pg {
                 fb.text(l, r.x + 6, r.y + 4 + 9 * i as i32, GOLD, None, 1);
             }
         }
-        if self.help {
+        if self.help && self.screen == Screen::Match {
+            self.draw_match_help(fb);
+        } else if self.help {
             self.draw_help(fb);
         } else if self.confirm_quit {
             ui::panel(fb, QUIT_RECT);
@@ -674,20 +695,7 @@ impl Pg {
         let m = self.mouse;
         let (cx, cy) = self.cam;
         let f = FIELD;
-        fb.rect_fill(f.x, f.y, f.w, f.h, SPACE);
-        for &(x, y, c) in &a.stars {
-            pc(fb, f, x - cx, y - cy, STAR + c);
-        }
-        for sy in 0..f.h {
-            for sx in 0..f.w {
-                let (x, y) = (sx + cx, sy + cy);
-                if a.rock_at(x, y) {
-                    let lit = !a.rock_at(x, y - 1) || !a.rock_at(x - 1, y);
-                    let dark = !a.rock_at(x, y + 1) || !a.rock_at(x + 1, y);
-                    fb.pset(sx, sy, if lit && !dark { ROCK + 3 } else if dark { ROCK } else { ROCK + 1 });
-                }
-            }
-        }
+        scene::backdrop(fb, f, a, self.cam);
         for (t, &(sx, sy)) in STATIONS.iter().enumerate() {
             let (sx, sy) = (sx - cx, sy - cy);
             for (x, y, w, h, c) in [(sx - 4, sy - 13, 9, 27, OUTLINE), (sx - 3, sy - 12, 7, 25, team_col(t, 0))] {
@@ -701,14 +709,7 @@ impl Pg {
                 }
             }
         }
-        for d in &a.debris {
-            pc(fb, f, d.x - cx, d.y - cy, LOOSE);
-        }
-        for s in a.ships.iter().filter(|s| s.alive) {
-            for &(x, y) in &s.trail {
-                pc(fb, f, x - cx, y - cy, team_col(s.team, 0));
-            }
-        }
+        scene::drift(fb, f, a, self.cam);
         let (wx, wy) = self.to_world(m.0, m.1);
         let hovered = if f.contains(m.0, m.1) { a.ship_at(wx, wy) } else { None };
         if let Some(i) = hovered {
@@ -724,41 +725,12 @@ impl Pg {
             }
         }
         for s in a.ships.iter().filter(|s| s.alive) {
-            draw_shape(fb, f, &s.shape, s.x - cx, s.y - cy, s.facing, s.team, &|c| s.hp[c] > 0, false);
-            // Cannon barrels show where each turret is pointing.
-            for t in s.turrets.iter().filter(|t| s.hp[t.cell] > 0) {
-                let (gx, gy) = s.cell_xy(t.cell);
-                let (ux, uy) = dir64(t.aim);
-                let (ex, ey) = (gx + ux * BARREL / 1024, gy + uy * BARREL / 1024);
-                clipped_line(fb, f, gx - cx, gy - cy, ex - cx, ey - cy, GUN, true);
-            }
+            scene::ship(fb, f, s, self.cam);
         }
         if let Some(i) = hovered {
-            let (l, t, r, b) = a.ships[i].bbox();
-            fb.corners(l - 2 - cx, t - 2 - cy, r - l + 5, b - t + 5, 2, WHITE);
+            scene::corners(fb, &a.ships[i], self.cam);
         }
-        for sh in &a.shots {
-            let (p, q) = ((sh.prev.0 - cx, sh.prev.1 - cy), (sh.line.x - cx, sh.line.y - cy));
-            let (c0, c1) = match sh.kind {
-                Kind::Lance => (LANCE, LANCE_HI),
-                Kind::Shell => (GOLD, WHITE),
-                Kind::Flak => (team_col(sh.team, 1), team_col(sh.team, 3)),
-            };
-            pc(fb, f, p.0, p.1, c0);
-            pc(fb, f, q.0, q.1, c1);
-        }
-        for sp in &a.sparks {
-            let (x, y) = (sp.x - cx, sp.y - cy);
-            if sp.blast {
-                for k in 0..9 {
-                    let (dx, dy) = (k % 3 - 1, k / 3 - 1);
-                    let c = if sp.t >= 3 { if k == 4 { WHITE } else { GOLD } } else if dx == 0 || dy == 0 { SCOOP } else { continue };
-                    pc(fb, f, x + dx, y + dy, c);
-                }
-            } else {
-                pc(fb, f, x, y, if sp.t >= 2 { WHITE } else { GOLD });
-            }
-        }
+        scene::fire(fb, f, a, self.cam);
         // Where a click would place the selected design.
         if a.tick == 0 && hovered.is_none() && f.contains(m.0, m.1) && !self.help {
             let sh = self.lib[self.slot].shape();
@@ -773,6 +745,9 @@ impl Pg {
         let bar: Option<Vec<String>> = if let Some(i) = hovered {
             let s = &a.ships[i];
             let mut parts = vec![format!("{} PX/S", s.speed_px_s()), format!("{}/{} PX", s.px_now(), s.px_full())];
+            if s.st.power_pct() < 100 {
+                parts.push(format!("POWER {}%", s.st.power_pct()));
+            }
             for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON")] {
                 if n > 0 {
                     parts.push(format!("{name} {n}"));
@@ -905,17 +880,8 @@ impl Pg {
     fn draw_minimap(&self, fb: &mut Framebuffer) {
         let a = &self.arena;
         let r = MINI;
-        ui::inset(fb, r);
-        let (ox, oy) = (r.x + 1, r.y + 1);
-        let inner = Rect::new(ox, oy, AW / MINI_SCALE, AH / MINI_SCALE);
-        fb.rect_fill(ox, oy, inner.w, inner.h, SPACE);
-        for my in 0..inner.h {
-            for mx in 0..inner.w {
-                if a.rock_at(mx * MINI_SCALE + MINI_SCALE / 2, my * MINI_SCALE + MINI_SCALE / 2) {
-                    fb.pset(ox + mx, oy + my, ROCK + 1);
-                }
-            }
-        }
+        let inner = scene::minimap_ground(fb, r, a, MINI_SCALE);
+        let (ox, oy) = (inner.x, inner.y);
         for (t, &(sx, sy)) in STATIONS.iter().enumerate() {
             for k in -2..=2 {
                 pc(fb, inner, ox + sx / MINI_SCALE, oy + sy / MINI_SCALE + k, team_col(t, 0));
@@ -928,26 +894,18 @@ impl Pg {
                 pc(fb, inner, x + k % n, y + k / n, team_col(s.team, 2));
             }
         }
-        let (cx, cy) = self.cam;
-        fb.rect_outline(ox + cx / MINI_SCALE, oy + cy / MINI_SCALE, FIELD.w / MINI_SCALE, FIELD.h / MINI_SCALE, WHITE);
+        scene::minimap_view(fb, inner, FIELD, self.cam, MINI_SCALE);
     }
 
     fn draw_help(&self, fb: &mut Framebuffer) {
         let r = HELP_RECT;
         ui::panel(fb, r);
         fb.text("PROVING GROUND", r.x + 10, r.y + 8, ACCENT, Some(OUTLINE), 2);
-        fb.text("ROUND 4", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
-        let body = [
-            ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. AT LEAST ONE CORE, EVERY PIXEL JOINED UP EDGE TO EDGE, AND EVERY ENGINE WITH A STRAIGHT 3-WIDE WAY OUT."),
-            ("NEW", "SHIPS UP TO 99X99. KEYS 1-6 PICK A PART CATEGORY. P PENCIL, R RECTANGLE, F FILL, C COPY A STAMP (OR RIGHT-CLICK A DESIGN'S TAB), T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM; 1X IS REAL SIZE."),
-            ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE. HEAVIER SHIPS TURN SLOWER."),
-            ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW."),
-            ("KEYS", "TAB YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT"),
-        ];
+        fb.text("ROUND 5", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
         let mut y = r.y + 34;
-        for (head, text) in body {
+        for (head, text) in help_body() {
             fb.text(head, r.x + 10, y, GOLD, None, 1);
-            let lines = wrap(text, 50);
+            let lines = wrap(&text, 50);
             for (i, l) in lines.iter().enumerate() {
                 fb.text(l, r.x + 58, y + i as i32 * 9, TEXT, None, 1);
             }
@@ -982,6 +940,9 @@ impl App for Pg {
                 if self.screen == Screen::Yard {
                     self.drag_yard(x, y);
                 }
+                if self.screen == Screen::Match {
+                    self.drag_match(x, y);
+                }
                 if self.map_drag {
                     self.cam_from_map(x.clamp(MINI.x + 1, MINI.x + MINI.w - 2), y.clamp(MINI.y + 1, MINI.y + MINI.h - 2));
                 }
@@ -991,6 +952,9 @@ impl App for Pg {
                 self.map_drag = false;
                 if self.screen == Screen::Yard {
                     self.release_yard(x, y);
+                }
+                if self.screen == Screen::Match {
+                    self.release_match();
                 }
             }
             Ev::Wheel(n) => {
@@ -1011,6 +975,9 @@ impl App for Pg {
     }
     fn draw(&self, fb: &mut Framebuffer) {
         self.render(fb);
+    }
+    fn cursor_kind(&self) -> u8 {
+        (self.screen == Screen::Match && self.play.as_ref().is_some_and(|p| p.planting.is_some())) as u8
     }
     fn palette(&self) -> &Pal {
         &self.pal
@@ -1055,10 +1022,10 @@ mod tests {
             Check { cores: 1, buried: vec![(0, 0); n], ..Check::default() },
         ];
         for c in checks.iter().chain([&Check { cores: 1, ..Check::default() }]) {
-            for armed in [false, true] {
+            for (armed, power) in [(false, 100), (true, 100), (true, 99), (false, 1)] {
                 for &order in &ORDERS {
                     // The yard's status line, one line inside its box.
-                    let (status, _) = yard_status(c, armed, order);
+                    let (status, _) = yard_status(c, armed, power, order);
                     assert!(Framebuffer::text_width(&status, 1) <= STATUS_RECT.w - 2, "the yard's status line overflows: {status}");
                 }
             }
@@ -1070,5 +1037,28 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn f1_opens_the_rules_in_a_match() {
+        let mut pg = Pg::new(None, None);
+        pg.start_match(true, 5);
+        pg.help = false;
+        pg.key(Key::Help);
+        assert!(pg.help, "F1 did nothing in a match");
+        // And Esc cancels planting before it offers to quit.
+        pg.help = false;
+        pg.key(Key::Num(5));
+        assert!(pg.play.as_ref().unwrap().planting.is_some());
+        pg.key(Key::Esc);
+        assert!(pg.play.as_ref().unwrap().planting.is_none() && !pg.confirm_quit);
+    }
+
+    #[test]
+    fn the_help_fits_its_panel() {
+        // Headings start 34 px down, and each section ends with 6 px of gap. The part legend
+        // starts 41 px from the bottom, so the last line of text must end at least 3 px above it.
+        let end: i32 = 34 + help_body().iter().map(|(_, t)| wrap(t, 50).len() as i32 * 9 + 6).sum::<i32>() - 8;
+        assert!(end <= HELP_RECT.h - 44, "the help runs {} px into the legend", end - (HELP_RECT.h - 44));
     }
 }
