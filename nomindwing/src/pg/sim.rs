@@ -25,9 +25,18 @@ pub const STATIONS: [(i32, i32); 2] = [(10, AH / 2), (AW - 11, AH / 2)];
 const FLAK_SPEED: i32 = 6;
 const LANCE_SPEED: i32 = 4;
 const SHELL_SPEED: i32 = 4;
-/// A ship on GUARD fights what comes this near the spot it was built on: further than any gun
+/// A ship on GUARD fights what comes this near the place it was built: further than any gun
 /// reaches, so nothing can shell the factory beside it unanswered.
 pub const GUARD_RADIUS: i32 = 160;
+/// A ship with nothing to do waits at its post: its own place in the rings round what built it.
+/// The first ring is this far outside the builder, clear of whatever it prints next; the rings,
+/// and the posts along each ring, are about `POST_SPACE` apart.
+pub const POST_GAP: i32 = 16;
+pub const POST_SPACE: i32 = 16;
+/// A ship that arrives beside its king this near posts other ships already keep joins theirs.
+pub const POST_JOIN: i32 = 24;
+/// How far from its post a waiting ship will look for a clear place.
+pub const POST_SEARCH: i32 = 64;
 /// A ship on ESCORT fights what comes this near its king.
 pub const ESCORT_RADIUS: i32 = 110;
 /// Ticks ahead an escort aims: where its place round the king will be by then.
@@ -194,7 +203,14 @@ pub struct Ship {
     pub doing: Doing,
     outbound: bool,
     run_t: i32,
+    /// Where it was built: the middle of the factory that printed it, or of the king it arrived
+    /// beside. For a ship nothing built, where it started.
     pub home: (i32, i32),
+    /// How far from `home` its first ring of posts is, before its own half-size: the builder's
+    /// half-size and `POST_GAP`. 0 for a ship nothing built: its post is `home` itself.
+    pub ring0: i32,
+    /// It spent this tick waiting at its post, or on its way there.
+    pub posted: bool,
     pub carry: i32,
     hauling: bool,
     tpx: Option<(i32, i32)>,
@@ -311,6 +327,8 @@ impl Ship {
             turrets,
             // A piece told to hold stays where it broke off; the rest keep the old ship's home.
             home: if self.order == Order::Hold { (x, y) } else { self.home },
+            ring0: if self.order == Order::Hold { 0 } else { self.ring0 },
+            posted: false,
             carry: 0,
             hauling: false,
             tpx: None,
@@ -415,6 +433,10 @@ struct Snap {
     half: i32,
     /// Pixels as built: its size class, which damage doesn't change.
     full: i32,
+    /// Whether it was a miner at work last tick: after a rock pixel, or taking a full load home.
+    /// It's part of the snapshot so that every ship gets the same answer, whatever order they
+    /// think in.
+    working: bool,
 }
 
 /// What a brain wants this tick.
@@ -572,6 +594,8 @@ impl Arena {
             outbound: false,
             run_t: 0,
             home: (x, y),
+            ring0: 0,
+            posted: false,
             carry: 0,
             hauling: false,
             tpx: None,
@@ -654,7 +678,7 @@ impl Arena {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.alive && s.warp == 0)
-            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full() })
+            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul) })
             .collect();
         let n = self.ships.len();
         // How close each armed ship that can move is to its nearest enemy, before and after
@@ -800,18 +824,125 @@ impl Arena {
                 p
             }
         };
-        // Friends keep a pixel or two apart instead of stacking into one sprite. A miner after a
-        // rock pixel is the exception: it goes to that pixel, whether its own factory stands over
-        // it or a fleet is parked there. (Pushed off, it never gets its bite.)
-        if st.thrust > 0 && plan.doing != Doing::Mine {
+        // A built ship sent home with nothing to do waits at its post instead: its own place in
+        // the rings round what built it.
+        let posted = st.thrust > 0 && self.ships[i].ring0 > 0 && plan.goal == Some(home) && matches!(plan.doing, Doing::Guard | Doing::Idle | Doing::Hold);
+        if posted {
+            let spot = self.clear_post(i, self.post(i), snap);
+            let mut p = self.go(i, spot, plan.doing);
+            if plan.doing == Doing::Hold {
+                // Holding, it turns only to bring a lance to bear.
+                if plan.target.is_some() || st.lance == 0 {
+                    p.face = plan.face;
+                }
+                p.target = plan.target;
+            } else if (x, y) == spot {
+                // At its post it looks outward.
+                p.face = axis_face(spot.0 - home.0, spot.1 - home.1);
+            }
+            plan = p;
+        }
+        self.ships[i].posted = posted;
+        // Friends keep a pixel or two apart instead of stacking into one sprite. A miner at work
+        // takes no part in that, either way. After a rock pixel it goes to that pixel, whether its
+        // own factory stands over it or a fleet is parked there (pushed off, it never gets its
+        // bite), and with a full load it goes straight home (pushed back, it never unloads). Nor
+        // does it push anyone: miners working one rock face sit on top of each other and give
+        // way to nothing, so their pushes added up to a wall that nothing of their own side
+        // could cross, a full miner on the far side of it least of all. A ship at its post is
+        // the other exception: it has a place of its own and holds it, and whatever flies by
+        // goes round. (Pushed off and pulled back, it never sat still.)
+        if st.thrust > 0 && !matches!(plan.doing, Doing::Mine | Doing::Haul) && !posted {
             let h = self.ships[i].half();
-            for f in snap.iter().filter(|f| f.team == team && f.idx != i && cheb(f.x, f.y, x, y) < f.half + h + 2) {
+            for f in snap.iter().filter(|f| f.team == team && f.idx != i && !f.working && cheb(f.x, f.y, x, y) < f.half + h + 2) {
                 let (ax, ay) = if (f.x, f.y) == (x, y) { (if i < f.idx { -4 } else { 4 }, 0) } else { toward(f.x, f.y, x, y, 4) };
                 plan.dv.0 += ax;
                 plan.dv.1 += ay;
             }
         }
         plan
+    }
+
+    /// Where a built ship waits with nothing to do: its own place in the rings round what built
+    /// it. Ships on GUARD fill the rings in the order they were built (the first ring nearest
+    /// the builder, each ring holding as many as fit `POST_SPACE` apart) and close up when one is
+    /// lost; a guard away fighting keeps its place. Ships waiting for any other reason come after
+    /// the guards.
+    fn post(&self, i: usize) -> (i32, i32) {
+        let s = &self.ships[i];
+        let same = |o: &Ship| o.alive && o.team == s.team && o.home == s.home && o.ring0 > 0 && o.role == Role::Ship && o.grow.is_none() && o.warp == 0 && o.st.thrust > 0;
+        let guards = |v: &[Ship]| v.iter().filter(|o| same(o) && o.order == Order::Guard).count() as i32;
+        let mut rank = if s.order == Order::Guard {
+            guards(&self.ships[..i])
+        } else {
+            guards(&self.ships) + self.ships[..i].iter().filter(|o| same(o) && o.order != Order::Guard && o.posted).count() as i32
+        };
+        let (mut base, mut ring) = (s.ring0, 0);
+        let room = |base: i32| (base * 2 / 5).clamp(6, 48);
+        while rank >= room(base) {
+            rank -= room(base);
+            base += POST_SPACE;
+            ring += 1;
+        }
+        // Each ring starts a little further round than the one inside it.
+        let (ux, uy) = dir64((rank * 64 / room(base) + ring * 3) % 64);
+        let (r, h) = (base + s.half(), s.half());
+        ((s.home.0 + ux * r / 1024).clamp(h, self.w - 1 - h), (s.home.1 + uy * r / 1024).clamp(h, self.h - 1 - h))
+    }
+
+    /// A waiting ship gives way to what can't move aside for it (a factory, a ship still being
+    /// printed, a king) and to ships already waiting that were built before it. Its place is
+    /// then the nearest point to its post that is clear of them all: of two as near, the one
+    /// further from home. Where they stand doesn't change from tick to tick, so neither does that
+    /// point: the ship flies there and stops.
+    ///
+    /// (It used to step out of one thing at a time, through its nearer side. Between two things
+    /// standing close together that stepped it out of each into the other, and it came to rest
+    /// inside one of them.)
+    fn clear_post(&self, i: usize, post: (i32, i32), snap: &[Snap]) -> (i32, i32) {
+        let s = &self.ships[i];
+        let h = s.half();
+        // What's in the way: where each stands, and how near its middle this ship's may come.
+        let blocks: Vec<((i32, i32), i32)> = snap
+            .iter()
+            .filter(|f| f.team == s.team && f.idx != i)
+            .filter_map(|f| {
+                let o = &self.ships[f.idx];
+                let at = if o.st.thrust == 0 || o.grow.is_some() || o.role == Role::King {
+                    (f.x, f.y)
+                } else if f.idx < i && o.posted {
+                    o.goal?
+                } else {
+                    return None;
+                };
+                let r = f.half + h + 3;
+                (cheb(post.0, post.1, at.0, at.1) < r + POST_SEARCH).then_some((at, r))
+            })
+            .collect();
+        let clear = |p: (i32, i32)| blocks.iter().all(|&((x, y), r)| cheb(p.0, p.1, x, y) >= r);
+        if clear(post) {
+            return post;
+        }
+        // Outward a ring at a time. A ring `d` out is at least `d` away, so the search is over
+        // once a clear point nearer than that is in hand.
+        let on_map = |p: (i32, i32)| (h..self.w - h).contains(&p.0) && (h..self.h - h).contains(&p.1);
+        let mut best: Option<((i32, i32, i32, i32), (i32, i32))> = None;
+        for d in 1..=POST_SEARCH {
+            if best.is_some_and(|(k, _)| k.0 < d * d) {
+                break;
+            }
+            let ring = (-d..=d).flat_map(|t| [(t, -d), (t, d)]).chain((1 - d..d).flat_map(|t| [(-d, t), (d, t)]));
+            for (dx, dy) in ring {
+                let p = (post.0 + dx, post.1 + dy);
+                if on_map(p) && clear(p) {
+                    let key = (dist2(p.0, p.1, post.0, post.1), -dist2(p.0, p.1, s.home.0, s.home.1), p.1, p.0);
+                    if best.map_or(true, |(k, _)| key < k) {
+                        best = Some((key, p));
+                    }
+                }
+            }
+        }
+        best.map_or(post, |(_, p)| p)
     }
 
     /// Where a ship on ESCORT belongs: its king's position, and its own place in the rings round
@@ -1963,6 +2094,68 @@ mod tests {
         run(&mut a, until);
         let (f, s) = (&a.ships[0], &a.ships[1]);
         assert!(cheb(s.x, s.y, f.x, f.y) <= f.half() + s.half() + 6, "ran off when hit");
+    }
+
+    /// Five miners put on one spot at the west face of the middle rock, between that rock and
+    /// blue's station, and given a second to settle to their bites. Returns the spot.
+    fn miners_at_work(a: &mut Arena) -> (i32, i32) {
+        let miner = Design::from_rows("MINER", Order::Harvest, &["sss", "hch", "e.e"]);
+        let at = (AW / 2 - 17, AH / 2);
+        for _ in 0..5 {
+            assert!(a.add(0, 0, &miner, at.0, at.1));
+        }
+        run(a, 15);
+        assert!(a.ships.iter().all(|s| s.doing == Doing::Mine && (s.vx, s.vy) == (0, 0) && cheb(s.x, s.y, at.0, at.1) <= 2), "the miners should be at work in a heap");
+        at
+    }
+
+    #[test]
+    fn a_full_miner_flies_straight_home_through_its_friends() {
+        // A miner fills up on the far side of a heap of miners still working, with three parked
+        // blocks of its own side heaped on the same spot, and a picket holding a place further
+        // along its line home. It takes no part in keeping apart: it flies the line through all
+        // of them in the time the distance takes, and the picket it flies over doesn't stir.
+        // (Pushed like any other ship, it hung behind the heap, a few pixels back and forth,
+        // until the miners in it had filled up too: over a minute, in a match.)
+        let mut a = Arena::new();
+        let at = miners_at_work(&mut a);
+        let block = Design::from_rows("BLOCK", Order::Hold, &["hch"]);
+        for _ in 0..3 {
+            assert!(a.add(0, 1, &block, at.0, at.1));
+        }
+        let picket = Design::from_rows("PICKET", Order::Hold, &["ggg", "hch", "e.e"]);
+        assert!(a.add(0, 2, &picket, 60, at.1));
+        let p = a.ships.len() - 1;
+        let miner = Design::from_rows("MINER", Order::Harvest, &["sss", "hch", "e.e"]);
+        assert!(a.add(0, 0, &miner, at.0 + 3, at.1));
+        let m = a.ships.len() - 1;
+        a.ships[m].carry = a.ships[m].st.scoops * SCOOP_CARRY;
+        let far = at.0 + 3 - STATIONS[0].0 - 10;
+        let until = a.tick + (far * 4 / a.ships[m].st.vmax + 30) as u32;
+        while a.tick < until {
+            a.step();
+            assert_eq!((a.ships[p].x, a.ships[p].y), (60, at.1), "tick {}: the picket was pushed off its spot", a.tick);
+        }
+        assert_eq!(a.score[0].mined, 9, "the full miner isn't home after the flight and 2 s: it's at {:?}, {:?}", (a.ships[m].x, a.ships[m].y), a.ships[m].doing);
+    }
+
+    #[test]
+    fn a_heap_of_miners_at_work_is_no_wall_to_their_own_side() {
+        // Miners working one rock face sit on top of each other and give way to nothing. A slow,
+        // heavy ship of their side sent to a spot beyond them flies through the heap and gets
+        // there. (When each miner pushed it like any other friend, five pushes beat its engine:
+        // it stopped short of them, was pushed back out, and came on again, for as long as they
+        // worked. Something light and fast got through on its own momentum.)
+        let mut a = Arena::new();
+        let at = miners_at_work(&mut a);
+        let tug = Design::from_rows("TUG", Order::Hold, &["ppp", "pcp", "ppp", ".e."]);
+        assert!(a.add(0, 1, &tug, at.0 + 10, at.1));
+        let r = a.ships.len() - 1;
+        let spot = (at.0 - 20, at.1);
+        a.ships[r].home = spot;
+        let until = a.tick + 15 * 10;
+        run(&mut a, until);
+        assert!(cheb(a.ships[r].x, a.ships[r].y, spot.0, spot.1) <= 2, "the tug didn't get through the miners in 10 s: it's {} px short", a.ships[r].x - spot.0);
     }
 
     #[test]

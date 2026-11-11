@@ -26,8 +26,8 @@ pub const CANNON_DMG: i32 = 3;
 /// How far a lance shot punches: a bare pixel uses up 1, plate 2.
 pub const LANCE_PEN: i32 = 6;
 /// Ticks a ship with two or more scoops takes to bite a pixel out of a rock (one scoop takes
-/// twice as long).
-pub const CHEW_TICKS: i32 = 40;
+/// twice as long). 40 until 2026-11-11.
+pub const CHEW_TICKS: i32 = 50;
 /// Pixels each scoop carries.
 pub const SCOOP_CARRY: i32 = 3;
 /// The first line of a save file. Round 4 saves each design trimmed to its drawing, with where it
@@ -189,7 +189,7 @@ pub const PART_INFO: [PartInfo; 9] = [
         mass: 2,
         armor: 0,
         makes: 0,
-        uses: 2,
+        uses: 3,
         block: 1,
         colour: Some(pal::LANCE),
         rank: 5,
@@ -228,10 +228,10 @@ pub const PART_INFO: [PartInfo; 9] = [
         ch: 's',
         name: "SCOOP",
         cat: Cat::Industry,
-        mass: 1,
+        mass: 2,
         armor: 0,
         makes: 0,
-        uses: 0,
+        uses: 1,
         block: 1,
         colour: Some(pal::SCOOP),
         rank: 2,
@@ -259,7 +259,7 @@ pub const PART_INFO: [PartInfo; 9] = [
         mass: 1,
         armor: 0,
         makes: 0,
-        uses: 1,
+        uses: 2,
         block: 1,
         colour: Some(pal::FACTORY),
         rank: 7,
@@ -341,7 +341,7 @@ impl Order {
     pub fn blurb(self) -> &'static str {
         match self {
             Order::Hunt => "HUNT - GOES AFTER THE NEAREST ENEMY, WHEREVER IT IS.",
-            Order::Guard => "GUARD - IN A MATCH, HOLDS WHERE IT WAS BUILT AND FIGHTS WHAT COMES WITHIN 160 PX OF THAT SPOT. IN THE ARENA IT HUNTS.",
+            Order::Guard => "GUARD - IN A MATCH, WAITS IN THE RINGS ROUND WHAT BUILT IT AND FIGHTS WHAT COMES WITHIN 160 PX OF THERE. IN THE ARENA IT HUNTS.",
             Order::Escort => "ESCORT - IN A MATCH, FORMS UP ON YOUR KING, GOES WHERE IT FLIES AND FIGHTS WHAT COMES NEAR IT. IN THE ARENA IT HUNTS.",
             Order::Harvest => "HARVEST - MINES THE NEAREST ROCK AND HAULS THE PIXELS HOME. ITS GUNS STILL FIRE ON THE WAY.",
             Order::Hold => "HOLD - STAYS EXACTLY WHERE IT WAS PLACED, TURNING ITS LANCES TO FACE ANY ENEMY IN RANGE.",
@@ -1197,10 +1197,249 @@ pub fn seed() -> Design {
     Design::from_rows("SEED", Order::Hunt, &["c", "e"])
 }
 
+/// A design drawn at an exact place in the grid, as the yard saves it. `build` makes it a seeded
+/// factory with that build order.
+fn drawn(name: &str, order: Order, at: (i32, i32), rows: &[&str], build: Option<&[usize]>) -> Design {
+    let mut d = Design::blank(name);
+    d.order = order;
+    for (y, r) in rows.iter().enumerate() {
+        for (x, c) in r.chars().enumerate() {
+            d.set(at.0 + x as i32, at.1 + y as i32, Part::from_ch(c));
+        }
+    }
+    if let Some(b) = build {
+        d.seeded = true;
+        d.build = b.to_vec();
+    }
+    d
+}
+
 /// The deck the AI plays, and the one you can borrow before you've drawn factories of your own.
 /// Slots: 0 fighter, 1 lancer, 2 frigate, 3 miner, 4 outpost, 5 shipyard, 6 capital.
+///
+/// Henry's drawings (2026-11-10): the round 2 cards with every pixel of power put to use. None
+/// carries hull that feeds nothing, so what a match shows is the rules and not a wasteful
+/// drawing. The warships are drawn on GUARD: in a match they gather where they're built until
+/// you send them, instead of trickling out one at a time.
 pub fn starter_deck() -> Vec<Design> {
+    vec![
+        // Four flak round the nose: every pixel of power its hull makes is spent.
+        drawn("FIGHTER", Order::Guard, (48, 47), &[".g.", "ggg", "hch", "e.e"], None),
+        // Two lances in a column: the rear one fires through the front one. Hull either side
+        // of it since 2026-11-11, when a lance went from 2 power to 3.
+        drawn("LANCER", Order::Guard, (48, 47), &[".l.", "hlh", "hch", "e.e"], None),
+        // Six flak and four lances down the spine, behind plate, with two more engines. Four
+        // of its plates are hull now, to feed the lances.
+        drawn(
+            "FRIGATE",
+            Order::Guard,
+            (45, 44),
+            &[
+                "....p....",
+                "...php...",
+                "..pplpp..",
+                "phghlhghp",
+                "phghchghp",
+                "phhhlhhhp",
+                "phghlhghp",
+                "e.ppppp.e",
+                "..e.e.e..",
+            ],
+            None,
+        ),
+        // Three scoops, a flak turret on the nose and three engines round the core: as fast as
+        // a ship can fly, with all four of its core's power spent and no hull at all. A miner
+        // bites a pixel every 2.7 s however many scoops it has past two, so the cheapest fast
+        // one earns the most. Of eighteen drawings played against each other (MATCH.md, M2.14)
+        // this came first; Henry's own first miner (below, with the retired cards) cost 14 px
+        // and flew at a third of the speed.
+        //
+        // 2026-11-11: scoops use power and weigh 2, so it carries two hull pixels where it had
+        // an engine, costs 9 px and flies at 30 px/s. Nobody has played drawings against each
+        // other for it under these costs.
+        drawn("MINER", Order::Harvest, (48, 47), &[".g.", "sss", "hch", "e.e"], None),
+        // Twenty-eight factory pixels inside the plate, so it builds anything up to 280 px.
+        // (Forty-two until a factory pixel went from 1 power to 2: the same size and price,
+        // with a third of its factory turned to the hull the rest needs.)
+        drawn(
+            "OUTPOST",
+            Order::Hold,
+            (43, 43),
+            &[
+                ".....ppp.....",
+                "...pphhhpp...",
+                "..phhhghhhp..",
+                ".phhhhhhhhhp.",
+                ".phhfffffhhp.",
+                "phfffhhhfffhp",
+                "pgfffhchfffgp",
+                "phfffhhhfffhp",
+                ".phhfffffhhp.",
+                ".phhhhhhhhhp.",
+                "..phhhghhhp..",
+                "...pphhhpp...",
+                ".....ppp.....",
+            ],
+            Some(&[3, 3, 0, 0, 1, 2]),
+        ),
+        // A plated block, 118 factory pixels in a ring and a heart, flak and lances on all four
+        // sides. (184 in two rings until 2026-11-11: the outer ring is one pixel thick now, and
+        // the rest of it is the hull that what's left needs.)
+        drawn(
+            "SHIPYARD",
+            Order::Hold,
+            (36, 36),
+            &[
+                "...ppppppppppppppppppppp...",
+                "...ppppppppppppppppppppp...",
+                "...ppppphhhhlllhhhhppppp...",
+                "ppppppphhhggggggghhhppppppp",
+                "pppppphhhhhhhghhhhhhhpppppp",
+                "ppppphhhhhhhhhhhhhhhhhppppp",
+                "pppphhfffffffffffffffhhpppp",
+                "ppphhhfghhhhhhhhhhhgfhhhppp",
+                "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                "pphhhhfhhfffffffffhhfhhhhpp",
+                "pphhhhfhhfffffffffhhfhhhhpp",
+                "pplhhhfhhfffffffffhhfhhhlpp",
+                "pplghhfhhffffcffffhhfhhglpp",
+                "pplhhhfhhfffffffffhhfhhhlpp",
+                "pphhhhfhhfffffffffhhfhhhhpp",
+                "pphhhhfhhfffffffffhhfhhhhpp",
+                "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                "ppphhhfghhhhhhhhhhhgfhhhppp",
+                "pppphhfffffffffffffffhhpppp",
+                "ppppphhhhhhhhhhhhhhhhhppppp",
+                "pppppphhhhhhhhhhhhhhhpppppp",
+                "ppppppphhggggggggghhppppppp",
+                "...ppppphhhhlllhhhhppppp...",
+                "...ppppppppppppppppppppp...",
+                "...ppppppppppppppppppppp...",
+            ],
+            Some(&[3, 2, 2, 6]),
+        ),
+        // Twenty-seven cannons behind plate, and a full row of engines across the stern.
+        drawn(
+            "CAPITAL",
+            Order::Guard,
+            (33, 31),
+            &[
+                "...............ppp...............",
+                "..............pphpp..............",
+                ".............pphhhpp.............",
+                "............pphnnnhpp............",
+                "...........pphhnnnhhpp...........",
+                "..........pphhhnnnhhhpp..........",
+                ".........ppnnnhnnnhnnnpp.........",
+                "........pphnnnhnnnhnnnhpp........",
+                ".......pphhnnnhnnnhnnnhhpp.......",
+                ".......phhhhhhhhhhhhhhhhhp.......",
+                ".......phhhhhhhhchhhhhhhhp.......",
+                "......gpnnnnnnghhhgnnnnnnpg......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhchhnnnnnnp.......",
+                "......gpnnnnnnhhhhhnnnnnnpg......",
+                ".......phhhhhhhhhhhhhhhhhp.......",
+                ".......pnnnnnnhnnnhnnnnnnp.......",
+                ".......pnnnnnnhnnnhnnnnnnp.......",
+                ".......pnnnnnnhnnnhnnnnnnp.......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhhhhnnnnnnp.......",
+                ".......pnnnnnnhhchhnnnnnnp.......",
+                "......gphhhhhhghhhghhhhhhpg......",
+                ".......phhhhhhhnnnhhhhhhhp.......",
+                ".......phhhhhhhnnnhhhhhhhp.......",
+                ".......phhhhhhhnnnhhhhhhhp.......",
+                ".......phhhhhhghhhghhhhhhp.......",
+                ".......phhhhhhhnnnhhhhhhhp.......",
+                ".......phhhhhhhnnnhhhhhhhp.......",
+                "........phhhhhhnnnhhhhhhp........",
+                "ppppppppppppppppppppppppppppppppp",
+                "peeeeeeeeeeeeeeeeeeeeeeeeeeeeeeep",
+            ],
+            None,
+        ),
+    ]
+}
+
+/// The starter deck's cards as they were before a round changed them, by slot. A saved design
+/// still exactly like one of these was never edited, so loading swaps in the current card (match
+/// round 2 drew the four warships on GUARD; after it Henry redrew all seven to use their power,
+/// and the miner was redrawn once more).
+pub fn retired_starters() -> Vec<(usize, Design)> {
     let d = defaults();
+    let mut v = vec![(0, d[0].clone()), (1, d[1].clone()), (2, d[2].clone()), (6, d[4].clone())];
+    v.extend(round2_deck().into_iter().enumerate());
+    // Henry's first miner (2026-11-10): five scoops and five flak on one engine. Replaced
+    // the same day at Henry's request.
+    v.push((3, drawn("MINER", Order::Harvest, (48, 45), &[".g.", "ggg", "sss", "sgs", "hch", ".e."], None)));
+    v.extend(cheap_parts_deck());
+    v
+}
+
+/// The five starter cards that the costs of 2026-11-11 left short of power (a lance at 3, a
+/// factory pixel at 2, a scoop at 1), as Henry drew them and as the miner tournament left the
+/// miner. Kept for saves that still hold them.
+fn cheap_parts_deck() -> Vec<(usize, Design)> {
+    vec![
+        (1, drawn("LANCER", Order::Guard, (48, 47), &[".l.", ".l.", "hch", "e.e"], None)),
+        (2, drawn("FRIGATE", Order::Guard, (45, 44), &["....p....", "...php...", "..pplpp..", "ppghlhgpp", "phghchghp", "phhhlhhhp", "ppghlhgpp", "e.ppppp.e", "..e.e.e.."], None)),
+        (3, drawn("MINER", Order::Harvest, (48, 47), &[".g.", "sss", "ece", ".e."], None)),
+        (4, drawn("OUTPOST", Order::Hold, (43, 43), &[".....ppp.....", "...pphhhpp...", "..phhhghhhp..", ".phhfffffhhp.", ".phfffffffhp.", "phfffhhhfffhp", "pgfffhchfffgp", "phfffhhhfffhp", ".phfffffffhp.", ".phhfffffhhp.", "..phhhghhhp..", "...pphhhpp...", ".....ppp....."], Some(&[3, 3, 0, 0, 1, 2]))),
+        (
+            5,
+            drawn(
+                "SHIPYARD",
+                Order::Hold,
+                (36, 36),
+                &[
+                    "...ppppppppppppppppppppp...",
+                    "...ppppppppppppppppppppp...",
+                    "...ppppphhhhlllhhhhppppp...",
+                    "ppppppphhhggggggghhhppppppp",
+                    "pppppphhhhhhhhhhhhhhhpppppp",
+                    "pppppfffffffffffffffffppppp",
+                    "pppphfffffffffffffffffhpppp",
+                    "ppphhffghhhhhfhhhhhgffhhppp",
+                    "pphhhffhhhhhhhhhhhhhffhhhpp",
+                    "pphhhffhhhhhhfhhhhhhffhhhpp",
+                    "pphhhffhhfffffffffhhffhhhpp",
+                    "pphhhffhhfffffffffhhffhhhpp",
+                    "pplhhffhhfffffffffhhffhhlpp",
+                    "pplghffhhffffcffffhhffhglpp",
+                    "pplhhffhhfffffffffhhffhhlpp",
+                    "pphhhffhhfffffffffhhffhhhpp",
+                    "pphhhffhhfffffffffhhffhhhpp",
+                    "pphhhffhhhhhhhhhhhhhffhhhpp",
+                    "pphhhffhhhhhhhhhhhhhffhhhpp",
+                    "ppphhffghhhhhhhhhhhgffhhppp",
+                    "pppphfffffffffffffffffhpppp",
+                    "pppppfffffffffffffffffppppp",
+                    "pppppphhhhhhhhhhhhhhhpppppp",
+                    "ppppppphhggggggggghhppppppp",
+                    "...ppppphhhhlllhhhhppppp...",
+                    "...ppppppppppppppppppppp...",
+                    "...ppppppppppppppppppppp...",
+                ],
+                Some(&[3, 2, 2, 6]),
+            ),
+        ),
+    ]
+}
+
+/// Match round 2's starter deck, as it was before Henry redrew it: cards with hull to spare,
+/// and an outpost slow enough to leave its bank room to save. Kept for saves that still hold
+/// its cards.
+fn round2_deck() -> Vec<Design> {
+    let d = defaults();
+    let guard = |d: &Design| Design { order: Order::Guard, ..d.clone() };
     let mut outpost = Design::from_rows(
         "OUTPOST",
         Order::Hold,
@@ -1223,23 +1462,12 @@ pub fn starter_deck() -> Vec<Design> {
     outpost.seeded = true;
     outpost.build = vec![3, 3, 0, 0, 1, 2];
     let miner = Design::from_rows("MINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]);
-    // Its warships are drawn on GUARD: in a match they gather where they're built until you send
-    // them, instead of trickling out one at a time.
-    let guard = |d: &Design| Design { order: Order::Guard, ..d.clone() };
-    vec![guard(&d[0]), guard(&d[1]), guard(&d[2]), miner, outpost, shipyard(), guard(&d[4])]
+    vec![guard(&d[0]), guard(&d[1]), guard(&d[2]), miner, outpost, round2_shipyard(), guard(&d[4])]
 }
 
-/// The starter deck's cards as they were before a round changed them, by slot. A saved design
-/// still exactly like one of these was never edited, so loading swaps in the current card (match
-/// round 2 drew the four warships on GUARD).
-pub fn retired_starters() -> Vec<(usize, Design)> {
-    let d = defaults();
-    vec![(0, d[0].clone()), (1, d[1].clone()), (2, d[2].clone()), (6, d[4].clone())]
-}
-
-/// A big seeded factory: an octagon plated all round, with two rings of factory pixels (88 of
-/// them, so it builds ships up to 880 px) and flak behind the plate.
-fn shipyard() -> Design {
+/// Round 2's shipyard, kept so a save still holding it gets today's: an octagon plated all
+/// round, with two rings of factory pixels (88 of them) and flak behind the plate.
+fn round2_shipyard() -> Design {
     let mut d = Design::blank("SHIPYARD");
     let c = GRID / 2;
     for y in -12i32..=12 {
@@ -1560,7 +1788,7 @@ mod tests {
                 assert!(!deck[b].seeded && deck[b].stats().count <= d.stats().max_build(), "{} can't build {}", d.name, deck[b].name);
             }
         }
-        assert_eq!(deck[5].stats().factory, 88);
+        assert_eq!(deck[5].stats().factory, 118);
     }
 
     #[test]

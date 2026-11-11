@@ -12,11 +12,11 @@ use crate::geom::{cheb, dist2};
 use crate::palette::*;
 use crate::ui::{self, Rect};
 
-/// The whole map at exactly 1/13 scale.
-const MINI_SCALE: i32 = 13;
+/// The whole map at exactly 1/16 scale.
+const MINI_SCALE: i32 = 16;
 const MINI: Rect = Rect::new(306, 200, MW / MINI_SCALE + 2, MH / MINI_SCALE + 2);
-/// The tactical map: the whole map at exactly 1/4 scale, in the field.
-const TAC_SCALE: i32 = 4;
+/// The tactical map: the whole map at exactly 1/5 scale, in the field.
+const TAC_SCALE: i32 = 5;
 const TAC: Rect = Rect::new((FIELD.w - MW / TAC_SCALE) / 2, (FIELD.h - MH / TAC_SCALE) / 2 + 4, MW / TAC_SCALE, MH / TAC_SCALE);
 const BTN_CANCEL: Rect = Rect::new(385, 148, 11, 9);
 const BTN_PAUSE: Rect = Rect::new(306, 159, 44, 14);
@@ -32,6 +32,32 @@ const MENU_BTNS: [Rect; 3] = [Rect::new(92, 168, 70, 18), Rect::new(166, 168, 76
 fn card_rect(i: usize) -> Rect {
     Rect::new(306, 14 + i as i32 * 18, 90, 17)
 }
+/// The king's queue, under the cards: its first jobs as icons, the one being printed first, each
+/// with room under it for the loop sign. Five fit; a longer queue shows four and a count of the
+/// rest.
+const QUEUE: Rect = Rect::new(306, 140, 90, 18);
+fn job_rect(k: usize) -> Rect {
+    Rect::new(307 + k as i32 * 15, 141, 14, 13)
+}
+fn jobs_shown(queued: usize) -> usize {
+    if queued > 5 {
+        4
+    } else {
+        queued
+    }
+}
+
+/// The loop sign, 7 by 3: what the king keeps printing wears it, on its card and in the queue.
+fn loop_mark(fb: &mut Framebuffer, x: i32, y: i32, col: u8) {
+    for (dy, row) in [".##.##.", "#..#..#", ".##.##."].iter().enumerate() {
+        for (dx, c) in row.bytes().enumerate() {
+            if c == b'#' {
+                fb.pset(x + dx as i32, y + dy as i32, col);
+            }
+        }
+    }
+}
+
 /// The order tag on a card: a click there switches the design's standing order.
 fn tag_rect(i: usize) -> Rect {
     let r = card_rect(i);
@@ -50,13 +76,13 @@ fn order_col(o: Order) -> u8 {
 
 /// The match's rules panel, by heading.
 const MATCH_HELP: [(&str, &str); 9] = [
-    ("GOAL", "KILL THE ENEMY KING. LOSE YOURS AND YOU LOSE."),
-    ("KING", "WASD OR ARROWS FLY IT. 1-7 OR A CARD: IT PRINTS THAT SHIP, A PIXEL AT A TIME. RIGHT-CLICK: IT KEEPS PRINTING IT. BACKSPACE: IT STOPS."),
+    ("GOAL", "KILL THE ENEMY KING. LOSE YOURS AND YOU LOSE. A KING IS SLOW WHILE ITS SIDE HAS UNDER 40 PX LEFT."),
+    ("KING", "WASD OR ARROWS FLY IT. 1-7 OR A CARD: IT PRINTS THAT SHIP, A PIXEL AT A TIME. RIGHT-CLICK OR R: IT KEEPS PRINTING IT. BACKSPACE: IT STOPS."),
     ("SEEDS", "A SEEDED CARD COSTS ALL IT GROWS INTO, PAID AT ONCE. CLICK A ROCK: ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK, PIXEL BY PIXEL."),
     ("FACTORY", "IT PRINTS ITS BUILD ORDER ROUND AND ROUND, A PIXEL AT A TIME, WAITING WHEN THE BANK IS EMPTY."),
     ("BANK", "MINERS HAUL TO THE NEAREST NODE (KING OR FACTORY). LINKED NODES SHARE A BANK; NODES CUT OFF FROM YOUR KING KEEP THEIR OWN."),
     ("ORDERS", "EVERY DESIGN THAT FLIES HAS A STANDING ORDER, ON ITS CARD: HUNT THE NEAREST ENEMY, GUARD WHERE IT WAS BUILT, OR ESCORT YOUR KING. CLICK THE TAG OR SHIFT+NUMBER: EVERY SHIP OF IT OBEYS AT ONCE."),
-    ("VIEW", "HOLD THE MOUSE ON THE SMALL MAP TO LOOK ELSEWHERE; STEERING BRINGS THE VIEW BACK. TAB: THE WHOLE MAP."),
+    ("VIEW", "HOLD THE MOUSE ON THE SMALL MAP TO LOOK AROUND; STEERING BRINGS THE VIEW BACK. TAB: WHOLE MAP."),
     ("SOLID", "WHAT'S PLANTED IS SOLID TO ENEMY SHIPS. SO IS AN ENEMY SHIP BIGGER THAN YOURS."),
     ("KEYS", "SPACE PAUSE  F SPEED  ESC CANCEL/QUIT  F1 HELP"),
 ];
@@ -78,6 +104,8 @@ pub struct Play {
     map_drag: Option<bool>,
     logged_over: bool,
     next_log: u32,
+    /// Whether each king was slowed at the last look, for the log.
+    slowed: [bool; 2],
 }
 
 impl Pg {
@@ -88,7 +116,7 @@ impl Pg {
     pub fn start_match(&mut self, starter: bool, seed: u64) {
         let mine = if starter { starter_deck() } else { self.lib.clone() };
         let arena = Arena::for_match(seed, [mine, starter_deck()], [false, true]);
-        let mut p = Play { arena, cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60 };
+        let mut p = Play { arena, cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2] };
         p.look_at_king();
         self.play = Some(p);
         self.menu = false;
@@ -140,6 +168,13 @@ impl Pg {
             p.look_at_king();
         }
         let mut lines = Vec::new();
+        for t in 0..2 {
+            let now = p.arena.over.is_none() && p.arena.king_slowed(t);
+            if now != p.slowed[t] && p.arena.over.is_none() {
+                p.slowed[t] = now;
+                lines.push(format!("KING {} {} at {}, {} px standing", team_name(t), if now { "SLOWED" } else { "FREE" }, clock(p.arena.tick), p.arena.standing(t)));
+            }
+        }
         if p.arena.tick >= p.next_log && p.arena.over.is_none() {
             p.next_log += 15 * 60;
             lines.push(format!("MATCH {} | {}", clock(p.arena.tick), Self::match_state(&p.arena)));
@@ -175,7 +210,13 @@ impl Pg {
             }
             Key::Letter('F') => p.speed = if p.speed >= 4 { 1 } else { p.speed * 2 },
             Key::Tab => self.toggle_tactical(),
-            Key::Back => self.cancel_print(),
+            Key::Back => self.drop_job(0),
+            Key::Letter('R') => {
+                // What the king is printing repeats, or stops repeating.
+                if let Some(slot) = p.arena.eco.as_ref().and_then(|e| e.queue[0].first()).map(|j| j.slot) {
+                    self.repeat(slot);
+                }
+            }
             _ => {}
         }
     }
@@ -224,7 +265,8 @@ impl Pg {
         self.log(&line);
     }
 
-    /// Right-click on a card: the king keeps printing it (or stops).
+    /// Right-click on a card, or on one of its jobs in the queue: the king keeps printing it (or
+    /// stops).
     fn repeat(&mut self, i: usize) {
         let Some(p) = self.play.as_mut() else { return };
         let Some(e) = p.arena.eco.as_ref() else { return };
@@ -239,11 +281,14 @@ impl Pg {
         self.log(&line);
     }
 
-    fn cancel_print(&mut self) {
+    /// Drops a job from the king's queue: 0 is the one it's printing.
+    fn drop_job(&mut self, at: usize) {
         let Some(p) = self.play.as_mut() else { return };
-        if p.arena.eco.as_ref().is_some_and(|e| !e.queue[0].is_empty()) {
-            p.arena.command(Cmd::Cancel { team: 0 });
-        }
+        let Some(e) = p.arena.eco.as_ref() else { return };
+        let Some(j) = e.queue[0].get(at).copied() else { return };
+        let line = format!("DROP {} at {}", e.deck[0].get(j.slot).map_or("?", |d| d.name.as_str()), clock(p.arena.tick));
+        p.arena.command(Cmd::Cancel { team: 0, at, slot: j.slot });
+        self.log(&line);
     }
 
     /// Esc while planting cancels the planting. True if it did.
@@ -294,6 +339,8 @@ impl Pg {
                 p.planting = None;
             } else if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
                 self.repeat(i);
+            } else if let Some(slot) = p.job_at(x, y).map(|(_, j)| j.slot) {
+                self.repeat(slot);
             }
             return;
         }
@@ -326,8 +373,10 @@ impl Pg {
                 }
                 _ => {}
             }
+        } else if let Some((k, _)) = p.job_at(x, y) {
+            self.drop_job(k);
         } else if BTN_CANCEL.contains(x, y) {
-            self.cancel_print();
+            self.drop_job(0);
         } else if BTN_PAUSE.contains(x, y) {
             if p.arena.over.is_none() {
                 p.running = !p.running;
@@ -422,7 +471,11 @@ impl Pg {
             let (x, y, w, h) = on_field(l, t, r, b);
             fb.corners(x - 2, y - 2, w + 4, h + 4, 2, WHITE);
         }
-        // Planting: the rock under the pointer and whether the design fits on it.
+        // Where a world point lands on the field, and what clips a line drawn there.
+        let spot = |(x, y): (i32, i32)| if p.tactical { (TAC.x + x / TAC_SCALE, TAC.y + y / TAC_SCALE) } else { (x - p.cam.0, y - p.cam.1) };
+        let clip = if p.tactical { TAC } else { f };
+        // Planting: the rock under the pointer, whether the design fits on it, and what it would
+        // link to there.
         let mut bar: Option<Vec<String>> = None;
         if let (Some(slot), Some(at)) = (p.planting, at) {
             let need = e.cards[0][slot].count;
@@ -445,14 +498,49 @@ impl Pg {
                         None if fits => "IT FITS.".to_string(),
                         None => format!("IT'LL STAY {}% GROWN.", rock.len() as i32 * 100 / need.max(1)),
                     };
-                    bar = Some(wrap(&format!("PLANT {} HERE FOR {} PX: ROCK {} PX, NEEDS {}. {fit} RIGHT-CLICK OR ESC CANCELS.", e.deck[0][slot].name, e.cards[0][slot].price(), rock.len(), need), 49));
+                    // A line to every node it would link to, green if that leads to the king's
+                    // bank; with nothing in reach, a dim one to the nearest and how far short it is.
+                    let link = match a.plant_links(0, slot, px) {
+                        Some(l) => {
+                            let from = spot(l.at);
+                            let mut line = |to: (i32, i32), col: u8| {
+                                let to = spot(to);
+                                crate::render::dotted(fb, clip, from.0, from.1, to.0, to.1, 2, col);
+                            };
+                            for &to in &l.to {
+                                line(to, if l.king { GOOD } else { GOLD });
+                            }
+                            match (l.king, l.gap) {
+                                (true, _) => " IT JOINS YOUR KING'S BANK.".to_string(),
+                                (false, Some((to, short))) => {
+                                    line(to, TEXT_DIM);
+                                    format!(" {short} PX TOO FAR TO LINK: IT'LL KEEP ITS OWN BANK.")
+                                }
+                                (false, None) => " IT LINKS, BUT NOT TO YOUR KING'S BANK.".to_string(),
+                            }
+                        }
+                        None => String::new(),
+                    };
+                    bar = Some(wrap(&format!("PLANT {} HERE FOR {} PX: ROCK {} PX, NEEDS {}. {fit}{link} RIGHT-CLICK OR ESC CANCELS.", e.deck[0][slot].name, e.cards[0][slot].price(), rock.len(), need), 49));
                 }
                 None => bar = Some(vec![format!("PLANT {}: CLICK A ROCK", e.deck[0][slot].name), "RIGHT-CLICK OR ESC CANCELS".into()]),
             }
         }
         fb.text(&clock(a.tick), 4, 3, TEXT_DIM, Some(OUTLINE), 1);
+        let mut notes: Vec<(String, u8)> = Vec::new();
         if e.split_at[0] > 0 && a.tick < e.split_at[0] + 15 * 4 {
-            fb.text_centered("YOUR NETWORK SPLIT", f.w / 2, 14, GOLD, Some(OUTLINE), 1);
+            notes.push(("YOUR NETWORK SPLIT".into(), GOLD));
+        }
+        if a.over.is_none() {
+            if a.king_slowed(0) {
+                notes.push((format!("YOUR KING IS SLOWED: UNDER {KING_NEEDS} PX LEFT STANDING"), BAD));
+            }
+            if a.king_slowed(1) {
+                notes.push(("THE ENEMY KING IS SLOWED".into(), GOOD));
+            }
+        }
+        for (i, (text, col)) in notes.iter().enumerate() {
+            fb.text_centered(text, f.w / 2, 14 + i as i32 * 9, *col, Some(OUTLINE), 1);
         }
         if bar.is_none() {
             bar = if let Some(i) = hovered {
@@ -517,9 +605,11 @@ impl Pg {
             } else {
                 ui::panel(fb, r);
             }
-            // A card the king keeps printing wears a blue frame, as in Toy 1.
+            // A card the king keeps printing wears a blue frame, as in Toy 1, and the loop sign
+            // its job wears in the queue.
             if repeats {
                 fb.rect_outline(r.x, r.y, r.w, r.h, ACCENT_HI);
+                loop_mark(fb, r.x + 58, r.y + 11, ACCENT_HI);
             }
             let Some(d) = e.deck[0].get(i) else { continue };
             let card = e.cards[0][i];
@@ -539,20 +629,33 @@ impl Pg {
                 fb.text(o.tag(), t.x + 2, t.y + 1, order_col(o), None, 1);
             }
         }
-        // What the king is printing.
-        match e.queue[0].first() {
-            Some(j) => {
-                let name: String = e.deck[0].get(j.slot).map_or("?".into(), |d| d.name.clone()).chars().take(10).collect();
-                fb.text(&name, 308, 142, TEXT, None, 1);
-                if e.queue[0].len() > 1 {
-                    let more = format!("+{}", e.queue[0].len() - 1);
-                    fb.text(&more, 396 - Framebuffer::text_width(&more, 1), 142, TEXT_DIM, None, 1);
+        // The king's queue: what it's printing first, then what waits, each as its card's icon.
+        // The bar is how much of the first is paid.
+        let q = &e.queue[0];
+        match q.first() {
+            Some(first) => {
+                let shown = jobs_shown(q.len());
+                for (k, j) in q.iter().take(shown).enumerate() {
+                    let r = job_rect(k);
+                    // The icon in the top of its box, and under it the loop sign if it repeats.
+                    fb.rect_fill(r.x, r.y, r.w, r.h, SPACE);
+                    if let Some(d) = e.deck[0].get(j.slot) {
+                        draw_icon(fb, d, Rect::new(r.x, r.y, r.w, r.h - 3), 0);
+                    }
+                    if j.repeat {
+                        loop_mark(fb, r.x + 3, r.y + r.h - 4, ACCENT_HI);
+                    }
+                    fb.rect_outline(r.x, r.y, r.w, r.h, if r.contains(m.0, m.1) { WHITE } else if k == 0 { ACCENT } else { PANEL_LO });
                 }
-                fb.rect_fill(308, 151, 74, 4, PANEL_DEEP);
-                fb.rect_fill(308, 151, 74 * j.paid / j.cost.max(1), 4, if j.repeat { ACCENT_HI } else { ACCENT });
+                if q.len() > shown {
+                    let more = format!("+{}", q.len() - shown);
+                    fb.text(&more, 396 - Framebuffer::text_width(&more, 1), 141, TEXT_DIM, None, 1);
+                }
+                fb.rect_fill(308, 155, 74, 3, PANEL_DEEP);
+                fb.rect_fill(308, 155, 74 * first.paid / first.cost.max(1), 3, if first.repeat { ACCENT_HI } else { ACCENT });
                 ui::button(fb, BTN_CANCEL, "X", BTN_CANCEL.contains(m.0, m.1), false);
             }
-            None => fb.text("KING IDLE", 308, 142, TEXT_FAINT, None, 1),
+            None => fb.text("KING IDLE", 308, 145, TEXT_FAINT, None, 1),
         }
         ui::button(fb, BTN_PAUSE, if p.running { "PAUSE" } else { "RUN" }, BTN_PAUSE.contains(m.0, m.1), !p.running);
         ui::button(fb, BTN_SPEED, &format!("{}X", p.speed), BTN_SPEED.contains(m.0, m.1), p.speed > 1);
@@ -570,7 +673,11 @@ impl Pg {
             let ships = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.grow.is_none() && !s.node).count();
             let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.node).count();
             fb.text(team_name(t), 308, y, team_col(t, 2), None, 1);
-            fb.text(&format!("{factories}F {ships}S"), 340, y, TEXT, None, 1);
+            let count = format!("{factories}F {ships}S");
+            fb.text(&count, 340, y, TEXT, None, 1);
+            if a.king_slowed(t) && 340 + Framebuffer::text_width(&count, 1) <= 371 {
+                fb.text("SLOW", 373, y, if t == 0 { BAD } else { GOOD }, None, 1);
+            }
         }
     }
 
@@ -595,6 +702,12 @@ impl Pg {
             let builds = if builds.is_empty() { String::new() } else { format!(" ITS FACTORY PIXELS PRINT {}.", builds.join(", ")) };
             return Some(what + &builds);
         }
+        if let Some((k, j)) = p.job_at(m.0, m.1) {
+            let name = e.deck[0].get(j.slot).map_or("?", |d| d.name.as_str());
+            let (state, key) = if k == 0 { (format!("YOUR KING IS PRINTING IT: {} OF {} PX PAID", j.paid, j.cost), " OR [R]") } else { (format!("NUMBER {} IN YOUR KING'S QUEUE", k + 1), "") };
+            let repeats = if j.repeat { " IT REPEATS: WHEN ONE IS DONE, ANOTHER GOES TO THE BACK OF THE QUEUE." } else { "" };
+            return Some(format!("{name}: {state}.{repeats} CLICK DROPS IT; WHAT IT HAD PAID COMES BACK. RIGHT-CLICK{key}: REPEAT ON OR OFF."));
+        }
         if BTN_CANCEL.contains(m.0, m.1) && !e.queue[0].is_empty() {
             return Some("[BACKSPACE] DROP WHAT YOUR KING IS PRINTING. YOU GET BACK WHAT IT HAD PAID.".into());
         }
@@ -618,8 +731,8 @@ impl Pg {
             let more = if cut > 0 { format!(" +{cut}: HELD BY NODES OF YOURS CUT OFF FROM YOUR KING. FLY NEAR THEM, OR PLANT A LINK, TO SPEND IT.") } else { String::new() };
             return Some(format!("BANK: THE PIXELS STORED IN YOUR KING'S NETWORK. YOUR KING MAKES 1 EVERY {} S; MINERS HAUL TO THE NEAREST NODE.{more}", secs(KING_MAKES_EVERY as i32)));
         }
-        if (306..400).contains(&m.0) && (140..158).contains(&m.1) {
-            return Some("WHAT YOUR KING IS PRINTING, PAID A PIXEL AT A TIME FROM ITS NETWORK.".into());
+        if QUEUE.contains(m.0, m.1) {
+            return Some("YOUR KING'S QUEUE: IT PRINTS THE FIRST, PAID A PIXEL AT A TIME FROM ITS NETWORK, AND THE BAR IS HOW FAR THAT HAS GOT. THE LOOP SIGN MARKS ONE IT KEEPS PRINTING.".into());
         }
         None
     }
@@ -656,6 +769,12 @@ fn cut_off(a: &Arena) -> i32 {
 }
 
 impl Play {
+    /// The job in the king's queue whose icon is under a screen point, and where it stands.
+    fn job_at(&self, x: i32, y: i32) -> Option<(usize, Job)> {
+        let q = &self.arena.eco.as_ref()?.queue[0];
+        (0..jobs_shown(q.len())).find(|&k| job_rect(k).contains(x, y)).map(|k| (k, q[k]))
+    }
+
     fn look_at_king(&mut self) {
         let e = self.arena.eco.as_ref().unwrap();
         let k = &self.arena.ships[e.king[0]];
@@ -706,11 +825,20 @@ impl Play {
         for s in a.ships.iter().filter(|s| s.alive) {
             scene::ship(fb, f, s, self.cam);
         }
+        // A slowed king's engines are out.
+        for t in 0..2 {
+            let k = &a.ships[e.king[t]];
+            if k.alive && a.king_slowed(t) {
+                for c in (0..k.hp.len()).filter(|&c| k.hp[c] > 0 && k.shape.cells[c] == Some(Part::Engine)) {
+                    let (px, py) = k.cell_xy(c);
+                    pc(fb, f, px - cx, py - cy, STEEL_DK);
+                }
+            }
+        }
         scene::fire(fb, f, a, self.cam);
-        let _ = e;
     }
 
-    /// The tactical map: everything on the map at a quarter of its size. A ship is a block as big
+    /// The tactical map: everything on the map at a fifth of its size. A ship is a block as big
     /// as it is (at least a pixel), so a capital reads as a capital and a swarm as a swarm.
     fn draw_tactical(&self, fb: &mut Framebuffer) {
         let a = &self.arena;
@@ -718,12 +846,12 @@ impl Play {
         fb.rect_fill(f.x, f.y, f.w, f.h, PANEL_DEEP);
         fb.rect_checker(f.x, f.y, f.w, f.h, PANEL_LO, 0);
         fb.rect_bevel(r.x - 2, r.y - 2, r.w + 4, r.h + 4, SPACE, PANEL_LO, PANEL_HI);
-        // Rock, shaded by how much of each 4x4 block of the map is rock.
+        // Rock, shaded by how much of each block of the map is rock: three quarters, a third, less.
         for ty in 0..r.h {
             for tx in 0..r.w {
-                let n = (0..sc * sc).filter(|k| a.rock_at(tx * sc + k % sc, ty * sc + k / sc)).count();
+                let n = (0..sc * sc).filter(|k| a.rock_at(tx * sc + k % sc, ty * sc + k / sc)).count() as i32;
                 if n > 0 {
-                    fb.pset(r.x + tx, r.y + ty, if n >= 12 { ROCK + 2 } else if n >= 5 { ROCK + 1 } else { ROCK });
+                    fb.pset(r.x + tx, r.y + ty, if n * 4 >= sc * sc * 3 { ROCK + 2 } else if n * 3 >= sc * sc { ROCK + 1 } else { ROCK });
                 }
             }
         }
@@ -824,13 +952,15 @@ pub fn state_line(a: &Arena) -> String {
         let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.node).count();
         let tl = e.tally[t];
         format!(
-            "{} bank {} (peak {}, {} in all its nodes), {} factories, {} ships; planted {}, printed {}, summoned {}, mined {}, lost {} ships",
+            "{} bank {} (peak {}, {} in all its nodes), {} factories, {} ships, {} px standing{}; planted {}, printed {}, summoned {}, mined {}, lost {} ships",
             team_name(t),
             a.bank(e.king[t]),
             tl.bank_peak,
             a.ships.iter().filter(|s| s.alive && s.team == t).map(|s| s.store).sum::<i32>(),
             factories,
             ships,
+            a.standing(t),
+            if a.king_slowed(t) { " (king slowed)" } else { "" },
             tl.planted,
             tl.printed,
             tl.summoned,
@@ -854,7 +984,7 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
     let status = if s.warp > 0 {
         "ARRIVING BY HYPERSPACE".to_string()
     } else if s.role == Role::King {
-        "THE KING".to_string()
+        if a.king_slowed(s.team) { "THE KING, SLOWED" } else { "THE KING" }.to_string()
     } else if s.maker.is_some() {
         format!("BEING PRINTED: {} OF {} PX", s.px_now(), s.px_full())
     } else if s.grow.as_ref().is_some_and(|g| g.eats) {
@@ -883,6 +1013,9 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
         parts.push(format!("CARRYING {}", s.carry));
     }
     lines.push(parts.join("  "));
+    if s.role == Role::King {
+        lines.extend(wrap(&format!("ITS SIDE HAS {} PX OF SHIPS AND FACTORIES STANDING. WITH UNDER {KING_NEEDS}, AFTER THE FIRST MINUTE, A KING FLIES AT A FIFTH OF ITS SPEED.", a.standing(s.team)), 49));
+    }
     lines
 }
 
@@ -939,6 +1072,32 @@ mod tests {
         assert_eq!(queue(&pg).len(), 1);
         click(&mut pg, BTN_CANCEL, false);
         assert!(queue(&pg).is_empty());
+        // The queue, as icons: a click on one drops that job, a right-click sets its design
+        // repeating, and R does that for the one being printed.
+        let slots = |pg: &Pg| queue(pg).iter().map(|j| (j.slot, j.repeat)).collect::<Vec<_>>();
+        for n in [1, 2, 3] {
+            pg.event(Ev::Key(Key::Num(n)));
+            pg.tick();
+        }
+        assert_eq!(slots(&pg), vec![(0, false), (1, false), (2, false)]);
+        click(&mut pg, job_rect(1), false);
+        assert_eq!(slots(&pg), vec![(0, false), (2, false)]);
+        click(&mut pg, job_rect(1), true);
+        assert_eq!(slots(&pg), vec![(0, false), (2, true)]);
+        pg.event(Ev::Key(Key::Letter('R')));
+        pg.tick();
+        assert_eq!(slots(&pg), vec![(0, true), (2, true)]);
+        pg.event(Ev::Key(Key::Letter('R')));
+        pg.tick();
+        assert_eq!(slots(&pg), vec![(0, false), (2, true)]);
+        // There's no icon where there's no job, so a click there does nothing.
+        click(&mut pg, job_rect(2), false);
+        assert_eq!(slots(&pg).len(), 2);
+        click(&mut pg, job_rect(0), false);
+        assert_eq!(slots(&pg), vec![(2, true)]);
+        pg.event(Ev::Key(Key::Back));
+        pg.tick();
+        assert!(queue(&pg).is_empty());
         // The shipyard costs more than the bank holds: its card won't start a planting.
         click(&mut pg, card_rect(5), false);
         assert_eq!(pg.play.as_ref().unwrap().planting, None);
@@ -977,5 +1136,15 @@ mod tests {
         // Headings start 32 px down a 284 px panel; the last line of the panel is 14 px from its foot.
         let lines: i32 = MATCH_HELP.iter().map(|(_, t)| wrap(t, 49).len() as i32 * 9 + 4).sum();
         assert!(32 + lines <= 284 - 18, "the rules run {} px too far", 32 + lines - (284 - 18));
+        // The queue's icons and its drop button sit inside its strip, clear of the cards above
+        // and the buttons below.
+        let strip = Rect::new(306, card_rect(6).y + card_rect(6).h, 90, BTN_PAUSE.y - card_rect(6).y - card_rect(6).h);
+        for r in (0..5).map(job_rect).chain([BTN_CANCEL, QUEUE]) {
+            assert!(r.x >= strip.x && r.y >= strip.y && r.x + r.w <= strip.x + strip.w && r.y + r.h <= strip.y + strip.h, "{r:?} is outside the queue's strip {strip:?}");
+        }
+        assert!(job_rect(4).x + job_rect(4).w <= BTN_CANCEL.x, "the fifth job runs under the drop button");
+        // The number in the rules is the number in the sim.
+        assert!(MATCH_HELP[0].1.contains(&format!("UNDER {KING_NEEDS} PX")));
+        assert_eq!(KING_SPEED, 5 * KING_SLOW, "the hover text says a fifth");
     }
 }

@@ -63,7 +63,8 @@ fn main() {
     }
     if let Some(i) = args.iter().position(|a| a == "--match-sim") {
         let n = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(4);
-        // --bots BLUE,RED picks who plays: ai (the default), clock, planter, expander, summoner.
+        // --bots BLUE,RED picks who plays: ai (the default), clock, planter, expander, summoner,
+        // boomer.
         let mut bots = [pg::sim::Bot::Ai; 2];
         if let Some(Some(names)) = arg("--bots") {
             for (k, name) in names.split(',').take(2).enumerate() {
@@ -77,8 +78,13 @@ fn main() {
         export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5));
         return;
     }
-    if arg("--pg-sim").is_some() {
-        export::pg_sim();
+    if let Some(i) = args.iter().position(|a| a == "--pace") {
+        export::pace(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(10));
+        return;
+    }
+    if let Some(which) = arg("--pg-sim") {
+        // `--pg-sim old`: the proving ground's own fleet, as its rounds were judged.
+        export::pg_sim(which.as_deref() == Some("old"));
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--trace") {

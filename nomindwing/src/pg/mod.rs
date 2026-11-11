@@ -128,10 +128,10 @@ fn help_body() -> Vec<(&'static str, String)> {
     vec![
         ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. IT NEEDS A CORE, EVERY PIXEL JOINED EDGE TO EDGE, AND A STRAIGHT 3-WIDE WAY OUT FOR EVERY ENGINE.".into()),
         ("POWER", format!("MADE PER PIXEL: {}. USED: {}. SHORT OF POWER, GUNS RELOAD SLOWER AND ENGINES PUSH LESS, IN STEP.", Part::power_list(true), Part::power_list(false))),
-        ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. KEYS 1-6 PICK A PART CATEGORY. P PENCIL, R RECTANGLE, F FILL, C COPY A STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
+        ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. 1-6 PICK A PART CATEGORY, TAB ITS NEXT PART. P PENCIL, R RECTANGLE, F FILL, C STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
         ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE. HEAVIER SHIPS TURN SLOWER.".into()),
         ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW.".into()),
-        ("KEYS", "TAB YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
+        ("KEYS", "ENTER YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
     ]
 }
 
@@ -500,7 +500,7 @@ impl Pg {
             (_, Key::Esc) => self.confirm_quit = true,
             (_, Key::Help) => self.help = true,
             (Screen::Match, k) => self.key_match(k),
-            (_, Key::Tab) => self.switch_screen(),
+            (Screen::Arena, Key::Tab) | (_, Key::Enter) => self.switch_screen(),
             (Screen::Yard, k) => self.key_yard(k),
             (Screen::Arena, Key::Num(n)) if (1..=self.lib.len()).contains(&(n as usize)) => self.slot = n as usize - 1,
             (Screen::Arena, Key::Space) => self.set_running(!self.running),
@@ -918,7 +918,7 @@ impl Pg {
             } else if BTN_EMPTY.contains(m.0, m.1) {
                 Some("REMOVE EVERY SHIP, FOR A SETUP OF YOUR OWN.")
             } else if BTN_YARD.contains(m.0, m.1) {
-                Some("[TAB] THE SHIPYARD, TO DRAW AND EDIT DESIGNS.")
+                Some("[ENTER] THE SHIPYARD, TO DRAW AND EDIT DESIGNS.")
             } else if MINI.contains(m.0, m.1) {
                 Some("THE WHOLE ARENA AT 1/6 SCALE. CLICK OR DRAG TO MOVE THE VIEW, OR SCROLL WITH WASD OR THE ARROWS.")
             } else if (0..2).any(|t| BTN_TEAM[t].contains(m.0, m.1)) {
@@ -1105,6 +1105,30 @@ mod tests {
                     panic!("{} at tick {}: {e}", t.name, a.tick);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_save_still_holding_a_retired_card_gets_todays_and_an_edited_card_is_kept() {
+        // A save written before the miner was redrawn: the deck as it was then, with the fighter
+        // edited by hand. Loading swaps the old miner for today's and leaves the fighter alone.
+        let now = starter_deck();
+        let old_miner = retired_starters().into_iter().filter(|(slot, _)| *slot == 3).last().unwrap().1;
+        assert_ne!(old_miner.to_line(), now[3].to_line());
+        let mut mine = now[0].clone();
+        mine.set(GRID / 2, GRID / 2 - 6, Some(Part::Hull));
+        let mut lines = vec![SAVE_HEADER.to_string(), mine.to_line()];
+        lines.extend(now[1..3].iter().map(|d| d.to_line()));
+        lines.push(old_miner.to_line());
+        lines.extend(now[4..].iter().map(|d| d.to_line()));
+        let path = std::env::temp_dir().join(format!("nomindwing_save_test_{}.txt", std::process::id()));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let pg = Pg::new(Some(path.clone()), None);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(pg.lib[3].to_line(), now[3].to_line(), "the retired miner wasn't swapped for today's");
+        assert_eq!(pg.lib[0].to_line(), mine.to_line(), "an edited card was swapped for the starter's");
+        for slot in [1, 2, 4, 5, 6] {
+            assert_eq!(pg.lib[slot].to_line(), now[slot].to_line());
         }
     }
 

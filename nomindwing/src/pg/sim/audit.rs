@@ -36,6 +36,11 @@ impl Arena {
             if l < 0 || t < 0 || r >= self.w || b >= self.h {
                 return bad("is off the map");
             }
+            // The quarter-pixels a move leaves over are kept 0 to 3 by everything that moves a
+            // ship. A piece shot off takes them along, and out of range they drift it.
+            if !(0..4).contains(&s.sx) || !(0..4).contains(&s.sy) {
+                return bad("carries a sub-pixel remainder outside 0 to 3");
+            }
             // One piece: every living pixel joined to the rest edge to edge.
             if let Some(first) = (0..n).find(|&c| s.hp[c] > 0) {
                 let seen = reach(s.shape.w, s.shape.h, first, |k| s.hp[k] > 0);
@@ -224,14 +229,16 @@ mod tests {
 
     #[test]
     fn every_arena_test_stays_sound() {
-        let lib = defaults();
+        // The fights made for the starter deck, and the proving ground's own fleet and fights.
         let mut longest = 0;
-        for t in crate::pg::reference_tests().iter().filter(|t| !t.place.is_empty()) {
-            let mut a = Arena::new();
-            for &(team, slot, x, y) in &t.place {
-                a.add(team, slot, &lib[slot], x, y);
+        for (lib, fights) in [(starter_deck(), crate::pg::tests()), (defaults(), crate::pg::reference_tests())] {
+            for t in fights.iter().filter(|t| !t.place.is_empty()) {
+                let mut a = Arena::new();
+                for &(team, slot, x, y) in &t.place {
+                    a.add(team, slot, &lib[slot], x, y);
+                }
+                longest = longest.max(soak(&mut a, TIME_LIMIT, |_| {}));
             }
-            longest = longest.max(soak(&mut a, TIME_LIMIT, |_| {}));
         }
         println!("arena tests: longest stay inside a bigger enemy {longest} ticks");
         // The longest stays come from a big ship turning: a titan's quarter turn swings its whole
@@ -341,7 +348,10 @@ mod tests {
                     a.command(Cmd::Repeat { team, slot: rng.below(7) as usize });
                 }
                 if rng.chance(1) {
-                    a.command(Cmd::Cancel { team });
+                    // Mostly a job that's there; now and then one the queue has moved up from.
+                    let at = rng.below(4) as usize;
+                    let slot = a.eco.as_ref().unwrap().queue[team].get(at).map_or(rng.below(7) as usize, |j| j.slot);
+                    a.command(Cmd::Cancel { team, at, slot });
                 }
                 if rng.chance(6) && queued < 4 {
                     // Mostly factories, and miners to pay for them.
@@ -385,6 +395,9 @@ mod tests {
         assert!(held > 0, "nothing ever tried to arrive inside an enemy, so that rule went untested");
         assert!(walled > 0, "no factory ever grew up against an enemy, so that rule went untested");
         assert!(pressed > 0, "no ship ever ran up against a planted enemy smaller than itself, so that rule went untested");
-        assert!(longest <= 10, "a ship that could fly spent {longest} ticks inside a bigger enemy");
+        // A ship leaves a bigger enemy at 2 px a tick. Since 2026-11-11 a king flies at 2.5, not
+        // 3, so one that comes over a small ship going its way takes longer to pass: 15 ticks
+        // seen, along the edge of the map.
+        assert!(longest <= 20, "a ship that could fly spent {longest} ticks inside a bigger enemy");
     }
 }

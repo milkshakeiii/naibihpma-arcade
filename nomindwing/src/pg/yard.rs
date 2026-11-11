@@ -318,6 +318,16 @@ impl Pg {
         }
     }
 
+    /// Tab: the next part of the open category, round and round.
+    fn next_part(&mut self) {
+        let parts = self.ed.cat.parts();
+        match parts.iter().position(|&p| p == self.ed.part) {
+            Some(_) if parts.len() == 1 => self.say(&format!("{} IS THE ONLY PART IN {}", parts[0].name(), self.ed.cat.name())),
+            Some(k) => self.pick_part(parts[(k + 1) % parts.len()]),
+            None => {}
+        }
+    }
+
     fn pick_part(&mut self, p: Part) {
         self.ed.part = p;
         self.ed.cat = Cat::of(p);
@@ -494,6 +504,7 @@ impl Pg {
     pub(super) fn key_yard(&mut self, k: Key) {
         match k {
             Key::Num(n) if (1..=CATS.len() as u8).contains(&n) => self.pick_cat(CATS[n as usize - 1]),
+            Key::Tab => self.next_part(),
             Key::Letter('P') => self.set_tool(Tool::Pencil),
             Key::Letter('R') => self.set_tool(Tool::Rect),
             Key::Letter('F') => self.set_tool(Tool::Fill),
@@ -872,7 +883,7 @@ impl Pg {
                 return format!("[{}] {}: NOTHING HERE YET. ITS PARTS COME NEXT.", i + 1, c.name());
             }
             let names: Vec<&str> = c.parts().iter().map(|p| p.name()).collect();
-            return format!("[{}] {}: {}. PRESS THE KEY AGAIN FOR THE NEXT PART.", i + 1, c.name(), names.join(", "));
+            return format!("[{}] {}: {}. [TAB] OR THE KEY AGAIN FOR THE NEXT PART.", i + 1, c.name(), names.join(", "));
         }
         if let Some(i) = (0..parts.len()).find(|&i| at(part_rect(i, parts.len()))) {
             return parts[i].blurb().into();
@@ -907,7 +918,7 @@ impl Pg {
             return "PLAY A MATCH AGAINST THE AI WITH YOUR SEVEN DESIGNS AS YOUR DECK, OR WITH THE STARTER DECK.".into();
         }
         if at(BTN_TO_ARENA) {
-            return "[TAB] THE ARENA, TO WATCH YOUR DESIGNS FIGHT.".into();
+            return "[ENTER] THE ARENA, TO WATCH YOUR DESIGNS FIGHT.".into();
         }
         if at(NAME_RECT) {
             return "CLICK TO RENAME. ENTER WHEN DONE.".into();
@@ -1056,21 +1067,65 @@ mod tests {
     }
 
     #[test]
+    fn tab_steps_through_the_parts_of_the_open_category_and_enter_swaps_screens() {
+        use crate::app::{App, Ev};
+        use crate::pg::Screen;
+        let mut pg = Pg::new(None, None);
+        pg.help = false;
+        pg.event(Ev::Key(Key::Enter));
+        assert_eq!(pg.screen, Screen::Yard);
+        // Every category: Tab visits each of its parts once and comes back to the first, and
+        // never leaves the category or the yard.
+        for (i, &cat) in CATS.iter().enumerate() {
+            let parts = cat.parts();
+            if parts.is_empty() {
+                continue;
+            }
+            // Its key opens it on its first part, coming from another category.
+            pg.pick_part(Part::Core);
+            pg.pick_part(Part::Hull);
+            if cat != Cat::Armor {
+                pg.event(Ev::Key(Key::Num(i as u8 + 1)));
+            }
+            assert_eq!((pg.ed.cat, pg.ed.part), (cat, parts[0]));
+            for k in 1..=parts.len() {
+                pg.event(Ev::Key(Key::Tab));
+                assert_eq!((pg.screen, pg.ed.cat, pg.ed.part), (Screen::Yard, cat, parts[k % parts.len()]));
+            }
+            // With one part there is nowhere to step: it says so.
+            assert_eq!(pg.notice.is_some(), parts.len() == 1, "{}", cat.name());
+            pg.notice = None;
+        }
+        // Tab puts a held stamp down, like picking a part with the mouse.
+        pg.ed.tool = Tool::Copy;
+        pg.event(Ev::Key(Key::Num(1)));
+        pg.ed.tool = Tool::Copy;
+        pg.event(Ev::Key(Key::Tab));
+        assert_eq!(pg.ed.tool, Tool::Pencil);
+        // Enter goes to the arena and back; Tab still leaves the arena.
+        pg.event(Ev::Key(Key::Enter));
+        assert_eq!(pg.screen, Screen::Arena);
+        pg.event(Ev::Key(Key::Tab));
+        assert_eq!(pg.screen, Screen::Yard);
+    }
+
+    #[test]
     fn undo_steps_back_through_changes() {
         let mut pg = Pg::new(None, None);
         pg.select_slot(0);
         let start = pg.lib[0].cells.clone();
+        let n = pg.lib[0].stats().count;
         pg.ed.mirror = false;
         pg.ed.tool = Tool::Rect;
         pg.press_canvas((10, 10), false);
         let end = pg.cell_screen((12, 12));
         pg.release_yard(end.0, end.1);
-        assert_eq!(pg.lib[0].stats().count, 7 + 9);
+        assert_eq!(pg.lib[0].stats().count, n + 9);
         pg.ed.tool = Tool::Fill;
         pg.press_canvas((11, 11), true);
-        assert_eq!(pg.lib[0].stats().count, 7);
+        assert_eq!(pg.lib[0].stats().count, n);
         pg.undo();
-        assert_eq!(pg.lib[0].stats().count, 16);
+        assert_eq!(pg.lib[0].stats().count, n + 9);
         pg.undo();
         assert_eq!(pg.lib[0].cells, start);
     }
