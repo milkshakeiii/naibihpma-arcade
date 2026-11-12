@@ -104,6 +104,14 @@ fn main() {
         run_window(&mut game, windowed, "NO MIND WING - TOY 1 [400x300 64-COLOR VGA | 15 FPS]");
     } else {
         let mut pg = pg::Pg::new(Some(PathBuf::from("proving_ground_designs.txt")), Some(PathBuf::from("proving_ground.log")));
+        // --host [PORT] waits for another machine to join a match; --join ADDR[:PORT] joins one.
+        // Both are on the match menu too. `--host local` hears only this machine.
+        if let Some(port) = arg("--host") {
+            let local = port.as_deref() == Some("local");
+            pg.host(port.and_then(|p| p.parse().ok()).unwrap_or(pg::link::PORT), local);
+        } else if let Some(addr) = arg("--join") {
+            pg.join(addr.as_deref().filter(|a| !a.starts_with("--")));
+        }
         run_window(&mut pg, windowed, "NO MIND WING - PROVING GROUND [400x300 64-COLOR VGA | 15 FPS]");
     }
 }

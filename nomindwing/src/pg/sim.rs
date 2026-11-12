@@ -46,6 +46,10 @@ const SCARED: u32 = 30;
 /// Extra distance (px) a flak turret counts for each shot already on its way to a target, so a
 /// ship's guns spread over several small targets instead of piling onto one.
 const SPREAD: i32 = 12;
+/// A ship keeps the enemy it's after until another is this many pixels nearer.
+pub const KEEP: i32 = 30;
+/// How far round its circle an orbiting ship aims, in pixels.
+const ORBIT_LEAD: i32 = 12;
 /// Ticks per 1/64 turn of a cannon turret: about 42 degrees a second.
 const TURRET_TURN: u32 = 2;
 /// Length of a drawn cannon barrel from the turret's centre.
@@ -126,7 +130,7 @@ fn angle_diff(from: i32, to: i32) -> i32 {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Doing {
     Idle,
     LineUp,
@@ -141,6 +145,9 @@ pub enum Doing {
     Escort,
     WithKing,
     ToRock,
+    Orbit,
+    /// Waiting at its post for the rest of its group.
+    Muster,
 }
 
 impl Doing {
@@ -159,12 +166,14 @@ impl Doing {
             Doing::Escort => "NO GUNS: STAYING WITH THE GROUP",
             Doing::WithKing => "ESCORTING THE KING",
             Doing::ToRock => "FLYING TO ITS ROCK",
+            Doing::Orbit => "ORBITING",
+            Doing::Muster => "WAITING FOR ITS GROUP",
         }
     }
 }
 
 /// A cannon: a 3x3 block whose centre pixel is the breech. It works while that pixel survives.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Turret {
     pub cell: usize,
     /// Where the barrel points, in 64ths of a turn (0 north, clockwise).
@@ -175,7 +184,7 @@ pub struct Turret {
     aim_for: Option<usize>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Ship {
     pub team: usize,
     pub slot: usize,
@@ -252,6 +261,16 @@ pub struct Ship {
     /// planted for good; a seeded design with engines stops being planted the moment it flies.
     /// Anything planted is solid to every enemy ship (see `sim/space.rs`).
     pub rooted: bool,
+    /// How it flies at what it's fighting, if its design had that chosen. None: as its drawing
+    /// (what's left of it) suggests.
+    pub style: Option<Style>,
+    /// The enemy it's after. It keeps it until that one is gone, or out of what it may go for, or
+    /// another is `KEEP` px nearer.
+    pub prey: Option<usize>,
+    /// Which way round it orbits: 1 or -1, and 0 until it has picked.
+    spin: i8,
+    /// On HUNT or SAB in a match, still waiting at its post for the rest of its group.
+    pub waiting: bool,
 }
 
 impl Ship {
@@ -357,19 +376,21 @@ impl Ship {
             warp: 0,
             seed_for: None,
             rooted: false,
+            prey: None,
+            spin: 0,
             ..self.clone()
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Kind {
     Flak,
     Lance,
     Shell,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Shot {
     pub team: usize,
     pub kind: Kind,
@@ -387,7 +408,7 @@ pub struct Shot {
     born: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Debris {
     pub x: i32,
     pub y: i32,
@@ -398,7 +419,7 @@ pub struct Debris {
 }
 
 /// A short-lived flash: a shot bouncing off plate, or a shell's blast.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Spark {
     pub x: i32,
     pub y: i32,
@@ -406,7 +427,7 @@ pub struct Spark {
     pub blast: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash)]
 pub struct Score {
     pub placed: i32,
     pub lost: i32,
@@ -437,6 +458,9 @@ struct Snap {
     /// It's part of the snapshot so that every ship gets the same answer, whatever order they
     /// think in.
     working: bool,
+    /// What SAB goes for: a ship with a scoop or a factory pixel still on it, or anything planted.
+    /// Never a king.
+    worker: bool,
 }
 
 /// What a brain wants this tick.
@@ -475,7 +499,70 @@ pub struct Arena {
     pub eco: Option<Eco>,
 }
 
+/// FNV-1a: a hash that comes out the same on every machine and every run, which the standard
+/// library's doesn't promise.
+pub struct Fnv(pub u64);
+
+impl Default for Fnv {
+    fn default() -> Fnv {
+        Fnv(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+impl std::hash::Hasher for Fnv {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+/// Everything about a fight that decides what happens next, and nothing else (the stars are
+/// scenery). Every field is named here, so a field added to the arena has to be put in the hash
+/// or left out on purpose before this compiles; the types inside it derive theirs, so their new
+/// fields are in it without anyone remembering. Two machines playing one match in step compare
+/// this number: see `Arena::checksum`.
+impl std::hash::Hash for Arena {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let Arena { tick, ships, shots, debris, sparks, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco } = self;
+        tick.hash(state);
+        ships.hash(state);
+        shots.hash(state);
+        debris.hash(state);
+        sparks.hash(state);
+        // A million rock pixels, 64 to a word.
+        rock.len().hash(state);
+        for chunk in rock.chunks(64) {
+            state.write_u64(chunk.iter().fold(0, |word, &px| word << 1 | px as u64));
+        }
+        rock_px.hash(state);
+        rng.hash(state);
+        score.hash(state);
+        over.hash(state);
+        stalemate.hash(state);
+        started.hash(state);
+        last_loss.hash(state);
+        last_push.hash(state);
+        w.hash(state);
+        h.hash(state);
+        eco.hash(state);
+    }
+}
+
 impl Arena {
+    /// One number for the whole state of the fight (see the `Hash` above). Two machines that
+    /// have played the same commands on the same ticks get the same number; if they ever don't,
+    /// their matches have parted and nothing after that is the same game.
+    pub fn checksum(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = Fnv::default();
+        self.hash(&mut h);
+        h.finish()
+    }
+
     /// An empty map.
     fn blank(w: i32, h: i32, seed: u64) -> Arena {
         Arena {
@@ -623,6 +710,11 @@ impl Arena {
             warp: 0,
             seed_for: None,
             rooted: false,
+            style: d.style,
+            prey: None,
+            spin: 0,
+            // Only a match has posts to gather at; in the arena everything is there at once.
+            waiting: self.eco.is_some() && d.group > 1,
         };
         let h = s.half();
         s.x = x.clamp(h, self.w - 1 - h); // spawn
@@ -678,7 +770,7 @@ impl Arena {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.alive && s.warp == 0)
-            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul) })
+            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul), worker: s.role == Role::Ship && (s.st.scoops > 0 || s.st.factory > 0 || s.rooted) })
             .collect();
         let n = self.ships.len();
         // How close each armed ship that can move is to its nearest enemy, before and after
@@ -774,33 +866,64 @@ impl Arena {
         let nearest = |maxd: i32, from: (i32, i32)| {
             snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, from.0, from.1) <= maxd).min_by_key(|e| dist2(e.x, e.y, x, y)).copied()
         };
-        let mut plan = match order {
-            Order::Hunt => {
+        // The enemy it goes for: the nearest of those it may. But it keeps the one it's after
+        // until that one is gone, or no longer one it may go for, or another is `KEEP` px nearer.
+        // Picked afresh every tick, a ship between two enemies about as far off as each other
+        // turned from one to the other and back.
+        let prey = self.ships[i].prey;
+        let pick = |maxd: i32, from: (i32, i32), workers: bool| -> Option<Snap> {
+            let pool = || snap.iter().filter(move |e| e.team != team && cheb(e.x, e.y, from.0, from.1) <= maxd && (!workers || e.worker));
+            let near = pool().min_by_key(|e| dist2(e.x, e.y, x, y)).copied()?;
+            let kept = prey.and_then(|j| pool().find(|e| e.idx == j).copied());
+            Some(match kept {
+                Some(k) if isqrt(dist2(near.x, near.y, x, y)) + KEEP > isqrt(dist2(k.x, k.y, x, y)) => k,
+                _ => near,
+            })
+        };
+        let mut chosen = None;
+        // A ship still waiting for the rest of its group guards where it was built.
+        let waiting = self.ships[i].waiting && matches!(order, Order::Hunt | Order::Sab);
+        let mut plan = match if waiting { Order::Guard } else { order } {
+            Order::Hunt | Order::Sab => {
                 if !armed {
                     self.with_group(i, snap)
                 } else {
-                    match nearest(i32::MAX / 4, (x, y)) {
-                        Some(e) => self.engage(i, &e, snap),
+                    // On SAB it's miners and factories first. With none left, it hunts.
+                    let found = if order == Order::Sab { pick(i32::MAX / 4, (x, y), true) } else { None };
+                    match found.or_else(|| pick(i32::MAX / 4, (x, y), false)) {
+                        Some(e) => {
+                            chosen = Some(e.idx);
+                            self.engage(i, &e, snap)
+                        }
                         None => self.go(i, home, Doing::Idle),
                     }
                 }
             }
-            Order::Guard => match nearest(GUARD_RADIUS, home) {
-                Some(e) if armed && cheb(x, y, home.0, home.1) <= GUARD_RADIUS + 50 => self.engage(i, &e, snap),
+            Order::Guard => match pick(GUARD_RADIUS, home, false) {
+                Some(e) if armed && cheb(x, y, home.0, home.1) <= GUARD_RADIUS + 50 => {
+                    chosen = Some(e.idx);
+                    self.engage(i, &e, snap)
+                }
                 _ if !armed && hurt => self.flee(i, station),
-                _ => self.go(i, home, Doing::Guard),
+                _ => self.go(i, home, if waiting { Doing::Muster } else { Doing::Guard }),
             },
             // With its king: it fights what comes near the king while it's near the king itself,
             // and otherwise keeps its place in the rings round it. With no king to escort (the
             // arena), it hunts.
             Order::Escort => match self.escort_spot(i) {
-                Some((king, spot)) => match nearest(ESCORT_RADIUS, king) {
-                    Some(e) if armed && cheb(x, y, king.0, king.1) <= ESCORT_RADIUS + 50 => self.engage(i, &e, snap),
+                Some((king, spot)) => match pick(ESCORT_RADIUS, king, false) {
+                    Some(e) if armed && cheb(x, y, king.0, king.1) <= ESCORT_RADIUS + 50 => {
+                        chosen = Some(e.idx);
+                        self.engage(i, &e, snap)
+                    }
                     _ => self.go(i, spot, Doing::WithKing),
                 },
                 None if !armed => self.with_group(i, snap),
-                None => match nearest(i32::MAX / 4, (x, y)) {
-                    Some(e) => self.engage(i, &e, snap),
+                None => match pick(i32::MAX / 4, (x, y), false) {
+                    Some(e) => {
+                        chosen = Some(e.idx);
+                        self.engage(i, &e, snap)
+                    }
                     None => self.go(i, home, Doing::Idle),
                 },
             },
@@ -824,9 +947,10 @@ impl Arena {
                 p
             }
         };
+        self.ships[i].prey = chosen;
         // A built ship sent home with nothing to do waits at its post instead: its own place in
         // the rings round what built it.
-        let posted = st.thrust > 0 && self.ships[i].ring0 > 0 && plan.goal == Some(home) && matches!(plan.doing, Doing::Guard | Doing::Idle | Doing::Hold);
+        let posted = st.thrust > 0 && self.ships[i].ring0 > 0 && plan.goal == Some(home) && matches!(plan.doing, Doing::Guard | Doing::Idle | Doing::Hold | Doing::Muster);
         if posted {
             let spot = self.clear_post(i, self.post(i), snap);
             let mut p = self.go(i, spot, plan.doing);
@@ -1012,11 +1136,82 @@ impl Arena {
     // ----- Layer 3: mass and thrust decide how to fly -----
 
     fn engage(&mut self, i: usize, e: &Snap, snap: &[Snap]) -> Plan {
-        match self.ships[i].st.flight {
-            Flight::Runs => self.attack_run(i, e),
-            Flight::StandOff => self.stand_off(i, e, snap),
-            Flight::Still => Plan { dv: (0, 0), face: None, doing: Doing::Hold, target: Some(e.idx), goal: None },
+        // What's left of the drawing decides whether it can fly at all, and how it flies when
+        // nothing was chosen for it.
+        let s = &self.ships[i];
+        let style = match s.st.flight {
+            Flight::Still => None,
+            f => s.style.or(Style::of(f)),
+        };
+        match style {
+            Some(Style::Runs) => self.attack_run(i, e),
+            Some(Style::Kite) => self.kite(i, e, snap),
+            Some(Style::Orbit) => self.orbit(i, e),
+            None => Plan { dv: (0, 0), face: None, doing: Doing::Hold, target: Some(e.idx), goal: None },
         }
+    }
+
+    /// How far from target `e` ship `i` holds, centre to centre: most of the range of its guns
+    /// (its lance if it has one, else its cannon, else its flak), from the target's edge.
+    fn gun_reach(&self, i: usize, e: &Snap) -> i32 {
+        let st = &self.ships[i].st;
+        let gun = if st.lance > 0 {
+            LANCE_RANGE * 3 / 4
+        } else if st.cannon > 0 {
+            CANNON_RANGE * 2 / 3
+        } else {
+            FLAK_RANGE * 2 / 3
+        };
+        gun + e.half
+    }
+
+    /// Hold at weapon range from the target, and back away from anything else that comes nearer
+    /// than that: while some other enemy is inside its range, the nearest of all is the one it
+    /// keeps its distance from.
+    fn kite(&mut self, i: usize, e: &Snap, snap: &[Snap]) -> Plan {
+        let (x, y, team) = (self.ships[i].x, self.ships[i].y, self.ships[i].team);
+        let nearest = snap.iter().filter(|o| o.team != team).min_by_key(|o| dist2(o.x, o.y, x, y)).copied();
+        match nearest {
+            Some(t) if t.idx != e.idx && isqrt(dist2(t.x, t.y, x, y)) < self.gun_reach(i, &t) => self.stand_off(i, &t, snap),
+            _ => self.stand_off(i, e, snap),
+        }
+    }
+
+    /// Circle the target at weapon range, flat out, facing it. It makes for the place on that
+    /// circle a little way round from where it is, so far off it flies straight for the circle and
+    /// on it it goes round. It keeps going the way it was already going, and turns back the other
+    /// way where the circle leaves the map or something solid stops it. How tight a circle it can
+    /// hold is down to its thrust for its weight.
+    fn orbit(&mut self, i: usize, e: &Snap) -> Plan {
+        let (x, y, vx, vy, vmax, h, bumped) = {
+            let s = &self.ships[i];
+            (s.x, s.y, s.vx, s.vy, s.st.vmax, s.half(), s.bumped)
+        };
+        let want = self.gun_reach(i, e);
+        // From the target out to the ship. Right on top of it, any way out will do.
+        let (rx, ry) = if (x, y) == (e.x, e.y) { (1, 0) } else { (x - e.x, y - e.y) };
+        if self.ships[i].spin == 0 {
+            let cross = rx * vy - ry * vx;
+            self.ships[i].spin = if cross > 0 || (cross == 0 && i % 2 == 0) { 1 } else { -1 };
+        }
+        let (w, hh) = (self.w, self.h);
+        // The place on the circle `ORBIT_LEAD` px round from the ship, and whether the map's edge
+        // cut it short. Worked in quarter pixels, like speeds, so short steps keep their angle.
+        let ahead = |spin: i32| {
+            let out = toward(0, 0, rx, ry, want * 4);
+            let round = toward(0, 0, -ry * spin, rx * spin, ORBIT_LEAD * 4);
+            let p = toward(0, 0, out.0 + round.0, out.1 + round.1, want * 4);
+            let p = (e.x + p.0 / 4, e.y + p.1 / 4);
+            let q = (p.0.clamp(h + 2, w - 3 - h), p.1.clamp(h + 2, hh - 3 - h));
+            (q, q != p)
+        };
+        let (mut to, cut) = ahead(self.ships[i].spin as i32);
+        if bumped || (cut && cheb(x, y, to.0, to.1) <= 6) {
+            self.ships[i].spin = -self.ships[i].spin;
+            to = ahead(self.ships[i].spin as i32).0;
+        }
+        let dv = toward(x, y, to.0, to.1, vmax);
+        Plan { dv, face: axis_face(e.x - x, e.y - y), doing: Doing::Orbit, target: Some(e.idx), goal: Some(to) }
     }
 
     /// Dive at the target (leading it), fly through, keep going a little, then come about.
@@ -1075,13 +1270,7 @@ impl Arena {
             let s = &self.ships[i];
             (s.x, s.y, s.half(), s.st, s.team)
         };
-        let pref = if st.lance > 0 {
-            LANCE_RANGE * 3 / 4
-        } else if st.cannon > 0 {
-            CANNON_RANGE * 2 / 3
-        } else {
-            FLAK_RANGE * 2 / 3
-        } + e.half;
+        let pref = self.gun_reach(i, e);
         let (aw, ah) = (self.w, self.h);
         let inside = |(px, py): (i32, i32)| px >= h + 2 && py >= h + 2 && px <= aw - 3 - h && py <= ah - 3 - h;
         // Spots in line with the target, at a few distances; a spot a friend already holds costs
@@ -1292,7 +1481,11 @@ impl Arena {
         s.sy = s.sy.rem_euclid(4);
         let h = s.half();
         let (nx, ny) = (s.x + dx, s.y + dy);
-        let (cx, cy) = (nx.clamp(h, self.w - 1 - h), ny.clamp(h, self.h - 1 - h));
+        // The edge of the map stops what flies into it, with room to turn. It never moves what
+        // can't fly: a piece shot off a ship beside the edge stays where its pixels are, though
+        // its box, turned, would hang over. (It was shoved in from the edge the tick after it
+        // broke off.)
+        let (cx, cy) = if st.thrust > 0 { (nx.clamp(h, self.w - 1 - h), ny.clamp(h, self.h - 1 - h)) } else { (nx, ny) };
         if cx != nx {
             s.vx = 0;
             s.sx = 0;
@@ -1787,6 +1980,169 @@ mod tests {
         a
     }
 
+    /// A fighter, and a slab of plate round a core that its flak can't hurt.
+    fn fighter_and_slab(order: Order, style: Option<Style>) -> (Design, Design) {
+        let mut f = Design::from_rows("FIGHTER", order, &["g.g", "hch", "e.e"]);
+        f.style = style;
+        (f, Design::from_rows("SLAB", Order::Hold, &["ppp", "pcp", "ppp"]))
+    }
+
+    /// One tick with ship 0 put back at rest in the middle of the arena first, so what it's after
+    /// can be asked about at known distances.
+    fn step_from_the_middle(a: &mut Arena) -> Option<usize> {
+        let s = &mut a.ships[0];
+        (s.x, s.y, s.vx, s.vy, s.sx, s.sy) = (240, 180, 0, 0, 0, 0);
+        a.step();
+        a.ships[0].prey
+    }
+
+    #[test]
+    fn a_ship_keeps_the_enemy_its_after_until_another_is_clearly_nearer() {
+        let (fighter, slab) = fighter_and_slab(Order::Hunt, None);
+        let mut a = Arena::new();
+        assert!(a.add(0, 0, &fighter, 240, 180));
+        assert!(a.add(1, 0, &slab, 140, 180));
+        assert!(a.add(1, 1, &slab, 345, 180));
+        // The nearer of the two, to start with.
+        assert_eq!(step_from_the_middle(&mut a), Some(1));
+        // The other brought nearer than it, but not by much: it keeps the one it has.
+        a.ships[2].x = 240 + 100 - KEEP + 1;
+        assert_eq!(step_from_the_middle(&mut a), Some(1), "it turned to one only {} px nearer", KEEP - 1);
+        // A pixel more, and that's clearly nearer.
+        a.ships[2].x = 240 + 100 - KEEP;
+        assert_eq!(step_from_the_middle(&mut a), Some(2));
+        // Now the first would have to be that much nearer again to win it back.
+        a.ships[1].x = 240 - (100 - KEEP) + 5;
+        assert_eq!(step_from_the_middle(&mut a), Some(2));
+        // What it's after gone, it takes the nearest left.
+        a.ships[2].alive = false;
+        assert_eq!(step_from_the_middle(&mut a), Some(1));
+        a.ships[1].alive = false;
+        assert_eq!(step_from_the_middle(&mut a), None);
+    }
+
+    #[test]
+    fn a_light_ship_told_to_kite_holds_its_range_and_backs_off_what_comes_closer() {
+        let (kiter, slab) = fighter_and_slab(Order::Hunt, Some(Style::Kite));
+        // Left to its drawing, it would dive straight through.
+        assert_eq!(fighter_and_slab(Order::Hunt, None).0.flies(), Some(Style::Runs));
+        assert_eq!(kiter.flies(), Some(Style::Kite));
+        let mut a = Arena::new();
+        assert!(a.add(0, 0, &kiter, 100, 180));
+        assert!(a.add(1, 0, &slab, 300, 180));
+        let apart = |a: &Arena, j: usize| isqrt(dist2(a.ships[0].x, a.ships[0].y, a.ships[j].x, a.ships[j].y));
+        let want = FLAK_RANGE * 2 / 3 + a.ships[1].half();
+        let mut nearest = i32::MAX;
+        for _ in 0..15 * 12 {
+            a.step();
+            nearest = nearest.min(apart(&a, 1));
+        }
+        assert!(nearest >= want - 6, "it went in to {nearest} px, and should hold at {want}");
+        assert!(apart(&a, 1) <= want + 6, "it never closed to its range: {} px", apart(&a, 1));
+        assert_eq!(a.ships[0].doing, Doing::StandOff);
+        // Something else turns up closer than its guns reach, off to one side. It gets clear of
+        // that, and what it was after is still what it's after.
+        let (x, y) = (a.ships[0].x, a.ships[0].y);
+        assert!(a.add(1, 1, &slab, x, y - 12));
+        assert!(apart(&a, 2) < want - 6);
+        for _ in 0..15 * 4 {
+            a.step();
+        }
+        assert!(apart(&a, 2) >= want - 6, "still {} px from what came close", apart(&a, 2));
+        assert_eq!(a.ships[0].prey, Some(1));
+    }
+
+    /// Which quarter of the circle round ship `j` ship 0 is in: 0 to 3, clockwise from north-east.
+    fn quarter(a: &Arena, j: usize) -> i32 {
+        let (dx, dy) = (a.ships[0].x - a.ships[j].x, a.ships[0].y - a.ships[j].y);
+        match (dx >= 0, dy >= 0) {
+            (true, false) => 0,
+            (true, true) => 1,
+            (false, true) => 2,
+            (false, false) => 3,
+        }
+    }
+
+    #[test]
+    fn a_ship_told_to_orbit_circles_its_target_at_the_range_of_its_guns() {
+        let (orbiter, slab) = fighter_and_slab(Order::Hunt, Some(Style::Orbit));
+        let mut a = Arena::new();
+        assert!(a.add(0, 0, &orbiter, 100, 180));
+        assert!(a.add(1, 0, &slab, 240, 180));
+        let want = FLAK_RANGE * 2 / 3 + a.ships[1].half();
+        run(&mut a, 15 * 6);
+        // Twenty seconds on the circle: never far off it, and round and round the one way.
+        let (mut lo, mut hi, mut quarters) = (i32::MAX, 0, vec![quarter(&a, 1)]);
+        for _ in 0..15 * 20 {
+            a.step();
+            let d = isqrt(dist2(a.ships[0].x, a.ships[0].y, a.ships[1].x, a.ships[1].y));
+            (lo, hi) = (lo.min(d), hi.max(d));
+            if quarters.last() != Some(&quarter(&a, 1)) {
+                quarters.push(quarter(&a, 1));
+            }
+            assert_eq!(a.ships[0].doing, Doing::Orbit);
+        }
+        assert!(lo >= want - 8 && hi <= want + 8, "it flew between {lo} and {hi} px out, and should hold {want}");
+        let turns: Vec<i32> = quarters.windows(2).map(|q| (q[1] - q[0]).rem_euclid(4)).collect();
+        assert!(turns.len() >= 8, "it only got through {quarters:?}");
+        assert!(turns[0] != 2 && turns.iter().all(|&t| t == turns[0]), "it didn't keep going round one way: {quarters:?}");
+    }
+
+    #[test]
+    fn an_orbit_that_runs_into_the_maps_edge_turns_back_the_other_way() {
+        // The target sits so near the west edge that most of the circle round it is off the map.
+        let (orbiter, slab) = fighter_and_slab(Order::Hunt, Some(Style::Orbit));
+        let mut a = Arena::new();
+        assert!(a.add(0, 0, &orbiter, 120, 100));
+        assert!(a.add(1, 0, &slab, 14, 180));
+        run(&mut a, 15 * 6);
+        let (mut flips, mut flown, mut spin, mut at) = (0, 0, a.ships[0].spin, (a.ships[0].x, a.ships[0].y));
+        let mut seen = [false; 4];
+        for _ in 0..15 * 30 {
+            a.step();
+            let s = &a.ships[0];
+            flips += (s.spin != spin) as i32;
+            flown += cheb(s.x, s.y, at.0, at.1);
+            (spin, at) = (s.spin, (s.x, s.y));
+            seen[quarter(&a, 1) as usize] = true;
+            assert!(s.x >= s.half() && s.y >= s.half());
+        }
+        assert!(flips >= 2, "it turned back {flips} times in half a minute");
+        assert!(flown >= 15 * 30, "it mostly sat still: {flown} px flown in half a minute");
+        assert!(seen[0] && seen[1], "it didn't sweep the part of the circle that's on the map");
+    }
+
+    #[test]
+    fn a_ship_on_sab_goes_for_miners_and_factories_past_what_guards_them() {
+        let (raider, slab) = fighter_and_slab(Order::Sab, None);
+        let miner = Design::from_rows("MINER", Order::Hold, &["sss", "hch", "e.e"]);
+        let works = Design::from_rows("WORKS", Order::Hold, &["f", "c"]);
+        let mut a = Arena::new();
+        assert!(a.add(0, 0, &raider, 240, 180));
+        assert!(a.add(1, 0, &slab, 200, 180));
+        assert!(a.add(1, 1, &miner, 400, 180));
+        assert!(a.add(1, 2, &works, 60, 180));
+        // A guard is 40 px off, a miner 160 and a factory 180: the miner.
+        assert_eq!(step_from_the_middle(&mut a), Some(2));
+        // On HUNT it would take the guard.
+        a.ships[0].order = Order::Hunt;
+        a.ships[0].prey = None;
+        assert_eq!(step_from_the_middle(&mut a), Some(1));
+        a.ships[0].order = Order::Sab;
+        // The miner gone, the factory. But never a king, whatever is drawn on it: were that
+        // factory a king, there'd be nothing left to sabotage, and it would hunt.
+        a.ships[2].alive = false;
+        assert_eq!(step_from_the_middle(&mut a), Some(3));
+        a.ships[3].role = Role::King;
+        assert_eq!(step_from_the_middle(&mut a), Some(1));
+        // A factory again, it comes first again: what it was hunting is no reason to stay.
+        a.ships[3].role = Role::Ship;
+        assert_eq!(step_from_the_middle(&mut a), Some(3));
+        // That gone too, it hunts.
+        a.ships[3].alive = false;
+        assert_eq!(step_from_the_middle(&mut a), Some(1));
+    }
+
     #[test]
     fn turret_angles_point_the_right_way() {
         assert_eq!(dir64(0), (0, -1024));
@@ -2156,6 +2512,30 @@ mod tests {
         let until = a.tick + 15 * 10;
         run(&mut a, until);
         assert!(cheb(a.ships[r].x, a.ships[r].y, spot.0, spot.1) <= 2, "the tug didn't get through the miners in 10 s: it's {} px short", a.ships[r].x - spot.0);
+    }
+
+    #[test]
+    fn the_maps_edge_never_moves_what_cant_fly() {
+        // A hulk twelve wide and six tall, lying along the top edge of the map: every pixel of it
+        // is on the map, but the square it would need to turn in isn't. It can't turn, or fly,
+        // so it stays exactly where it is. The same shape with engines is kept a turn's room from
+        // the edge, as any ship is.
+        let hulk = Design::from_rows("HULK", Order::Hold, &["hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhchhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh"]);
+        let barge = Design::from_rows("BARGE", Order::Hold, &["hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhchhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh", "eeeeeeeeeeee"]);
+        let mut a = Arena::new();
+        let h = a.spawn(0, 0, &hulk, 100, 20, 0, false);
+        let b = a.spawn(0, 1, &barge, 300, 20, 0, false);
+        assert!(a.ships[h].st.thrust == 0 && a.ships[b].st.thrust > 0 && a.ships[h].half() == 6);
+        // Nothing is placed that close to the edge, so they're put there as a piece shot off a
+        // bigger ship would be left: where its pixels were.
+        for i in [h, b] {
+            a.ships[i].y = 3;
+        }
+        for _ in 0..30 {
+            a.step();
+            assert_eq!((a.ships[h].x, a.ships[h].y), (100, 3), "tick {}: the hulk was moved", a.tick);
+            assert!(a.ships[b].y >= 6, "tick {}: a ship that flies keeps room to turn at the edge", a.tick);
+        }
     }
 
     #[test]

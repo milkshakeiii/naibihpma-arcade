@@ -4,6 +4,7 @@
 
 pub mod design;
 mod icons;
+pub mod link;
 pub mod play;
 mod scene;
 pub mod sim;
@@ -129,7 +130,7 @@ fn help_body() -> Vec<(&'static str, String)> {
         ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. IT NEEDS A CORE, EVERY PIXEL JOINED EDGE TO EDGE, AND A STRAIGHT 3-WIDE WAY OUT FOR EVERY ENGINE.".into()),
         ("POWER", format!("MADE PER PIXEL: {}. USED: {}. SHORT OF POWER, GUNS RELOAD SLOWER AND ENGINES PUSH LESS, IN STEP.", Part::power_list(true), Part::power_list(false))),
         ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. 1-6 PICK A PART CATEGORY, TAB ITS NEXT PART. P PENCIL, R RECTANGLE, F FILL, C STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
-        ("FLYING", "AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS. LESS: IT HOLDS AT WEAPON RANGE. HEAVIER SHIPS TURN SLOWER.".into()),
+        ("FLYING", "RUNS, KITE OR ORBIT: PICK IN THE YARD. LEFT ALONE, 1 THRUST PER WEIGHT RUNS AND LESS KITES. HEAVIER SHIPS TURN SLOWER.".into()),
         ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW.".into()),
         ("KEYS", "ENTER YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
     ]
@@ -311,6 +312,8 @@ pub struct Pg {
     notice: Option<(String, u32)>,
     /// The "play a match" panel over the yard.
     pub menu: bool,
+    /// Finding another machine to play against, before the match.
+    pub lobby: Option<link::Lobby>,
     pub play: Option<Play>,
 }
 
@@ -388,6 +391,7 @@ impl Pg {
             logged_over: false,
             notice: None,
             menu: false,
+            lobby: None,
             play: None,
         };
         pg.log(&format!("##### proving ground round 5 session {} #####", crate::game::utc_stamp()));
@@ -495,6 +499,9 @@ impl Pg {
             self.confirm_quit = false;
             return;
         }
+        if self.key_lobby(k) {
+            return;
+        }
         match (self.screen, k) {
             (Screen::Match, Key::Esc) if self.cancel_planting() => {}
             (_, Key::Esc) => self.confirm_quit = true,
@@ -588,6 +595,10 @@ impl Pg {
         if self.naming && !NAME_RECT.contains(x, y) {
             self.end_naming();
         }
+        if self.lobby.is_some() {
+            self.press_lobby(x, y);
+            return;
+        }
         if self.menu {
             self.press_menu(x, y);
             return;
@@ -679,8 +690,14 @@ impl Pg {
         if self.screen == Screen::Yard && !self.help && !self.confirm_quit && !self.naming && !self.menu {
             self.scroll_yard(&dirs);
         }
-        if self.screen == Screen::Match && !self.help && !self.confirm_quit {
-            self.step_match(&dirs);
+        self.step_lobby();
+        // A match against the AI stops while a panel is open over it. One against another
+        // machine can't: their clock is running, so it plays on underneath with the king's keys
+        // let go.
+        let free = !self.help && !self.confirm_quit;
+        let net = self.play.as_ref().is_some_and(|p| p.link.net.is_some());
+        if self.screen == Screen::Match && (free || net) {
+            self.step_match(if free { &dirs } else { &[false; 4] });
         }
         if self.screen != Screen::Arena || !self.running || self.help || self.confirm_quit {
             return;
@@ -730,6 +747,7 @@ impl Pg {
         if self.menu && self.screen == Screen::Yard {
             self.draw_menu(fb);
         }
+        self.draw_lobby(fb);
         if let Some((s, _)) = &self.notice {
             let lines = notice_lines(s);
             let w = lines.iter().map(|l| Framebuffer::text_width(l, 1)).max().unwrap_or(0) + 12;
@@ -990,6 +1008,7 @@ impl App for Pg {
         match ev {
             Ev::Key(k) => self.key(k),
             Ev::Char(c) => {
+                self.char_lobby(c);
                 if self.naming {
                     let c = c.to_ascii_uppercase();
                     let name = &mut self.lib[self.slot].name;

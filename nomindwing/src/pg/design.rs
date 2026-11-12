@@ -51,7 +51,7 @@ pub fn core_cost(cores: i32) -> i32 {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Part {
     Hull,
     Plate,
@@ -307,16 +307,19 @@ impl Part {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Order {
     Hunt,
     Guard,
     Escort,
     Harvest,
     Hold,
+    /// Sabotage: goes for the other side's miners and factories.
+    Sab,
 }
 
-pub const ORDERS: [Order; 5] = [Order::Hunt, Order::Guard, Order::Escort, Order::Harvest, Order::Hold];
+/// The orders in the order the yard shows them, three to a row.
+pub const ORDERS: [Order; 6] = [Order::Hunt, Order::Sab, Order::Guard, Order::Escort, Order::Harvest, Order::Hold];
 
 impl Order {
     pub fn name(self) -> &'static str {
@@ -326,6 +329,7 @@ impl Order {
             Order::Escort => "ESCORT",
             Order::Harvest => "HARVEST",
             Order::Hold => "HOLD",
+            Order::Sab => "SAB",
         }
     }
     /// Three letters, for a card's order tag in a match.
@@ -336,6 +340,7 @@ impl Order {
             Order::Escort => "ESC",
             Order::Harvest => "HRV",
             Order::Hold => "HLD",
+            Order::Sab => "SAB",
         }
     }
     pub fn blurb(self) -> &'static str {
@@ -345,12 +350,13 @@ impl Order {
             Order::Escort => "ESCORT - IN A MATCH, FORMS UP ON YOUR KING, GOES WHERE IT FLIES AND FIGHTS WHAT COMES NEAR IT. IN THE ARENA IT HUNTS.",
             Order::Harvest => "HARVEST - MINES THE NEAREST ROCK AND HAULS THE PIXELS HOME. ITS GUNS STILL FIRE ON THE WAY.",
             Order::Hold => "HOLD - STAYS EXACTLY WHERE IT WAS PLACED, TURNING ITS LANCES TO FACE ANY ENEMY IN RANGE.",
+            Order::Sab => "SAB - SABOTAGE: GOES AFTER THE NEAREST ENEMY MINER OR FACTORY, PAST WHATEVER GUARDS IT. WITH NONE LEFT IT HUNTS.",
         }
     }
-    /// The orders a design can be switched between in a match: the three a warship takes, and
+    /// The orders a design can be switched between in a match: the four a warship takes, and
     /// first the one it was drawn with if that's another (a miner can be sent back to mining).
     pub fn in_match(drawn: Order) -> Vec<Order> {
-        let mut v = vec![Order::Hunt, Order::Guard, Order::Escort];
+        let mut v = vec![Order::Hunt, Order::Sab, Order::Guard, Order::Escort];
         if !v.contains(&drawn) {
             v.insert(0, drawn);
         }
@@ -362,7 +368,7 @@ impl Order {
 }
 
 /// How a ship flies, which follows from its drawing alone.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Flight {
     /// At least 1 thrust per weight: dives through the target and loops back.
     Runs,
@@ -382,7 +388,53 @@ impl Flight {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// How a ship flies at what it's fighting. It's set on the design in the yard and fixed for a
+/// match. Until it's set the drawing decides: enough thrust for the weight runs, less kites.
+/// Either way the drawing decides how well it works.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Style {
+    /// Dives through the target and loops back.
+    Runs,
+    /// Holds at weapon range, and backs away from whatever comes closer.
+    Kite,
+    /// Circles the target at weapon range, flat out.
+    Orbit,
+}
+
+pub const STYLES: [Style; 3] = [Style::Runs, Style::Kite, Style::Orbit];
+
+/// The sizes of group a design can leave in on HUNT or SAB: so many gather before any sets off.
+pub const GROUPS: [u8; 4] = [1, 3, 6, 12];
+
+impl Style {
+    pub fn name(self) -> &'static str {
+        match self {
+            Style::Runs => "RUNS",
+            Style::Kite => "KITE",
+            Style::Orbit => "ORBIT",
+        }
+    }
+    pub fn blurb(self) -> &'static str {
+        match self {
+            Style::Runs => "RUNS - DIVES STRAIGHT THROUGH ITS TARGET AND COMES ABOUT FOR ANOTHER PASS. A LANCE SHIP SLIDES ONTO THE TARGET'S ROW OR COLUMN FIRST.",
+            Style::Kite => "KITE - HOLDS AT THE RANGE OF ITS GUNS AND BACKS AWAY FROM ANYTHING THAT COMES CLOSER. IT WORKS ON WHAT IT CAN OUTRUN OR OUTREACH.",
+            Style::Orbit => "ORBIT - CIRCLES ITS TARGET AT THE RANGE OF ITS GUNS, FLAT OUT. FAST AND CLOSE, IT GETS ROUND QUICKER THAN A CANNON TURNS. A LANCE RARELY BEARS.",
+        }
+    }
+    fn from_name(s: &str) -> Option<Style> {
+        STYLES.iter().copied().find(|o| o.name() == s)
+    }
+    /// What a drawing flies as when nothing was chosen for it. None: it has no engines.
+    pub fn of(f: Flight) -> Option<Style> {
+        match f {
+            Flight::Runs => Some(Style::Runs),
+            Flight::StandOff => Some(Style::Kite),
+            Flight::Still => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Stats {
     pub count: i32,
     pub cores: i32,
@@ -502,7 +554,7 @@ pub fn reach(w: i32, h: i32, start: usize, on: impl Fn(usize) -> bool) -> Vec<bo
 }
 
 /// A design trimmed to its bounding box, facing north (up is forward).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Shape {
     pub w: i32,
     pub h: i32,
@@ -611,7 +663,7 @@ pub fn buried_engines(engines: &[(i32, i32)], bbox: (i32, i32, i32, i32), filled
     engines.iter().copied().filter(|&e| ![(0, 1), (0, -1), (1, 0), (-1, 0)].iter().any(|&d| clear(e, d))).collect()
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Design {
     pub name: String,
     pub order: Order,
@@ -622,6 +674,10 @@ pub struct Design {
     pub seeded: bool,
     /// What its factory pixels print, by deck slot, round and round (match only).
     pub build: Vec<usize>,
+    /// How it flies at what it's fighting, once chosen in the yard. None: as its drawing suggests.
+    pub style: Option<Style>,
+    /// How many of it gather before they leave on HUNT or SAB (match only): one of `GROUPS`.
+    pub group: u8,
 }
 
 /// Where a seeded design's seed core sits on the grid.
@@ -631,7 +687,7 @@ pub const BUILD_MAX: usize = 12;
 
 impl Design {
     pub fn blank(name: &str) -> Design {
-        Design { name: name.into(), order: Order::Hunt, cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new() }
+        Design { name: name.into(), order: Order::Hunt, cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new(), style: None, group: 1 }
     }
 
     /// A design from art rows, centred in the grid.
@@ -763,6 +819,17 @@ impl Design {
 
     pub fn stats(&self) -> Stats {
         stats_of(&self.cells, self.cannon_blocks().0.len() as i32)
+    }
+
+    /// How it flies at what it's fighting: what was chosen for it, or else what its drawing
+    /// suggests. None: it has no engines, and stays put.
+    pub fn flies(&self) -> Option<Style> {
+        let st = self.stats();
+        if st.thrust == 0 {
+            None
+        } else {
+            self.style.or(Style::of(st.flight))
+        }
     }
 
     /// The box round everything drawn, as (left, top, right, bottom), inclusive.
@@ -914,17 +981,20 @@ impl Design {
         Ok(true)
     }
 
-    /// One line for the save file: `NAME|ORDER|X,Y|row/row/...|KIND|BUILD`. The drawing is
-    /// trimmed to its box with the box's top-left on the grid and `.` for empty cells; KIND is
-    /// BUILT or SEEDED, and BUILD the build order as deck slots (round 5 lines stop after the rows).
+    /// One line for the save file: `NAME|ORDER|X,Y|row/row/...|KIND|BUILD|STYLE|GROUP`. The
+    /// drawing is trimmed to its box with the box's top-left on the grid and `.` for empty cells;
+    /// KIND is BUILT or SEEDED, and BUILD the build order as deck slots (round 5 lines stop after
+    /// the rows). STYLE and GROUP are left off a design that has neither chosen, so such a line is
+    /// what it always was.
     pub fn to_line(&self) -> String {
         let kind = if self.seeded { "SEEDED" } else { "BUILT" };
         let build: Vec<String> = self.build.iter().map(|b| b.to_string()).collect();
+        let flying = if self.style.is_none() && self.group <= 1 { String::new() } else { format!("|{}|{}", self.style.map_or("-", |s| s.name()), self.group) };
         let Some((x0, y0, x1, y1)) = self.used_box() else {
-            return format!("{}|{}|0,0|.|{kind}|{}", self.name, self.order.name(), build.join(","));
+            return format!("{}|{}|0,0|.|{kind}|{}{flying}", self.name, self.order.name(), build.join(","));
         };
         let rows: Vec<String> = (y0..=y1).map(|y| (x0..=x1).map(|x| self.get(x, y).map_or('.', |p| p.ch())).collect()).collect();
-        format!("{}|{}|{x0},{y0}|{}|{kind}|{}", self.name, self.order.name(), rows.join("/"), build.join(","))
+        format!("{}|{}|{x0},{y0}|{}|{kind}|{}{flying}", self.name, self.order.name(), rows.join("/"), build.join(","))
     }
 
     /// Reads a save line. A round 2 or 3 line (the whole 41x41 grid, no position) is centred.
@@ -932,7 +1002,7 @@ impl Design {
         let f: Vec<&str> = s.trim().split('|').collect();
         let (name, order) = (*f.first()?, Order::from_name(f.get(1)?)?);
         let (at, rows) = match f.len() {
-            4 | 6 => {
+            4 | 6 | 8 => {
                 let (x, y) = f[2].split_once(',')?;
                 ((x.parse::<i32>().ok()?, y.parse::<i32>().ok()?), f[3])
             }
@@ -952,9 +1022,13 @@ impl Design {
                 d.set(at.0 + x as i32, at.1 + y as i32, Part::from_ch(c));
             }
         }
-        if f.len() == 6 {
+        if f.len() >= 6 {
             d.seeded = f[4] == "SEEDED";
             d.build = f[5].split(',').filter_map(|b| b.trim().parse().ok()).take(BUILD_MAX).collect();
+        }
+        if f.len() == 8 {
+            d.style = Style::from_name(f[6]);
+            d.group = f[7].parse().ok().filter(|g| GROUPS.contains(g)).unwrap_or(1);
         }
         Some(d)
     }
@@ -1548,6 +1622,46 @@ mod tests {
         for d in defaults() {
             assert!(d.check().ok(), "{}: {:?}", d.name, d.check());
         }
+    }
+
+    #[test]
+    fn a_designs_style_and_group_are_kept_in_its_line_and_old_lines_still_load() {
+        let mut d = defaults()[0].clone();
+        // With neither chosen, the line is what it was before there was anything to choose.
+        let plain = d.to_line();
+        assert_eq!(plain.split('|').count(), 6, "{plain}");
+        let back = Design::from_line(&plain).unwrap();
+        assert_eq!((back.style, back.group), (None, 1));
+        // Either one chosen, both are written, and come back.
+        for (style, group) in [(Some(Style::Orbit), 1), (None, 6), (Some(Style::Kite), 12), (Some(Style::Runs), 3)] {
+            (d.style, d.group) = (style, group);
+            let line = d.to_line();
+            assert_eq!(line.split('|').count(), 8, "{line}");
+            let back = Design::from_line(&line).unwrap();
+            assert_eq!((back.style, back.group, &back.cells, back.order), (style, group, &d.cells, d.order), "{line}");
+        }
+        // A group size that isn't one of the four is no group at all.
+        let odd = d.to_line().rsplit_once('|').unwrap().0.to_string() + "|5";
+        assert_eq!(Design::from_line(&odd).unwrap().group, 1);
+        assert_eq!(Design::from_line(&(plain.clone() + "|WARP|3")).unwrap().style, None);
+        // SAB is an order like the others.
+        d.order = Order::Sab;
+        assert_eq!(Design::from_line(&d.to_line()).unwrap().order, Order::Sab);
+        assert!(Order::in_match(Order::Guard).contains(&Order::Sab));
+    }
+
+    #[test]
+    fn a_design_flies_as_chosen_or_else_as_its_drawing_suggests() {
+        let d = defaults();
+        let (mut fighter, mut capital) = (d[0].clone(), d[4].clone());
+        assert_eq!((fighter.flies(), capital.flies()), (Some(Style::Runs), Some(Style::Kite)));
+        fighter.style = Some(Style::Orbit);
+        capital.style = Some(Style::Runs);
+        assert_eq!((fighter.flies(), capital.flies()), (Some(Style::Orbit), Some(Style::Runs)));
+        // No engines, nothing to choose: whatever its line says, it stays put.
+        let mut post = Design::from_rows("POST", Order::Hold, &["ggg", "hch"]);
+        post.style = Some(Style::Orbit);
+        assert_eq!(post.flies(), None);
     }
 
     #[test]

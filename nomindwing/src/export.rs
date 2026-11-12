@@ -832,7 +832,7 @@ pub fn pg_screenshots(dir: &Path) {
         // Pixels to print with, on the books as mined.
         a.ships[k].store += 400;
         a.score[0].mined += 400;
-        a.command(Cmd::Repeat { team: 0, slot: 0 });
+        a.command(Cmd::Repeat { team: 0, slot: 0, at: None });
         a.command(Cmd::Order { team: 0, slot: 0, order: crate::pg::design::Order::Escort });
         a.command(Cmd::Order { team: 0, slot: 2, order: crate::pg::design::Order::Hunt });
         for _ in 0..15 * 75 {
@@ -999,7 +999,7 @@ pub fn pg_screenshots(dir: &Path) {
         for slot in [0, 1] {
             a.command(Cmd::Print { team: 0, slot, target: None });
         }
-        a.command(Cmd::Repeat { team: 0, slot: 3 });
+        a.command(Cmd::Repeat { team: 0, slot: 3, at: None });
         for slot in [2, 6] {
             a.command(Cmd::Print { team: 0, slot, target: None });
         }
@@ -1010,6 +1010,70 @@ pub fn pg_screenshots(dir: &Path) {
     pg.mouse = (307 + 2 * 15 + 7, 147);
     pg.draw(&mut fb);
     save(&fb, &pg, "41_match_kings_queue.png");
+    // The lag dial turned to three ticks, the pointer on it.
+    {
+        use crate::app::{Ev, Key};
+        for _ in 0..3 {
+            pg.event(Ev::Key(Key::Letter('L')));
+        }
+        pg.mouse = (280, 6);
+        pg.draw(&mut fb);
+        save(&fb, &pg, "42_match_lag_dial.png");
+    }
+    // The match menu with its two network buttons; then joining, the address being typed; then
+    // hosting, waiting.
+    pg.screen = Screen::Yard;
+    pg.play = None;
+    pg.menu = true;
+    pg.mouse = (255, 215);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "43_menu_host_or_join.png");
+    pg.join(None);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "44_net_join_address.png");
+    pg.lobby = Some(crate::pg::link::Lobby::host_on("127.0.0.1", crate::pg::link::PORT));
+    pg.draw(&mut fb);
+    save(&fb, &pg, "45_net_hosting.png");
+    pg.lobby = None;
+    // A network match, played for real between two games on this machine, seen from the
+    // joiner's side: red, top right, with red's bank and queue and its own cards.
+    {
+        use crate::app::{Ev, Key};
+        use crate::pg::link::Lobby;
+        let (mut host, mut join) = (Pg::new(None, None), Pg::new(None, None));
+        host.lobby = Some(Lobby::host_on("127.0.0.1", 0));
+        if let Some(Lobby::Hosting { port, .. }) = &host.lobby {
+            join.join(Some(&format!("127.0.0.1:{port}")));
+        }
+        let started = std::time::Instant::now();
+        let mut frames = 0;
+        while started.elapsed() < std::time::Duration::from_secs(20) && frames < 15 * 30 {
+            host.tick();
+            join.tick();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            if join.screen != Screen::Match || host.screen != Screen::Match {
+                continue;
+            }
+            frames += 1;
+            match frames {
+                1 => {
+                    join.event(Ev::Key(Key::Num(4)));
+                    join.event(Ev::Key(Key::Letter('R')));
+                    host.event(Ev::Key(Key::Num(1)));
+                }
+                20 => join.hold([false, true, true, false]),
+                60 => join.hold([false; 4]),
+                _ => {}
+            }
+        }
+        if join.screen == Screen::Match {
+            join.mouse = (200, 6);
+            join.draw(&mut fb);
+            save(&fb, &join, "46_net_match_as_red.png");
+        } else {
+            println!("the two games never met: no 46_net_match_as_red.png");
+        }
+    }
     // The yard: Tab has stepped WEAPONS on to its second part, and the category says how.
     pg.screen = Screen::Yard;
     pg.play = None;
@@ -1036,6 +1100,17 @@ pub fn pg_screenshots(dir: &Path) {
         pg.draw(&mut fb);
         save(&fb, &pg, name);
     }
+    // Thirty fighters told to orbit, round a capital.
+    pg.lib[0].style = Some(crate::pg::design::Style::Orbit);
+    pg.load_test(4);
+    pg.running = true;
+    for _ in 0..120 {
+        pg.tick();
+    }
+    hover(&mut pg, 1);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "47_fighters_orbit_a_capital.png");
+    pg.lib[0].style = None;
     pg.running = false;
     pg.screen = Screen::Yard;
     pg.select_slot(5);

@@ -44,6 +44,8 @@ pub const SPILL_CAP: i32 = 300;
 pub const MATCH_LIMIT: u32 = 15 * 60 * 40;
 pub const KING_SLOT: usize = 100;
 pub const SEED_SLOT: usize = 101;
+/// Ships of a design count as one group once they're waiting this close to one of them.
+pub const MUSTER: i32 = 96;
 /// A wave needs this many pixels of warships, and is called home after this long.
 const WAVE_MIN: i32 = 100;
 const WAVE_TICKS: u32 = 15 * 240;
@@ -56,7 +58,7 @@ const ALARM_CLEAR: i32 = 60;
 /// pixel every 4 s.
 const UNIT: i32 = PRINT_TICKS;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Role {
     Ship,
     King,
@@ -65,7 +67,7 @@ pub enum Role {
 
 /// What a factory is printing: nothing, the next thing on its list (no pixel paid yet), or the
 /// ship it's partway through.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Making {
     None,
     Pending(usize),
@@ -76,7 +78,7 @@ pub enum Making {
 /// AI's included: they're queued and applied at the start of the next tick, and every one applied
 /// is logged with its tick. The same commands on the same ticks replay the same match, which is
 /// what lockstep multiplayer and replays need.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Cmd {
     /// The king's keys: -1, 0 or 1 on each axis, held until the next one.
     Steer { team: usize, dx: i32, dy: i32 },
@@ -85,8 +87,12 @@ pub enum Cmd {
     Print { team: usize, slot: usize, target: Option<(i32, i32)> },
     /// A design's standing order: every ship of it, flying or still to be printed, takes it.
     Order { team: usize, slot: usize, order: Order },
-    /// The king prints a deck slot again each time it finishes one, or stops doing so.
-    Repeat { team: usize, slot: usize },
+    /// The king keeps printing a deck slot, or stops. A repeating job goes back on the end of the
+    /// queue each time it's finished. With no place given (the card was picked): if a job of the
+    /// design is repeating already, every job of it stops repeating; otherwise a new repeating
+    /// job of it joins the end of the queue. With a place `at` (a job in the queue was picked,
+    /// found as for `Cancel`): that job repeats, or stops.
+    Repeat { team: usize, slot: usize, at: Option<usize> },
     /// The king drops a job from its queue and gets back what it had paid: the job `at` places
     /// down the queue (0 is the one it's printing), which was of the design in `slot`. The queue
     /// may have moved up by the time the command is applied, so the job dropped is the last one
@@ -94,9 +100,60 @@ pub enum Cmd {
     Cancel { team: usize, at: usize, slot: usize },
 }
 
+/// Orders by their number on the wire. New ones go on the end.
+const WIRE_ORDERS: [Order; 6] = [Order::Hunt, Order::Guard, Order::Escort, Order::Harvest, Order::Hold, Order::Sab];
+
+/// A place past the end of any queue. As the `at` of a `Repeat` or a `Cancel` it means the last
+/// job of that design, wherever it is when the command is applied: the way to name a job that
+/// was only just asked for and, with commands waiting out a lag, isn't in the queue yet.
+pub const LAST_JOB: usize = 99_999;
+
+impl Cmd {
+    /// Whose command it is.
+    pub fn team(&self) -> usize {
+        match *self {
+            Cmd::Steer { team, .. } | Cmd::Print { team, .. } | Cmd::Order { team, .. } | Cmd::Repeat { team, .. } | Cmd::Cancel { team, .. } => team,
+        }
+    }
+
+    /// A command as a few words of text, to send to another machine. `from_wire` reads it back.
+    pub fn to_wire(&self) -> String {
+        match *self {
+            Cmd::Steer { team, dx, dy } => format!("S {team} {dx} {dy}"),
+            Cmd::Print { team, slot, target: None } => format!("P {team} {slot}"),
+            Cmd::Print { team, slot, target: Some((x, y)) } => format!("P {team} {slot} {x} {y}"),
+            Cmd::Order { team, slot, order } => format!("O {team} {slot} {}", WIRE_ORDERS.iter().position(|&o| o == order).unwrap_or(0)),
+            Cmd::Repeat { team, slot, at: None } => format!("R {team} {slot}"),
+            Cmd::Repeat { team, slot, at: Some(at) } => format!("R {team} {slot} {at}"),
+            Cmd::Cancel { team, at, slot } => format!("C {team} {at} {slot}"),
+        }
+    }
+
+    /// Reads a command another machine sent. Anything that isn't exactly a command is refused:
+    /// what arrives over a wire is never trusted to index into the match.
+    pub fn from_wire(s: &str) -> Option<Cmd> {
+        let mut words = s.split(' ');
+        let kind = words.next()?;
+        let nums: Vec<i64> = words.map(|w| w.parse::<i64>()).collect::<Result<_, _>>().ok()?;
+        let n = |k: usize, max: i64| nums.get(k).copied().filter(|v| (0..=max).contains(v)).map(|v| v as usize);
+        let far = |k: usize| nums.get(k).copied().filter(|v| (-100_000..=100_000).contains(v)).map(|v| v as i32);
+        let team = n(0, 1)?;
+        Some(match (kind, nums.len()) {
+            ("S", 3) => Cmd::Steer { team, dx: far(1)?.signum(), dy: far(2)?.signum() },
+            ("P", 2) => Cmd::Print { team, slot: n(1, 63)?, target: None },
+            ("P", 4) => Cmd::Print { team, slot: n(1, 63)?, target: Some((far(2)?, far(3)?)) },
+            ("O", 3) => Cmd::Order { team, slot: n(1, 63)?, order: WIRE_ORDERS[n(2, 5)?] },
+            ("R", 2) => Cmd::Repeat { team, slot: n(1, 63)?, at: None },
+            ("R", 3) => Cmd::Repeat { team, slot: n(1, 63)?, at: Some(n(2, 100_000)?) },
+            ("C", 3) => Cmd::Cancel { team, at: n(1, 100_000)?, slot: n(2, 63)? },
+            _ => return None,
+        })
+    }
+}
+
 /// Who plays a side: a person (through the window's commands), the AI, or one of the scripted
 /// openings the AI is measured against. They all play by commands, like a person.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Bot {
     None,
     /// The opponent: plants when it can pay, keeps miners working, masses its warships on GUARD
@@ -131,7 +188,7 @@ impl Bot {
 }
 
 /// What a bot remembers between thoughts.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Hash)]
 struct Mind {
     next: u32,
     /// A wave is out: when it was called, what the fleet was worth then, and the tick each design
@@ -177,7 +234,7 @@ pub(super) enum Next {
     Done,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Grow {
     /// Cells still to grow, in growth order (outward from the core).
     pub pending: Vec<usize>,
@@ -190,7 +247,7 @@ pub struct Grow {
 
 /// Something the king is printing: a deck slot, and for a seeded design the rock pixel its seed
 /// flies to.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Job {
     pub slot: usize,
     pub target: Option<(i32, i32)>,
@@ -200,7 +257,7 @@ pub struct Job {
     pub repeat: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash)]
 pub struct Tally {
     pub planted: i32,
     pub printed: i32,
@@ -211,7 +268,7 @@ pub struct Tally {
 }
 
 /// A rock as generated: its middle and its pixels (some may since have been eaten or mined).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Rock {
     pub cx: i32,
     pub cy: i32,
@@ -234,7 +291,7 @@ pub struct Links {
 }
 
 /// What the match needs to know about each deck slot, worked out once.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Card {
     pub ok: bool,
     pub count: i32,
@@ -243,8 +300,11 @@ pub struct Card {
     pub st: Stats,
     /// The order it was drawn with: the one it starts the match on.
     pub order: Order,
+    /// How many of it gather before they leave on HUNT or SAB.
+    pub group: u8,
 }
 
+#[derive(Hash)]
 pub struct Eco {
     pub deck: [Vec<Design>; 2],
     pub cards: [Vec<Card>; 2],
@@ -281,7 +341,7 @@ pub struct Eco {
 impl Card {
     pub fn of(d: &Design) -> Card {
         let st = d.stats();
-        Card { ok: d.check().ok(), count: st.count, cost: st.cost, seeded: d.seeded, st, order: d.order }
+        Card { ok: d.check().ok(), count: st.count, cost: st.cost, seeded: d.seeded, st, order: d.order, group: d.group.max(1) }
     }
     /// What the king pays to print it. A ship is paid for a pixel at a time as it's printed; a
     /// seeded design is paid for in full, everything it will grow into, before its seed sets off.
@@ -505,6 +565,35 @@ impl Arena {
 
     // ----- The tick -----
 
+    /// Groups set off. Ships of a design that leaves in groups wait at their posts, guarding,
+    /// until as many as its group size are waiting within `MUSTER` px of one of them. Those go,
+    /// all of them, and anything that joins later waits for a group of its own.
+    fn muster(&mut self) {
+        for team in 0..2 {
+            for slot in 0..self.eco().cards[team].len() {
+                let size = self.eco().cards[team][slot].group as usize;
+                let waiting: Vec<usize> = (0..self.ships.len())
+                    .filter(|&i| {
+                        let s = &self.ships[i];
+                        s.alive && s.waiting && s.team == team && s.slot == slot && s.role == Role::Ship && matches!(s.order, Order::Hunt | Order::Sab) && s.warp == 0 && s.grow.is_none() && s.maker.is_none()
+                    })
+                    .collect();
+                for &a in &waiting {
+                    if !self.ships[a].waiting {
+                        continue;
+                    }
+                    let (ax, ay) = (self.ships[a].x, self.ships[a].y);
+                    let near: Vec<usize> = waiting.iter().copied().filter(|&b| self.ships[b].waiting && cheb(self.ships[b].x, self.ships[b].y, ax, ay) <= MUSTER).collect();
+                    if near.len() >= size {
+                        for b in near {
+                            self.ships[b].waiting = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub(super) fn eco_pre(&mut self) {
         for t in 0..2 {
             if self.eco().bot[t] != Bot::None && self.tick >= self.eco().mind[t].next {
@@ -514,6 +603,8 @@ impl Arena {
             self.apply_commands();
             self.steer_king(t);
         }
+        // After this tick's orders, so a group already gathered leaves on the tick it's told to.
+        self.muster();
     }
 
     /// Queues a command for the next tick. A steer that changes nothing is dropped.
@@ -558,28 +649,34 @@ impl Arena {
                         continue;
                     }
                     let e = self.eco_mut();
+                    let out = |o: Order| matches!(o, Order::Hunt | Order::Sab);
+                    // Sent out from guarding or escorting, they gather first and leave as a group.
+                    // Switched between HUNT and SAB, the ones already out stay out.
+                    let gather = e.cards[team][slot].group > 1 && !(out(e.orders[team][slot]) && out(order));
                     e.orders[team][slot] = order;
                     e.tally[team].orders += 1;
                     for s in self.ships.iter_mut().filter(|s| s.alive && s.team == team && s.slot == slot && s.role == Role::Ship) {
                         s.order = order;
+                        s.waiting |= gather;
                     }
                 }
-                Cmd::Repeat { team, slot } => {
-                    let queued = self.eco().queue[team].iter().any(|j| j.slot == slot);
-                    if !queued {
-                        // Nothing of it queued: queue one, on repeat.
+                Cmd::Repeat { team, slot, at: Some(at) } => {
+                    // That job in the queue, wherever the queue has moved it to since.
+                    let q = &mut self.eco_mut().queue[team];
+                    let Some(at) = (0..q.len().min(at.saturating_add(1))).rev().find(|&i| q[i].slot == slot) else { continue };
+                    q[at].repeat = !q[at].repeat;
+                }
+                Cmd::Repeat { team, slot, at: None } => {
+                    if self.eco().queue[team].iter().any(|j| j.slot == slot && j.repeat) {
+                        for j in self.eco_mut().queue[team].iter_mut().filter(|j| j.slot == slot) {
+                            j.repeat = false;
+                        }
+                    } else {
+                        // A new job of it on the end of the queue, on repeat: whatever was asked
+                        // for before it comes first, one-off jobs of the same design included.
                         match self.can_print(team, slot, None) {
                             Ok(cost) if !self.eco().cards[team][slot].seeded => self.eco_mut().queue[team].push(Job { slot, target: None, paid: 0, cost, repeat: true }),
                             _ => continue,
-                        }
-                    } else {
-                        let q = &mut self.eco_mut().queue[team];
-                        let on = q.iter().any(|j| j.slot == slot && j.repeat);
-                        for j in q.iter_mut().filter(|j| j.slot == slot) {
-                            j.repeat = false;
-                        }
-                        if !on {
-                            q.iter_mut().find(|j| j.slot == slot).unwrap().repeat = true;
                         }
                     }
                 }
@@ -2728,7 +2825,7 @@ mod tests {
         let mut a = quiet();
         let k = a.eco.as_ref().unwrap().king[0];
         // Right-click on the fighter with nothing queued: one is queued, on repeat.
-        a.command(Cmd::Repeat { team: 0, slot: 0 });
+        a.command(Cmd::Repeat { team: 0, slot: 0, at: None });
         let summoned = |a: &Arena| a.eco.as_ref().unwrap().tally[0].summoned;
         while summoned(&a) < 3 {
             a.step();
@@ -2738,7 +2835,7 @@ mod tests {
         let q = &a.eco.as_ref().unwrap().queue[0];
         assert!(q.len() == 1 && q[0].slot == 0 && q[0].repeat, "{q:?}");
         // Again: it finishes the one it's on and stops.
-        a.command(Cmd::Repeat { team: 0, slot: 0 });
+        a.command(Cmd::Repeat { team: 0, slot: 0, at: None });
         a.step();
         assert!(!a.eco.as_ref().unwrap().queue[0][0].repeat);
         while !a.eco.as_ref().unwrap().queue[0].is_empty() {
@@ -2783,9 +2880,151 @@ mod tests {
         a.step();
         assert!(slots(&a).is_empty());
         // A seeded card can't repeat: there's no rock to send every seed to.
-        a.command(Cmd::Repeat { team: 0, slot: 4 });
+        a.command(Cmd::Repeat { team: 0, slot: 4, at: None });
         a.step();
         assert!(a.eco.as_ref().unwrap().queue[0].is_empty());
+    }
+
+    /// A match with blue's fighters on HUNT in groups of three, and blue's king's place.
+    fn match_with_groups_of_three() -> (Arena, Design, (i32, i32)) {
+        let mut deck = starter_deck();
+        deck[0].order = Order::Hunt;
+        deck[0].group = 3;
+        let a = Arena::for_match(5, [deck.clone(), starter_deck()], [false, false]);
+        let k = a.eco().king[0];
+        let at = (a.ships[k].x, a.ships[k].y);
+        (a, deck[0].clone(), at)
+    }
+
+    #[test]
+    fn ships_of_a_design_that_leaves_in_groups_wait_until_the_group_is_there() {
+        let (mut a, fighter, (kx, ky)) = match_with_groups_of_three();
+        let far = |a: &Arena, f: usize| cheb(a.ships[f].x, a.ships[f].y, a.ships[f].home.0, a.ships[f].home.1);
+        // Two of them wait where they were built, however long, and guard there.
+        let two = [a.spawn(0, 0, &fighter, kx + 40, ky, 1, false), a.spawn(0, 0, &fighter, kx + 40, ky + 14, 1, false)];
+        for _ in 0..15 * 20 {
+            a.step();
+        }
+        for f in two {
+            assert!(a.ships[f].waiting && a.ships[f].doing == Doing::Muster, "{:?}", a.ships[f].doing);
+            assert!(far(&a, f) <= 6, "it wandered {} px from where it was built", far(&a, f));
+        }
+        // A third makes the group, and all three go.
+        let third = a.spawn(0, 0, &fighter, kx + 40, ky - 14, 1, false);
+        a.step();
+        let three = [two[0], two[1], third];
+        assert!(three.iter().all(|&f| !a.ships[f].waiting));
+        for _ in 0..15 * 10 {
+            a.step();
+        }
+        for f in three {
+            assert!(far(&a, f) > GUARD_RADIUS, "ten seconds on it has gone {} px", far(&a, f));
+        }
+        // One built after they've gone waits for a group of its own.
+        let late = a.spawn(0, 0, &fighter, kx + 40, ky, 1, false);
+        for _ in 0..15 * 5 {
+            a.step();
+        }
+        assert!(a.ships[late].waiting && far(&a, late) <= 6);
+        // Told SAB, the three out stay out, even one that's strayed from the others, and the one
+        // waiting still waits.
+        (a.ships[three[0]].x, a.ships[three[0]].y) = (kx + 400, ky);
+        assert!(three[1..].iter().all(|&f| cheb(a.ships[f].x, a.ships[f].y, kx + 400, ky) > MUSTER));
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Sab });
+        a.step();
+        assert!(three.iter().all(|&f| !a.ships[f].waiting) && a.ships[late].waiting);
+        // Called home and sent out again, they gather first. Four of them, but no three together:
+        // nobody leaves.
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Guard });
+        a.step();
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Hunt });
+        a.step();
+        assert!(three.iter().all(|&f| a.ships[f].waiting) && a.ships[late].waiting, "ships more than {MUSTER} px apart left as a group");
+    }
+
+    #[test]
+    fn a_group_already_gathered_leaves_on_the_tick_its_told_to_and_ones_leave_at_once() {
+        let (mut a, fighter, (kx, ky)) = match_with_groups_of_three();
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Guard });
+        let three = [a.spawn(0, 0, &fighter, kx + 40, ky, 1, false), a.spawn(0, 0, &fighter, kx + 40, ky + 14, 1, false), a.spawn(0, 0, &fighter, kx + 40, ky - 14, 1, false)];
+        for _ in 0..15 {
+            a.step();
+        }
+        assert!(three.iter().all(|&f| a.ships[f].order == Order::Guard));
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Hunt });
+        a.step();
+        assert!(three.iter().all(|&f| !a.ships[f].waiting && a.ships[f].doing != Doing::Muster));
+        // Lancers, in the same deck, leave in ones: each is off the moment it exists.
+        let lancer = a.eco().deck[0][1].clone();
+        assert_eq!(lancer.group, 1);
+        let one = a.spawn(0, 1, &lancer, kx + 60, ky, 1, false);
+        assert!(!a.ships[one].waiting);
+    }
+
+    #[test]
+    fn sab_passes_a_king_by_for_a_miner_and_goes_on_the_wire_like_any_order() {
+        let mut deck = starter_deck();
+        deck[0].order = Order::Sab;
+        let mut a = Arena::for_match(5, [deck.clone(), starter_deck()], [false, false]);
+        let k = a.eco().king[1];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        // A raider 60 px from the red king, and a red miner 200 px beyond: the miner.
+        let raider = a.spawn(0, 0, &deck[0], kx - 60, ky, 1, false);
+        let miner = a.spawn(1, 3, &deck[3], kx - 260, ky, 1, false);
+        a.step();
+        assert_eq!(a.ships[raider].prey, Some(miner));
+        // With no miner or factory to go for, the king is the nearest thing to hunt.
+        a.ships[miner].alive = false;
+        a.step();
+        assert_eq!(a.ships[raider].prey, Some(k));
+        let c = Cmd::Order { team: 1, slot: 2, order: Order::Sab };
+        assert_eq!(Cmd::from_wire(&c.to_wire()), Some(c));
+        assert_eq!(Cmd::from_wire("O 1 2 6"), None);
+    }
+
+    #[test]
+    fn a_repeating_job_goes_on_the_end_of_the_queue_and_any_job_can_be_set_repeating() {
+        let mut a = quiet();
+        let jobs = |a: &Arena| a.eco.as_ref().unwrap().queue[0].iter().map(|j| (j.slot, j.repeat)).collect::<Vec<_>>();
+        let give = |a: &mut Arena, c: Cmd| {
+            a.command(c);
+            a.step();
+        };
+        // Two fighters asked for, then "fighters, on repeat" (the card, right-clicked): a third
+        // job, on the end. The two asked for first are still just two.
+        for _ in 0..2 {
+            give(&mut a, Cmd::Print { team: 0, slot: 0, target: None });
+        }
+        give(&mut a, Cmd::Repeat { team: 0, slot: 0, at: None });
+        assert_eq!(jobs(&a), vec![(0, false), (0, false), (0, true)]);
+        // A lancer, then "the last lancer repeats", given before the lancer's job could be seen:
+        // LAST_JOB finds it when the command lands.
+        a.command(Cmd::Print { team: 0, slot: 1, target: None });
+        give(&mut a, Cmd::Repeat { team: 0, slot: 1, at: Some(LAST_JOB) });
+        assert_eq!(jobs(&a), vec![(0, false), (0, false), (0, true), (1, true)]);
+        // One job in the queue picked out to repeat, and to stop: the second fighter, and no other.
+        give(&mut a, Cmd::Repeat { team: 0, slot: 0, at: Some(1) });
+        assert_eq!(jobs(&a), vec![(0, false), (0, true), (0, true), (1, true)]);
+        give(&mut a, Cmd::Repeat { team: 0, slot: 0, at: Some(1) });
+        assert_eq!(jobs(&a), vec![(0, false), (0, false), (0, true), (1, true)]);
+        // The card again: every fighter job stops repeating, and none is added or dropped.
+        give(&mut a, Cmd::Repeat { team: 0, slot: 0, at: None });
+        assert_eq!(jobs(&a), vec![(0, false), (0, false), (0, false), (1, true)]);
+        // A place with no job of that design at or before it, and a seeded card: nothing happens.
+        give(&mut a, Cmd::Repeat { team: 0, slot: 1, at: Some(2) });
+        give(&mut a, Cmd::Repeat { team: 0, slot: 4, at: None });
+        assert_eq!(jobs(&a), vec![(0, false), (0, false), (0, false), (1, true)]);
+        // A repeating job, finished, goes to the back: what was asked for once comes before
+        // its next turn.
+        give(&mut a, Cmd::Repeat { team: 0, slot: 0, at: Some(0) });
+        let k = a.eco.as_ref().unwrap().king[0];
+        a.ships[k].store += 100;
+        a.score[0].mined += 100;
+        while jobs(&a).first() == Some(&(0, true)) {
+            a.step();
+            assert!(a.tick < 15 * 60, "the king never finished its first fighter");
+        }
+        assert_eq!(jobs(&a), vec![(0, false), (0, false), (1, true), (0, true)]);
     }
 
     #[test]

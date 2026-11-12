@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 //! A small deterministic generator (SplitMix64), so every run replays from its logged seed.
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Rng(u64);
 
 impl Rng {

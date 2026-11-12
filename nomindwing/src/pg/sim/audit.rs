@@ -345,7 +345,7 @@ mod tests {
                     a.command(Cmd::Order { team, slot: rng.below(7) as usize, order: ORDERS[rng.below(ORDERS.len() as u32) as usize] });
                 }
                 if rng.chance(1) {
-                    a.command(Cmd::Repeat { team, slot: rng.below(7) as usize });
+                    a.command(Cmd::Repeat { team, slot: rng.below(7) as usize, at: if rng.chance(50) { None } else { Some(rng.below(4) as usize) } });
                 }
                 if rng.chance(1) {
                     // Mostly a job that's there; now and then one the queue has moved up from.

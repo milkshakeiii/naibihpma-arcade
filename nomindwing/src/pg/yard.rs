@@ -18,9 +18,11 @@ pub const NAME_RECT: Rect = Rect::new(210, 26, 186, 18);
 pub const STATUS_RECT: Rect = Rect::new(210, 133, 186, 11);
 const INFO_RECT: Rect = Rect::new(208, 213, 190, 85);
 /// Built or seeded, and the build order: the deck slots it prints, and buttons to add them.
-const KIND_BTNS: [Rect; 2] = [Rect::new(210, 167, 44, 13), Rect::new(256, 167, 50, 13)];
-const BUILD_Y: i32 = 183;
-const ADD_Y: i32 = 198;
+const KIND_BTNS: [Rect; 2] = [Rect::new(210, 172, 44, 13), Rect::new(256, 172, 50, 13)];
+const BUILD_Y: i32 = 187;
+const ADD_Y: i32 = 200;
+/// Where the word GROUP sits on the flight row, before its four buttons.
+const GROUP_X: i32 = 310;
 const COL_X: i32 = 212;
 const COST_Y: i32 = 47;
 const FLIGHT_Y: i32 = 58;
@@ -49,10 +51,18 @@ fn part_rect(i: usize, n: usize) -> Rect {
 fn tool_rect(i: usize) -> Rect {
     Rect::new(6 + i as i32 * 25, 264, 23, 16)
 }
-/// The order buttons, each as wide as its name needs, so all five fit the column.
+/// The order buttons, three to a row.
 fn order_rect(i: usize) -> Rect {
-    let w = |k: usize| ORDERS[k].name().len() as i32 * 6 + 5;
-    Rect::new(210 + (0..i).map(|k| w(k) + 1).sum::<i32>(), 147, w(i), 16)
+    Rect::new(210 + (i as i32 % 3) * 62, 146 + (i as i32 / 3) * 12, 61, 12)
+}
+/// The flight row of a design with engines: how it flies, then how many leave together.
+fn style_rect(i: usize) -> Rect {
+    let w = |k: usize| STYLES[k].name().len() as i32 * 6 + 5;
+    Rect::new(210 + (0..i).map(|k| w(k) + 1).sum::<i32>(), FLIGHT_Y - 2, w(i), 11)
+}
+fn group_rect(i: usize) -> Rect {
+    let w = |k: usize| if GROUPS[k] >= 10 { 17 } else { 11 };
+    Rect::new(GROUP_X + 33 + (0..i).map(|k| w(k) + 1).sum::<i32>(), FLIGHT_Y - 2, w(i), 11)
 }
 fn chip_rect(k: usize) -> Rect {
     Rect::new(250 + k as i32 * 12, BUILD_Y, 11, 11)
@@ -152,7 +162,7 @@ pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order) -> (Str
         None if power < 100 => (format!("UNDERPOWERED: RUNS AT {power}%"), GOLD),
         None if !armed => {
             let what = match order {
-                Order::Hunt => "NO GUNS: STAYS WITH ITS GROUP",
+                Order::Hunt | Order::Sab => "NO GUNS: STAYS WITH ITS GROUP",
                 Order::Hold => "NO GUNS: IT JUST HOLDS",
                 Order::Escort => "NO GUNS: IT FOLLOWS YOUR KING",
                 _ => "NO GUNS: RUNS HOME WHEN HIT",
@@ -514,8 +524,44 @@ impl Pg {
             Key::Letter('M') => self.ed.mirror = !self.ed.mirror,
             Key::Letter('Q') => self.zoom_by(-1, canvas_centre()),
             Key::Letter('E') => self.zoom_by(1, canvas_centre()),
+            // The design's order, how it flies and how many leave together: each key steps on.
+            Key::Letter('O') => {
+                let now = ORDERS.iter().position(|&o| o == self.lib[self.slot].order).unwrap_or(0);
+                self.set_order(ORDERS[(now + 1) % ORDERS.len()]);
+            }
+            Key::Letter('Y') => {
+                if let Some(now) = self.lib[self.slot].flies() {
+                    let k = STYLES.iter().position(|&o| o == now).unwrap_or(0);
+                    self.set_style(STYLES[(k + 1) % STYLES.len()]);
+                }
+            }
+            Key::Letter('G') => {
+                if self.lib[self.slot].flies().is_some() {
+                    let k = GROUPS.iter().position(|&g| g == self.lib[self.slot].group).unwrap_or(0);
+                    self.set_group(GROUPS[(k + 1) % GROUPS.len()]);
+                }
+            }
             _ => {}
         }
+    }
+
+    fn set_order(&mut self, o: Order) {
+        self.lib[self.slot].order = o;
+        self.edited = true;
+        self.save();
+    }
+
+    /// Chosen once, a design's style stays as chosen however it's redrawn.
+    fn set_style(&mut self, s: Style) {
+        self.lib[self.slot].style = Some(s);
+        self.edited = true;
+        self.save();
+    }
+
+    fn set_group(&mut self, g: u8) {
+        self.lib[self.slot].group = g;
+        self.edited = true;
+        self.save();
     }
 
     pub(super) fn press_yard(&mut self, x: i32, y: i32, right: bool) {
@@ -553,9 +599,11 @@ impl Pg {
         } else if let Some(i) = (0..BTNS.len()).find(|&i| tool_rect(i).contains(x, y)) {
             self.press_btn(BTNS[i]);
         } else if let Some(i) = (0..ORDERS.len()).find(|&i| order_rect(i).contains(x, y)) {
-            self.lib[self.slot].order = ORDERS[i];
-            self.edited = true;
-            self.save();
+            self.set_order(ORDERS[i]);
+        } else if let Some(i) = (0..STYLES.len()).find(|&i| style_rect(i).contains(x, y)).filter(|_| self.lib[self.slot].flies().is_some()) {
+            self.set_style(STYLES[i]);
+        } else if let Some(i) = (0..GROUPS.len()).find(|&i| group_rect(i).contains(x, y)).filter(|_| self.lib[self.slot].flies().is_some()) {
+            self.set_group(GROUPS[i]);
         } else if BTN_ZOOM_OUT.contains(x, y) {
             self.zoom_by(-1, canvas_centre());
         } else if BTN_ZOOM_IN.contains(x, y) {
@@ -710,8 +758,24 @@ impl Pg {
         let st = d.stats();
         let cost = if st.cores > 1 { format!("COST {} PX (+{} CORES)", st.cost, st.cost - st.count) } else { format!("COST {} PX", st.cost) };
         fb.text(&cost, COL_X, COST_Y, GOLD, None, 1);
-        icons::draw(fb, Icon::Flight(st.flight), COL_X, FLIGHT_Y, ACCENT);
-        fb.text(st.flight.name(), COL_X + 11, FLIGHT_Y, ACCENT, None, 1);
+        match d.flies() {
+            // No engines: nothing to choose.
+            None => {
+                icons::draw(fb, Icon::Flight(st.flight), COL_X, FLIGHT_Y, ACCENT);
+                fb.text(st.flight.name(), COL_X + 11, FLIGHT_Y, ACCENT, None, 1);
+            }
+            Some(now) => {
+                for (i, &style) in STYLES.iter().enumerate() {
+                    let r = style_rect(i);
+                    ui::button(fb, r, style.name(), r.contains(m.0, m.1), style == now);
+                }
+                fb.text("GROUP", GROUP_X, FLIGHT_Y, TEXT_DIM, None, 1);
+                for (i, &g) in GROUPS.iter().enumerate() {
+                    let r = group_rect(i);
+                    ui::button(fb, r, &g.to_string(), r.contains(m.0, m.1), g == d.group.max(1));
+                }
+            }
+        }
         for (k, (icon, segs, mark, value, lit)) in gauges(&st).into_iter().enumerate() {
             let y = GAUGE_Y[k];
             icons::draw(fb, icon, COL_X, y, TEXT_DIM);
@@ -741,7 +805,7 @@ impl Pg {
             ui::button(fb, r, label, r.contains(m.0, m.1), d.seeded == (k == 1));
         }
         if d.seeded {
-            fb.text(&format!("ROCK {}", st.count), 312, 170, TEXT_DIM, None, 1);
+            fb.text(&format!("ROCK {}", st.count), 312, KIND_BTNS[0].y + 3, TEXT_DIM, None, 1);
         }
         if st.factory > 0 || d.cells.contains(&Some(Part::Factory)) {
             fb.text("BUILDS", 210, BUILD_Y + 2, TEXT_FAINT, None, 1);
@@ -926,8 +990,16 @@ impl Pg {
         if on_row(COST_Y) {
             return "COST: EVERY PIXEL COSTS 1. A SECOND CORE COSTS +8, A THIRD +16, A FOURTH +32, AND SO ON.".into();
         }
+        if d.flies().is_some() {
+            if let Some(i) = (0..STYLES.len()).find(|&i| at(style_rect(i))) {
+                return format!("[Y] {}", STYLES[i].blurb());
+            }
+            if m.0 >= GROUP_X && on_row(FLIGHT_Y) {
+                return "[G] GROUP: IN A MATCH, ON HUNT OR SAB, THIS MANY OF THEM GATHER AT THEIR POSTS BEFORE ANY SETS OFF, AND GUARD UNTIL THEN. AT 1, EACH LEAVES AS SOON AS IT'S BUILT.".into();
+            }
+        }
         if on_row(FLIGHT_Y) {
-            return "FLIGHT FOLLOWS FROM THE DRAWING. AT LEAST 1 THRUST PER WEIGHT: ATTACK RUNS, DIVING THROUGH THE TARGET AND LOOPING BACK. LESS: STAND-OFF, HOLDING AT WEAPON RANGE. NO ENGINES: IT STAYS PUT.".into();
+            return "HOW IT FLIES AT WHAT IT FIGHTS. UNTIL YOU CHOOSE, THE DRAWING DOES: AT LEAST 1 THRUST PER WEIGHT RUNS, LESS KITES. EITHER WAY THE DRAWING DECIDES HOW WELL. NO ENGINES: IT STAYS PUT.".into();
         }
         if on_row(GAUGE_Y[0]) {
             return format!("TOP SPEED: {} PX/S. MORE ENGINES FOR THE WEIGHT, FASTER. EVEN THE HEAVIEST SHIP WITH AN ENGINE MANAGES 11.", st.top_speed_px_s());
@@ -938,7 +1010,7 @@ impl Pg {
         if on_row(GAUGE_Y[2]) {
             let (a, b) = (st.zero_to_top_ds() / 10, st.zero_to_top_ds() % 10);
             let short = if st.thrust < st.engines * 8 { format!(", DOWN FROM {} FOR WANT OF POWER", st.engines * 8) } else { String::new() };
-            return format!("THRUST {}{short}, FOR WEIGHT {} (8 PER ENGINE). AT THE GOLD MARK OR PAST IT, 1 THRUST PER WEIGHT, IT MAKES ATTACK RUNS; SHORT OF IT, IT HOLDS AT RANGE. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
+            return format!("THRUST {}{short}, FOR WEIGHT {} (8 PER ENGINE). AT THE GOLD MARK OR PAST IT, 1 THRUST PER WEIGHT, IT RUNS UNLESS YOU CHOOSE; SHORT OF IT, IT KITES. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
         }
         if on_row(GAUGE_Y[3]) {
             return format!("POWER: IT USES {} OF THE {} IT MAKES. MADE PER PIXEL: {}. USED: {}. SHORT OF POWER, IT ALL SLOWS IN STEP: AT 75%, GUNS RELOAD A THIRD SLOWER.", st.used, st.made, Part::power_list(true), Part::power_list(false));
@@ -1156,6 +1228,59 @@ mod tests {
             let cost = format!("COST {} PX (+{} CORES)", st.cost, st.cost - st.count);
             assert!(COL_X + Framebuffer::text_width(&cost, 1) <= 400, "{cost}");
         }
+    }
+
+    #[test]
+    fn a_designs_order_style_and_group_are_keys_and_buttons_in_the_yard() {
+        use crate::app::{App, Ev};
+        let mut pg = Pg::new(None, None);
+        pg.lib = starter_deck();
+        pg.screen = crate::pg::Screen::Yard;
+        pg.help = false;
+        pg.select_slot(0);
+        let press = |pg: &mut Pg, r: Rect| pg.event(Ev::Press { x: r.x + r.w / 2, y: r.y + r.h / 2, right: false });
+        let key = |pg: &mut Pg, c: char| pg.event(Ev::Key(Key::Letter(c)));
+        let d = |pg: &Pg| pg.lib[pg.slot].clone();
+        // A fighter with nothing chosen flies as it's drawn, and leaves alone.
+        assert_eq!((d(&pg).style, d(&pg).flies(), d(&pg).group), (None, Some(Style::Runs), 1));
+        // Style: a button each, and Y steps on from the one it has.
+        press(&mut pg, style_rect(2));
+        assert_eq!(d(&pg).style, Some(Style::Orbit));
+        key(&mut pg, 'Y');
+        assert_eq!(d(&pg).style, Some(Style::Runs));
+        key(&mut pg, 'Y');
+        assert_eq!(d(&pg).style, Some(Style::Kite));
+        // Group: a button each, and G steps on.
+        press(&mut pg, group_rect(2));
+        assert_eq!(d(&pg).group, 6);
+        key(&mut pg, 'G');
+        assert_eq!(d(&pg).group, 12);
+        key(&mut pg, 'G');
+        assert_eq!(d(&pg).group, 1);
+        // Orders: six buttons, and O steps on.
+        for (i, &o) in ORDERS.iter().enumerate() {
+            press(&mut pg, order_rect(i));
+            assert_eq!(d(&pg).order, o);
+        }
+        key(&mut pg, 'O');
+        assert_eq!(d(&pg).order, ORDERS[0]);
+        // None of those buttons lies over another, or runs off the column.
+        let all: Vec<Rect> = (0..3).map(style_rect).chain((0..4).map(group_rect)).chain((0..6).map(order_rect)).chain(KIND_BTNS).collect();
+        for (i, r) in all.iter().enumerate() {
+            assert!(r.x >= 210 && r.x + r.w <= 396, "{r:?} runs off the column");
+            for q in &all[i + 1..] {
+                assert!(r.x + r.w <= q.x || q.x + q.w <= r.x || r.y + r.h <= q.y || q.y + q.h <= r.y, "{r:?} lies over {q:?}");
+            }
+        }
+        // An outpost has no engines, so nothing to choose: its buttons aren't there, and the
+        // clicks and keys do nothing.
+        pg.select_slot(4);
+        assert_eq!(d(&pg).flies(), None);
+        press(&mut pg, style_rect(0));
+        press(&mut pg, group_rect(3));
+        key(&mut pg, 'Y');
+        key(&mut pg, 'G');
+        assert_eq!((d(&pg).style, d(&pg).group), (None, 1));
     }
 
     #[test]

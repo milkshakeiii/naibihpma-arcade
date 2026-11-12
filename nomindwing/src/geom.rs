@@ -2,7 +2,7 @@
 
 /// Walks a Bresenham line one pixel per step. It keeps going past the end point on the same
 /// slope, so shots fly on in a straight line.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Line {
     pub x: i32,
     pub y: i32,

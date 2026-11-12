@@ -1,8 +1,10 @@
 //! The match screen: fly your king, have it print your deck, plant seeds on rocks, give your
 //! designs their standing orders, and watch your factories grow and print. The AI plays the other
-//! side with the starter deck.
+//! side with the starter deck, or a person on another machine plays it with their own (`link`).
+//! Whichever side this machine plays is `me`: nothing here may take it for blue.
 
 use super::design::*;
+use super::link::{Link, Lobby, Met, Msg, Wire, PORT};
 use super::scene;
 use super::sim::*;
 use super::{draw_icon, pc, team_name, Pg, Screen, FIELD};
@@ -24,10 +26,17 @@ const BTN_SPEED: Rect = Rect::new(352, 159, 44, 14);
 const BTN_TAC: Rect = Rect::new(306, 175, 44, 14);
 const BTN_LEAVE: Rect = Rect::new(352, 175, 44, 14);
 const VIEW_NOTE_Y: i32 = 191;
+/// The lag dial, on the field's top edge beside the network's state.
+const BTN_LAG: Rect = Rect::new(258, 1, 44, 11);
 const OVER: Rect = Rect::new(52, 100, 200, 88);
 const OVER_BTNS: [Rect; 2] = [Rect::new(66, 162, 80, 16), Rect::new(158, 162, 80, 16)];
-const MENU: Rect = Rect::new(80, 80, 240, 130);
-const MENU_BTNS: [Rect; 3] = [Rect::new(92, 168, 70, 18), Rect::new(166, 168, 76, 18), Rect::new(246, 168, 62, 18)];
+const MENU: Rect = Rect::new(80, 72, 240, 164);
+const MENU_BTNS: [Rect; 5] = [Rect::new(92, 160, 70, 18), Rect::new(166, 160, 76, 18), Rect::new(246, 160, 62, 18), Rect::new(92, 206, 106, 18), Rect::new(202, 206, 106, 18)];
+/// Finding the other machine: the panel, the address being typed, and its buttons.
+const LOBBY: Rect = Rect::new(60, 86, 280, 128);
+const LOBBY_FIELD: Rect = Rect::new(120, 140, 160, 13);
+const LOBBY_BTNS: [Rect; 2] = [Rect::new(106, 186, 90, 18), Rect::new(204, 186, 90, 18)];
+const NO_PAUSE: &str = "A NETWORK MATCH RUNS AT ONE SPEED: THE OTHER PLAYER'S CLOCK IS RUNNING TOO";
 
 fn card_rect(i: usize) -> Rect {
     Rect::new(306, 14 + i as i32 * 18, 90, 17)
@@ -71,25 +80,29 @@ fn order_col(o: Order) -> u8 {
         Order::Escort => GOLD,
         Order::Harvest => GOOD,
         Order::Hold => TEXT_DIM,
+        Order::Sab => WHITE,
     }
 }
 
 /// The match's rules panel, by heading.
 const MATCH_HELP: [(&str, &str); 9] = [
     ("GOAL", "KILL THE ENEMY KING. LOSE YOURS AND YOU LOSE. A KING IS SLOW WHILE ITS SIDE HAS UNDER 40 PX LEFT."),
-    ("KING", "WASD OR ARROWS FLY IT. 1-7 OR A CARD: IT PRINTS THAT SHIP, A PIXEL AT A TIME. RIGHT-CLICK OR R: IT KEEPS PRINTING IT. BACKSPACE: IT STOPS."),
+    ("KING", "WASD OR ARROWS FLY IT. 1-7 OR A CARD: IT PRINTS THAT SHIP, PIXEL BY PIXEL. RIGHT-CLICK: IT GOES LAST IN THE QUEUE, ON REPEAT. BACKSPACE STOPS IT."),
     ("SEEDS", "A SEEDED CARD COSTS ALL IT GROWS INTO, PAID AT ONCE. CLICK A ROCK: ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK, PIXEL BY PIXEL."),
     ("FACTORY", "IT PRINTS ITS BUILD ORDER ROUND AND ROUND, A PIXEL AT A TIME, WAITING WHEN THE BANK IS EMPTY."),
     ("BANK", "MINERS HAUL TO THE NEAREST NODE (KING OR FACTORY). LINKED NODES SHARE A BANK; NODES CUT OFF FROM YOUR KING KEEP THEIR OWN."),
-    ("ORDERS", "EVERY DESIGN THAT FLIES HAS A STANDING ORDER, ON ITS CARD: HUNT THE NEAREST ENEMY, GUARD WHERE IT WAS BUILT, OR ESCORT YOUR KING. CLICK THE TAG OR SHIFT+NUMBER: EVERY SHIP OF IT OBEYS AT ONCE."),
+    ("ORDERS", "A DESIGN THAT FLIES HAS A STANDING ORDER, ON ITS CARD: HUNT THE NEAREST ENEMY, SAB ITS MINERS AND FACTORIES, GUARD WHERE IT WAS BUILT, OR ESCORT YOUR KING. THE TAG OR SHIFT+NUMBER CHANGES IT."),
     ("VIEW", "HOLD THE MOUSE ON THE SMALL MAP TO LOOK AROUND; STEERING BRINGS THE VIEW BACK. TAB: WHOLE MAP."),
     ("SOLID", "WHAT'S PLANTED IS SOLID TO ENEMY SHIPS. SO IS AN ENEMY SHIP BIGGER THAN YOURS."),
-    ("KEYS", "SPACE PAUSE  F SPEED  ESC CANCEL/QUIT  F1 HELP"),
+    ("KEYS", "SPACE PAUSE  F SPEED  L LAG  ESC QUIT  F1 HELP"),
 ];
 
 /// A match in progress, and how you're looking at it.
 pub struct Play {
     pub arena: Arena,
+    /// How commands reach the match: after the lag, and in step with another machine if there
+    /// is one. It also says which side this machine plays.
+    pub link: Link,
     pub cam: (i32, i32),
     pub follow: bool,
     /// The field shows the whole map at quarter scale.
@@ -106,6 +119,9 @@ pub struct Play {
     next_log: u32,
     /// Whether each king was slowed at the last look, for the log.
     slowed: [bool; 2],
+    /// Whether the log has been told that the two machines parted, that the other left, and
+    /// that their first check agreed.
+    logged_net: [bool; 3],
 }
 
 impl Pg {
@@ -116,7 +132,7 @@ impl Pg {
     pub fn start_match(&mut self, starter: bool, seed: u64) {
         let mine = if starter { starter_deck() } else { self.lib.clone() };
         let arena = Arena::for_match(seed, [mine, starter_deck()], [false, true]);
-        let mut p = Play { arena, cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2] };
+        let mut p = Play { arena, link: Link::solo(), cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
         p.look_at_king();
         self.play = Some(p);
         self.menu = false;
@@ -132,7 +148,127 @@ impl Pg {
         }
     }
 
+    /// Starts a match against a person on another machine, now that the two have met: the host
+    /// plays blue and the joiner red, each with their own seven designs.
+    pub fn start_net(&mut self, met: Met) {
+        let me = if met.host { 0 } else { 1 };
+        self.start_linked(me, met.seed, met.deck, Box::new(met.wire), met.backlog);
+    }
+
+    /// The same, over any wire.
+    pub fn start_linked(&mut self, me: usize, seed: u64, theirs: Vec<Design>, wire: Box<dyn Wire>, backlog: Vec<Msg>) {
+        let decks = if me == 0 { [self.lib.clone(), theirs] } else { [theirs, self.lib.clone()] };
+        let arena = Arena::for_match(seed, decks, [false, false]);
+        let mut p = Play { arena, link: Link::net(me, wire, backlog), cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter: false, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
+        p.look_at_king();
+        self.play = Some(p);
+        self.menu = false;
+        self.lobby = None;
+        self.screen = Screen::Match;
+        // No rules panel first: the match is running on the other machine already.
+        self.help = false;
+        self.log(&format!("NET MATCH START seed {seed}, YOU ARE {}", team_name(me)));
+        for d in self.lib.clone() {
+            self.log(&format!("  DESIGN {}", d.to_line()));
+        }
+    }
+
+    /// Hosts a network match: waits for the other player on a port. `local` listens to this
+    /// machine only, for two games side by side.
+    pub fn host(&mut self, port: u16, local: bool) {
+        self.menu = false;
+        self.lobby = Some(if local { Lobby::host_on("127.0.0.1", port) } else { Lobby::host(port) });
+        self.log(&format!("NET HOST on port {port}{}", if local { ", this machine only" } else { "" }));
+    }
+
+    /// Joins a network match at an address, or asks for the address if none is given.
+    pub fn join(&mut self, addr: Option<&str>) {
+        self.menu = false;
+        self.lobby = Some(match addr {
+            Some(a) => Lobby::join(a),
+            None => Lobby::Address("127.0.0.1".into()),
+        });
+    }
+
+    /// One frame of finding the other machine. When both have said hello, the match starts.
+    pub(super) fn step_lobby(&mut self) {
+        let seed = crate::game::utc_stamp().bytes().fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) % 100_000 + 2;
+        let Some(lobby) = self.lobby.as_mut() else { return };
+        if let Some(met) = lobby.poll(seed, &self.lib) {
+            self.start_net(met);
+        }
+    }
+
+    /// A key while finding the other machine. True if it was used.
+    pub(super) fn key_lobby(&mut self, k: Key) -> bool {
+        match (self.lobby.as_mut(), k) {
+            (None, _) => return false,
+            (Some(Lobby::Address(text)), Key::Back) => {
+                text.pop();
+            }
+            (Some(Lobby::Address(text)), Key::Enter) if !text.is_empty() => self.lobby = Some(Lobby::join(text)),
+            (Some(_), Key::Esc) => self.lobby = None,
+            _ => {}
+        }
+        true
+    }
+
+    /// A typed character goes into the address.
+    pub(super) fn char_lobby(&mut self, c: char) {
+        if let Some(Lobby::Address(text)) = self.lobby.as_mut() {
+            if (c.is_ascii_alphanumeric() || ".:-".contains(c)) && text.len() < 26 {
+                text.push(c.to_ascii_uppercase());
+            }
+        }
+    }
+
+    pub(super) fn press_lobby(&mut self, x: i32, y: i32) {
+        let typing = matches!(self.lobby, Some(Lobby::Address(_)));
+        if typing && LOBBY_BTNS[0].contains(x, y) {
+            self.key_lobby(Key::Enter);
+        } else if LOBBY_BTNS[1].contains(x, y) || (!typing && LOBBY_BTNS[0].contains(x, y)) {
+            self.lobby = None;
+        }
+    }
+
+    pub(super) fn draw_lobby(&self, fb: &mut Framebuffer) {
+        let Some(lobby) = &self.lobby else { return };
+        let r = LOBBY;
+        ui::panel(fb, r);
+        let m = self.mouse;
+        let (head, lines): (&str, Vec<String>) = match lobby {
+            Lobby::Address(_) => ("JOIN A MATCH", wrap("TYPE THE HOST'S ADDRESS. 127.0.0.1 IS THIS MACHINE.", 43)),
+            Lobby::Hosting { port, .. } => {
+                let port = if *port == PORT { String::new() } else { format!(" (PORT {port})") };
+                ("HOSTING A MATCH", wrap(&format!("WAITING FOR THE OTHER PLAYER{port}. THEY CHOOSE JOIN A MATCH AND TYPE THIS MACHINE'S ADDRESS, OR 127.0.0.1 IF THEIR GAME IS ON THIS MACHINE TOO. YOU'LL PLAY BLUE."), 43))
+            }
+            Lobby::Joining { addr, .. } => ("JOINING A MATCH", wrap(&format!("CONNECTING TO {}...", addr.to_uppercase()), 43)),
+            Lobby::Meeting { .. } => ("FOUND THEM", wrap("SWAPPING DECKS...", 43)),
+            Lobby::Failed(why) => ("NO MATCH", wrap(why, 43)),
+        };
+        fb.text_centered(head, r.x + r.w / 2, r.y + 8, ACCENT, Some(OUTLINE), 2);
+        for (i, l) in lines.iter().enumerate() {
+            fb.text(l, r.x + 10, r.y + 30 + i as i32 * 9, TEXT, None, 1);
+        }
+        if let Lobby::Address(text) = lobby {
+            let f = LOBBY_FIELD;
+            fb.rect_fill(f.x, f.y, f.w, f.h, PANEL_DEEP);
+            fb.rect_outline(f.x, f.y, f.w, f.h, ACCENT);
+            fb.text(&format!("{text}_"), f.x + 4, f.y + 3, WHITE, None, 1);
+            fb.text_centered("ENTER JOINS. ESC GOES BACK.", r.x + r.w / 2, f.y + 20, TEXT_DIM, None, 1);
+            for (b, label) in LOBBY_BTNS.iter().zip(["JOIN", "BACK"]) {
+                ui::button(fb, *b, label, b.contains(m.0, m.1), false);
+            }
+        } else {
+            let b = LOBBY_BTNS[1];
+            ui::button(fb, b, "BACK", b.contains(m.0, m.1), false);
+        }
+    }
+
     fn leave_match(&mut self) {
+        if let Some(p) = self.play.as_mut() {
+            p.link.bye();
+        }
         if let Some(p) = &self.play {
             if p.arena.over.is_none() {
                 let line = format!("MATCH LEFT at {} | {}", clock(p.arena.tick), Self::match_state(&p.arena));
@@ -152,22 +288,41 @@ impl Pg {
 
     pub(super) fn step_match(&mut self, dirs: &[bool]) {
         let Some(p) = self.play.as_mut() else { return };
+        let me = p.link.me;
         let steer = (dirs[3] as i32 - dirs[2] as i32, dirs[1] as i32 - dirs[0] as i32);
         if steer != (0, 0) {
             p.follow = true;
         }
-        if p.arena.eco.as_ref().is_some_and(|e| e.bot[0] == Bot::None) {
-            p.arena.command(Cmd::Steer { team: 0, dx: steer.0, dy: steer.1 });
+        if p.arena.eco.as_ref().is_some_and(|e| e.bot[me] == Bot::None) {
+            p.link.steer(&p.arena, steer.0, steer.1);
         }
-        if p.running && p.arena.over.is_none() {
-            for _ in 0..p.speed {
-                p.arena.step();
-            }
-        }
+        // In step with another machine there's one speed and no pause: their clock runs too.
+        let want = if p.link.net.is_some() {
+            1
+        } else if p.running {
+            p.speed
+        } else {
+            0
+        };
+        p.link.advance(&mut p.arena, want);
         if p.follow {
             p.look_at_king();
         }
         let mut lines = Vec::new();
+        if let Some(net) = p.link.net.as_ref() {
+            if let (Some(t), false) = (net.parted, p.logged_net[0]) {
+                p.logged_net[0] = true;
+                lines.push(format!("NET OUT OF STEP from {} (tick {t}); last agreed tick {}", clock(t), net.agreed));
+            }
+            if net.agreed > 0 && !p.logged_net[2] {
+                p.logged_net[2] = true;
+                lines.push(format!("NET IN STEP: the first check agreed, at tick {}", net.agreed));
+            }
+            if let (Some(why), false) = (&net.gone, p.logged_net[1]) {
+                p.logged_net[1] = true;
+                lines.push(format!("NET ENDED at {}: {why}", clock(p.arena.tick)));
+            }
+        }
         for t in 0..2 {
             let now = p.arena.over.is_none() && p.arena.king_slowed(t);
             if now != p.slowed[t] && p.arena.over.is_none() {
@@ -177,15 +332,17 @@ impl Pg {
         }
         if p.arena.tick >= p.next_log && p.arena.over.is_none() {
             p.next_log += 15 * 60;
-            lines.push(format!("MATCH {} | {}", clock(p.arena.tick), Self::match_state(&p.arena)));
+            let net = p.link.net.as_ref().map_or(String::new(), |n| format!(" | NET lag {}, in step to {}", p.link.delay, clock(n.agreed)));
+            lines.push(format!("MATCH {} | {}{net}", clock(p.arena.tick), Self::match_state(&p.arena)));
         }
         if let Some(result) = p.arena.over {
             if !p.logged_over {
                 p.logged_over = true;
                 p.running = false;
+                let other = if p.link.net.is_some() { "THEM" } else { "AI" };
                 let who = match result {
-                    Some(0) => "BLUE (YOU) WIN".to_string(),
-                    Some(_) => "RED (AI) WINS".to_string(),
+                    Some(w) if w == me => format!("{} (YOU) WIN", team_name(w)),
+                    Some(w) => format!("{} ({other}) WINS", team_name(w)),
                     None => "DRAW".to_string(),
                 };
                 lines.push(format!("MATCH RESULT {who} at {} | {}", clock(p.arena.tick), Self::match_state(&p.arena)));
@@ -200,25 +357,42 @@ impl Pg {
 
     pub(super) fn key_match(&mut self, k: Key) {
         let Some(p) = self.play.as_mut() else { return };
+        let (me, net) = (p.link.me, p.link.net.is_some());
         match k {
             Key::Num(n) if (1..=7).contains(&n) => self.card(n as usize - 1),
             Key::ShiftNum(n) if (1..=7).contains(&n) => self.next_order(n as usize - 1),
+            Key::Space | Key::Letter('P') | Key::Letter('F') if net => self.say(NO_PAUSE),
             Key::Space | Key::Letter('P') => {
                 if p.arena.over.is_none() {
                     p.running = !p.running;
                 }
             }
             Key::Letter('F') => p.speed = if p.speed >= 4 { 1 } else { p.speed * 2 },
+            Key::Letter('L') => self.turn_lag(),
             Key::Tab => self.toggle_tactical(),
             Key::Back => self.drop_job(0),
             Key::Letter('R') => {
-                // What the king is printing repeats, or stops repeating.
-                if let Some(slot) = p.arena.eco.as_ref().and_then(|e| e.queue[0].first()).map(|j| j.slot) {
-                    self.repeat(slot);
+                // The last job asked for repeats, or stops. After a card's number, that's a
+                // repeating job of the card on the end of the queue: a right-click on the card.
+                // The job may still be waiting out the lag, so the command names its design and
+                // finds the job when it's applied.
+                let queued = p.arena.eco.as_ref().and_then(|e| e.queue[me].last()).map(|j| j.slot);
+                if let Some(slot) = p.link.print_waiting().or(queued) {
+                    let line = format!("REPEAT LAST JOB at {}", clock(p.arena.tick));
+                    p.link.give(&p.arena, Cmd::Repeat { team: me, slot, at: Some(LAST_JOB) });
+                    self.log(&line);
                 }
             }
             _ => {}
         }
+    }
+
+    /// The lag dial: how many ticks your commands wait before they're applied.
+    fn turn_lag(&mut self) {
+        let Some(p) = self.play.as_mut() else { return };
+        p.link.next_delay();
+        let line = format!("LAG {} ticks at {}", p.link.delay, clock(p.arena.tick));
+        self.log(&line);
     }
 
     fn toggle_tactical(&mut self) {
@@ -231,13 +405,14 @@ impl Pg {
     /// A card: the king prints a built design straight away; a seeded one waits for a rock.
     fn card(&mut self, i: usize) {
         let Some(p) = self.play.as_mut() else { return };
-        let Some(card) = p.arena.eco.as_ref().and_then(|e| e.cards[0].get(i).copied()) else { return };
+        let me = p.link.me;
+        let Some(card) = p.arena.eco.as_ref().and_then(|e| e.cards[me].get(i).copied()) else { return };
         if !card.ok {
             self.say("THAT DESIGN CAN'T FLY YET: FIX IT IN THE YARD");
             return;
         }
         if card.seeded {
-            let bank = p.arena.bank(p.arena.eco.as_ref().unwrap().king[0]);
+            let bank = p.arena.bank(p.arena.eco.as_ref().unwrap().king[me]);
             if bank < card.price() {
                 let s = format!("IT COSTS {} AND YOUR BANK HOLDS {bank}", card.price());
                 self.say(&s);
@@ -246,8 +421,8 @@ impl Pg {
             p.planting = Some(i);
             self.say("CLICK A ROCK FOR THE SEED. RIGHT-CLICK CANCELS");
         } else {
-            match p.arena.can_print(0, i, None) {
-                Ok(_) => p.arena.command(Cmd::Print { team: 0, slot: i, target: None }),
+            match p.arena.can_print(me, i, None) {
+                Ok(_) => p.link.give(&p.arena, Cmd::Print { team: me, slot: i, target: None }),
                 Err(why) => self.say(why),
             }
         }
@@ -256,38 +431,52 @@ impl Pg {
     /// A card's order tag: the design's next standing order.
     fn next_order(&mut self, i: usize) {
         let Some(p) = self.play.as_mut() else { return };
+        let me = p.link.me;
         let Some(e) = p.arena.eco.as_ref() else { return };
-        let Some(card) = e.cards[0].get(i).copied().filter(|c| c.takes_orders()) else { return };
-        let (now, choices) = (e.orders[0][i], Order::in_match(card.order));
+        let Some(card) = e.cards[me].get(i).copied().filter(|c| c.takes_orders()) else { return };
+        let (now, choices) = (e.orders[me][i], Order::in_match(card.order));
         let next = choices[(choices.iter().position(|&o| o == now).map_or(0, |k| k + 1)) % choices.len()];
-        let line = format!("ORDER {} {} at {}", e.deck[0][i].name, next.name(), clock(p.arena.tick));
-        p.arena.command(Cmd::Order { team: 0, slot: i, order: next });
+        let line = format!("ORDER {} {} at {}", e.deck[me][i].name, next.name(), clock(p.arena.tick));
+        p.link.give(&p.arena, Cmd::Order { team: me, slot: i, order: next });
         self.log(&line);
     }
 
-    /// Right-click on a card, or on one of its jobs in the queue: the king keeps printing it (or
-    /// stops).
+    /// Right-click on a card: a job of it goes on the end of the king's queue, on repeat. If one
+    /// of its jobs repeats already, they all stop repeating instead.
     fn repeat(&mut self, i: usize) {
         let Some(p) = self.play.as_mut() else { return };
+        let me = p.link.me;
         let Some(e) = p.arena.eco.as_ref() else { return };
-        let Some(card) = e.cards[0].get(i).copied() else { return };
+        let Some(card) = e.cards[me].get(i).copied() else { return };
         if !card.ok || card.seeded {
             self.say("ONLY SHIPS YOUR KING PRINTS CAN REPEAT");
             return;
         }
-        let on = e.queue[0].iter().any(|j| j.slot == i && j.repeat);
-        let line = format!("REPEAT {} {} at {}", e.deck[0][i].name, if on { "OFF" } else { "ON" }, clock(p.arena.tick));
-        p.arena.command(Cmd::Repeat { team: 0, slot: i });
+        let on = e.queue[me].iter().any(|j| j.slot == i && j.repeat);
+        let line = format!("REPEAT {} {} at {}", e.deck[me][i].name, if on { "OFF" } else { "ON" }, clock(p.arena.tick));
+        p.link.give(&p.arena, Cmd::Repeat { team: me, slot: i, at: None });
+        self.log(&line);
+    }
+
+    /// Right-click on a job in the queue: that job repeats, or stops.
+    fn repeat_job(&mut self, at: usize) {
+        let Some(p) = self.play.as_mut() else { return };
+        let me = p.link.me;
+        let Some(e) = p.arena.eco.as_ref() else { return };
+        let Some(j) = e.queue[me].get(at).copied() else { return };
+        let line = format!("REPEAT JOB {} {} at {}", e.deck[me].get(j.slot).map_or("?", |d| d.name.as_str()), if j.repeat { "OFF" } else { "ON" }, clock(p.arena.tick));
+        p.link.give(&p.arena, Cmd::Repeat { team: me, slot: j.slot, at: Some(at) });
         self.log(&line);
     }
 
     /// Drops a job from the king's queue: 0 is the one it's printing.
     fn drop_job(&mut self, at: usize) {
         let Some(p) = self.play.as_mut() else { return };
+        let me = p.link.me;
         let Some(e) = p.arena.eco.as_ref() else { return };
-        let Some(j) = e.queue[0].get(at).copied() else { return };
-        let line = format!("DROP {} at {}", e.deck[0].get(j.slot).map_or("?", |d| d.name.as_str()), clock(p.arena.tick));
-        p.arena.command(Cmd::Cancel { team: 0, at, slot: j.slot });
+        let Some(j) = e.queue[me].get(at).copied() else { return };
+        let line = format!("DROP {} at {}", e.deck[me].get(j.slot).map_or("?", |d| d.name.as_str()), clock(p.arena.tick));
+        p.link.give(&p.arena, Cmd::Cancel { team: me, at, slot: j.slot });
         self.log(&line);
     }
 
@@ -305,13 +494,14 @@ impl Pg {
     /// Plants the seed of `slot` on the rock nearest a world point, if there is one within `slack`.
     fn plant(&mut self, slot: usize, at: (i32, i32), slack: i32) {
         let Some(p) = self.play.as_mut() else { return };
+        let me = p.link.me;
         match p.arena.rock_near(at, slack) {
             Some(target) => {
                 p.planting = None;
-                match p.arena.can_print(0, slot, Some(target)) {
+                match p.arena.can_print(me, slot, Some(target)) {
                     Ok(cost) => {
-                        let line = format!("PLANT {} for {cost} at {}", p.arena.eco.as_ref().unwrap().deck[0][slot].name, clock(p.arena.tick));
-                        p.arena.command(Cmd::Print { team: 0, slot, target: Some(target) });
+                        let line = format!("PLANT {} for {cost} at {}", p.arena.eco.as_ref().unwrap().deck[me][slot].name, clock(p.arena.tick));
+                        p.link.give(&p.arena, Cmd::Print { team: me, slot, target: Some(target) });
                         self.log(&line);
                     }
                     Err(why) => self.say(why),
@@ -323,8 +513,10 @@ impl Pg {
 
     pub(super) fn press_match(&mut self, x: i32, y: i32, right: bool) {
         let Some(p) = self.play.as_mut() else { return };
-        if p.arena.over.is_some() && !right {
-            if OVER_BTNS[0].contains(x, y) {
+        let (me, net) = (p.link.me, p.link.net.is_some());
+        if p.ended() && !right {
+            // A network match has no second go: both players would have to want one.
+            if !net && OVER_BTNS[0].contains(x, y) {
                 let (starter, seed) = (p.starter, p.seed + 1);
                 self.start_match(starter, seed);
                 return;
@@ -339,9 +531,13 @@ impl Pg {
                 p.planting = None;
             } else if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
                 self.repeat(i);
-            } else if let Some(slot) = p.job_at(x, y).map(|(_, j)| j.slot) {
-                self.repeat(slot);
+            } else if let Some((k, _)) = p.job_at(x, y) {
+                self.repeat_job(k);
             }
+            return;
+        }
+        if BTN_LAG.contains(x, y) {
+            self.turn_lag();
             return;
         }
         if FIELD.contains(x, y) {
@@ -359,7 +555,7 @@ impl Pg {
             }
             return;
         }
-        if let Some(i) = (0..7).find(|&i| tag_rect(i).contains(x, y) && p.arena.eco.as_ref().is_some_and(|e| e.cards[0].get(i).is_some_and(|c| c.takes_orders()))) {
+        if let Some(i) = (0..7).find(|&i| tag_rect(i).contains(x, y) && p.arena.eco.as_ref().is_some_and(|e| e.cards[me].get(i).is_some_and(|c| c.takes_orders()))) {
             self.next_order(i);
         } else if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
             self.card(i);
@@ -377,6 +573,8 @@ impl Pg {
             self.drop_job(k);
         } else if BTN_CANCEL.contains(x, y) {
             self.drop_job(0);
+        } else if net && (BTN_PAUSE.contains(x, y) || BTN_SPEED.contains(x, y)) {
+            self.say(NO_PAUSE);
         } else if BTN_PAUSE.contains(x, y) {
             if p.arena.over.is_none() {
                 p.running = !p.running;
@@ -415,6 +613,10 @@ impl Pg {
         } else if MENU_BTNS[1].contains(x, y) {
             let seed = crate::game::utc_stamp().bytes().fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) % 100_000 + 2;
             self.start_match(true, seed);
+        } else if MENU_BTNS[3].contains(x, y) {
+            self.host(PORT, false);
+        } else if MENU_BTNS[4].contains(x, y) {
+            self.join(None);
         } else if MENU_BTNS[2].contains(x, y) || !MENU.contains(x, y) {
             self.menu = false;
         }
@@ -432,10 +634,12 @@ impl Pg {
             body += " YOUR DECK HAS NO SEEDED FACTORY YET, SO ONLY YOUR KING WOULD BUILD.";
         }
         for (i, l) in wrap(&body, 37).iter().enumerate() {
-            fb.text(l, r.x + 10, r.y + 30 + i as i32 * 9, TEXT, None, 1);
+            fb.text(l, r.x + 10, r.y + 28 + i as i32 * 9, TEXT, None, 1);
         }
+        fb.text("OR AGAINST A PERSON, EACH WITH THEIR", r.x + 10, MENU_BTNS[3].y - 22, TEXT, None, 1);
+        fb.text("OWN DECK, ON THIS MACHINE OR ANOTHER:", r.x + 10, MENU_BTNS[3].y - 13, TEXT, None, 1);
         let m = self.mouse;
-        for (b, label) in MENU_BTNS.iter().zip(["YOUR DECK", "STARTER DECK", "BACK"]) {
+        for (b, label) in MENU_BTNS.iter().zip(["YOUR DECK", "STARTER DECK", "BACK", "HOST A MATCH", "JOIN A MATCH"]) {
             ui::button(fb, *b, label, b.contains(m.0, m.1), false);
         }
     }
@@ -444,10 +648,11 @@ impl Pg {
         let Some(p) = &self.play else { return };
         let a = &p.arena;
         let e = a.eco.as_ref().unwrap();
+        let me = p.link.me;
         let m = self.mouse;
         let f = FIELD;
         // The world point under the pointer, on whichever view the field shows.
-        let at = if f.contains(m.0, m.1) { p.world_point(m.0, m.1) } else { None };
+        let at = if f.contains(m.0, m.1) && !BTN_LAG.contains(m.0, m.1) { p.world_point(m.0, m.1) } else { None };
         let hovered = match at {
             Some((wx, wy)) if p.planting.is_none() && !p.tactical => a.ship_at(wx, wy),
             Some((wx, wy)) if p.planting.is_none() => (0..a.ships.len()).filter(|&i| a.ships[i].alive && a.ships[i].warp == 0 && cheb(a.ships[i].x, a.ships[i].y, wx, wy) <= a.ships[i].half() + 2 * TAC_SCALE).min_by_key(|&i| dist2(a.ships[i].x, a.ships[i].y, wx, wy)),
@@ -478,7 +683,7 @@ impl Pg {
         // link to there.
         let mut bar: Option<Vec<String>> = None;
         if let (Some(slot), Some(at)) = (p.planting, at) {
-            let need = e.cards[0][slot].count;
+            let need = e.cards[me][slot].count;
             match a.rock_near(at, if p.tactical { 2 * TAC_SCALE } else { 6 }) {
                 Some(px) => {
                     let rock = a.rock_blob(px);
@@ -500,7 +705,7 @@ impl Pg {
                     };
                     // A line to every node it would link to, green if that leads to the king's
                     // bank; with nothing in reach, a dim one to the nearest and how far short it is.
-                    let link = match a.plant_links(0, slot, px) {
+                    let link = match a.plant_links(me, slot, px) {
                         Some(l) => {
                             let from = spot(l.at);
                             let mut line = |to: (i32, i32), col: u8| {
@@ -521,21 +726,36 @@ impl Pg {
                         }
                         None => String::new(),
                     };
-                    bar = Some(wrap(&format!("PLANT {} HERE FOR {} PX: ROCK {} PX, NEEDS {}. {fit}{link} RIGHT-CLICK OR ESC CANCELS.", e.deck[0][slot].name, e.cards[0][slot].price(), rock.len(), need), 49));
+                    bar = Some(wrap(&format!("PLANT {} HERE FOR {} PX: ROCK {} PX, NEEDS {}. {fit}{link} RIGHT-CLICK OR ESC CANCELS.", e.deck[me][slot].name, e.cards[me][slot].price(), rock.len(), need), 49));
                 }
-                None => bar = Some(vec![format!("PLANT {}: CLICK A ROCK", e.deck[0][slot].name), "RIGHT-CLICK OR ESC CANCELS".into()]),
+                None => bar = Some(vec![format!("PLANT {}: CLICK A ROCK", e.deck[me][slot].name), "RIGHT-CLICK OR ESC CANCELS".into()]),
             }
         }
         fb.text(&clock(a.tick), 4, 3, TEXT_DIM, Some(OUTLINE), 1);
+        // The lag dial, and beside it how the two machines stand: the time of the last hash
+        // they agreed on.
+        ui::button(fb, BTN_LAG, &format!("LAG {}", p.link.delay), BTN_LAG.contains(m.0, m.1), p.link.delay > 0);
         let mut notes: Vec<(String, u8)> = Vec::new();
-        if e.split_at[0] > 0 && a.tick < e.split_at[0] + 15 * 4 {
+        if let Some(net) = p.link.net.as_ref() {
+            match net.parted {
+                Some(t) => notes.push((format!("OUT OF STEP WITH THE OTHER GAME SINCE {}", clock(t)), BAD)),
+                None => {
+                    let s = format!("IN STEP {}", clock(net.agreed));
+                    fb.text(&s, BTN_LAG.x - 4 - Framebuffer::text_width(&s, 1), 3, TEXT_DIM, Some(OUTLINE), 1);
+                }
+            }
+            if net.waiting >= 8 {
+                notes.push(("WAITING FOR THE OTHER PLAYER".into(), GOLD));
+            }
+        }
+        if e.split_at[me] > 0 && a.tick < e.split_at[me] + 15 * 4 {
             notes.push(("YOUR NETWORK SPLIT".into(), GOLD));
         }
         if a.over.is_none() {
-            if a.king_slowed(0) {
+            if a.king_slowed(me) {
                 notes.push((format!("YOUR KING IS SLOWED: UNDER {KING_NEEDS} PX LEFT STANDING"), BAD));
             }
-            if a.king_slowed(1) {
+            if a.king_slowed(1 - me) {
                 notes.push(("THE ENEMY KING IS SLOWED".into(), GOOD));
             }
         }
@@ -559,34 +779,37 @@ impl Pg {
                 fb.text(l, 4, r.y + 4 + k as i32 * 9, TEXT, None, 1);
             }
         }
-        if let Some(result) = a.over {
+        if p.ended() {
             let r = OVER;
             ui::panel(fb, r);
-            let (head, col) = match result {
-                Some(0) => ("YOU WIN", team_col(0, 2)),
-                Some(_) => ("YOU LOSE", team_col(1, 2)),
-                None => ("DRAW", TEXT),
+            let gone = p.link.net.as_ref().and_then(|n| n.gone.clone()).unwrap_or_default();
+            let (head, col, why) = match a.over {
+                Some(Some(w)) if w == me => ("YOU WIN", team_col(me, 2), "THE ENEMY KING IS LOOSE PIXELS"),
+                Some(Some(w)) => ("YOU LOSE", team_col(w, 2), "YOUR KING IS LOOSE PIXELS"),
+                Some(None) => ("DRAW", TEXT, "NOBODY'S KING FELL IN 40 MINUTES"),
+                // No result: the other machine went away with the match unfinished.
+                None => ("NO RESULT", TEXT, gone.as_str()),
             };
             fb.text_centered(head, r.x + r.w / 2, r.y + 10, col, Some(OUTLINE), 2);
-            let why = match result {
-                Some(0) => "THE ENEMY KING IS LOOSE PIXELS",
-                Some(_) => "YOUR KING IS LOOSE PIXELS",
-                None => "NOBODY'S KING FELL IN 40 MINUTES",
-            };
-            fb.text_centered(why, r.x + r.w / 2, r.y + 32, TEXT, None, 1);
-            fb.text_centered(&format!("AFTER {}", clock(a.tick)), r.x + r.w / 2, r.y + 44, TEXT_DIM, None, 1);
-            for (b, label) in OVER_BTNS.iter().zip(["AGAIN", "YARD"]) {
-                ui::button(fb, *b, label, b.contains(m.0, m.1), false);
+            let why = wrap(why, 31);
+            for (i, l) in why.iter().enumerate() {
+                fb.text_centered(l, r.x + r.w / 2, r.y + 32 + i as i32 * 9, TEXT, None, 1);
+            }
+            fb.text_centered(&format!("AFTER {}", clock(a.tick)), r.x + r.w / 2, r.y + 35 + why.len() as i32 * 9, TEXT_DIM, None, 1);
+            for (k, (b, label)) in OVER_BTNS.iter().zip(["AGAIN", "YARD"]).enumerate() {
+                if k == 1 || p.link.net.is_none() {
+                    ui::button(fb, *b, label, b.contains(m.0, m.1), false);
+                }
             }
         }
 
         // Sidebar.
         ui::panel(fb, Rect::new(304, 0, 96, 300));
-        let k = e.king[0];
+        let k = e.king[me];
         let bank = a.bank(k);
         fb.text(&format!("BANK {bank}"), 308, 4, GOLD, None, 1);
         // What nodes cut off from the king hold: yours, but not yours to plant with.
-        let cut = cut_off(a);
+        let cut = cut_off(a, me);
         if cut > 0 {
             let s = format!("+{cut}");
             fb.text(&s, 396 - Framebuffer::text_width(&s, 1), 4, TEXT_DIM, None, 1);
@@ -594,8 +817,8 @@ impl Pg {
         for i in 0..7 {
             let r = card_rect(i);
             let hov = r.contains(m.0, m.1);
-            let busy = e.queue[0].first().is_some_and(|j| j.slot == i);
-            let repeats = e.queue[0].iter().any(|j| j.slot == i && j.repeat);
+            let busy = e.queue[me].first().is_some_and(|j| j.slot == i);
+            let repeats = e.queue[me].iter().any(|j| j.slot == i && j.repeat);
             let picked = p.planting == Some(i);
             if picked || busy {
                 fb.rect_bevel(r.x, r.y, r.w, r.h, PANEL_DEEP, PANEL_LO, PANEL_HI);
@@ -611,12 +834,12 @@ impl Pg {
                 fb.rect_outline(r.x, r.y, r.w, r.h, ACCENT_HI);
                 loop_mark(fb, r.x + 58, r.y + 11, ACCENT_HI);
             }
-            let Some(d) = e.deck[0].get(i) else { continue };
-            let card = e.cards[0][i];
+            let Some(d) = e.deck[me].get(i) else { continue };
+            let card = e.cards[me][i];
             let lit = hov && !(busy || picked);
             // A seeded card you can't pay for yet is greyed, with its price in red.
             let short = card.ok && card.seeded && bank < card.price();
-            draw_icon(fb, d, Rect::new(r.x + 2, r.y + 1, 14, 14), 0);
+            draw_icon(fb, d, Rect::new(r.x + 2, r.y + 1, 14, 14), me);
             let name: String = d.name.chars().take(10).collect();
             fb.text(&name, r.x + 19, r.y + 1, if !card.ok { BAD } else if short { TEXT_DIM } else if lit { PANEL_DEEP } else { TEXT }, None, 1);
             let what = if card.seeded { format!("SEED {}", card.price()) } else { format!("{} PX", card.price()) };
@@ -624,14 +847,14 @@ impl Pg {
             fb.text(&format!("{}", i + 1), r.x + r.w - 8, r.y + 1, TEXT_FAINT, None, 1);
             if card.takes_orders() {
                 let t = tag_rect(i);
-                let o = e.orders[0][i];
+                let o = e.orders[me][i];
                 fb.rect_fill(t.x, t.y, t.w, t.h, if t.contains(m.0, m.1) { OUTLINE } else { PANEL_DEEP });
                 fb.text(o.tag(), t.x + 2, t.y + 1, order_col(o), None, 1);
             }
         }
         // The king's queue: what it's printing first, then what waits, each as its card's icon.
         // The bar is how much of the first is paid.
-        let q = &e.queue[0];
+        let q = &e.queue[me];
         match q.first() {
             Some(first) => {
                 let shown = jobs_shown(q.len());
@@ -639,8 +862,8 @@ impl Pg {
                     let r = job_rect(k);
                     // The icon in the top of its box, and under it the loop sign if it repeats.
                     fb.rect_fill(r.x, r.y, r.w, r.h, SPACE);
-                    if let Some(d) = e.deck[0].get(j.slot) {
-                        draw_icon(fb, d, Rect::new(r.x, r.y, r.w, r.h - 3), 0);
+                    if let Some(d) = e.deck[me].get(j.slot) {
+                        draw_icon(fb, d, Rect::new(r.x, r.y, r.w, r.h - 3), me);
                     }
                     if j.repeat {
                         loop_mark(fb, r.x + 3, r.y + r.h - 4, ACCENT_HI);
@@ -676,7 +899,7 @@ impl Pg {
             let count = format!("{factories}F {ships}S");
             fb.text(&count, 340, y, TEXT, None, 1);
             if a.king_slowed(t) && 340 + Framebuffer::text_width(&count, 1) <= 371 {
-                fb.text("SLOW", 373, y, if t == 0 { BAD } else { GOOD }, None, 1);
+                fb.text("SLOW", 373, y, if t == me { BAD } else { GOOD }, None, 1);
             }
         }
     }
@@ -685,30 +908,43 @@ impl Pg {
         let m = self.mouse;
         let p = self.play.as_ref()?;
         let e = p.arena.eco.as_ref()?;
+        let (me, net) = (p.link.me, p.link.net.is_some());
+        if BTN_LAG.contains(m.0, m.1) {
+            let ms = p.link.delay * 1000 / 15;
+            return Some(if net {
+                format!("[L] LAG: YOUR COMMANDS ARE APPLIED {} TICKS ({ms} MS) AFTER YOU GIVE THEM, SO THE OTHER GAME HAS THEM IN TIME. TOO LITTLE FOR THE NETWORK AND THE MATCH STUTTERS.", p.link.delay)
+            } else {
+                format!("[L] LAG: YOUR COMMANDS ARE APPLIED {} TICKS ({ms} MS) AFTER YOU GIVE THEM. A NETWORK MATCH NEEDS SOME: TURN THIS UP TO FEEL HOW ONE WOULD PLAY.", p.link.delay)
+            });
+        }
+        if net && (BTN_PAUSE.contains(m.0, m.1) || BTN_SPEED.contains(m.0, m.1)) {
+            return Some(format!("{NO_PAUSE}."));
+        }
         if let Some(i) = (0..7).find(|&i| card_rect(i).contains(m.0, m.1)) {
-            let d = e.deck[0].get(i)?;
-            let c = e.cards[0][i];
+            let d = e.deck[me].get(i)?;
+            let c = e.cards[me][i];
             if c.takes_orders() && tag_rect(i).contains(m.0, m.1) {
-                let (now, choices) = (e.orders[0][i], Order::in_match(c.order));
+                let (now, choices) = (e.orders[me][i], Order::in_match(c.order));
                 let next = choices[(choices.iter().position(|&o| o == now).map_or(0, |k| k + 1)) % choices.len()];
-                return Some(format!("[SHIFT+{}] EVERY {} IS ON {} CLICK FOR {}.", i + 1, d.name, match_blurb(now), next.name()));
+                return Some(format!("[SHIFT+{}] EVERY {} IS ON {} CLICK FOR {}.{}", i + 1, d.name, match_blurb(now), next.name(), flying(d)));
             }
-            let builds: Vec<String> = d.build.iter().filter_map(|&b| e.deck[0].get(b)).map(|o| o.name.clone()).collect();
+            let builds: Vec<String> = d.build.iter().filter_map(|&b| e.deck[me].get(b)).map(|o| o.name.clone()).collect();
             let what = if c.seeded {
                 format!("[{}] {}: {} PX, PAID IN FULL WHEN YOU PICK ITS ROCK. ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK, WHICH HAS TO HOLD {} PX.", i + 1, d.name, c.price(), c.count)
             } else {
-                format!("[{}] {}: YOUR KING PRINTS IT FOR {} PX, A PIXEL AT A TIME. RIGHT-CLICK: IT KEEPS PRINTING THEM.", i + 1, d.name, c.cost)
+                format!("[{}] {}: YOUR KING PRINTS IT FOR {} PX, A PIXEL AT A TIME. RIGHT-CLICK: ONE GOES ON THE END OF THE QUEUE, ON REPEAT.", i + 1, d.name, c.cost)
             };
             let builds = if builds.is_empty() { String::new() } else { format!(" ITS FACTORY PIXELS PRINT {}.", builds.join(", ")) };
-            return Some(what + &builds);
+            return Some(what + &builds + &flying(d));
         }
         if let Some((k, j)) = p.job_at(m.0, m.1) {
-            let name = e.deck[0].get(j.slot).map_or("?", |d| d.name.as_str());
-            let (state, key) = if k == 0 { (format!("YOUR KING IS PRINTING IT: {} OF {} PX PAID", j.paid, j.cost), " OR [R]") } else { (format!("NUMBER {} IN YOUR KING'S QUEUE", k + 1), "") };
+            let name = e.deck[me].get(j.slot).map_or("?", |d| d.name.as_str());
+            let state = if k == 0 { format!("YOUR KING IS PRINTING IT: {} OF {} PX PAID", j.paid, j.cost) } else { format!("NUMBER {} IN YOUR KING'S QUEUE", k + 1) };
+            let key = if k + 1 == e.queue[me].len() { " OR [R]" } else { "" };
             let repeats = if j.repeat { " IT REPEATS: WHEN ONE IS DONE, ANOTHER GOES TO THE BACK OF THE QUEUE." } else { "" };
             return Some(format!("{name}: {state}.{repeats} CLICK DROPS IT; WHAT IT HAD PAID COMES BACK. RIGHT-CLICK{key}: REPEAT ON OR OFF."));
         }
-        if BTN_CANCEL.contains(m.0, m.1) && !e.queue[0].is_empty() {
+        if BTN_CANCEL.contains(m.0, m.1) && !e.queue[me].is_empty() {
             return Some("[BACKSPACE] DROP WHAT YOUR KING IS PRINTING. YOU GET BACK WHAT IT HAD PAID.".into());
         }
         if BTN_PAUSE.contains(m.0, m.1) {
@@ -727,7 +963,7 @@ impl Pg {
             return Some("THE WHOLE MAP. HOLD THE MOUSE BUTTON ON IT TO LOOK ELSEWHERE; FLYING YOUR KING BRINGS THE VIEW BACK. WHILE PLANTING, A CLICK PICKS THE ROCK.".into());
         }
         if (306..400).contains(&m.0) && (0..12).contains(&m.1) {
-            let cut = cut_off(&p.arena);
+            let cut = cut_off(&p.arena, me);
             let more = if cut > 0 { format!(" +{cut}: HELD BY NODES OF YOURS CUT OFF FROM YOUR KING. FLY NEAR THEM, OR PLANT A LINK, TO SPEND IT.") } else { String::new() };
             return Some(format!("BANK: THE PIXELS STORED IN YOUR KING'S NETWORK. YOUR KING MAKES 1 EVERY {} S; MINERS HAUL TO THE NEAREST NODE.{more}", secs(KING_MAKES_EVERY as i32)));
         }
@@ -755,29 +991,51 @@ impl Pg {
     }
 }
 
+/// How a card's ships fly at what they fight and how many leave together, for its hover text:
+/// " THESE ORBIT, AND LEAVE IN GROUPS OF 3." Nothing for a design with no engines.
+fn flying(d: &Design) -> String {
+    let Some(style) = d.flies() else { return String::new() };
+    let how = match style {
+        Style::Runs => "MAKE ATTACK RUNS",
+        Style::Kite => "KITE",
+        Style::Orbit => "ORBIT",
+    };
+    if d.group > 1 {
+        format!(" THESE {how}, AND LEAVE IN GROUPS OF {}.", d.group)
+    } else {
+        format!(" THESE {how}.")
+    }
+}
+
 /// An order's blurb as it reads in a match: without what it does in the arena.
 fn match_blurb(o: Order) -> String {
     o.blurb().replace("IN A MATCH, ", "").replace(" IN THE ARENA IT HUNTS.", "")
 }
 
 /// Pixels held by a side's nodes that aren't in its king's network.
-fn cut_off(a: &Arena) -> i32 {
+fn cut_off(a: &Arena, me: usize) -> i32 {
     let e = a.eco.as_ref().unwrap();
-    let k = e.king[0];
+    let k = e.king[me];
     let net = e.net.get(k).copied().unwrap_or(usize::MAX);
-    (0..a.ships.len()).filter(|&j| j != k && a.ships[j].alive && a.ships[j].team == 0 && e.net.get(j).is_some_and(|&n| n != net || n == usize::MAX)).map(|j| a.ships[j].store).sum()
+    (0..a.ships.len()).filter(|&j| j != k && a.ships[j].alive && a.ships[j].team == me && e.net.get(j).is_some_and(|&n| n != net || n == usize::MAX)).map(|j| a.ships[j].store).sum()
 }
 
 impl Play {
     /// The job in the king's queue whose icon is under a screen point, and where it stands.
     fn job_at(&self, x: i32, y: i32) -> Option<(usize, Job)> {
-        let q = &self.arena.eco.as_ref()?.queue[0];
+        let q = &self.arena.eco.as_ref()?.queue[self.link.me];
         (0..jobs_shown(q.len())).find(|&k| job_rect(k).contains(x, y)).map(|k| (k, q[k]))
+    }
+
+    /// Whether the match is finished: a king has fallen, the time is up, or the other machine
+    /// has gone.
+    fn ended(&self) -> bool {
+        self.arena.over.is_some() || self.link.net.as_ref().is_some_and(|n| n.gone.is_some())
     }
 
     fn look_at_king(&mut self) {
         let e = self.arena.eco.as_ref().unwrap();
-        let k = &self.arena.ships[e.king[0]];
+        let k = &self.arena.ships[e.king[self.link.me]];
         self.cam = ((k.x - FIELD.w / 2).clamp(0, MW - FIELD.w), (k.y - FIELD.h / 2).clamp(0, MH - FIELD.h));
     }
 
@@ -817,7 +1075,7 @@ impl Play {
         }
         scene::drift(fb, f, a, self.cam);
         // Our seeds' courses.
-        for s in a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Seed) {
+        for s in a.ships.iter().filter(|s| s.alive && s.team == self.link.me && s.role == Role::Seed) {
             if let Some((_, (tx, ty))) = s.seed_for {
                 crate::render::dotted(fb, f, s.x - cx, s.y - cy, tx - cx, ty - cy, 3, TEXT_FAINT);
             }
@@ -864,7 +1122,7 @@ impl Play {
             let ((x0, y0), (x1, y1)) = (at(a.ships[i].x, a.ships[i].y), at(a.ships[j].x, a.ships[j].y));
             crate::render::dotted(fb, r, x0, y0, x1, y1, 3, team_col(a.ships[i].team, 0));
         }
-        for s in a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Seed) {
+        for s in a.ships.iter().filter(|s| s.alive && s.team == self.link.me && s.role == Role::Seed) {
             if let Some((_, (tx, ty))) = s.seed_for {
                 let ((x0, y0), (x1, y1)) = (at(s.x, s.y), at(tx, ty));
                 crate::render::dotted(fb, r, x0, y0, x1, y1, 2, TEXT_FAINT);
@@ -1024,6 +1282,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_card_says_how_its_ships_fly_and_how_many_leave_together() {
+        use crate::app::{App, Ev};
+        let mut pg = Pg::new(None, None);
+        pg.lib = starter_deck();
+        (pg.lib[0].style, pg.lib[0].group) = (Some(Style::Orbit), 3);
+        pg.start_match(false, 3);
+        pg.help = false;
+        let mut tip = |r: Rect| {
+            pg.event(Ev::Move(r.x + 4, r.y + 4));
+            pg.match_tip().unwrap_or_default()
+        };
+        // The fighter, on its card and on its order tag; the lancer as it's drawn; the outpost,
+        // which doesn't fly, says nothing of it.
+        assert!(tip(card_rect(0)).ends_with(" THESE ORBIT, AND LEAVE IN GROUPS OF 3."), "{}", tip(card_rect(0)));
+        assert!(tip(tag_rect(0)).ends_with(" THESE ORBIT, AND LEAVE IN GROUPS OF 3."), "{}", tip(tag_rect(0)));
+        assert!(tip(card_rect(1)).ends_with(" THESE MAKE ATTACK RUNS."), "{}", tip(card_rect(1)));
+        assert!(!tip(card_rect(4)).contains("THESE"), "{}", tip(card_rect(4)));
+    }
+
+    #[test]
     fn the_match_screen_drives_everything_through_its_keys_and_buttons() {
         use crate::app::{App, Ev};
         let mut pg = Pg::new(None, None);
@@ -1038,7 +1316,7 @@ mod tests {
         };
         let eco = |pg: &Pg| pg.play.as_ref().unwrap().arena.eco.as_ref().unwrap().orders[0].clone();
         let queue = |pg: &Pg| pg.play.as_ref().unwrap().arena.eco.as_ref().unwrap().queue[0].clone();
-        // Orders: the tag, then Shift+number, step a fighter GUARD, ESCORT, HUNT, GUARD.
+        // Orders: the tag, then Shift+number, step a fighter GUARD, ESCORT, HUNT, SAB, GUARD.
         assert_eq!(eco(&pg)[0], Order::Guard);
         click(&mut pg, tag_rect(0), false);
         assert_eq!(eco(&pg)[0], Order::Escort);
@@ -1048,10 +1326,13 @@ mod tests {
         assert_eq!(eco(&pg)[0], Order::Hunt);
         pg.event(Ev::Key(Key::ShiftNum(1)));
         pg.tick();
+        assert_eq!(eco(&pg)[0], Order::Sab);
+        pg.event(Ev::Key(Key::ShiftNum(1)));
+        pg.tick();
         assert_eq!(eco(&pg)[0], Order::Guard);
-        // A miner steps through four, and comes back to HARVEST. A factory has no tag to click:
+        // A miner steps through five, and comes back to HARVEST. A factory has no tag to click:
         // a click there is a click on the card.
-        for want in [Order::Hunt, Order::Guard, Order::Escort, Order::Harvest] {
+        for want in [Order::Hunt, Order::Sab, Order::Guard, Order::Escort, Order::Harvest] {
             pg.event(Ev::Key(Key::ShiftNum(4)));
             pg.tick();
             assert_eq!(eco(&pg)[3], want);
@@ -1072,8 +1353,8 @@ mod tests {
         assert_eq!(queue(&pg).len(), 1);
         click(&mut pg, BTN_CANCEL, false);
         assert!(queue(&pg).is_empty());
-        // The queue, as icons: a click on one drops that job, a right-click sets its design
-        // repeating, and R does that for the one being printed.
+        // The queue, as icons: a click on one drops that job, a right-click sets that job
+        // repeating (or stops it), and R does that for the last one.
         let slots = |pg: &Pg| queue(pg).iter().map(|j| (j.slot, j.repeat)).collect::<Vec<_>>();
         for n in [1, 2, 3] {
             pg.event(Ev::Key(Key::Num(n)));
@@ -1082,19 +1363,58 @@ mod tests {
         assert_eq!(slots(&pg), vec![(0, false), (1, false), (2, false)]);
         click(&mut pg, job_rect(1), false);
         assert_eq!(slots(&pg), vec![(0, false), (2, false)]);
-        click(&mut pg, job_rect(1), true);
-        assert_eq!(slots(&pg), vec![(0, false), (2, true)]);
+        click(&mut pg, job_rect(0), true);
+        assert_eq!(slots(&pg), vec![(0, true), (2, false)]);
         pg.event(Ev::Key(Key::Letter('R')));
         pg.tick();
         assert_eq!(slots(&pg), vec![(0, true), (2, true)]);
         pg.event(Ev::Key(Key::Letter('R')));
         pg.tick();
-        assert_eq!(slots(&pg), vec![(0, false), (2, true)]);
+        assert_eq!(slots(&pg), vec![(0, true), (2, false)]);
+        click(&mut pg, job_rect(0), true);
+        assert_eq!(slots(&pg), vec![(0, false), (2, false)]);
+        // A right-click on a card puts a job of it on the end of the queue, on repeat, whatever
+        // of it is queued already: the fighter asked for first is still one fighter. A number
+        // and then R does the same from the keys. A right-click on the card again stops its
+        // repeating; the jobs stay.
+        click(&mut pg, card_rect(0), true);
+        assert_eq!(slots(&pg), vec![(0, false), (2, false), (0, true)]);
+        pg.event(Ev::Key(Key::Num(2)));
+        pg.tick();
+        pg.event(Ev::Key(Key::Letter('R')));
+        pg.tick();
+        assert_eq!(slots(&pg), vec![(0, false), (2, false), (0, true), (1, true)]);
+        click(&mut pg, card_rect(0), true);
+        assert_eq!(slots(&pg), vec![(0, false), (2, false), (0, false), (1, true)]);
         // There's no icon where there's no job, so a click there does nothing.
+        click(&mut pg, job_rect(4), false);
+        assert_eq!(slots(&pg).len(), 4);
         click(&mut pg, job_rect(2), false);
-        assert_eq!(slots(&pg).len(), 2);
         click(&mut pg, job_rect(0), false);
-        assert_eq!(slots(&pg), vec![(2, true)]);
+        assert_eq!(slots(&pg), vec![(2, false), (1, true)]);
+        click(&mut pg, job_rect(0), false);
+        pg.event(Ev::Key(Key::Back));
+        pg.tick();
+        assert!(queue(&pg).is_empty());
+        // The lag dial, by its button and by L: a command then waits that many ticks. With the
+        // dial at 2, a card's job shows in the queue on the third tick, not the first.
+        let lag = |pg: &Pg| pg.play.as_ref().unwrap().link.delay;
+        assert_eq!(lag(&pg), 0);
+        click(&mut pg, BTN_LAG, false);
+        pg.event(Ev::Key(Key::Letter('L')));
+        assert_eq!(lag(&pg), 2);
+        // A number and R pressed together still mean "this, on repeat", though the job R is
+        // for hasn't reached the queue when R is pressed.
+        pg.event(Ev::Key(Key::Num(1)));
+        pg.event(Ev::Key(Key::Letter('R')));
+        pg.tick();
+        pg.tick();
+        assert!(queue(&pg).is_empty(), "the job was queued before the lag was up");
+        pg.tick();
+        assert_eq!(slots(&pg), vec![(0, true)]);
+        while lag(&pg) != 0 {
+            pg.event(Ev::Key(Key::Letter('L')));
+        }
         pg.event(Ev::Key(Key::Back));
         pg.tick();
         assert!(queue(&pg).is_empty());
@@ -1129,6 +1449,142 @@ mod tests {
         pg.tick();
         let p = pg.play.as_ref().unwrap();
         assert!(p.follow && p.cam.0 < MW / 2, "steering didn't bring the view back");
+    }
+
+    #[test]
+    fn a_network_match_plays_from_either_side_of_the_table() {
+        use crate::app::{App, Ev};
+        use crate::pg::link::tests::pipes;
+        let (a, b, clock, _) = pipes();
+        let (mut host, mut join) = (Pg::new(None, None), Pg::new(None, None));
+        host.start_linked(0, 11, starter_deck(), Box::new(a), Vec::new());
+        join.start_linked(1, 11, starter_deck(), Box::new(b), Vec::new());
+        let frames = |host: &mut Pg, join: &mut Pg, n: u32| {
+            for _ in 0..n {
+                clock.set(clock.get() + 1);
+                host.tick();
+                join.tick();
+            }
+        };
+        fn arena(pg: &Pg) -> &Arena {
+            &pg.play.as_ref().unwrap().arena
+        }
+        fn net(pg: &Pg) -> &crate::pg::link::Net {
+            pg.play.as_ref().unwrap().link.net.as_ref().unwrap()
+        }
+        let click = |pg: &mut Pg, r: Rect| {
+            let (x, y) = (r.x + r.w / 2, r.y + r.h / 2);
+            pg.event(Ev::Move(x, y));
+            pg.event(Ev::Press { x, y, right: false });
+            pg.event(Ev::Release { x, y, right: false });
+        };
+        // The joiner plays red, with the same keys and cards: its first card queues a fighter
+        // for red's king, on both machines, and its arrow keys fly red's king and no other.
+        join.event(Ev::Key(Key::Num(1)));
+        join.hold([false, false, true, false]);
+        frames(&mut host, &mut join, 30);
+        for pg in [&host, &join] {
+            let a = arena(pg);
+            let e = a.eco.as_ref().unwrap();
+            assert_eq!((e.queue[0].len(), e.queue[1].len()), (0, 1), "red's job should be in red's queue on both machines");
+            assert!(a.ships[e.king[1]].x < KING_STARTS[1].0 - 20, "red's king didn't fly left");
+            assert_eq!((a.ships[e.king[0]].x, a.ships[e.king[0]].y), KING_STARTS[0], "blue's king moved");
+        }
+        // Each window follows its own king, and the two matches are one match.
+        assert!(join.play.as_ref().unwrap().cam.0 > MW / 2 && host.play.as_ref().unwrap().cam.0 < MW / 2);
+        assert!(net(&host).agreed >= 15 && net(&join).agreed >= 15 && net(&host).parted.is_none() && net(&join).parted.is_none());
+        // No pause and no fast forward: the keys and the buttons leave it running, at 1x.
+        host.event(Ev::Key(Key::Space));
+        host.event(Ev::Key(Key::Letter('F')));
+        click(&mut host, BTN_PAUSE);
+        click(&mut host, BTN_SPEED);
+        let p = host.play.as_ref().unwrap();
+        assert!(p.running && p.speed == 1);
+        // Nor does a panel opened over it stop it: the rules, or the quit question.
+        let before = arena(&host).tick;
+        host.event(Ev::Key(Key::Help));
+        assert!(host.help);
+        frames(&mut host, &mut join, 15);
+        host.event(Ev::Key(Key::Space));
+        host.event(Ev::Key(Key::Esc));
+        frames(&mut host, &mut join, 15);
+        host.event(Ev::Key(Key::Space));
+        assert!(!host.help && !host.quit());
+        assert!(arena(&host).tick >= before + 25 && arena(&join).tick >= before + 25, "the match stopped under a panel");
+        // The lag dial turns, but never to none: a command has to reach the other machine.
+        for _ in 0..9 {
+            click(&mut host, BTN_LAG);
+            assert!(host.play.as_ref().unwrap().link.delay >= 1);
+            frames(&mut host, &mut join, 3);
+        }
+        assert!(net(&host).parted.is_none() && net(&join).parted.is_none());
+        // The joiner leaves. The host is told, and its match ends with no result and one way out.
+        click(&mut join, BTN_LEAVE);
+        assert!(join.play.is_none() && join.screen == Screen::Yard);
+        frames(&mut host, &mut join, 5);
+        assert!(net(&host).gone.is_some() && host.play.as_ref().unwrap().ended() && arena(&host).over.is_none());
+        click(&mut host, OVER_BTNS[0]);
+        assert!(host.play.is_some(), "a network match has no AGAIN");
+        click(&mut host, OVER_BTNS[1]);
+        assert!(host.play.is_none() && host.screen == Screen::Yard);
+    }
+
+    #[test]
+    fn finding_the_other_machine_is_keys_and_buttons_too() {
+        use crate::app::{App, Ev};
+        let click = |pg: &mut Pg, r: Rect| {
+            let (x, y) = (r.x + r.w / 2, r.y + r.h / 2);
+            pg.event(Ev::Press { x, y, right: false });
+        };
+        let mut pg = Pg::new(None, None);
+        pg.help = false;
+        // JOIN A MATCH asks for an address, with this machine's own already typed. It's edited
+        // with the keyboard, and Esc or BACK gives up.
+        pg.menu = true;
+        click(&mut pg, MENU_BTNS[4]);
+        assert!(!pg.menu && matches!(&pg.lobby, Some(Lobby::Address(a)) if a == "127.0.0.1"));
+        for _ in 0..3 {
+            pg.event(Ev::Key(Key::Back));
+        }
+        for c in "9.42".chars() {
+            // A digit comes as a key and as a character; only the character is typed.
+            if let Some(d) = c.to_digit(10) {
+                pg.event(Ev::Key(Key::Num(d as u8)));
+            }
+            pg.event(Ev::Char(c));
+        }
+        assert!(matches!(&pg.lobby, Some(Lobby::Address(a)) if a == "127.0.9.42"), "the address typed wrong");
+        assert_eq!(pg.slot, 0, "typing an address picked a design in the yard behind it");
+        pg.event(Ev::Key(Key::Esc));
+        assert!(pg.lobby.is_none() && !pg.quit());
+        pg.join(None);
+        click(&mut pg, LOBBY_BTNS[1]);
+        assert!(pg.lobby.is_none());
+        // Enter, or JOIN, starts connecting (to nothing, here: it fails, and says so).
+        pg.join(None);
+        for _ in 0..9 {
+            pg.event(Ev::Key(Key::Back));
+        }
+        for c in "0.0.0.0:1".chars() {
+            pg.event(Ev::Char(c));
+        }
+        click(&mut pg, LOBBY_BTNS[0]);
+        assert!(matches!(pg.lobby, Some(Lobby::Joining { .. })));
+        let started = std::time::Instant::now();
+        while !matches!(pg.lobby, Some(Lobby::Failed(_))) {
+            assert!(started.elapsed() < std::time::Duration::from_secs(8), "connecting to nothing never failed");
+            pg.tick();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        pg.event(Ev::Key(Key::Esc));
+        assert!(pg.lobby.is_none());
+        // The panels' pieces sit inside them.
+        for (panel, parts) in [(MENU, &MENU_BTNS[..]), (LOBBY, &LOBBY_BTNS[..]), (LOBBY, &[LOBBY_FIELD][..])] {
+            for r in parts {
+                assert!(r.x >= panel.x + 6 && r.y >= panel.y && r.x + r.w <= panel.x + panel.w - 6 && r.y + r.h <= panel.y + panel.h - 6, "{r:?} is outside {panel:?}");
+            }
+        }
+        assert!(BTN_LAG.x + BTN_LAG.w <= FIELD.w && BTN_LAG.y + BTN_LAG.h <= 13, "the lag dial runs into the notes under it");
     }
 
     #[test]
