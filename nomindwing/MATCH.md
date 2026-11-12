@@ -305,12 +305,18 @@ What they say: the numbers can make every ship count, but slower isn't longer. W
 | M2.22 | **A right-clicked card puts a repeating job on the end of the queue** (Henry: "I actually thought right-clicking the card should be the infinite-that-unit queue entry on the end of the queue"). It's a new job, whatever of that design is queued already. A right-click on a job in the queue sets that one job repeating, and R the last job asked for. | Is that the entry you meant? Should a ship you ask for once go ahead of the repeating jobs, even ones that haven't had their first turn? | **Keep as it is** (Henry, 2026-11-11): "I was thinking that clicking the cards, right or left, would always putting something on the end of the queue. I knew that that would mean you could put stuff after a repeating job which doesn't make sense unless you cancel the job- but of course every repeating job is bound to be cancelled eventually. I don't want to fiddle with it too much more though it's fine how it is." So: no one-off jumps ahead; the card's second right-click, which stops the repeat and adds nothing, is the one place it differs from what they pictured, and it stays. |
 | M2.23 | **The map's edge never moves what can't fly.** A fault the sim's own audit found while the spike was being built: a piece shot off a ship right beside the edge was shoved inwards on the next tick. | Nothing to judge. | |
 | N1 | **The network spike** (Henry: "I think we're ready for the network spike"). A lag dial against the AI; HOST and JOIN on the match menu; two games playing one match in step by sending only commands; a hash of the whole match compared once a second. | With the dial at 2, 3 and 4 against the AI: does your king still feel right, and where does it stop? In two windows, does a whole match stay IN STEP? Does it on two machines? | **The dial** (Henry, 2026-11-11): "honestly it was playable up to 4 lag." In step over a whole match, in two windows and on two machines: not yet tried. |
-| S1 | **How a design flies is chosen in the yard: RUNS, KITE or ORBIT.** Three buttons on the yard's flight row, or Y. Until one is picked the drawing picks, as before (1 thrust per weight runs, less kites). It's fixed for a match, and a card's hover line says it. | Is choosing it in the yard and not in a match right, in play? Do you miss a mark for it on the card itself? | |
-| S2 | **KITE.** What stand-off was, open to any ship, plus one thing: it backs away from anything else that comes nearer than its guns reach. | Does a light ship on KITE do what you'd call kiting? | |
-| S3 | **ORBIT.** Circles the target at the kite distance, flat out, facing it, and turns back the other way at the map's edge or a solid thing. | Does it read as an orbit? Is the circle the right size? | |
-| S4 | **SAB, an order beside HUNT, GUARD and ESCORT.** The nearest enemy miner or factory first, past whatever guards it; never a king; with none left it hunts. | Does it go for what you meant by sabotage? | |
-| S5 | **A ship keeps the enemy it's after** until that one is gone or another is 30 px nearer. Before, it picked the nearest again every tick. | Do fights look steadier, or do ships now ignore things they should turn on? | |
-| S6 | **Groups: GROUP 1, 3, 6 or 12** on the yard's flight row, or G. On HUNT or SAB that many of the design gather, within 96 px of one another, before any leaves, and they guard meanwhile. | Do groups leave when you expect? They gather by nearness, so each factory makes its own group: is that right, or should a design gather across the map? | |
+| S1 | **How a design flies is chosen in the yard: RUNS, KITE or ORBIT.** Three buttons on the yard's flight row, or Y. Until one is picked the drawing picks, as before (1 thrust per weight runs, less kites). It's fixed for a match, and a card's hover line says it. | Is choosing it in the yard and not in a match right, in play? Do you miss a mark for it on the card itself? | **Keep** (Henry, 2026-11-11), on the yard, the card and the yard's layout: "all seems good for now." |
+| S2 | **KITE.** What stand-off was, open to any ship, plus one thing: it backs away from anything else that comes nearer than its guns reach. | Does a light ship on KITE do what you'd call kiting? | **Keep** (Henry, 2026-11-11): "i didn't see anything that seemed odd." |
+| S3 | **ORBIT.** Circles the target at the kite distance, flat out, facing it, and turns back the other way at the map's edge or a solid thing. | Does it read as an orbit? Is the circle the right size? | **Keep** (Henry, 2026-11-11): "i didn't see anything that seemed odd." |
+| S4 | **SAB, an order beside HUNT, GUARD and ESCORT.** The nearest enemy miner or factory first, past whatever guards it; never a king; with none left it hunts. | Does it go for what you meant by sabotage? | **Keep** (Henry, 2026-11-11): "i saw groups and sabotage, yes all good." |
+| S5 | **A ship keeps the enemy it's after** until that one is gone or another is 30 px nearer. Before, it picked the nearest again every tick. | Do fights look steadier, or do ships now ignore things they should turn on? | **Keep** (Henry, 2026-11-11): "i didn't see anything that seemed odd." |
+| S6 | **Groups: GROUP 1, 3, 6 or 12** on the yard's flight row, or G. On HUNT or SAB that many of the design gather, within 96 px of one another, before any leaves, and they guard meanwhile. | Do groups leave when you expect? They gather by nearness, so each factory makes its own group: is that right, or should a design gather across the map? | **Keep** (Henry, 2026-11-11), with everything waiting together leaving together: "i saw groups and sabotage, yes all good." |
+| D1 | **The AI sees a king coming.** Your king counts as a raid from the moment it crosses to the AI's half of the map, not from when it arrives. | Fly your king over at the start with lancers on repeat, as on seed 28100. Does the AI answer in time? | |
+| D2 | **Guns before miners against a raid it can't match,** and nothing extra held back under a raid. Against a king with ships round it, it prints what answers the ships; against a king alone, lancers. | Does it spend its bank when you raid it, or sit on it as it did at 4:00 on seed 28100? | |
+| D3 | **Its king stands beside its factory while a raid is on,** so the factory's flak and its own cover each other. It stays against what it outweighs. Outweighed, it falls back on a factory nobody is attacking. | Does the king's moving about make sense to watch? Is it too easy to catch out? | |
+| D4 | **Its miners are its to defend.** A raider within 200 px of one of its miners turns its fleet out. | With everything on SAB, do its ships now come for yours at the rocks? | |
+| D5 | **It arms while your fleet is a quarter bigger than its own.** Guns then come before what it's saving for a factory. | Does a fleet built early draw an answer before it lands? | |
+| D6 | **RUSH and SAB,** two scripted openings taken from Henry's two matches of 2026-11-11, beside the five the AI was measured against. | Nothing to judge in play. Is RUSH a fair picture of what Henry did on seed 28100? | |
 
 **Henry's rulings on the plan (2026-11-10):**
 1. **The seed's price is its size, paid in full up front:** yes.
@@ -871,6 +877,120 @@ Strength against radius is then where the pixels are drawn. Four together: one s
 *Found on the way.* My first orbit steered by a speed in and a speed round. Where its circle left the map it pushed into the edge and stayed there. I found that planning its test, before it ever ran, and rewrote it to make for a place on the circle, which the map's edge can cut short.
 
 *Checks (2026-11-11, after sub-orders).* 153 tests pass, twelve of them new. 103 of 103 deliberate rule breaks are caught: the 84 from before, run again because every ship's choice of target changed, and 19 new ones (a target picked afresh every tick, a target never let go, a chosen style ignored, a kiter that lets things close, an orbit that doesn't go round, one 20 px too wide, one that never turns back at the edge, SAB hunting like HUNT, SAB taking a king, SAB lost on the wire, groups leaving alone, a waiting ship hunting anyway, a group counted from all over the map, HUNT to SAB calling ships back, a gathered group waiting a tick more, style and group lost from a design's line, an engineless design told to orbit, the yard's style buttons working on one, a card silent about how its ships fly). Not done: I haven't watched any of it in a window, beyond one exported frame of thirty fighters orbiting a capital.
+
+**Henry's verdicts on sub-orders, and what came with them (2026-11-11).** Fourteen questions, asked in the chat.
+
+- **KITE, ORBIT and kept targets (S2, S3, S5):** "i didn't see anything that seemed odd."
+- **SAB, groups, and a waiting crowd bigger than its group leaving together (S4, S6):** "i saw groups and sabotage, yes all good."
+- **Style picked in the yard, nothing drawn on the card, the yard's layout and keys (S1):** "all seems good for now."
+- **Not answered:** whether a picked style wants a button back to "as drawn". Left as built.
+- **The projector's second version:** "it sounded right, yeah, I'm curious to try some of these new parts out."
+- **The weapons charger:** "I meant own ship. I suppose both would be interesting. We'll want to think about how to make these "auras" more interesting than just put pixels down, get bonuses."
+- **The order of the part rounds:** "i liked your original proposal of beam and shield first." So the first part round is BEAM and SHIELD. The diagonal gun and rotation engines come after.
+- **The AI:** "AI seems very weak still. specifically its lack of defense capabilities have been killing it so far."
+
+*What the log shows.* The two matches played on this build, both on Henry's own deck.
+- **Seed 28100, won at 4:42.** An outpost at 0:03, LANCER on repeat from 0:16, lancers on HUNT at 0:25. The AI's king was beaten down to slow at 1:53 and its only factory was gone by 2:00. After that the AI had the bigger income (369 mined to Henry's 99 by 4:00) and lost everything it made with it. At 4:00 it had one ship of 9 px standing and 183 px unspent.
+- **Seed 5635, won at 9:10.** Fighters and lancers on SAB from 1:36, frigates from 2:56. The AI mined more for eight minutes (772 to 756 at 8:00) and lost its two factories between 6:00 and 8:00.
+
+*What the AI does about a raid (read from `bot_think` and `bot_steer`).*
+- **Guns come last.** Miners first, one more than it has factories, raid or no raid. With no raid it prints a warship only when the bank holds 120 px more than it's saving for its next factory.
+- **Under raid it saves more, not less.** It holds 150 px back on top of a factory's price before it replants. With 183 px and no factory it was waiting for 271.
+- **Under raid it feeds ships in one at a time.** Its king prints what counters the raiders for 100 px or less, and every warship is put on HUNT, so each leaves for the raiders alone the moment it's built.
+- **A wave that's out isn't called home.**
+- **Its king only backs away** from anything armed within 90 px. It never uses ESCORT.
+
+*What I'd propose (mine, not ruled).* Measure first, change second. Two scripted openings taken from these two matches, RUSH and SAB, played against today's AI over several seeds on both decks, beside the five openings it's measured against now. Then the changes, in the order the log blames them: under raid, guns before miners and nothing held back; a garrison kept in step with the enemy's warships before the second factory; ships under raid gathering on the king or under a factory's flak and fighting together, which is what groups are for; a wave called home when home is losing. Every number waits for the measuring.
+
+*Auras (mine, not ruled).* Henry's worry is the first of the four tests: with "pixels down, bonus up" the drawing doesn't matter. Four ways to make it matter.
+1. **Touching, for a part that helps its own ship.** A charger feeds the guns it touches, one gun each. It competes with plate and hull for the cells beside a gun, and shooting it off takes the charge away.
+2. **Reach is paid for in the drawing.** A part that helps other ships floats in a gap (Henry's clearance idea) and the gap sets its reach. A wide aura is a ship with a hole in it and a soft part in the hole.
+3. **One pool, shared.** What it gives is split among those in reach, like the projector's charges. More pixels and more friends don't simply add up, and where ships stand becomes a choice.
+4. **It takes as well as gives.** A boosted engine turns wider. A charged gun waits longer between shots. Then adding one isn't always right.
+
+**The AI's defence (2026-11-12).** Henry: "AI defence first." Rows D1 to D6 above. Measured first, changed second, and every change measured again on its own.
+
+*What Henry's rush is.* The log doesn't keep the king's keys, so I scripted the opening from what it does keep (an outpost at 0:03, LANCER on repeat, lancers on HUNT) and played it against the AI as committed.
+- **With the rushing king at home it loses.** 0 of 4 on Henry's deck and 1 of 4 on the starter deck. That's the SUMMONER opening over again, which the AI has always beaten.
+- **With the king flying over it wins every time.** 8 of 8 on both decks, the median match 2:55 on the starter deck and 2:21 on Henry's. The king crosses the map in 25 s, stops 40 px from the AI's first factory while it's still growing, and prints its lancers there. In the match I watched tick by tick (seed 1, starter deck) the factory was dead 25 s later.
+- **What the AI did meanwhile.** Its king stayed at its start, 125 px from the factory, where its flak reaches nothing that's attacking the factory. It finished its second miner first. Its first gun was delivered 20 s after the enemy king arrived, with the factory down to its last pixels. Then it backed away from the nearest gun until it was caught.
+- So I take it Henry's king went too. **That's a guess from the log, for Henry to confirm.**
+
+*The two new openings.*
+- **RUSH** (`rusher`): one factory at once, a king that prints its cheapest lance or cannon ship without a pause, everything on HUNT. Its king flies to within 40 px of the nearest thing the enemy has planted (or the enemy king, when nothing is planted) and prints there. Once it has lost a quarter of its pixels it goes home for good and prints from there. Without that last rule the AI beat it by killing a king that sat still under its lancers, which says little about defence.
+- **SAB** (`saboteur`): the AI's economy with every warship on SAB.
+- The scripted openings see and save as they always did. Nothing the AI learned below is theirs, so the yardstick doesn't move when the AI does.
+
+*Before: the AI as committed, against all seven.* Matches won by the AI. Six seeds on each side of the map before, eight after.
+
+| Opening | Starter deck, before | Starter deck, after | Henry's deck, before | Henry's deck, after |
+|---|---|---|---|---|
+| CLOCK | 12 of 12 | 16 of 16 | 12 of 12 | 16 of 16 |
+| PLANTER | 12 of 12 | 16 of 16 | 11 of 12 | 15 of 16 |
+| EXPANDER | 10 of 12 | 15 of 16 | 10 of 12 | 16 of 16 |
+| SUMMONER | 12 of 12 | 16 of 16 | 12 of 12 | 16 of 16 |
+| BOOM | 4 of 12 | 3 of 16 | 2 of 12 | 5 of 16 |
+| RUSH | 1 of 12 | 11 of 16 | 0 of 12 | 16 of 16 |
+| SAB | 11 of 12 | 16 of 16 | 10 of 12 | 16 of 16 |
+
+Against RUSH the AI's king was slowed (its side beaten down to under 40 px) in 23 of the 24 matches before, between 1:00 and 1:47. After, in 13 of 32.
+
+*What was built.*
+1. **A king on the AI's half is a raid** (D1), wherever on that half it is. Its half is everything nearer its own king's start than the enemy's.
+2. **Guns before miners against a raid that outweighs it** (D2). The raid's pixels against the pixels of every warship the AI has (or, while a wave is out, of those near home). Outweighed, its king prints the counter it can get for 100 px or less before anything else. Against a raid it outweighs, miners still come first, as before.
+3. **Nothing extra held back under a raid** (D2). It used to keep 150 px on top of a factory's price. Now it keeps the 40 px it always keeps.
+4. **Where it plants under a raid** (D2). Against a raid it outweighs, as on any day. Against one that outweighs it, never on a rock the raiders are within 200 px of, and only where the new factory joins its network; with no factory left, on any rock the raiders aren't at.
+5. **What it prints against a king** (D2). A king raiding with ships round it is answered through the ships, by the old triangle. A king raiding alone counts as a big ship, so lancers.
+6. **The king's post** (D3). While a raid is on, the king stands beside the factory nearest its start, 4 px clear of it on the side it came from. It doesn't take the post if that would put a factory out of its reach. With no raid on it's at its start.
+7. **Standing and falling back** (D3). The king used to back away from any armed enemy within 90 px. Now it stays while it and the armed friends within 200 px of it outweigh the armed enemies within 200 px. Outweighed, it makes for the nearest of its factories with no enemy gun within 200 px. With none it backs straight away, as before.
+8. **Miners count** (D4). A raid was an enemy warship within 200 px of the king or something planted. Now a miner counts too.
+9. **Arming while outarmed** (D5). While the enemy's warships outweigh its own by a quarter (the edge it attacks with itself), its king prints a counter before what it's saving for a factory. It used to print one only with 120 px to spare.
+
+*Each rule on its own.* The AI as built, and with one rule switched off, in matches won of 16. The columns that moved most are shown.
+
+| Switched off | RUSH, starter | RUSH, Henry's | EXPANDER, starter | EXPANDER, Henry's | BOOM, starter | BOOM, Henry's |
+|---|---|---|---|---|---|---|
+| Nothing (as built) | 11 | 16 | 15 | 16 | 3 | 5 |
+| 1. A king on its half is a raid | 5 | 0 | 15 | 16 | 3 | 5 |
+| 2. Guns before miners | 5 | 7 | 15 | 15 | 4 | 4 |
+| 6. The king's post | 8 | 13 | 13 | 13 | 4 | 4 |
+| 7. Standing when not outweighed | 8 | 15 | 15 | 14 | 1 | 6 |
+| 8. Miners count | 12 | 16 | 11 | 12 | 6 | 3 |
+| 9. Arming while outarmed | 11 | 16 | 14 | 11 | 7 | 5 |
+| 7. Falling back on a quiet factory | 11 | 16 | 15 | 16 | 3 | 5 |
+| 4. Where it plants under a raid | 12 | 16 | 15 | 16 | 3 | 5 |
+| 3. Nothing extra held back | 12 | 16 | 15 | 15 | 3 | 6 |
+
+- **Rules 1 and 2 are what beat the rush.** Without either, the AI is back to losing it.
+- **Rules 6 and 7 help against the rush** and a little elsewhere.
+- **Rules 8 and 9 are what improved EXPANDER.** Rule 9 may cost something against BOOM on the starter deck (3 against 7), where guns bought early are pixels not mined. At 16 matches a cell, a difference of two or three is noise, and I wouldn't read that one as settled.
+- **Three rules show nothing in these matches:** falling back on a quiet factory, where it plants under a raid, and the 150 px. They're kept on reasoning (the 150 px is what left the AI sitting on 183 px on seed 28100), and they're Henry's to drop.
+
+*Tried and dropped.*
+- **Holding posts against a raid that outweighs what's at home.** My proposal was that defenders should gather and fight together. Built as "stay on GUARD until those at home match the raid", it lost matches to the openings that stream ships: on the starter deck PLANTER went from 12 of 12 to 10, and EXPANDER from 10 to 7. With that one rule out they were back at 12 and 11. A ship on GUARD answers only what comes within 160 px of its post, so the raiders killed miners and far factories unopposed. Holding a post isn't fighting together.
+- **Calling a wave home.** It only did anything through the holding rule, and without it a recalled ship goes straight back to hunting where it is. A real recall needs its own rule, and nothing measured says it would pay. Not built.
+- **The king beside its factory all the time.** With the king 125 px from its start, its second home rock can be out of its network's reach. An existing test caught a factory cut off from the bank. So the post is for raids only, and not even then if it would cut a factory off.
+
+*What this doesn't fix.* **The boom still beats the AI,** 24 times in 32. That was known (the pace section, above: "the boom beats the AI in every row"), and it isn't a defence problem. The boom out-builds it: the AI keeps one more miner than it has factories and saves for shipyards, while the boom prints miners without a pause and plants an outpost whenever it can pay. The AI neither punishes that early nor matches it. It's the next thing wrong with the AI, and it wants its own round.
+
+*Found on the way.*
+- **My first RUSH kept its king at home and lost.** Had I changed the AI against that, I'd have been fixing the wrong thing.
+- **Half of what I proposed was dropped, and what mattered most wasn't on my list.** I proposed guns before miners, a garrison, gathering defenders and a recalled wave. The first is rule 2. The garrison is rule 9, which helps against EXPANDER and not against the rush. The other two are under "Tried and dropped". Seeing the king coming, rule 1, came from watching a match tick by tick.
+- **A rule break found a clause that could never matter.** The post check let a factory count as kept if it would link through the first factory. Nothing that links through the first factory is ever out of the king's reach from a post 18 px away from it, so no test could tell the clause from its absence. It's gone.
+- **The network protocol is 3.** A bot remembers one more thing, which is in the state the two machines compare. Two games a version apart now refuse each other at the start; they'd otherwise have fallen out of step at the first check.
+
+*My calls, for Henry to overrule.*
+1. **RUSH is my reading of seed 28100,** and of what a careful player does once the rush is answered (go home at three quarters).
+2. **The AI still doesn't use SAB, a style or a group.** Henry's answer to that question was that its defence is what's killing it, so that's where this round went.
+3. **The king's post is 4 px from its factory.** Near enough that its flak reaches what attacks the factory from close by. It also puts the king and the factory on one lancer's line.
+4. **Three rules are kept without a measured effect** (above).
+
+*What else moved.*
+- **A bigger sample against RUSH:** 20 seeds on each side of the map. Before, the AI won 4 of 40 on the starter deck (2 drawn at the 40-minute limit, its king still running) and 1 of 40 on Henry's (1 drawn). After, 30 of 40 and 37 of 40.
+- **AI against AI,** starter deck, four seeds: 2 to 2, from 15:37 to 24:21 with a median of 22:11. It was 3 to 1, from 17:11 to 24:56 with a median of 23:52.
+- **The arena's reference fights** aren't touched: nothing in a ship changed.
+
+*Checks (2026-11-12, after the AI's defence).* 164 tests pass, eleven of them new. 129 of 129 deliberate rule breaks are caught: the 103 from before (two of them re-pointed at lines this round rewrote) and 26 new ones. Among the new: no king taken for a raid, a king at home taken for one, miners first against a raid that outweighs the AI, a king answered before its ships, a post never taken, a post taken in peace, a post that cuts a factory off, a king that runs from everything, a king that runs from nothing, no falling back, falling back on a factory under attack, the 150 px back, a seed sent to the raiders, a factory planted out on its own, no arming while outarmed, arming against no fleet, miners not counted, a scripted opening given the AI's eyes, a rush that stays home, a rush that never goes home, a saboteur that hunts. Not done: I haven't watched any of it in a window, and nobody has played it. Every number here is the AI against scripts.
 
 **Checks (2026-11-11, after N1):** 141 tests pass. 84 of 84 deliberate rule breaks are caught, twenty of them new. Among them: a command that skips the lag, a machine that plays on without the other's turn, each machine applying its own commands first, a check that compares nothing, a hash with the ships left out, a command counted whoever's name is on it, a turn let through out of order, the joiner's cards printing for blue, a network match that stops under a panel, a right-clicked card marking a job already queued, and the edge shoving a hulk. One was missed at first: the king's keys sent every frame change nothing in the match (the sim drops the repeats), only what crosses the wire, and no test had looked at the wire. One does now. The arena's 41 reference fights are exactly as last recorded.
 

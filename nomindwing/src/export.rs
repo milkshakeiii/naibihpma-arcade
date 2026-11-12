@@ -442,22 +442,36 @@ pub fn match_sim(n: u64, blue: Option<&str>, red: Option<&str>, bots: [crate::pg
     println!("blue {} red {} draw {} | {} to {}, median {}", wins[0], wins[1], wins[2], clock(ticks[0]), clock(ticks[ticks.len() - 1]), clock(ticks[ticks.len() / 2]));
 }
 
-/// The AI against each scripted opening, `n` matches on each side of the map, starter deck
-/// against starter deck. One line per opening: how many the AI won, lost and drew, and how long
-/// the matches ran.
-pub fn judge(n: u64) {
-    use crate::pg::design::starter_deck;
+/// The AI against each scripted opening (or just those named in `only`, with commas between),
+/// `n` matches on each side of the map, both sides with the deck in `file` (or the starter
+/// deck). One line per opening: how many the AI won, lost and drew, how long the matches ran,
+/// and when the AI was first beaten down to a slowed king.
+pub fn judge(n: u64, file: Option<&str>, only: Option<&str>) {
     use crate::pg::play::clock;
     use crate::pg::sim::Bot;
-    for other in [Bot::Clock, Bot::Planter, Bot::Expander, Bot::Summoner, Bot::Boomer, Bot::Ai] {
+    println!("{}", file.unwrap_or("STARTER DECK"));
+    for other in [Bot::Clock, Bot::Planter, Bot::Expander, Bot::Summoner, Bot::Boomer, Bot::Rusher, Bot::Saboteur, Bot::Ai] {
+        if only.is_some_and(|names| !names.split(',').any(|w| Bot::from_name(w) == Some(other))) {
+            continue;
+        }
         let (mut won, mut lost, mut drew, mut ticks) = (0, 0, 0, Vec::new());
         let mut printed = [0i32; 2];
         // Seconds each losing king lasted once its side had next to nothing standing.
         let mut lasted: Vec<u32> = Vec::new();
+        // When the AI's king was first slowed, in the matches where it ever was.
+        let mut down: Vec<u32> = Vec::new();
         for seed in 1..=n {
             for side in 0..2 {
                 let bots = if side == 0 { [Bot::Ai, other] } else { [other, Bot::Ai] };
-                let m = play_match(seed, [starter_deck(), starter_deck()], bots, |_| {});
+                let mut slowed = None;
+                let m = play_match(seed, [deck_from(file), deck_from(file)], bots, |a| {
+                    if slowed.is_none() && a.king_slowed(side) {
+                        slowed = Some(a.tick);
+                    }
+                });
+                if let Some(at) = slowed {
+                    down.push(at);
+                }
                 match m.winner {
                     Some(w) if w == side => won += 1,
                     Some(_) => lost += 1,
@@ -475,7 +489,7 @@ pub fn judge(n: u64) {
         ticks.sort();
         let games = (2 * n) as i32;
         println!(
-            "AI v {:9} won {won:2} lost {lost:2} drew {drew:2} | {} to {}, median {} | ships made a match: AI {}, {:?} {} | {}",
+            "AI v {:9} won {won:2} lost {lost:2} drew {drew:2} | {} to {}, median {} | ships made a match: AI {}, {:?} {} | {} | {}",
             format!("{other:?}").to_uppercase(),
             clock(ticks[0]),
             clock(ticks[ticks.len() - 1]),
@@ -488,6 +502,13 @@ pub fn judge(n: u64) {
                 match lasted.len() {
                     0 => "no king fell beaten".to_string(),
                     k => format!("{k} kings fell beaten, lasting {} to {} s, median {}", lasted[0], lasted[k - 1], lasted[k / 2]),
+                }
+            },
+            {
+                down.sort();
+                match down.len() {
+                    0 => "the AI's king was never slowed".to_string(),
+                    k => format!("the AI's king was slowed in {k}, first at {} to {}", clock(down[0]), clock(down[k - 1])),
                 }
             }
         );

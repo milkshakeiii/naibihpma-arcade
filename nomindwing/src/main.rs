@@ -64,7 +64,7 @@ fn main() {
     if let Some(i) = args.iter().position(|a| a == "--match-sim") {
         let n = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(4);
         // --bots BLUE,RED picks who plays: ai (the default), clock, planter, expander, summoner,
-        // boomer.
+        // boomer, rusher, saboteur.
         let mut bots = [pg::sim::Bot::Ai; 2];
         if let Some(Some(names)) = arg("--bots") {
             for (k, name) in names.split(',').take(2).enumerate() {
@@ -75,7 +75,9 @@ fn main() {
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--judge") {
-        export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5));
+        // --judge N --cards FILE: both sides play the deck in FILE, not the starter deck.
+        // --only rusher,boomer: just those openings.
+        export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5), arg("--cards").flatten().as_deref(), arg("--only").flatten().as_deref());
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--pace") {

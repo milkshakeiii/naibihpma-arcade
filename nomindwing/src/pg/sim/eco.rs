@@ -54,6 +54,10 @@ const WAVE_TICKS: u32 = 15 * 240;
 /// hovering at the edge would otherwise turn it out and home again every few seconds.
 const ALARM_RANGE: i32 = 200;
 const ALARM_CLEAR: i32 = 60;
+/// How near the rushing opening's king goes to what it attacks, middle to middle.
+const RUSH_CLOSE: i32 = 40;
+/// The clear pixels the AI's king leaves between itself and the factory it posts itself beside.
+const STRONGPOINT_GAP: i32 = 4;
 /// Accumulators count in 60ths of a pixel per tick: a factory pixel adds 1 a tick, so it prints a
 /// pixel every 4 s.
 const UNIT: i32 = PRINT_TICKS;
@@ -157,7 +161,9 @@ impl Cmd {
 pub enum Bot {
     None,
     /// The opponent: plants when it can pay, keeps miners working, masses its warships on GUARD
-    /// and sends them out in waves, and has its king print what counters the enemy's fleet.
+    /// and sends them out in waves, and has its king print what counters the enemy's fleet. It
+    /// takes an enemy king on its half of the map for a raid, arms first against a raid or a
+    /// fleet it can't match, and stands its king beside its factory while a raid is on.
     Ai,
     /// Round 1's opponent: one more factory every 75 s by the clock. Everything on HUNT.
     Clock,
@@ -171,6 +177,14 @@ pub enum Bot {
     /// allows, and a king that prints miners without a pause. Everything on HUNT. It's what the
     /// pace of a match is measured with (`--pace`).
     Boomer,
+    /// The rush that won Henry's match of 2026-11-11 in 4:42: one factory at once, and a king
+    /// that prints its cheapest lance or cannon ship without a pause. Everything on HUNT. Its
+    /// king goes too: up to the nearest thing the enemy has planted, and prints there. Once it
+    /// has lost a quarter of itself it goes home for good, and prints from there.
+    Rusher,
+    /// The sabotage that won the match after it in 9:10: the AI's economy with everything on
+    /// SAB, so ships go for miners and factories as they're made.
+    Saboteur,
 }
 
 impl Bot {
@@ -182,6 +196,8 @@ impl Bot {
             "expander" => Bot::Expander,
             "summoner" => Bot::Summoner,
             "boomer" => Bot::Boomer,
+            "rusher" => Bot::Rusher,
+            "saboteur" => Bot::Saboteur,
             _ => return None,
         })
     }
@@ -204,6 +220,8 @@ struct Mind {
     turn: usize,
     /// Its fleet is turned out against a raid.
     alarm: bool,
+    /// The rushing opening's king has been hurt enough, and gone home.
+    gone_home: bool,
 }
 
 /// What a warship is to the counter triangle: small with flak, small with a lance or cannon, or
@@ -1464,11 +1482,38 @@ impl Arena {
             faced[class_of(&s.st)] += s.px_now();
         }
         let enemy_army: i32 = faced.iter().sum();
-        let raid = |range: i32| self.ships.iter().filter(foe).any(|f| self.ships.iter().any(|s| s.alive && s.team == t && (s.role == Role::King || s.rooted) && cheb(s.x, s.y, f.x, f.y) <= range));
-        let alarm = raid(ALARM_RANGE);
+        // To the AI, an enemy king that has come over to its half of the map is a raid already,
+        // however far it still has to fly: a king on its way is the one attack that's seen
+        // coming. (The scripted openings see only ships, as they always have.)
+        let (home, far) = (KING_STARTS[t], KING_STARTS[1 - t]);
+        let invader = |s: &&Ship| bot == Bot::Ai && s.alive && s.team != t && s.role == Role::King && dist2(s.x, s.y, home.0, home.1) < dist2(s.x, s.y, far.0, far.1);
+        // What's the AI's to defend: its king, what it has planted, and its miners. (For the
+        // scripted openings, as always, the king and what's planted.)
+        let by_mine = |x: i32, y: i32, range: i32| self.ships.iter().any(|s| s.alive && s.team == t && (s.role == Role::King || s.rooted || (bot == Bot::Ai && s.role == Role::Ship && is(s, Card::miner))) && cheb(s.x, s.y, x, y) <= range);
+        let raiders = |range: i32| -> Vec<(i32, i32, i32, bool)> { self.ships.iter().filter(|s| invader(s) || (foe(s) && by_mine(s.x, s.y, range))).map(|f| (f.x, f.y, f.px_now(), f.role == Role::King)).collect() };
+        let alarm = !raiders(ALARM_RANGE).is_empty();
         // Its fleet, once turned out, stays out until the raiders are well clear.
-        let turned_out = alarm || (mind.alarm && raid(ALARM_RANGE + ALARM_CLEAR));
+        let raid = if alarm || mind.alarm { raiders(ALARM_RANGE + ALARM_CLEAR) } else { Vec::new() };
+        let turned_out = !raid.is_empty();
         mind.alarm = turned_out;
+        // A king raiding with ships round it is answered through its ships: they're what does
+        // the damage, and what it would have to be reached through. A king raiding alone is the
+        // biggest ship there is, and what answers it is what answers big ships.
+        if raid.iter().all(|r| r.3) {
+            faced[2] += raid.iter().map(|r| r.2).sum::<i32>();
+        }
+        // The raid against what the AI has to answer it with: every warship it has, or, while
+        // a wave is out, those near its king or anything it has planted. A raid that outweighs
+        // them changes what it prints and where it plants.
+        let raid_px: i32 = raid.iter().map(|r| r.2).sum();
+        let home_px: i32 = if mind.wave {
+            self.ships.iter().filter(|s| own(s) && s.grow.is_none() && s.warp == 0 && is(s, Card::warship) && by_mine(s.x, s.y, ALARM_RANGE)).map(|s| s.px_now()).sum()
+        } else {
+            army
+        };
+        let outgunned = bot == Bot::Ai && raid_px > home_px;
+        // The enemy's fleet has the edge over its own that the AI would itself attack with.
+        let outarmed = enemy_army > 0 && enemy_army * 4 >= army * 5;
 
         // Orders. The AI masses its warships on GUARD and sends them out as a wave: when it's the
         // stronger side, or after a rest if it's not much the weaker, or after a long rest
@@ -1497,7 +1542,7 @@ impl Arena {
         }
         for &s in &warships {
             let out = bot != Bot::Ai || turned_out || (mind.wave && mind.release.get(s).is_some_and(|&r| tick >= r));
-            let want = if out { Order::Hunt } else { Order::Guard };
+            let want = if bot == Bot::Saboteur { Order::Sab } else if out { Order::Hunt } else { Order::Guard };
             if self.eco().orders[t][s] != want {
                 self.command(Cmd::Order { team: t, slot: s, order: want });
             }
@@ -1510,7 +1555,7 @@ impl Arena {
         let n = factories + seeds;
         let pick = match bot {
             Bot::Planter | Bot::Boomer => small,
-            Bot::Summoner => small.filter(|_| n == 0),
+            Bot::Summoner | Bot::Rusher => small.filter(|_| n == 0),
             Bot::Clock => (if n >= 2 { big } else { small }).filter(|_| seeds == 0 && n < (1 + (tick / (15 * 75)) as usize).min(9)),
             _ => {
                 // Two small ones, then big ones: six in all. A big one it has waited four minutes
@@ -1522,15 +1567,21 @@ impl Arena {
                 (if n < 2 || waited || behind { small } else { big }).filter(|_| n < 6 || (behind && n < 14))
             }
         };
-        // It keeps something back for the new factory to print with, and more under attack.
+        // It keeps something back for the new factory to print with. The scripted openings
+        // with the AI's economy keep more under a raid, as the AI did until 2026-11-12: a side
+        // that saves more while it's being raided has less to answer the raid with.
         let spare = match bot {
-            Bot::Ai | Bot::Expander if alarm => 150,
-            Bot::Ai | Bot::Expander => 40,
+            Bot::Expander | Bot::Saboteur if alarm => 150,
+            Bot::Ai | Bot::Expander | Bot::Saboteur => 40,
             _ => 0,
         };
         let mut saving = 0;
         if let Some(slot) = pick {
-            let rock = |s: usize| self.ai_rock(t, cards[s].count).map(|r| (s, r));
+            // Against a raid that outweighs it the AI plants nowhere the raiders are, and only
+            // where the new factory joins its network: one cut off would have nothing to print
+            // with. With no factory left it plants on any rock the raiders aren't at.
+            let (avoid, joined) = if outgunned { (&raid[..], n > 0) } else { (&raid[..0], false) };
+            let rock = |s: usize| self.ai_rock(t, cards[s].count, avoid, joined).map(|r| (s, r));
             if let Some((slot, target)) = rock(slot).or_else(|| small.filter(|&s| s != slot).and_then(rock)) {
                 saving = cards[slot].price() + spare;
                 if left >= saving {
@@ -1547,11 +1598,16 @@ impl Arena {
             let cheapest = |f: fn(&Card) -> bool| (0..cards.len()).filter(|&s| f(&cards[s])).min_by_key(|&s| cards[s].cost);
             let short_of_miners = miners < factories.max(1) + 1;
             let print = match bot {
-                // Miners first: one more than it has factories, whatever the factories add.
-                Bot::Ai | Bot::Expander if short_of_miners && cheapest(Card::miner).is_some() => cheapest(Card::miner),
-                // Then guns: against a raid, something small right now; with more in the bank
-                // than the next factory needs, the best counter it can pay for.
+                // Against a raid that outweighs what it has, guns before anything: something
+                // small, right now.
+                Bot::Ai if outgunned => Self::counter(&cards, faced, left.min(100)),
+                // Miners: one more than it has factories, whatever the factories add.
+                Bot::Ai | Bot::Expander | Bot::Saboteur if short_of_miners && cheapest(Card::miner).is_some() => cheapest(Card::miner),
+                // Then guns: against any other raid, something small right now. While the
+                // enemy's fleet has the edge, guns come before what it's saving for. Otherwise
+                // only with more in the bank than the next factory needs.
                 Bot::Ai if alarm => Self::counter(&cards, faced, left.min(100)),
+                Bot::Ai if outarmed => Self::counter(&cards, faced, (left - saving).max(0)),
                 Bot::Ai if left >= saving + 120 => Self::counter(&cards, faced, left - saving),
                 Bot::Summoner => {
                     // Every warship but its dearest, in turn, without a pause.
@@ -1564,6 +1620,9 @@ impl Arena {
                     w.get(mind.turn % w.len().max(1)).copied()
                 }
                 Bot::Boomer => cheapest(Card::miner),
+                // Its cheapest ship with a lance or a cannon; with none in the deck, its
+                // cheapest warship.
+                Bot::Rusher => (0..cards.len()).filter(|&s| cards[s].warship() && class_of(&cards[s].st) == 1).min_by_key(|&s| cards[s].cost).or_else(|| cheapest(Card::warship)),
                 Bot::Clock if tick > 15 * 240 && tick >= mind.big_at => {
                     mind.big_at = tick + 15 * 150;
                     warships.iter().copied().max_by_key(|&s| cards[s].cost)
@@ -1579,12 +1638,55 @@ impl Arena {
 
     /// A bot's king stays home, and backs away from any armed enemy that comes near. The AI's
     /// king is also its link: when nodes cut off from it hold a good many pixels, it flies over
-    /// until they're in its network, and goes home once it has spent them.
+    /// until they're in its network, and goes home once it has spent them. And it defends:
+    /// while a raid is on it stands beside its nearest factory, it backs away only from what
+    /// outweighs it, and then towards a factory nobody is attacking. The rushing opening's king
+    /// does none of that: it flies at the enemy.
     fn bot_steer(&mut self, t: usize) {
         let k = self.eco().king[t];
         let (kx, ky) = (self.ships[k].x, self.ships[k].y);
+        if self.eco().bot[t] == Bot::Rusher {
+            // Up to the nearest thing the enemy has planted (its king, when it has nothing),
+            // close enough for the king's own flak, and no backing away: until it has lost a
+            // quarter of the pixels it started with, when it goes home and stays there.
+            if self.ships[k].px_now() * 4 < crate::pg::design::king().stats().count * 3 {
+                self.eco_mut().mind[t].gone_home = true;
+            }
+            let at = if self.eco().mind[t].gone_home {
+                Some(KING_STARTS[t]).filter(|&p| cheb(kx, ky, p.0, p.1) > 6)
+            } else {
+                self.ships.iter().filter(|s| s.alive && s.team != t && (s.rooted || s.role == Role::King)).min_by_key(|s| (s.role == Role::King, dist2(s.x, s.y, kx, ky))).map(|s| (s.x, s.y)).filter(|&p| cheb(kx, ky, p.0, p.1) > RUSH_CLOSE)
+            };
+            let steer = at.map_or((0, 0), |p| ((p.0 - kx).signum(), (p.1 - ky).signum()));
+            self.command(Cmd::Steer { team: t, dx: steer.0, dy: steer.1 });
+            return;
+        }
         let mut post = KING_STARTS[t];
         if self.eco().bot[t] == Bot::Ai {
+            // While a raid is on, its post is beside the factory nearest its start, on the side
+            // it came from, if that's within its network's reach of the start: one strongpoint,
+            // where the factory's guns and its own cover each other and what it prints is posted
+            // too. With no raid it keeps its start, which its network was laid out round. And
+            // it keeps its start in a raid too if moving would cut a node off: every node in its
+            // reach from the start must still be in its reach from the post. (A node the factory
+            // would link is always one of those: the post is nearer the factory than a king's
+            // reach is longer than a node's.)
+            let start = KING_STARTS[t];
+            let far = KING_RANGE + NODE_RANGE;
+            let base = self.ships.iter().filter(|s| s.alive && s.team == t && s.rooted).min_by_key(|s| dist2(s.x, s.y, start.0, start.1)).filter(|s| dist2(s.x, s.y, start.0, start.1) <= far * far);
+            if let Some(f) = base.filter(|_| self.eco().mind[t].alarm) {
+                let gap = f.half() + self.ships[k].half() + STRONGPOINT_GAP;
+                let (dx, dy) = (start.0 - f.x, start.1 - f.y);
+                let p = if dx.abs() >= dy.abs() { (f.x + dx.signum() * gap, f.y) } else { (f.x, f.y + dy.signum() * gap) };
+                let kept = (0..self.ships.len())
+                    .filter(|&j| j != k && self.ships[j].alive && self.ships[j].team == t && self.is_node(j))
+                    .map(|j| (self.ships[j].x, self.ships[j].y))
+                    .filter(|&(x, y)| dist2(x, y, start.0, start.1) <= far * far)
+                    .all(|(x, y)| dist2(x, y, p.0, p.1) <= far * far);
+                if kept {
+                    post = p;
+                }
+            }
             let net = &self.eco().net;
             let mine = net.get(k).copied().unwrap_or(usize::MAX);
             // The cut-off network holding the most, if it's worth the trip (or the king is there
@@ -1608,8 +1710,29 @@ impl Arena {
                 post = (kx, ky);
             }
         }
-        let threat = self.ships.iter().filter(|s| s.alive && s.team != t && s.st.armed() && cheb(s.x, s.y, kx, ky) < 90).min_by_key(|s| dist2(s.x, s.y, kx, ky));
+        let mut threat = self.ships.iter().filter(|s| s.alive && s.team != t && s.st.armed() && cheb(s.x, s.y, kx, ky) < 90).min_by_key(|s| dist2(s.x, s.y, kx, ky));
+        if self.eco().bot[t] == Bot::Ai {
+            // The AI's king stands its ground where it and the armed friends round it outweigh
+            // the armed enemies round it, each within the alarm's range. Backing away from less
+            // only takes its guns out of the fight and leaves its factory to it.
+            let (mine, theirs) = self.ships.iter().filter(|s| s.alive && s.st.armed() && cheb(s.x, s.y, kx, ky) <= ALARM_RANGE).fold((0, 0), |(m, e), s| if s.team == t { (m + s.px_now(), e) } else { (m, e + s.px_now()) });
+            if mine >= theirs {
+                threat = None;
+            }
+        }
+        // Outweighed, the AI's king falls back on the nearest of its factories that no enemy gun
+        // is near, if it has one. With none it backs straight away, as every bot's king does.
+        let refuge = if threat.is_some() && self.eco().bot[t] == Bot::Ai {
+            let quiet = |f: &&Ship| !self.ships.iter().any(|e| e.alive && e.team != t && e.st.armed() && cheb(e.x, e.y, f.x, f.y) <= ALARM_RANGE);
+            self.ships.iter().filter(|s| s.alive && s.team == t && s.rooted).filter(quiet).min_by_key(|f| dist2(f.x, f.y, kx, ky)).map(|f| (f.x, f.y, f.half() + self.ships[k].half() + STRONGPOINT_GAP))
+        } else {
+            None
+        };
         let steer = match threat {
+            Some(_) if refuge.is_some() => {
+                let (x, y, gap) = refuge.unwrap();
+                if cheb(kx, ky, x, y) > gap + 6 { ((x - kx).signum(), (y - ky).signum()) } else { (0, 0) }
+            }
             Some(s) => ((kx - s.x).signum(), (ky - s.y).signum()),
             None if cheb(kx, ky, post.0, post.1) > 6 => ((post.0 - kx).signum(), (post.1 - ky).signum()),
             None => (0, 0),
@@ -1638,7 +1761,7 @@ impl Arena {
     /// link to its king's network (so what's mined there reaches the bank it plants from), then
     /// any rock on its own side, then any rock at least 300 px from the enemy king. Returns the
     /// rock pixel nearest the rock's middle.
-    fn ai_rock(&self, t: usize, need: i32) -> Option<(i32, i32)> {
+    fn ai_rock(&self, t: usize, need: i32, raid: &[(i32, i32, i32, bool)], joined: bool) -> Option<(i32, i32)> {
         let (k, ek) = (self.eco().king[t], self.eco().king[1 - t]);
         let (kx, ky) = (self.ships[k].x, self.ships[k].y);
         let (ex, ey) = (self.ships[ek].x, self.ships[ek].y);
@@ -1655,7 +1778,7 @@ impl Arena {
             let (x, y) = seeds.remove(i);
             reach.push((x, y, NODE_RANGE));
         }
-        for pass in 0..3 {
+        for pass in 0..if joined { 1 } else { 3 } {
             let mut best: Option<(i32, (i32, i32))> = None;
             for r in rocks {
                 let left = self.rock_left(r);
@@ -1672,7 +1795,9 @@ impl Arena {
                     1 => mine < theirs,
                     _ => theirs >= 300 * 300,
                 };
-                if taken || !allowed {
+                // A seed sent to a rock the raiders are at is a factory thrown away.
+                let raided = raid.iter().any(|&(x, y, _, _)| cheb(x, y, r.cx, r.cy) <= ALARM_RANGE);
+                if taken || !allowed || raided {
                     continue;
                 }
                 if best.map_or(true, |(b, _)| mine < b) {
@@ -3212,6 +3337,387 @@ mod tests {
         assert!(hunts >= 4 && guards >= 1, "the AI sent {hunts} designs out and called {guards} back in eight minutes");
         assert!(switches(0) <= 80, "the AI changed orders {} times in eight minutes", switches(0));
     }
+
+    // ----- The AI's defence, and the two openings it's measured against -----
+
+    /// The AI as blue, with nobody playing red.
+    fn ai_alone() -> Arena {
+        Arena::for_bots(1, [starter_deck(), starter_deck()], [Bot::Ai, Bot::None])
+    }
+
+    /// An enemy ship of the starter deck's design `slot`, on HOLD so that it stays where it's put.
+    fn parked(a: &mut Arena, slot: usize, x: i32, y: i32) -> usize {
+        let i = a.spawn(1, slot, &starter_deck()[slot], x, y, 0, false);
+        a.ships[i].order = Order::Hold;
+        a.ships[i].home = (x, y);
+        i
+    }
+
+    /// One of the AI's own ships of the starter deck's design `slot`.
+    fn friend(a: &mut Arena, slot: usize, x: i32, y: i32) -> usize {
+        a.spawn(0, slot, &starter_deck()[slot], x, y, 0, false)
+    }
+
+    /// A second and a tick: long enough for a bot to have thought again and been obeyed.
+    fn think(a: &mut Arena) {
+        for _ in 0..16 {
+            a.step();
+        }
+    }
+
+    /// The first ship (not a seed) blue's king was told to print.
+    fn first_ship_printed(a: &Arena) -> Option<usize> {
+        a.eco.as_ref().unwrap().log.iter().find_map(|(_, c)| match c {
+            Cmd::Print { team: 0, slot, target: None } => Some(*slot),
+            _ => None,
+        })
+    }
+
+    /// Where blue's first seed was sent.
+    fn first_seed_sent_to(a: &Arena) -> Option<(i32, i32)> {
+        a.eco.as_ref().unwrap().log.iter().find_map(|(_, c)| match c {
+            Cmd::Print { team: 0, target: Some(p), .. } => Some(*p),
+            _ => None,
+        })
+    }
+
+    const FIGHTER: usize = 0;
+    const LANCER: usize = 1;
+    const FRIGATE: usize = 2;
+    const MINER: usize = 3;
+    const OUTPOST: usize = 4;
+    const CAPITAL: usize = 6;
+
+    #[test]
+    fn an_enemy_king_on_the_ais_half_is_a_raid_and_a_raid_it_cant_match_comes_before_miners() {
+        // What the AI's king prints first, after its seed, with the enemy king put somewhere.
+        let first = |king_at: Option<(i32, i32)>| {
+            let mut a = ai_alone();
+            let ek = a.eco.as_ref().unwrap().king[1];
+            if let Some((x, y)) = king_at {
+                (a.ships[ek].x, a.ships[ek].y) = (x, y);
+            }
+            while first_ship_printed(&a).is_none() {
+                a.step();
+                assert!(a.tick < 15 * 30, "the AI's king printed nothing in half a minute");
+            }
+            first_ship_printed(&a).unwrap()
+        };
+        let (home, far) = (KING_STARTS[0], KING_STARTS[1]);
+        assert_eq!(first(None), MINER, "with the enemy king at home, a miner comes first");
+        // On the AI's half, and much further from anything of the AI's than a raiding ship
+        // would have to be.
+        let over = (home.0 + 420, home.1 - 260);
+        assert!(dist2(over.0, over.1, home.0, home.1) < dist2(over.0, over.1, far.0, far.1) && cheb(over.0, over.1, home.0, home.1) > 2 * ALARM_RANGE);
+        assert_eq!(first(Some(over)), LANCER, "a king on its way over wasn't taken for a raid, or a miner came before a gun");
+        // The same distance out from its own start, it's on its own half: no raid.
+        let back = (far.0 - 420, far.1 + 260);
+        assert_eq!(first(Some(back)), MINER, "a king on its own half was taken for a raid");
+    }
+
+    #[test]
+    fn the_ai_answers_a_raiding_kings_ships_before_the_king() {
+        // The enemy king comes up to the AI's home, alone or with two lancers. Alone, it's the
+        // biggest ship there is and lances answer it. With lancers, flak answers the lancers.
+        let first = |lancers: i32| {
+            let mut a = ai_alone();
+            let ek = a.eco.as_ref().unwrap().king[1];
+            let (hx, hy) = KING_STARTS[0];
+            (a.ships[ek].x, a.ships[ek].y) = (hx + 150, hy - 100);
+            for n in 0..lancers {
+                parked(&mut a, LANCER, hx + 130 + 40 * n, hy - 150);
+            }
+            while first_ship_printed(&a).is_none() {
+                a.step();
+                assert!(a.tick < 15 * 30, "the AI's king printed nothing in half a minute");
+            }
+            first_ship_printed(&a).unwrap()
+        };
+        assert_eq!(first(0), LANCER, "a king raiding alone is answered with lances");
+        assert_eq!(first(2), FIGHTER, "a king raiding with lancers is answered through the lancers");
+    }
+
+    #[test]
+    fn while_a_raid_is_on_the_ais_king_stands_beside_its_first_factory() {
+        // A minute in, with nobody near, the king is where it started.
+        let mut a = ai_alone();
+        for _ in 0..15 * 60 {
+            a.step();
+        }
+        let k = a.eco.as_ref().unwrap().king[0];
+        let f = factory(&a).expect("the AI planted nothing in a minute");
+        let (sx, sy) = KING_STARTS[0];
+        assert_eq!((a.ships[k].x, a.ships[k].y), (sx, sy), "with no raid, the king left its start");
+        // A frigate parks in reach of it (more than the AI's first two fighters fly out to
+        // meet). Six seconds later the king is right beside its outpost, on the side it came
+        // from: near enough that its flak reaches anything shooting the outpost from close by.
+        let raider = parked(&mut a, FRIGATE, sx, sy - ALARM_RANGE + 10);
+        for _ in 0..15 * 6 {
+            a.step();
+        }
+        let (king, post) = (&a.ships[k], &a.ships[f]);
+        let gap = post.half() + king.half() + STRONGPOINT_GAP;
+        assert!(a.ships[raider].alive);
+        assert!(cheb(king.x, king.y, post.x, post.y) <= gap + 4, "under a raid the king is at ({}, {}), not beside its outpost at ({}, {})", king.x, king.y, post.x, post.y);
+        assert!(dist2(king.x, king.y, sx, sy) < dist2(post.x, post.y, sx, sy), "the king is on the far side of its outpost");
+        // The raider gone, it goes back to its start.
+        a.ships[raider].alive = false;
+        for _ in 0..15 * 8 {
+            a.step();
+        }
+        assert!(cheb(a.ships[k].x, a.ships[k].y, sx, sy) <= 6, "the raid over, the king is at ({}, {})", a.ships[k].x, a.ships[k].y);
+    }
+
+    #[test]
+    fn the_ais_king_keeps_its_start_when_its_post_would_cut_a_node_off() {
+        // The AI has an outpost 120 px along the map from its king's start, and perhaps a second
+        // 139 px the other way: in reach of the start, and out of reach of the post beside the
+        // first. A frigate parks in reach of the king. Where the king is four seconds later.
+        let king_after = |second: bool| {
+            let mut a = ai_alone();
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            // Nothing in the bank, so it plants nothing of its own to confuse the picture.
+            a.ships[k].store = 0;
+            let mut nodes = vec![(kx + 120, ky)];
+            if second {
+                nodes.push((kx - 125, ky + 60));
+            }
+            for &(x, y) in &nodes {
+                let f = friend(&mut a, OUTPOST, x, y);
+                (a.ships[f].rooted, a.ships[f].node) = (true, true);
+            }
+            let first = a.ships.len() - nodes.len();
+            parked(&mut a, FRIGATE, kx, ky - ALARM_RANGE + 10);
+            for _ in 0..15 * 4 {
+                a.step();
+            }
+            let (king, post) = (&a.ships[k], &a.ships[first]);
+            let e = a.eco.as_ref().unwrap();
+            let whole = (0..a.ships.len()).filter(|&i| a.ships[i].team == 0 && a.is_node(i)).all(|i| e.net[i] == e.net[k]);
+            ((king.x - kx, king.y - ky), cheb(king.x, king.y, post.x, post.y) <= post.half() + king.half() + STRONGPOINT_GAP + 4, whole)
+        };
+        let (_, beside, whole) = king_after(false);
+        assert!(beside && whole, "with one outpost the king should be beside it, in one network: beside {beside}, whole {whole}");
+        let (moved, beside, whole) = king_after(true);
+        assert!(moved == (0, 0) && !beside && whole, "with a second outpost only its start reaches, the king moved {moved:?}: beside {beside}, whole {whole}");
+    }
+
+    #[test]
+    fn a_raid_changes_where_the_ai_plants_only_when_it_outweighs_the_ai() {
+        // The AI's bank covers an outpost and the 40 px it always keeps, not the 150 px it
+        // used to keep back under a raid. An enemy fighter is parked in reach of its home
+        // rocks. Where its seed is sent within a second, if anywhere.
+        let seed = |raid: bool, fighters: i32, factory: bool| {
+            let mut a = ai_alone();
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            a.ships[k].store = a.eco.as_ref().unwrap().cards[0][OUTPOST].cost + 45;
+            let at = (kx, ky - 120);
+            if raid {
+                parked(&mut a, FIGHTER, at.0, at.1);
+            }
+            for n in 0..fighters {
+                friend(&mut a, FIGHTER, kx - 10 + 20 * n, ky + 60);
+            }
+            if factory {
+                let f = friend(&mut a, OUTPOST, kx - 80, ky + 80);
+                a.ships[f].rooted = true;
+            }
+            think(&mut a);
+            (first_seed_sent_to(&a), at)
+        };
+        let (quiet, at) = seed(false, 0, false);
+        let quiet = quiet.expect("with nobody near, the AI plants");
+        assert!(cheb(quiet.0, quiet.1, at.0, at.1) <= ALARM_RANGE, "the home rock isn't in reach of where the raider parks");
+        // Two fighters of its own outweigh the raider: it plants where it would have, and
+        // holds nothing extra back.
+        let (met, _) = seed(true, 2, false);
+        assert_eq!(met, Some(quiet), "a raid the AI outweighs changed its planting");
+        // With nothing to meet the raider, and no factory yet, it plants out of the raider's
+        // reach.
+        let (away, at) = seed(true, 0, false);
+        let away = away.expect("outweighed, with no factory, the AI didn't plant anywhere");
+        assert!(cheb(away.0, away.1, at.0, at.1) > ALARM_RANGE - 4, "outweighed, it sent a seed to ({}, {}), in the raider's reach", away.0, away.1);
+        // With a factory already, it doesn't plant one that would be cut off: every rock that
+        // would join its network is in the raider's reach.
+        let (cut, _) = seed(true, 0, true);
+        assert_eq!(cut, None, "outweighed, with a factory, the AI planted one out on its own");
+    }
+
+    #[test]
+    fn the_ais_king_stands_by_what_outweighs_a_raider_and_falls_back_from_what_outweighs_it() {
+        // A minute in, the AI's king is at its start with its outpost planted. An enemy parks
+        // 85 px up the map from it, inside the 90 px at which a bot's king backs away. Four
+        // seconds later: whether the king is beside its outpost, how much further it is from
+        // the enemy, and how much nearer the place a second factory stands (or would).
+        let after = |slot: usize, refuge: bool| {
+            let mut a = ai_alone();
+            for _ in 0..15 * 60 {
+                a.step();
+            }
+            let k = a.eco.as_ref().unwrap().king[0];
+            let f = factory(&a).unwrap();
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let far = (kx + 400, ky - 400);
+            if refuge {
+                // A second factory of the AI's, far up the map and along it, with nothing near
+                // it: past the enemy, the opposite way from backing off.
+                let f2 = friend(&mut a, OUTPOST, far.0, far.1);
+                a.ships[f2].rooted = true;
+            }
+            let e = parked(&mut a, slot, kx, ky - 85);
+            let (ex, ey) = (a.ships[e].x, a.ships[e].y);
+            for _ in 0..15 * 4 {
+                a.step();
+            }
+            let (king, post) = (&a.ships[k], &a.ships[f]);
+            let beside = cheb(king.x, king.y, post.x, post.y) <= post.half() + king.half() + STRONGPOINT_GAP + 4;
+            (beside, cheb(king.x, king.y, ex, ey) - cheb(kx, ky, ex, ey), cheb(kx, ky, far.0, far.1) - cheb(king.x, king.y, far.0, far.1))
+        };
+        // A fighter is 9 px. The king and its outpost outweigh it thirty times over: the king
+        // takes its post beside the outpost, and that's all.
+        let (beside, _, _) = after(FIGHTER, false);
+        assert!(beside, "raided by a single fighter, the AI's king isn't at its post");
+        // A capital outweighs them both. With nowhere else to go the king backs straight away
+        // from it.
+        let (beside, further, _) = after(CAPITAL, false);
+        assert!(!beside && further >= 20, "outweighed, with one factory: beside it {beside}, {further} px further from the capital");
+        // With a second factory that nothing is near, it makes for that instead. (Backing away
+        // from the capital took it the other way: see the line above.)
+        let (_, _, wrong_way) = after(CAPITAL, false);
+        let (beside, _, nearer) = after(CAPITAL, true);
+        assert!(wrong_way < 20, "with no second factory the king still went {wrong_way} px towards where one would be");
+        assert!(!beside && nearer >= 60, "outweighed, with a quiet factory to fall back on, the king is {nearer} px nearer it");
+    }
+
+    #[test]
+    fn the_ai_arms_while_the_enemys_fleet_has_the_edge() {
+        // The AI has an outpost and its two miners, and a bank too small for the factory it's
+        // saving for. The enemy has so many fighters parked at its own home, raiding nobody.
+        // What the AI's king is printing a second later.
+        let printing = |fighters: i32| {
+            let mut a = ai_alone();
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let f = friend(&mut a, OUTPOST, kx + 80, ky - 60);
+            a.ships[f].rooted = true;
+            for n in 0..2 {
+                friend(&mut a, MINER, kx - 40 + 20 * n, ky + 50);
+            }
+            let (ex, ey) = KING_STARTS[1];
+            for n in 0..fighters {
+                parked(&mut a, FIGHTER, ex - 40 + 14 * n, ey + 60);
+            }
+            a.ships[k].store = 60;
+            think(&mut a);
+            a.eco.as_ref().unwrap().queue[0].first().map(|j| j.slot)
+        };
+        assert_eq!(printing(0), None, "with no enemy fleet, the AI spent what it was saving");
+        // Against small flak ships, something big: the frigate is the cheapest it has.
+        assert_eq!(printing(3), Some(FRIGATE), "with the enemy three fighters up, the AI printed no gun");
+    }
+
+    #[test]
+    fn a_raid_on_the_ais_miners_turns_its_fleet_out() {
+        // An enemy fighter parks out in the map, far from anything the AI has planted, with one
+        // of the AI's miners 100 px from it or not. What the AI's fighters are told.
+        let told = |miner: bool| {
+            let mut a = ai_alone();
+            let (mx, my) = (a.w / 2 - 150, a.h / 2 + 150);
+            if miner {
+                friend(&mut a, MINER, mx, my);
+            }
+            parked(&mut a, FIGHTER, mx + 100, my);
+            think(&mut a);
+            a.eco.as_ref().unwrap().orders[0][FIGHTER]
+        };
+        assert_eq!(told(false), Order::Guard, "a fighter near nothing of the AI's turned its fleet out");
+        assert_eq!(told(true), Order::Hunt, "a fighter 100 px from one of the AI's miners didn't turn its fleet out");
+    }
+
+    #[test]
+    fn the_scripted_openings_see_a_raid_as_they_always_did() {
+        // The expander keeps 150 px back under a raid, and its bank here covers an outpost and
+        // 45 px: it plants only if it sees no raid. To it a raid is an enemy ship near its king
+        // or something it has planted. An enemy king on its half is none (to the AI it is), and
+        // neither is a fighter beside one of its miners.
+        let plants = |what: usize| {
+            let mut a = Arena::for_bots(1, [starter_deck(), starter_deck()], [Bot::Expander, Bot::None]);
+            let (k, ek) = (a.eco.as_ref().unwrap().king[0], a.eco.as_ref().unwrap().king[1]);
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            a.ships[k].store = a.eco.as_ref().unwrap().cards[0][OUTPOST].cost + 45;
+            match what {
+                1 => {
+                    parked(&mut a, FIGHTER, kx, ky - 150);
+                }
+                2 => (a.ships[ek].x, a.ships[ek].y) = (kx + 420, ky - 260),
+                3 => {
+                    let (mx, my) = (a.w / 2 - 150, a.h / 2 + 150);
+                    friend(&mut a, MINER, mx, my);
+                    parked(&mut a, FIGHTER, mx + 100, my);
+                }
+                _ => {}
+            }
+            think(&mut a);
+            first_seed_sent_to(&a).is_some()
+        };
+        assert!(plants(0), "with nobody near, the expander didn't plant");
+        assert!(!plants(1), "with a fighter by its king, the expander didn't keep its 150 px back");
+        assert!(plants(2), "the expander took an enemy king on its half for a raid");
+        assert!(plants(3), "the expander took a fighter beside its miner for a raid");
+    }
+
+    #[test]
+    fn the_rush_opening_brings_its_king_and_takes_it_home_once_its_hurt() {
+        let mut a = Arena::for_bots(1, [starter_deck(), starter_deck()], [Bot::Rusher, Bot::None]);
+        let (k, ek) = (a.eco.as_ref().unwrap().king[0], a.eco.as_ref().unwrap().king[1]);
+        think(&mut a);
+        // It has planted its one factory, asked for a lancer, and put every warship on HUNT.
+        // (Its bank is emptied here, so that no lancer is there to end the match.)
+        {
+            let e = a.eco.as_ref().unwrap();
+            assert!(first_seed_sent_to(&a).is_some());
+            assert_eq!(first_ship_printed(&a), Some(LANCER));
+            assert!((0..e.cards[0].len()).filter(|&s| e.cards[0][s].warship()).all(|s| e.orders[0][s] == Order::Hunt));
+        }
+        a.ships[k].store = 0;
+        // The enemy has nothing planted, so its king is what the rush goes for: 34 s later the
+        // rusher's king is as close to it as it comes.
+        for _ in 0..15 * 34 {
+            a.step();
+        }
+        let d = cheb(a.ships[k].x, a.ships[k].y, a.ships[ek].x, a.ships[ek].y);
+        assert!(d <= RUSH_CLOSE + STEP && d >= RUSH_CLOSE - 10, "the rusher's king is {d} px from the enemy's");
+        let seeds = a.eco.as_ref().unwrap().log.iter().filter(|(_, c)| matches!(c, Cmd::Print { team: 0, target: Some(_), .. })).count();
+        assert_eq!(seeds, 1, "the rusher plants once");
+        // A quarter of it knocked off, it goes home, and stays there.
+        let full = crate::pg::design::king().stats().count;
+        let at = (a.ships[k].x, a.ships[k].y);
+        for c in 0..a.ships[k].hp.len() {
+            if a.ships[k].px_now() * 4 < full * 3 {
+                break;
+            }
+            a.kill_cell(k, c, at, (0, 0));
+        }
+        assert!(a.ships[k].alive && a.ships[k].px_now() * 4 < full * 3);
+        for _ in 0..15 * 45 {
+            a.step();
+        }
+        let (hx, hy) = KING_STARTS[0];
+        assert!(a.over.is_none() && cheb(a.ships[k].x, a.ships[k].y, hx, hy) <= 6, "the hurt king is at ({}, {}), not home", a.ships[k].x, a.ships[k].y);
+    }
+
+    #[test]
+    fn the_sabotage_opening_is_the_ais_economy_with_everything_on_sab() {
+        let mut a = Arena::for_bots(1, [starter_deck(), starter_deck()], [Bot::Saboteur, Bot::None]);
+        think(&mut a);
+        let e = a.eco.as_ref().unwrap();
+        let warships: Vec<usize> = (0..e.cards[0].len()).filter(|&s| e.cards[0][s].warship()).collect();
+        assert!(warships.len() >= 3 && warships.iter().all(|&s| e.orders[0][s] == Order::Sab), "its warships are told {:?}", warships.iter().map(|&s| e.orders[0][s]).collect::<Vec<_>>());
+        assert!(first_seed_sent_to(&a).is_some(), "it plants its first factory at once, like the AI");
+    }
+
 
     #[test]
     fn nothing_comes_out_of_hyperspace_into_an_enemy() {

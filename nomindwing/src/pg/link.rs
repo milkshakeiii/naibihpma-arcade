@@ -28,8 +28,11 @@ use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::time::Duration;
 
-/// Two games talk only if this matches. It goes up whenever what's sent changes.
-pub const PROTO: u32 = 2;
+/// Two games talk only if this matches. It goes up whenever what's sent changes, and whenever
+/// what a match's state holds does: the two machines compare a hash of it, so two versions with
+/// different state would fall out of step at the first check. (3: a bot remembers one more
+/// thing.)
+pub const PROTO: u32 = 3;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.
