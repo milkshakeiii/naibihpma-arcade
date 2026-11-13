@@ -121,6 +121,63 @@ fn shields(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
     }
 }
 
+/// A projector's skin. Its reach is a dotted line: any friend with part of itself inside that
+/// line is covered. Every ship one covers wears a blue outline two pixels outside its box, with
+/// its corners cut. A full pool is a solid outline, and it thins by a quarter for each quarter of
+/// the pool that's spent, as a shield's circle does. With the pool empty there's no outline:
+/// nothing's covered.
+fn skins(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    // The reach: the lump's box grown by its reach, with round corners. A dot every fourth pixel.
+    for (_, _, (l, t, r, b), reach) in a.proj_fields() {
+        let (l, t, r, b) = (l - cx, t - cy, r - cx, b - cy);
+        for x in (l..=r).filter(|x| x & 3 == 0) {
+            pc(fb, f, x, t - reach, PROJECTOR_DIM);
+            pc(fb, f, x, b + reach, PROJECTOR_DIM);
+        }
+        for y in (t..=b).filter(|y| y & 3 == 0) {
+            pc(fb, f, l - reach, y, PROJECTOR_DIM);
+            pc(fb, f, r + reach, y, PROJECTOR_DIM);
+        }
+        // Each corner's quarter circle, walked along whichever way it runs flatter so the dots
+        // stay evenly apart.
+        for k in (4..reach * 181 / 256).step_by(4) {
+            let far = isqrt(reach * reach - k * k);
+            for (dx, dy) in [(k, far), (far, k)] {
+                pc(fb, f, r + dx, b + dy, PROJECTOR_DIM);
+                pc(fb, f, r + dx, t - dy, PROJECTOR_DIM);
+                pc(fb, f, l - dx, b + dy, PROJECTOR_DIM);
+                pc(fb, f, l - dx, t - dy, PROJECTOR_DIM);
+            }
+        }
+    }
+    for (i, s) in a.ships.iter().enumerate() {
+        if !s.alive || s.warp > 0 {
+            continue;
+        }
+        let Some(p) = a.skins.get(i).and_then(|by| by.iter().copied().find(|&p| a.ships[p].alive && a.ships[p].skin.0 > 0)) else { continue };
+        let (left, max) = (a.ships[p].skin.0, a.ships[p].st.projector.max(1));
+        let quarters = (left * 4 + max - 1) / max;
+        let (l, t, r, b) = s.bbox();
+        let (l, t, r, b) = (l - 2 - cx, t - 2 - cy, r + 2 - cx, b + 2 - cy);
+        // Once round, clockwise from the top, a corner cut two pixels deep at each turn.
+        const CUT: i32 = 2;
+        let mut round: Vec<(i32, i32)> = Vec::new();
+        round.extend((l + CUT..=r - CUT).map(|x| (x, t)));
+        round.extend((1..CUT).map(|k| (r - CUT + k, t + k)));
+        round.extend((t + CUT..=b - CUT).map(|y| (r, y)));
+        round.extend((1..CUT).map(|k| (r - k, b - CUT + k)));
+        round.extend((l + CUT..=r - CUT).rev().map(|x| (x, b)));
+        round.extend((1..CUT).map(|k| (l + CUT - k, b - k)));
+        round.extend((t + CUT..=b - CUT).rev().map(|y| (l, y)));
+        round.extend((1..CUT).map(|k| (l + k, t + CUT - k)));
+        for (k, &(x, y)) in round.iter().enumerate() {
+            if (k as i32 & 3) < quarters {
+                pc(fb, f, x, y, PROJECTOR);
+            }
+        }
+    }
+}
+
 /// The white corners round the ship under the pointer.
 pub fn corners(fb: &mut Framebuffer, s: &Ship, (cx, cy): (i32, i32)) {
     let (l, t, r, b) = s.bbox();
@@ -130,6 +187,7 @@ pub fn corners(fb: &mut Framebuffer, s: &Ship, (cx, cy): (i32, i32)) {
 /// Shots in flight, and the sparks and blasts where they landed. A beam that's warming shows
 /// where it will cut as a dotted line, and one that has just cut as a solid one.
 pub fn fire(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    skins(fb, f, a, (cx, cy));
     for w in a.warming() {
         for k in (2..=w.reach).step_by(2) {
             pc(fb, f, w.from.0 + w.dir.0 * k - cx, w.from.1 + w.dir.1 * k - cy, BEAM);
@@ -143,6 +201,8 @@ pub fn fire(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
         let (c0, c1) = match sh.kind {
             Kind::Lance => (LANCE, LANCE_HI),
             Kind::Shell => (GOLD, WHITE),
+            Kind::Missile => (MISSILE, MISSILE_HI),
+            Kind::Repeat => (REPEATER, WHITE),
             Kind::Flak => (team_col(sh.team, 1), team_col(sh.team, 3)),
         };
         pc(fb, f, p.0, p.1, c0);

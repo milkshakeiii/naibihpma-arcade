@@ -30,6 +30,17 @@ pub const BEAM_HI: u8 = 32;
 /// Shield pixels, and the circles they throw.
 pub const SHIELD: u8 = 33;
 pub const SHIELD_DIM: u8 = 34;
+/// Missile launchers, and a missile in flight.
+pub const MISSILE: u8 = 35;
+pub const MISSILE_HI: u8 = 36;
+/// Repeater pixels and their shots.
+pub const REPEATER: u8 = 37;
+/// Projector pixels, and the outline on what a projector covers: a colder, brighter blue than
+/// the blue side's hull.
+pub const PROJECTOR: u8 = 38;
+pub const PROJECTOR_HI: u8 = 39;
+/// The dotted line at the edge of a projector's reach.
+pub const PROJECTOR_DIM: u8 = 40;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -93,6 +104,12 @@ pub fn game() -> Pal {
     set(&mut p, BEAM_HI, (224, 255, 188));
     set(&mut p, SHIELD, (164, 148, 252));
     set(&mut p, SHIELD_DIM, (92, 80, 164));
+    set(&mut p, MISSILE, (236, 96, 60));
+    set(&mut p, MISSILE_HI, (255, 212, 164));
+    set(&mut p, REPEATER, (240, 232, 148));
+    set(&mut p, PROJECTOR, (96, 208, 252));
+    set(&mut p, PROJECTOR_HI, (208, 240, 255));
+    set(&mut p, PROJECTOR_DIM, (36, 96, 140));
 
     set(&mut p, PANEL_LO, (36, 40, 56));
     set(&mut p, PANEL, (60, 66, 88));

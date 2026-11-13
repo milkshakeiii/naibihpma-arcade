@@ -317,20 +317,39 @@ What they say: the numbers can make every ship count, but slower isn't longer. W
 | D4 | **Its miners are its to defend.** A raider within 200 px of one of its miners turns its fleet out. | With everything on SAB, do its ships now come for yours at the rocks? | |
 | D5 | **It arms while your fleet is a quarter bigger than its own.** Guns then come before what it's saving for a factory. | Does a fleet built early draw an answer before it lands? | |
 | D6 | **RUSH and SAB,** two scripted openings taken from Henry's two matches of 2026-11-11, beside the five the AI was measured against. | Nothing to judge in play. Is RUSH a fair picture of what Henry did on seed 28100? | The king going too: **yes** (Henry, 2026-11-12). |
-| P1 | **BEAM.** Beam pixels one behind another in a column are one gun, firing straight ahead. One reaches 52 px, each more adds 12 (up to 16), and it cuts 4 pixels for each, plate counting double. It shows its line for 1 s, cuts everything on it at once, and rests 5 s. | Does it read as one gun whose length you drew? Is a second's warning long enough to see and short enough not to be dull? | |
+| P1 | **BEAM.** Beam pixels one behind another in a column are one gun, firing straight ahead. One reaches 52 px, each more adds 12 (up to 16), and it cuts 4 pixels for each, plate counting double. It shows its line for 1 s, cuts everything on it at once, and rests 5 s. | Does it read as one gun whose length you drew? Is a second's warning long enough to see and short enough not to be dull? | Henry, 2026-11-12: "Beams and shields both seemed fun." One match played with a BEAMER and a WARDEN on the team. The numbers are unjudged. |
 | P2 | **Ships get off a warming beam's line** if they can be clear in time, and stay off it until it has cut. | Is it good to watch? Do ships ever dodge when you'd want them to stand and shoot? | |
 | P3 | **A ship with a beam flies like a lance ship,** holding off at three quarters of its beam's reach and lining it up. | Does a beam ship keep its distance sensibly? | |
-| P4 | **SHIELD.** Each shield pixel throws a 10 px circle that stops 4 enemy shots of any kind coming in. 3 s after the last, it's full again. Shots fired from inside pass. | Radius, charges or rest: which feels wrong first? Should a beam cost a circle more than a flak shot does? | |
+| P4 | **SHIELD.** Each shield pixel throws a 10 px circle that stops 4 enemy shots of any kind coming in. 3 s after the last, it's full again. Shots fired from inside pass. | Radius, charges or rest: which feels wrong first? Should a beam cost a circle more than a flak shot does? | Henry, 2026-11-12: "Beams and shields both seemed fun." One match played with a BEAMER and a WARDEN on the team. The numbers are unjudged. |
 | P5 | **A ship's circles are drawn as one outline,** thinning by a quarter for each shot stopped. | Can you read what's left of a shield at a glance? | |
 | P6 | **`--parts`:** three example ships and ten ready-made fights in a window of their own, with nothing saved. | Is that a good way to be shown new parts, or should they come in a deck? | |
-| L1 | **A team is nine designs** (ruled: "Nine for now"). Nine tabs in the yard, nine rows in the arena, nine cards in a match, keys 1 to 9. A row or card is one line now: icon, name, price, and on a card the order's letter in its colour (H, S, G, E, V for harvest, L for hold). | Is one line a card enough to play from? Do you miss the slot number on the card, or the three-letter order? | |
+| L1 | **A team is nine designs** (ruled: "Nine for now"). Nine tabs in the yard, nine rows in the arena, nine cards in a match, keys 1 to 9. A row or card is one line now: icon, name, price, and on a card the order's letter in its colour (H, S, G, E, V for harvest, L for hold). | Is one line a card enough to play from? Do you miss the slot number on the card, or the three-letter order? | Henry, 2026-11-12: "I played a game. I didn't really notice any problems." A 15:51 match on nine cards, with orders switched from the cards, the ninth included (log). |
 | L2 | **Empty slots.** A fresh team is the starter deck and two slots that say EMPTY. An empty card prints nothing and says why. | Should the starter deck fill all nine, and with what? | |
-| L3 | **The library,** open over the yard (LIBRARY beside the name, or L): your kept drawings, newest first, then the ready-made ones (the new parts' examples, the starter deck, the reference fleet). Each shows its price, order, how it flies and whether it can fly. | Is it where you'd look for it? Can you find a drawing in the list? | |
-| L4 | **TAKE puts a copy in the lit slot** and goes back to the yard, where it's redrawn like any drawing (ruled: orders and styles "go with the drawing, but you can easily customize a drawing from the database"). The drawing it replaces is kept in the library first, unless one just like it is there. KEEP keeps the lit slot's drawing. | Is take-then-redraw easy enough? Is keeping the replaced drawing by itself what you want, or clutter? | |
-| L5 | **Teams:** LOAD swaps all nine slots (keeping the team you had), KEEP TEAM keeps yours as TEAM 1, 2 and so on, RENAME types a name. | Do you want whole teams in the library yet? | |
-| L6 | **COPY and PASTE as text.** A drawing is one line and a team ten. PASTE keeps whatever on the clipboard reads as drawings and ignores the rest. | Does it work on your machine? (My tests use a stand-in clipboard: I didn't want to overwrite yours.) Is a line of text a fair way to hand someone a ship for now? | |
+| L3 | **The library,** open over the yard (LIBRARY beside the name, or L): your kept drawings, newest first, then the ready-made ones (the new parts' examples, the starter deck, the reference fleet). Each shows its price, order, how it flies and whether it can fly. | Is it where you'd look for it? Can you find a drawing in the list? | Used and no problems noticed: four drawings taken from it in one sitting (log). |
+| L4 | **TAKE puts a copy in the lit slot** and goes back to the yard, where it's redrawn like any drawing (ruled: orders and styles "go with the drawing, but you can easily customize a drawing from the database"). The drawing it replaces is kept in the library first, unless one just like it is there. KEEP keeps the lit slot's drawing. | Is take-then-redraw easy enough? Is keeping the replaced drawing by itself what you want, or clutter? | TAKE used four times, into slots 8 and 9, and no problems noticed. Each time the slot held nothing of Henry's own, so the keeping of a replaced drawing and KEEP itself are untried. |
+| L5 | **Teams:** LOAD swaps all nine slots (keeping the team you had), KEEP TEAM keeps yours as TEAM 1, 2 and so on, RENAME types a name. | Do you want whole teams in the library yet? | Not tried yet: the log shows no team loaded or kept. |
+| L6 | **COPY and PASTE as text.** A drawing is one line and a team ten. PASTE keeps whatever on the clipboard reads as drawings and ignores the rest. | Does it work on your machine? (My tests use a stand-in clipboard: I didn't want to overwrite yours.) Is a line of text a fair way to hand someone a ship for now? | Not tried yet: the log shows nothing pasted. |
 | L7 | **`--pg-sim mine`:** the headless fights with your own saved team, orders and styles as your cards carry them. | Nothing to judge in play. | |
-| L8 | **CRASH and SESSION END lines in the play log.** | Nothing to judge until something crashes. | |
+| L8 | **CRASH and SESSION END lines in the play log.** | Nothing to judge until something crashes. | SESSION END was written when Henry's session of 2026-11-13 05:34 UTC closed. No CRASH line since. |
+| G1 | **A growing factory takes from its rock, and from the bank when there's no rock.** A factory whose rock runs out finishes from its network's bank, where it used to stop unfinished. Something with no factory pixels is in no network and still stops. | Does a half-fed factory draining your bank ever surprise you? | |
+| G2 | **Seeds into open space.** With a seeded card picked, Ctrl+click (or IN SPACE, then click) sends the seed to that spot: clear of rock and of anything planted, and within reach of a node of yours. Same price at once, then every pixel it grows from the bank. Factories only. | Ruled: twice the cost "actually makes sense". Is Ctrl the right key, and is the button findable? | |
+| G3 | **The warning.** While placing, the bar turns gold and says the bank pays for what grows as well, "SO IT COSTS ABOUT TWICE". A rock too small says how many pixels the bank will pay for. | Ruled: "display a warning of some kind while placing it". Is this one enough? | |
+| G4 | **The AI sends a seed into space** only when it wants a factory and no rock will take one. The scripted openings never do. | Nothing to judge until a match runs the rocks out. | |
+| X1 | **MISSILE.** A launcher pixel (WEAPONS, uses 4, weighs 2) sends a missile at the nearest enemy within 200 px every 6 s, whichever way the ship faces. | Reach and rate are placeholders. | Henry, 2026-11-13, after a game with an ARCHER on the team (won at 3:46, the quickest yet): "I think archers are overpowered currently but that doesn't matter for now." So: noted, not tuned. |
+| X2 | **The missile chases** at 45 px/s, as fast as the fastest ship, straight at wherever its target is now, for 8 s. It bursts like a cannon's shell: a 3x3 hole, plate and all. | Is it fun to watch one chase, and to outrun one? | |
+| X3 | **Flak shoots it down.** A flak gun fires at a missile in its reach before any ship, two shots to a missile. A shield stops one for a charge. A beam's cut takes any on its line. | Two launchers get almost nothing past six flak guns. Too strong a screen? | |
+| X4 | **A missile ship flies as its card says** (ruled: "Shouldn't its ship just follow whatever order it's given"). The ARCHER example's card says KITE, so it holds off at two thirds of a missile's reach. | Does a missile ship on RUNS or ORBIT do something sensible? | |
+| X5 | **The yard's part buttons run to a second row,** and every row under the canvas is 13 px high to make room. | Still easy to hit? | |
+| R1 | **REPEATER.** Repeater pixels one behind another in a column are one gun, firing a stream of small shots straight ahead (WEAPONS, uses 2, weighs 1). One pixel reaches 68 px and fires every 8 ticks. Each pixel more adds 8 px, and every two take a tick off the wait, down to 3 ticks at eleven. Sixteen at most: 188 px. Each shot does 1 damage: it breaks hull, and plate turns it. | Every number is a placeholder. Is a long thin gun a shape you want to draw? | |
+| R2 | **It fires when a shot fired now would meet an enemy on its line,** if that enemy flies on as it is. It doesn't hold fire as a lance does. A shot that meets nothing is gone at the end of the gun's reach. | Does the stream look right? Does it waste too much on ships that turn away? | |
+| R3 | **A stream keeps a shield down:** each shot costs a circle a charge and starts its rest again. Its shots take missiles down as flak's do, though it never aims at one. | Is it clearly the thing to bring against a shield (your question of 2026-11-12)? | |
+| R4 | **A repeater ship flies like a lance ship:** it lines its gun up and holds off at three quarters of its reach. | | |
+| J1 | **PROJECTOR: what may be drawn** (HULL & ARMOR, uses 2, weighs 1, blue). Each projector pixel needs 4 other projector pixels among the 8 round it, and its own row and column clear to the edge of the ship in 3 of the 4 directions; other projector pixels aren't in the way (Henry's rules of 2026-11-13). A pixel that fails shows red, the ship can't fly, and the yard says how many are TOO THIN, then how many are SHUT IN. | Can you draw the shapes you want? Do the red marks and the line tell you what to fix? | |
+| J2 | **Reach and pool come from the pixels.** Projector pixels joined edge to edge are a lump. A lump reaches 10 px for each whole number in the square root of its pixels (16: 40 px, 36: 60, 100: 100; 150 at most), from its box to any part of a friend's box. The ship holds one stopped shot for each projector pixel standing, and all of them are back 3 s after the last shot it stopped. | Placeholders, all of them. | |
+| J3 | **The skin.** A shot of any kind that would hit a covered pixel stops there and costs the pool one. Every friend in reach is covered. The projector's own ship never is (put back 2026-11-13, see "as built"), and no projector pixel is, a friend's included. A beam's cut stops at the first covered pixel for one charge. A burst spares the covered pixels in it for one charge. A ship's own shield circle comes first. With two projectors in reach, the nearer one with a charge pays. | Should two projectors be able to cover each other's projector pixels? As built they can't: each covers the other's hull only. | Henry, 2026-11-13, on its own ship: "Yes, put it back". Agreed 2026-11-11 ("it sounded right, yeah"); I had reversed it unasked. On another ship's projector pixels, same day: "No, keep bare". |
+| J4 | **Seen.** A dotted line shows each lump's reach. A covered ship wears a blue outline that thins by a quarter for each quarter of the pool spent. A lump has a pale middle. Hovering its ship shows PROJECTOR 32/38. | Can you tell at a glance what's covered and how much is left? Is the reach line too busy with several on screen? | |
+| J5 | **The AEGIS example has no guns,** so it stays beside the nearest friend that has (an old rule for any unarmed ship on HUNT), and it's drawn as fast as the RAKER. Small fast ships outrun it. | Nothing was added to flying. Whether ships should stay near a projector is ship behaviour, which is parked: one for the unit-AI talk. | |
+| J6 | **The parts team:** the RAKER has the NEEDLE's slot (the NEEDLE is still in the library), the AEGIS is slot 9, and there are nineteen fights. | | |
 
 **Henry's rulings on the plan (2026-11-10):**
 1. **The seed's price is its size, paid in full up front:** yes.
@@ -1193,10 +1212,251 @@ A faster shot buys a little accuracy against big ships and turns fighters-beat-l
 
 *The crash line, checked.* I made the game crash once on purpose, in a scratch folder. Its log got: `CRASH 2026-11-13 02:15:56 UTC | panicked at src\main.rs:109:25: index out of bounds: the len is 0 but the index is 7`. The switch that did it is gone.
 
+*Henry plays it (2026-11-12, late).* "I played a game. I didn't really notice any problems. Beams and shields both seemed fun." What the play log shows of that sitting:
+- **The library was used to fill slots 8 and 9:** DESTROYER and TITAN were taken first, then BEAMER and WARDEN over them. Nothing was kept, pasted or loaded, so the library has no file yet.
+- **One match on that team of nine,** won at 15:51, with orders switched from the cards (the WARDEN's too). A second was started and left at once, the SHIPYARD was edited, and the session closed with SESSION END. No crash.
+- **How much of a test it was.** The AI held one factory until the thirteenth minute, with a bank that never passed 69, while Henry had five by the seventh. So the beams and shields were tried in a match the AI wasn't contesting. That's the AI's economy, which is step 5 of the plan.
+
 *Checks (2026-11-12, after the library).* 208 tests pass, 18 of them new. 192 of 192 deliberate rule breaks are caught, 23 of them new: a team left at seven, cards and rows too tall for nine, two orders sharing a letter, a taken drawing losing the one it replaced, undo reaching back into the replaced drawing, a drawing or a team kept twice, an empty slot kept, one press deleting, a ready-made drawing deleted, a paste without limit, a pasted name shown as it came, an empty line pasted as a drawing, a corner off the grid read, the ready-made shelves written to the file, ESC in the library asking to quit, an old save left at seven, a tab name too long for its tab, and a crash spilling over several log lines. The arena's headless fights (`--pg-sim` and `--pg-sim parts`) are byte for byte what the lance round recorded. Not done:
 - **The real Windows clipboard is untested.** The tests use a stand-in, and I wouldn't overwrite whatever Henry had copied to try it.
 - **AI matches aren't compared byte for byte.** The only older build I'd kept turned out to be from before the lance change, so it differs for that reason. What this rests on: no file of the sim was touched this round, and nothing in the sim reads the slot count.
 - **Nothing was watched in a window,** only exported screenshots, and nobody has played it.
+
+**After the first game on nine slots: five things from Henry (2026-11-12, late).** Nothing here is built. The rules below are proposals.
+
+*Henry's words.*
+- **Parts:** "i would do missile soon but I wouldn't do charger yet."
+- **A gap in play:** "once asteroids were eaten up, it could become impossible to extend your network since new outposts have to be places on asteroids. someway to put a stationary node in space would fix this. I lean towards a way to send seeds to a spot in space and they build themselves using resources from your network. maybe you have to hold down control or alt to place them."
+- **Settings:** "at some point we will need a comprehensive hotkey rebinding option (i guess it should use Steam's preferences persistence). and other game settings."
+- **The library:** "do you think it's necessary to make library drawn on top of yard like it is now? is that to differentiate it from the public ship database? when will we build the public ship database?"
+- **Steam for play:** "we'll also want to ride Steam's multiplayer/matchmaking features. I know they even have some kind of low latency multiplayer backbone, should we use that?"
+
+*Seeds in space: proposed rules.* Today a seed costs its design's whole price when it's sent, and the factory then grows by eating its rock, one rock pixel for each pixel grown. If the rock runs out first, it stops there, unfinished.
+1. **One rule for both.** A growing factory takes each pixel from the rock under it, and from your bank when there's no rock there to take. Planting in open space is the case with no rock at all. A factory whose rock runs out part-way finishes from the bank where today it stays unfinished.
+2. **What that costs.** The seed's price is still paid in full when it's sent, which is what stops seeds being scattered as cheap walls. So a factory grown wholly in space costs its price twice over, once at sending and once as it grows: the bank supplies what a rock would have. Whether twice is right is a number for Henry. The other choice is a small price at sending and the rest as it grows, which makes space as cheap as rock.
+3. **It waits when the bank is empty,** as a factory printing does, and grows at the pace it would on rock.
+4. **Where.** Anywhere the whole drawing has room, clear of rocks and of anything planted or growing, and within reach of a node of yours, since that's what feeds it. Out of reach of your network it's refused.
+5. **How.** With a seeded card picked, a click on a rock plants on the rock as now. Ctrl and a click on open space plants there, and an IN SPACE button does the same for the mouse alone. The pointer shows the drawing's outline at the spot, and what it would link to. Ctrl, not Alt: Windows keeps Alt for itself.
+6. **The AI** uses it only when it wants a factory and no rock in its reach will take one. No more than that this round.
+
+*The missile: proposed rules.* Numbers are placeholders.
+1. **A missile pixel is a launcher,** in WEAPONS. It needs no lining up: it launches at the nearest enemy within 200 px, once every 6 s. A cannon reaches 130. Only a long beam reaches further, 232 at its longest, and a beam has to be lined up.
+2. **The missile chases.** It flies at 3 px a tick straight at where its target is now, steering every tick, for 8 s. That's as fast as the fastest ships, so a fighter at full speed outruns one from behind and anything slower is caught.
+3. **It blasts.** Where it hits it takes that pixel and the eight round it, plate counting double.
+4. **Flak shoots it down.** A flak gun with an enemy missile in reach fires at it before anything else, and one hit kills it. No other gun aims at missiles. A beam's cut kills any on its line.
+5. **A shield's circle stops one** for a charge, like any shot.
+6. **Its ship holds off at range,** as a kiting ship does today. No new flying.
+- *The job nobody has:* hitting from far off in any direction, with no lining up. *The answer you can draw:* flak, which gets a second job, and speed.
+
+*The library over the yard.* It isn't necessary, and it wasn't to set it apart from a public database: an overlay was the quickest fit, like the match menu. It already covers all but a 6 px rim of the yard. I'd make it a screen of its own, reachable from the arena and the match menu too, with the public database as one more shelf in it beside YOURS and the ready-made ones, so there's one place to look for a drawing and TAKE and KEEP work the same on every shelf.
+
+*When the public database gets built.* Henry wanting Steam's multiplayer answers the open question of where it lives: Steam's Workshop, called from inside the game. It needs the game to be a Steam app, which only Henry can set up (a Steamworks account and the 100 dollar fee). I'd do the two gameplay pieces first (space seeds, missile), then a Steam round in this order: play over Steam, the Workshop shelf, saves in Steam's cloud.
+
+*Steam for play.* Yes, once the game is a Steam app.
+- **What it gives:** no address to type and no ports to open (Valve's relays join the two machines), neither player sees the other's address, a friend is invited from the friends list, and public lobbies can be listed and searched. That's Steam Networking Sockets over Steam Datagram Relay, and Steam's lobbies.
+- **The backbone isn't what we need it for.** A match runs in step at 15 ticks a second with one to four ticks of lag allowed for, so it forgives ordinary latency. The gain is that two players behind home routers connect at all.
+- **How it fits.** The match already talks through a wire that carries messages whole and in order, and Steam's reliable messages are that. So it's one more kind of wire beside today's. Connecting by address stays for testing.
+- **What it doesn't give:** ratings or a ladder. Lobbies can be filtered, but ranking players would be ours to build.
+
+*Hotkeys and settings.* Agreed, and not yet. Two notes for when it's built. The hover texts name their keys in their own words today ("[L] THE LIBRARY..."), about a hundred of them, so rebinding needs one table of actions and keys that those texts read from. And Steam's cloud can sync a settings file with no code at all, so "Steam's persistence" costs nothing beyond saving the file where Steam is told to look. Steam Input is for controllers, as far as I know. Keyboard rebinding is ours.
+
+**Seeds in space and the missile, built; and what Henry said next (2026-11-12, night).**
+
+*Henry's words on the proposals above.*
+- **Twice the cost:** "I think factories in space costing double actually makes sense, although it might be a bit counterintuitive to players. Maybe we should display a warning of some kind while placing it."
+- **The missile's ship:** quoting my rule 6 ("Its ship holds at range like a kiter, so no new flying"): "Shouldn't its ship just follow whatever order it's given." Yes. Rule 6 is dropped: a missile ship flies as its card says, like any ship.
+- **The library:** "I agree with making it its own screen. The public database will need to be organizable and searchable with orderings and such things." Not built this round.
+- **Steam:** "I'm already a paid Steam developer." And: "Agreed Steam multiplayer backbone sounds good. It always seemed decent with the only drawback being low-level code and learning curve, which I have you for. Would we still have to build the ELO system as a web service? Any way to do that in Steam? What if we just made it honor system and stored people's ELOs locally?"
+- **What's next:** "I'm OK to go forward with your proposed next implementation phase. We do need a few more parts before anything else. Soon though, I'm tempted to start all those Steamworks integration items soon as well. I'd also like to get more team designs with a greater variety of army plans and talk about unit AI and enemy player AI more as well."
+- **Unit AI:** "I can picture alternatives to our current unit AI system. For example, we could have a handful of fixed "personalities" that we tailor more carefully, and then not have gametime AI switching, instead there could be a system of attack and defense flags and units decide which flag to prioritize based on their personality, or something like that. I'm definitely not saying we should do that. In fact I think fixed "personalities" rubs against the fully custom ship design a bit. But I think we should give strong consideration to systemic improvements to our unit AI system. I think it's decent now but a little bit clunky."
+- **Shields:** "We have weapons that are clearly good against armor. Do we have any weapons that are clearly good against shield right now?"
+
+*Seeds in space, as built* (rows G1 to G4). The calls that were mine:
+- **A planted factory is in its network from the moment its seed lands,** so the network feeds it directly: no special feeder. It takes its turn with the king and the factories that are printing, a pixel a turn.
+- **Only a factory can go into space.** A seeded design with no factory pixels is in no network, so nothing could feed it there.
+- **Clear of rock means the whole drawing:** no pixel of it over rock. With any rock under it, plant on the rock.
+- **The seed's own core is free,** as on a rock: a 121 px outpost in space costs 121 at once and 120 as it grows.
+- **The IN SPACE button takes the view note's line** in the sidebar while a seed is being placed. Ctrl held does the same.
+- **A new command on the wire** ("W team slot x y"), so the network's version number is 6.
+
+*The missile, as built* (rows X1 to X5). Where it differs from what I proposed:
+- **Its blast is a cannon shell's,** 3x3 and plate goes with it. I'd proposed plate counting double. One rule for both is simpler, and a missile is easier to stop than a shell already.
+- **It's spent after 8 s by the clock,** and flies as fast along a diagonal as along a row (a step along its line is counted for what it covers).
+- **It can pass through rock,** like every shot.
+- **Flak sends two shots at a missile,** not every gun in reach, so one missile doesn't draw a whole fleet's fire.
+- **Its ship flies as its card says.** Left as drawn, the ARCHER has the thrust to make attack runs, so its card is set to KITE.
+
+*What the example fights show* (two ARCHERs, 36 px, twelve seeds; placeholders, and one design).
+- Against an OUTPOST: won 12 of 12 in 0:22. The outpost's four flak guns shot down 108 of 192 missiles.
+- Against a FRIGATE: 8 draws, 4 losses. Its six flak guns shot down 849 of 870, and neither side could close.
+- Against six FIGHTERS: lost 12 of 12 in 0:10, though 60 of 134 missiles landed on fighters flying in at them.
+- Against a WARDEN: 9 draws, 3 losses. No missile reached its hull.
+- The nine earlier part fights, and both sets of arena fights, are byte for byte as recorded.
+
+*My answers, none of them ruled.*
+- **Ratings.** Steam has no rating or ranked matchmaking of its own. It has leaderboards (a number for each player, sorted, for everyone or for friends) and lobbies that can be searched for a number near yours, and its own guide to skill matching is built from those two. A game writes its own player's leaderboard number unless the board is set so that only a server of ours can. So an honour system needs no web service, and I'd keep the number on a Steam leaderboard, not in a local file: the same trust, but everyone can see the ladder, lobbies can match on it, and it survives a reinstall. A local file gives none of that. If cheating ever matters, the upgrade is a small service that writes the numbers. This game makes that service's job easy: a match is its commands replayed, so the service can replay both players' commands and see who won for itself.
+- **Unit AI.** What's clunky today, as I see it: three settings on every design (the order, which can be switched in a match, and the style and group, which can't), all of them for every ship of that design at once, and none of them says where. Henry's flags are the missing where. I share the doubt about fixed personalities for drawn ships. Two other things could carry what a personality would: what the drawing itself says (its guns' reach and its speed already pick its style), and where a ship was built (the fun thesis is wings spawned from a tree of factories, so a factory could be what holds the flag its ships fly to). I'd open that talk with two or three whole systems written out side by side and judged on the same tests, not with a patch. Parked until Henry calls it.
+*Checks (2026-11-12, after seeds in space and the missile).* 224 tests pass, 16 of them new. 221 of 221 deliberate rule breaks are caught, 29 of them new. Two of the new ones got past their tests at first (a missile that's never spent, and a ship with only launchers counting as unarmed): the first test's missile left the map before its time was up, and the second's ship had a flak gun too. Both tests are tightened and both breaks are caught now. The arena's headless fights are byte for byte as recorded (`--pg-sim`, `--pg-sim old`, and the nine earlier part fights). AI matches play the same until the fourteenth minute and differently after: that's the rocks running short, where a factory now finishes from the bank and the AI may plant in space. They still end. Not done: nothing was watched in a window, only exported screenshots, and nobody has played either feature.
+
+- **Shields.** Yes: flak. A circle counts shots, not damage, so many small shots strip it and one big one is wasted. Six FIGHTERs kill a WARDEN 12 times in 12, in six seconds. Six LANCERs lose to it 11 in 12, and a FRIGATE, a BEAMER and two ARCHERs never hurt it. Anything fired from inside the circle also ignores it. So there's a triangle: plate stops flak, the big guns break plate, a shield stops the big guns, flak strips a shield. What's missing is anything that strips a shield from range: flak reaches 48 px.
+
+**The repeater and the projector: proposed rules (2026-11-13).** Henry, after playing the missile: "I think archers are overpowered currently but that doesn't matter for now. First launch me a side session to do claude-in-chrome for setting up the steamworks stuff (i already have an unpublished game set up but my guess is you'll want to use a new one). Then post the repeater_projector rules." The side session was started (it writes what it sets up to `STEAM.md`). Nothing below is built, and every number is a placeholder.
+
+*The repeater.* The gap it fills: flak is what strips a shield, and flak reaches 48 px.
+1. **A gun that fires straight ahead only,** like a lance. WEAPONS, uses 2, weighs 1.
+2. **A stream of small shots.** Each does 1 damage, as flak's does: it breaks hull, and plate turns it. It stops at the first pixel it meets.
+3. **It reaches 110 px:** more than twice flak's reach, a little past a lance's.
+4. **The shape is the rule.** Repeater pixels one behind another in a column are one gun, as beam pixels are. One pixel fires every 8 ticks (two shots a second). Each pixel behind it takes a tick off, down to every 3 ticks with six. Side by side they're separate guns, each on its own line. So a column is one fast stream down one line, and a row is a slow curtain several lines wide.
+5. **It fires whenever something will be on its line** when the shot gets there, if the target flies on as it is. It doesn't hold fire as a lance does: its shots are cheap.
+6. **What that does to a shield.** A circle loses a charge to every shot and starts its rest again, so a steady stream empties a circle in about two seconds and keeps it empty, from outside flak's reach, while something heavier does the damage.
+7. **Missiles.** A repeater shot that meets a missile takes it down, as a flak shot does. A repeater never aims at one: it only fires ahead.
+8. **Its ship flies as its card says.** Like any ship with a gun that fires ahead, it lines up on its target's row or column, which lance and beam ships already do. No new flying.
+- *The job nobody has:* keeping a shield down from range. *The answers you can draw:* plate; being off its line (speed, or ORBIT); out-reaching it (a missile, a cannon, a long beam).
+
+*The projector.* Henry, 2026-11-11, on shields: "We could make a different part like a shield projector that does have the ability to protect allies." And on auras: "We'll want to think about how to make these "auras" more interesting than just put pixels down, get bonuses." And on a dome: "Getting the ship AI to effectively exploit a big circle that it has to stay inside and shoot out from might be a bit difficult".
+1. **It protects friends, never its own ship.** HULL & ARMOR, uses 5, weighs 2.
+2. **Its reach comes from the room round it.** A projector pixel reaches 10 px for each of the eight cells round it that's empty on its own ship. Buried in hull it reaches nothing. On the end of a one-pixel stalk, with seven empty cells round it, it reaches 70 px. So a projector has to stick out, where it's easy to shoot off.
+3. **A skin, not a circle.** A friend is covered while any of its pixels is within that reach of the projector. An enemy shot that would hit a covered friend stops at the pixel it would have hit, does nothing, and costs the projector a charge. There's nothing for a friend to stay inside or shoot out of, and its own shots aren't touched.
+4. **One pool.** A ship's projector pixels share one pool of charges, 4 for each pixel. It's full again 3 s after the last shot it stopped, which are the shield's numbers. Empty, it covers nothing.
+5. **No stacking.** A friend in reach of two projector ships is covered by one at a time: the nearer one with a charge left pays.
+6. **Big shots cost one.** A missile or a shell costs a charge and doesn't burst. A beam's cut costs a charge at the first covered ship on its line and stops there, as it does at a circle.
+7. **A friend's own circles come first.** A shot stopped at a ship's own shield circle never reaches the skin.
+8. **Seen.** A covered ship wears a thin outline in the projector's colour, which thins as the pool drains, as a shield's outline does.
+9. **No new flying.** It flies as its card says. On ESCORT it stays by the king and covers it. Planted (a seeded design with no engines), it covers the factories round it.
+- *The job nobody has:* protecting other ships, the king and what's planted. *The answers you can draw:* flak and repeaters drain the pool; the projector's own ship is bare, and its projector sticks out; or reach past it.
+- *Placement, spelled out* (Henry, 2026-11-13: "explain more about the placement rules for projector. does connectivity still apply?"). Connectivity still applies as proposed: a projector pixel joins the ship edge to edge like any pixel, so at least one of the four cells beside it is filled and the most it can have empty is seven. The eight cells are the four beside it and the four diagonals. Any pixel fills a cell, another projector included, so two projectors side by side cost each other reach. Cells off the edge of the grid count as empty. The reach is the same all round, whichever cells are the empty ones, and it's counted from the drawing, not from what's left standing in a fight: otherwise a half-grown factory's projector would reach furthest before the hull round it had grown. Some shapes: buried, 0 px; in a flat edge with hull either side, 30; on a corner, 50; sitting on a flat edge with nothing beside it, 50; on a stalk one hull pixel long, 70. The other way, which was Henry's own first idea (2026-11-11: "something fancy each block of which needs to be given clearance from other pixels on the ship (exception to the connectivity rule)"), is a projector that floats free of the hull with all eight cells empty. It would need the yard's check, the order things grow in and the rule that cuts loose what isn't joined to a core all to make an exception for it. I'd keep it joined: the stalk gets seven eighths of the reach, and it's something to aim at.
+- *How it's more than pixels for a bonus:* the reach is paid for in exposure, the pool is shared by everything it covers so covering more drains it faster, and its own ship gets nothing.
+- *What I'm unsure of.* Whether 70 px is enough when ships spread out, and whether ships will stay near one: nothing tells them to, and that's ship behaviour, which is parked. It will work best beside the king and over planted things.
+
+**Large ships, and the projector as a structure (2026-11-13).** Nothing here is built.
+
+*Henry's steer.* I'd pictured two or three projector pixels on stalks on a small ship, and said so. Henry: "i think the ship sizes you're thinking about for this are too small and the number of projector pixels is too small. we want to keep ships as diverse as possible and we want to give reasons to make large ships. (honestly large ships seem pretty bad right now, we need to fix that. they should be actually more powerful per-pixel since you have to save up to build them and then wait out the build time. i'm pretty sure they're less powerful per pixel right now). I think we should make the projector something where you build an entire, large, exposed structure."
+
+*What the recorded fights say about size.* Equal pixels a side, twelve seeds, one design of each kind, so a pointer and no more.
+- Starter deck, 687 px a side: 76 LANCERs beat 12 FRIGATEs 12 to 0 and one CAPITAL 12 to 0. The CAPITAL beats 12 FRIGATEs 9 to 3. 76 FIGHTERs lose to both, 0 to 12.
+- Reference fleet, 600 px a side: 85 LANCERs beat frigates, destroyers and the capital, 12 to 0 each.
+- The TITAN, 3,093 px, wins none: 0 to 12 against 70 frigates, and no wins in 12 against 17 destroyers or 4 capitals.
+- So the cheapest ship with a lance beats everything bigger, and the biggest ship beats nothing. Flak swarms do lose to plate. None of this counts the saving up or the build time, which makes it worse for the big ship.
+
+*Why, as the rules stand.* My reading, not measured rule by rule.
+- **A core makes 4 power and costs one pixel.** A nine-pixel ship gets half its power or more from its core (the LANCER 4 of 8, the FIGHTER 4 of 6). A capital gets about one percent of its from its one core. Small ships carry more gun for their pixels.
+- **A gun reaches the same from any ship.** Only the beam grows with the ship that carries it.
+- **One core is one point of failure,** and seventy-six ships have seventy-six.
+- **A heavy ship turns slowly,** so its forward guns bear on one line while a swarm is all round it.
+- **The only tax on a swarm is over-kill.**
+
+*A rule of thumb to adopt, if Henry agrees.* A part should be worth more than its pixels as its structure gets bigger, the way the beam's column is. Then big ships get their reasons from the parts, and small ones keep theirs.
+
+*The projector again, as an array.* It replaces the proposal above.
+1. **Projector pixels joined edge to edge are one array.**
+2. **A pixel only works with room round it:** at least four of the eight cells round it empty, counted from the drawing. So an array is thin lines and lattices standing clear of the hull on struts. A solid block of projector, or a row lying along the hull, doesn't work.
+3. **Its reach comes from its span.** An array reaches 2 px for every pixel of its width plus its height, from every pixel of it. A T, a bar 13 long on a mast of 7 more, reaches 42 px. A cross 21 by 21 reaches 84. A ring 30 by 30 reaches 120. Capped at 150.
+4. **Its pool comes from its size:** one charge for each working pixel, full again 3 s after the last shot it stopped.
+5. **The skin covers every friend in reach and the rest of its own ship. It never covers projector pixels.** The array is the one part of the fleet that's bare.
+6. **Cut it and it shrinks.** An array cut in two is two smaller arrays, each with its own span and its own share of the pool. A piece cut off from every core breaks away as loose pixels, like anything else.
+7. **Uses 2 power a pixel, weighs 1.** A 41 px cross needs 82 power, so about 80 hull pixels behind it: a ship of 130 px or more. A 116 px ring wants 350.
+8. Carried over from before: no stacking, big shots cost one charge, a friend's own circles come first, covered ships wear an outline that thins as the pool drains, and no new flying.
+- *Why it suits big ships:* reach grows with span and the ground covered grows with the square of reach, so a big array is worth much more than twice a small one, and only a big ship has the power for it.
+- *The answer you can draw:* shoot the array. A lance or a beam through a strut or a spar cuts its reach. Small shots drain the pool.
+- *Shapes it invites:* crosses, rings, combs, dishes on booms. A wide thin lattice gets span cheaply and is easy to cut. A dense one holds more charges and reaches less for its pixels.
+
+*The repeater, stretched the same way.* A column up to 16 pixels long, as the beam's is, where each pixel adds both rate and reach. A six-pixel gun on a small ship strips a shield from 110 px. A sixteen-pixel one on a long ship does it from further and faster. Numbers when it's built.
+
+*The Steam side session finished.* App 1309380 is No Mind Wing's (Henry's old, unreleased "Rock Collector", reused, so no fee). ISteamUGC is on and published as configuration, and the game is still unreleased. `STEAM.md` has what was changed and what's left for Henry: the name, keys for a second account, Cloud quotas, the rating leaderboard.
+
+**The shield projector as an orb, and the lattice kept for stasis (2026-11-13).** Nothing here is built.
+
+*Henry, on the array above:* "could we keep the lines+lattices shape for the stasis projector and have the shield projector be something like a teacup handle, doorknob, exposed orb, or something like that? just purely for intuition and feel purposes; the vibe of a spider web being a Starfleet shields projector doesn't make sense to me. plus the pixels should be blue".
+
+*So.* The array's rules (thin lines and lattices, reach from span, cut it and it shrinks) are set aside for a stasis projector, which hasn't had its talk yet. The shield projector becomes a solid lump that stands proud of the ship: a doorknob.
+
+*The shield projector, as an orb.* It replaces both proposals above. Numbers are placeholders.
+1. **An orb is a solid lump of projector pixels.** Its size is the side of the biggest solid square that fits in it: 3 for a 3 by 3, 5 for a round blob seven across. Corners can be trimmed to make it round without losing size.
+2. **It has to stand proud.** At least three quarters of the cells round its outline must be empty, counted from the drawing. A neck narrower than the orb is the only thing that may touch it. Half sunk into the hull, it does nothing.
+3. **Its reach comes from its size:** 10 px for each pixel of its size, from its edge. A 3 by 3 reaches 30 px, a 5 by 5 reaches 50, a 9 by 9 reaches 90. Capped at 150.
+4. **Its pool is its pixels:** one charge for each, full again 3 s after the last shot it stopped.
+5. **The skin covers every friend in reach and the rest of its own ship, and never the orb itself.** The orb is the one bare thing in the fleet.
+6. **Shot at, it weakens smoothly.** In a fight its reach is 10 px for each pixel of the square root of the pixels it has left, so a 5 by 5 with nine pixels gone still reaches 40 px. A hole through its middle doesn't switch it off.
+7. **Uses 2 power a pixel, weighs 1.** A 5 by 5 needs 50 power: a ship of about 80 px. A 9 by 9 needs 162: about 250 px. A 15 by 15 needs 450: a ship of 700.
+8. **Blue.** Its pixels are a bright blue with a pale centre, and the outline covered ships wear is the same blue. It has to be told from the blue side's hull, which is a darker blue: a brighter, colder one, checked on screen before it's settled.
+9. Carried over: no stacking, a big shot costs one charge, a friend's own circles come first, the outline thins as the pool drains, and no new flying.
+- *Why it suits big ships:* one 9 by 9 covers nine times the ground of a 3 by 3 and holds nine times the charges, and nine small orbs on nine small ships each cover only their own neighbourhood. Only a big ship has the power for a big orb.
+- *The answer you can draw:* shoot the orb. It's bare, it sticks out, and its neck is thin.
+- *A handle instead of an orb* (Henry's teacup handle): a loop whose reach comes from the hole it encloses. I'd take the orb. At this size a one-pixel loop reads as a wire, which is the spider web again, and one hit that opens the loop would switch it off.
+
+**The shield projector by Henry's rule (2026-11-13).** Built the same day: see "The repeater and the projector as built" below. This replaces the orb measured by its biggest square.
+
+*Henry.* On whether my orb was "just ... a fixed shape you drop on": I said nearly, and offered a sized stamp or a knob-and-neck with two dials. Henry: "it's annoying to make very specific requirements that people have to meet from painting arbitrary pixels. I think we should either make it a sized stamp, or else make the rule something like: each shield projector pixel must adjacent to four other projector pixels, and must exposed in the same way engines are, NOT counting other shield projector pixels as blocking. that lets people draw their own exposed shapes".
+
+*The principle in that,* as I take it: a rule about a drawing should be something each pixel passes or fails where it stands, like an engine's way out, or else the part should be a stamp. Not a measurement of the whole shape that the player has to paint towards.
+
+*The rules, from Henry's two.*
+1. **Each projector pixel needs four other projector pixels among the eight round it.** (Counting only the four beside it, no finite shape could pass, so I read it as the eight.) What passes: thick, rounded lumps. An orb, a knob, a handle two pixels thick. What fails: a wire, a sharp corner, a stub. The smallest lump that passes is a 4 by 4 with its corners off, 12 pixels.
+2. **Each needs a straight way out, as an engine does:** in one of the four directions, its own line and the lines either side empty right out past the edge of the ship. Other projector pixels don't count as in the way. So the lump faces open space, and nothing can be built in front of it.
+3. **A pixel that fails shows red and the ship can't fly until it's fixed,** as with a buried engine. So on a ship that flies, every projector pixel works, and the sim has nothing to check.
+4. **Reach and pool come from how many pixels there are,** not from any shape. A lump (projector pixels joined edge to edge) reaches 10 px for each pixel of the square root of its pixels: 12 pixels reach 30 px, 25 reach 50, 81 reach 90, 225 reach 150, where it's capped. It holds a charge for each pixel, full again 3 s after the last shot it stopped. Shot at, both go by the pixels left.
+5. **Unchanged from the orb:** the skin covers every friend in reach and the rest of its own ship, never projector pixels; blue pixels and a blue outline on what's covered; uses 2 power a pixel; no stacking; a big shot costs one charge; a friend's own circles come first; no new flying.
+
+*Exposed on three sides* (Henry, next: "maybe even better: must be exposed as engines are but from three angles at the same time? that makes it really an exposed shape not just exposed from only one side. with "attack from a particular side" not being anywhere on the roadmap, it might make sense for the exposed requirement to be mostly-exposed, not just from one side"). Rule 2 becomes three of the four directions. One change is forced with it:
+- **With the engine's exact check it can't be done.** An engine's way out is three lines wide: its own and the one either side. Take the hull pixel a lump is joined to, and the projector pixel beside that joint. Any projector pixel next to that one along the joint has the hull pixel in two of its ways out at once (diagonally: once looking back at the ship, once looking along the ship's side), so it has two clear at most and fails. Without it the pixel at the joint has three projector neighbours and fails rule 1. So no lump could be joined to a ship at all.
+- **So a projector pixel's way out is its own line only:** its row or its column, clear to the edge of the ship in three of the four directions, other projector pixels not counting. An engine's stays three wide.
+- **What passes:** a lump on a neck, on the end of a boom, on the bow, the stern or a wingtip, with nothing level with it on either side. A thick handle on the ship's flank, since a pixel looks out through the handle's hole and its other pixels.
+- **What fails:** a lump in a notch or a bay, in the corner between two walls of hull, or with a tower standing level with it. And plate can't be put in front of it on any of the three sides.
+
+**The repeater and the projector as built (2026-11-13).** Henry: "Yes, build both". Rows R1 to R4 and J1 to J6 in the table above. Nobody has played them.
+
+*The repeater* is the first proposal's, stretched as "Large ships" said: a column up to sixteen long, each pixel adding reach and rate. The numbers are mine: reach 60 + 8 a pixel, a wait of 9 less half the length in ticks, 3 at least. A six-pixel gun reaches 108 px and fires every 6 ticks. The RAKER's ten reach 140 px and fire every 4.
+
+*The projector* is Henry's rule with three open sides: rules 1 to 5 of "The shield projector by Henry's rule", and the own-line check of "Exposed on three sides". One thing in rule 5 was wrong and has been put back: it never covers its own ship (below).
+
+*Where what I built differs from what I proposed.* All mine, none ruled.
+- **One pool for the ship, not one for each lump.** Two lumps on one ship each reach by their own size and fill one pool. One number is easier to show (PROJECTOR 32/38).
+- **Reach is measured between boxes:** the lump's box to the friend's box. The dotted line drawn round a lump is exactly that distance.
+- **The reach is always drawn,** a dot every fourth pixel in a dim blue. The proposal only gave covered ships an outline, and without the line nothing says how near a friend has to be.
+- **The outline has cut corners,** so it reads as a bubble and not as the white corners of the ship under the pointer.
+- **Two error lines.** "N PROJECTOR PX TOO THIN" comes first, and "N PROJECTOR PX SHUT IN" once none is thin. One line saying both didn't fit the yard's status line.
+- **A repeater's wait is exact.** The other guns wait one tick more than their number says (an old habit of the reload code, which nobody notices at 20 ticks). At 3 to 8 ticks that would have made the repeater a seventh to a third slower than its rule. A test counting shots found it: nine where the rule says ten.
+- **Shots stopped at a skin are counted with shots stopped at shields** in a fight's result line.
+- **The hover and inspector texts.** "NO GUNS: STAYING WITH THE GROUP" ran one letter off the arena's inspector for any unarmed ship, and is "NO GUNS: WITH ITS GROUP". The two power texts no longer list what every part uses: with fourteen parts the list didn't fit, and each part's hover says its own.
+- **PROTO is 7.**
+
+*What I found building it.*
+- **Ships leave a projector behind.** My first AEGIS carried two flak guns, so it flew as an armed ship does: to its own range at its own speed, 15 px/s against a lancer's 34. Set beside six lancers it had them in reach for the first two seconds and stopped 3 shots a fight. Blue won 11 of 12 anyway, because the AEGIS was 128 more pixels to shoot at, so the result line alone looked like a success. I traced it second by second before believing it. The AEGIS now has no guns, which puts it under an old rule (a hunter with no guns stays beside the nearest friend that has), and fourteen engines, which make it as fast as the RAKER and faster than the BEAMER, WARDEN and FRIGATE. It still can't stay with fighters or lancers. Nothing was added to flying. Whether a fleet should hold together round its slowest ship is for the unit-AI talk.
+- **One shell cut my first orb off its ship.** A round orb seven across stood on a base three pixels wide. A shell's 3x3 hole at its waist left everything above joined to nothing, and 34 pixels went to one hit. The AEGIS's knob now has a base five wide, which one shell can't cut through. A player's orb on a thin neck will still go that way. I think that's a fair weakness of an exposed shape, and the rule lets you draw a broad base.
+- **Slow big shots at what it covers never break one.** A pool that's back 3 s after the last stop is full again between volleys 6 s apart. Two ARCHERs draw with an outpost and an AEGIS twelve times in twelve, where the outpost alone falls in 22 s every time. A stream is the answer: two RAKERs beat two BEAMERs and an AEGIS in 12 of 12, having 58 shots stopped a fight on the way. Whether that's too hard a counter is Henry's to say.
+
+*The seven new fights,* 12 seeds each, with the earlier fight each one repeats. Examples to watch, not balance: one design of each kind.
+
+| Fight | Blue | Red | Draw | Stopped a fight | The same fight without it |
+|---|---|---|---|---|---|
+| 2 RAKERS VS 1 WARDEN | 7 | 5 | 0 | 85 at the warden's circles | |
+| 2 RAKERS VS 1 FRIGATE | 0 | 11 | 1 | (plate) | |
+| 1 RAKER + 6 LANCERS VS 1 WARDEN | 8 | 4 | 0 | 47 at the circles | 6 LANCERS VS 1 WARDEN: 1, 11, 0 |
+| 2 BEAMERS + 1 AEGIS VS 6 LANCERS | 2 | 9 | 1 | 13 at the skin | 2 BEAMERS VS 6 LANCERS: 0, 12, 0, over in 0:17 (with the AEGIS, 1:09) |
+| 2 BEAMERS + 1 AEGIS VS 6 FIGHTERS | 9 | 1 | 2 | 80 at the skin | 2 BEAMERS VS 6 FIGHTERS: 2, 9, 1 |
+| 2 ARCHERS VS 1 OUTPOST + 1 AEGIS | 0 | 0 | 12 | 57 at the skin, and 61 missiles shot down | 2 ARCHERS VS 1 OUTPOST: 12, 0, 0 |
+| 2 RAKERS VS 2 BEAMERS + 1 AEGIS | 12 | 0 | 0 | 58 at the skin | |
+
+(The four AEGIS rows are as re-recorded after the projector stopped covering its own ship. What they were before is in "Put back", below.)
+
+*Checks.* 239 tests pass, fifteen of them new. 254 of 254 deliberate rule breaks are caught, 33 of them new: a repeater that reaches or fires the same at any length, fires off its line, waits a tick too long, shoots through plate or past its reach; a projector pixel that needs no neighbours, may be walled in, or is shut in by its own kind; a skin over the enemy, over any friend however far, over the projector itself; a shot, a beam or a burst that goes through one; a pool that costs nothing, comes back at once, never comes back, or keeps its size when pixels are lost; the farther projector paying first; two lumps reaching as one. The starter deck's 15 recorded arena fights and the reference fleet's 22 are byte for byte as last recorded, and so are the twelve earlier part fights.
+
+**Put back: the projector never covers its own ship (2026-11-13, after the build).** Henry, reading the as-built summary: "did we reverse the decision for the shield projector to not protect the ship it's on?" We hadn't. I had.
+- *The record.* On 2026-11-11 my second version said "It doesn't skin its own ship", and Henry said "it sounded right, yeah". My first rules post of 2026-11-13 still said "It protects friends, never its own ship." In "Large ships, and the projector as a structure" I wrote rule 5 as "the skin covers every friend in reach and the rest of its own ship", with no note that it reversed an agreed rule and no reason. It then sat under "unchanged" or "carried over" through two rewrites, and that was the set Henry said "Yes, build both" to. My unstated reason was Henry's point that a large ship should be worth more per pixel.
+- *Ruled.* I recommended putting it back (SHIELD is for the ship it's on and the projector is for allies; a bare ship is the way to get at a projector; two projector ships can cover each other). Henry: "Yes, put it back".
+- *As it is now.* A lump covers every other ship of its side in reach. Never its own ship: hull, engines, core, all bare. No projector pixel is ever covered, a friend's included, so two projector ships side by side cover each other's hulls and not each other's knobs. That was my call when built, and Henry ruled on it the same day. Asked "Should one projector be able to cover another ship's projector pixels?": "No, keep bare".
+- *What moved,* 12 seeds, covering its own ship and then not (blue, red, draw):
+
+| Fight | Covering its own ship | Never its own ship |
+|---|---|---|
+| 2 BEAMERS + 1 AEGIS VS 6 LANCERS | 2, 6, 4; 1:50 a fight; 51 stopped | 2, 9, 1; 1:09 a fight; 13 stopped |
+| 2 BEAMERS + 1 AEGIS VS 6 FIGHTERS | 8, 2, 2; 107 stopped | 9, 1, 2; 80 stopped |
+| 2 ARCHERS VS 1 OUTPOST + 1 AEGIS | 0, 0, 12; 57 stopped | 0, 0, 12; 57 stopped: not a number moved |
+| 2 RAKERS VS 2 BEAMERS + 1 AEGIS | 9, 2, 1; 128 stopped | 12, 0, 0; 58 stopped |
+
+- *What I got wrong.* I told Henry I expected covering its own ship to be much of why two ARCHERs drew twelve times with an outpost and an AEGIS. It wasn't any of it: the fight is the same to the last number. A missile goes for the nearest enemy, the outpost is nearer than the AEGIS standing behind it, and the outpost is what's covered. Nothing in that fight ever aims at the AEGIS. So "its ship is how you get at it" only holds where the enemy's shots go at the projector's ship, and what a ship shoots at is "the nearest", which is ship behaviour. One more for the unit-AI talk: there's no way to tell a fleet to kill the projector first.
+- *Everything else* (the fifteen part fights with no AEGIS in them, the starter deck's fights, the reference fleet's) is byte for byte as before.
+- *Checks.* 239 tests pass. The 34 repeater and projector rule breaks were run again, one of them new (a projector that covers its own ship): 34 of 34 caught. The other 221 breaks touch no projector and weren't run again.
 
 **Checks (2026-11-11, after N1):** 141 tests pass. 84 of 84 deliberate rule breaks are caught, twenty of them new. Among them: a command that skips the lag, a machine that plays on without the other's turn, each machine applying its own commands first, a check that compares nothing, a hash with the ships left out, a command counted whoever's name is on it, a turn let through out of order, the joiner's cards printing for blue, a network match that stops under a panel, a right-clicked card marking a job already queued, and the edge shoving a hulk. One was missed at first: the king's keys sent every frame change nothing in the match (the sim drops the repeats), only what crosses the wire, and no test had looked at the wire. One does now. The arena's 41 reference fights are exactly as last recorded.
 

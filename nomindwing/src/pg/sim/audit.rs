@@ -386,6 +386,12 @@ mod tests {
                     }
                     a.command(Cmd::Steer { team, dx, dy });
                 }
+                // A seed for open space now and then, somewhere round its king: on a rock, on
+                // something planted, off the map, out of reach, or where it may go.
+                if rng.chance(2) {
+                    let (kx, ky) = (a.ships[king].x, a.ships[king].y);
+                    a.command(Cmd::Sow { team, slot: 4 + rng.below(2) as usize, at: (kx + rng.range(-260, 260), ky + rng.range(-260, 260)) });
+                }
                 // Orders for any design, sensible or not; repeats; and cancelled prints.
                 if rng.chance(3) {
                     a.command(Cmd::Order { team, slot: rng.below(7) as usize, order: ORDERS[rng.below(ORDERS.len() as u32) as usize] });

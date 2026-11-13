@@ -316,6 +316,7 @@ fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
                 }
                 let any = |vks: &[i32]| vks.iter().any(|&vk| key_down(vk));
                 game.hold([any(&['W' as i32, VK_UP]), any(&['S' as i32, VK_DOWN]), any(&['A' as i32, VK_LEFT]), any(&['D' as i32, VK_RIGHT])]);
+                game.ctrl(key_down(VK_CONTROL));
                 let f2 = key_down(VK_F2);
                 if f2 && !e_f2 {
                     game.toggle_crt();
@@ -346,6 +347,7 @@ fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
                 }
             } else {
                 game.hold([false; 4]);
+                game.ctrl(false);
                 if let Ok(mut t) = TYPED.lock() {
                     t.clear();
                 }

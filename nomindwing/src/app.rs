@@ -33,6 +33,8 @@ pub trait App {
     fn event(&mut self, ev: Ev);
     /// Movement keys held right now: up, down, left, right.
     fn hold(&mut self, _dirs: [bool; 4]) {}
+    /// Whether Ctrl is held right now.
+    fn ctrl(&mut self, _held: bool) {}
     fn tick(&mut self);
     fn draw(&self, fb: &mut Framebuffer);
     fn palette(&self) -> &Pal;

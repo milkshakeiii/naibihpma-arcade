@@ -207,7 +207,7 @@ pub fn pg_sim(which: &str) {
     const SEEDS: u64 = 12;
     let report = |name: &str, place: &[(usize, usize, i32, i32)]| {
         let (mut wins, mut secs, mut lost, mut px, mut window) = ([0; 3], 0, [0; 2], [0; 2], String::new());
-        let (mut placed, mut stale, mut splits, mut stopped) = ([0; 2], 0, [0; 2], [0; 2]);
+        let (mut placed, mut stale, mut splits, mut stopped, mut downed) = ([0; 2], 0, [0; 2], [0; 2], [0; 2]);
         // Shots fired and shots that hit something, each side, over all the seeds.
         let (mut fired, mut hit) = ([0; 2], [0; 2]);
         let n = SEEDS as i32;
@@ -233,6 +233,7 @@ pub fn pg_sim(which: &str) {
                 placed[t] = a.score[t].placed - a.score[t].split;
                 splits[t] += a.score[t].split;
                 stopped[t] += a.score[t].shielded;
+                downed[t] += a.score[t].downed;
                 fired[t] += a.score[t].fired;
                 hit[t] += a.score[t].hits;
             }
@@ -247,6 +248,8 @@ pub fn pg_sim(which: &str) {
         let pct = |t: usize| if fired[t] > 0 { format!("{}%", hit[t] * 100 / fired[t]) } else { "-".to_string() };
         let aim = format!("  shots that hit: blue {} of {} ({})  red {} of {} ({})", hit[0], fired[0], pct(0), hit[1], fired[1], pct(1));
         let shields = if stopped[0] + stopped[1] > 0 { format!("  stopped at shields: blue's {} red's {}", stopped[0] / n, stopped[1] / n) } else { String::new() };
+        // Missiles each side shot or cut down, in all the seeds together: only said where there were any.
+        let shields = if downed[0] + downed[1] > 0 { format!("{shields}  missiles downed: by blue {} by red {}", downed[0], downed[1]) } else { shields };
         println!(
             "{name:34} blue {:2}  red {:2}  draw {:2} ({:2} stalemate)  avg {}:{:02}  lost: blue {}/{} ({} px)  red {}/{} ({} px)  splits {}/{}  window: {window}{aim}{shields}",
             wins[0],
@@ -836,6 +839,21 @@ pub fn pg_screenshots(dir: &Path) {
     }
     pg.draw(&mut fb);
     save(&fb, &pg, "22_match_planting.png");
+    // The same seed about to go into open space: Ctrl held, the pointer clear of the rock.
+    {
+        let p = pg.play.as_ref().unwrap();
+        let k = p.arena.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (p.arena.ships[k].x, p.arena.ships[k].y);
+        let open = [(110, -30), (0, -110), (80, -80), (-80, -80), (110, 40)].iter().map(|d| (kx + d.0, ky + d.1)).find(|&q| p.arena.sow_links(0, 4, q).is_ok());
+        pg.play.as_mut().unwrap().planting = Some(4);
+        crate::app::App::ctrl(&mut pg, true);
+        if let Some(c) = open {
+            look(&mut pg, (kx, ky), Some(c));
+        }
+    }
+    pg.draw(&mut fb);
+    save(&fb, &pg, "58_match_seed_into_open_space.png");
+    crate::app::App::ctrl(&mut pg, false);
     // Planting on a rock that already has a factory on it: the bar says they'll wall each other in.
     {
         let p = pg.play.as_mut().unwrap();
@@ -1250,6 +1268,62 @@ pub fn pg_screenshots(dir: &Path) {
         pp.draw(&mut fb);
         save(&fb, &pp, name);
     }
+    // The missile: its example ship in the yard, with the weapons on two rows, and a volley
+    // on its way to an outpost whose flak has started on it.
+    pp.select_slot(7);
+    pp.ed.cat = crate::pg::design::Cat::Weapons;
+    pp.ed.part = Part::Missile;
+    pp.mouse = (60, 262);
+    pp.draw(&mut fb);
+    save(&fb, &pp, "59_yard_archer.png");
+    pp.screen = Screen::Arena;
+    pp.load_test(11);
+    pp.running = true;
+    while pp.arena.score[1].downed < 2 && pp.arena.tick < 15 * 60 {
+        pp.tick();
+    }
+    hover_slot(&mut pp, 7);
+    pp.draw(&mut fb);
+    save(&fb, &pp, "60_missiles_at_an_outpost.png");
+    // The repeater and the projector: their example ships in the yard, each with the pointer
+    // on its part's button.
+    pp.screen = Screen::Yard;
+    for (slot, part, name) in [(2, Part::Repeater, "61_yard_raker.png"), (8, Part::Projector, "63_yard_aegis.png")] {
+        pp.select_slot(slot);
+        pp.ed.cat = crate::pg::design::Cat::of(part);
+        pp.ed.part = part;
+        pp.mouse = pp.part_button(part);
+        pp.draw(&mut fb);
+        save(&fb, &pp, name);
+    }
+    // A projector drawn where it can't work: thin at its corners, and walled in on one side.
+    let kept = pp.lib[8].clone();
+    pp.lib[8] = crate::pg::design::Design::from_rows("SHUT IN", crate::pg::design::Order::Hunt, &["hjjjj.", "hjjjj.", "hjjjj.", "hjjjj.", "hhhhhh", "hhchhh", "hhhhhh", "e.ee.e"]);
+    pp.select_slot(8);
+    pp.mouse = (300, 150);
+    pp.draw(&mut fb);
+    save(&fb, &pp, "65_yard_projector_that_cant_work.png");
+    pp.lib[8] = kept;
+    pp.select_slot(8);
+    // Two rakers' streams on a warden's circles.
+    pp.screen = Screen::Arena;
+    pp.load_test(8);
+    pp.running = true;
+    while pp.arena.score[0].shielded < 8 && pp.arena.tick < 15 * 60 {
+        pp.tick();
+    }
+    hover_slot(&mut pp, 2);
+    pp.draw(&mut fb);
+    save(&fb, &pp, "62_rakers_stream_at_a_warden.png");
+    // An AEGIS beside two beamers, with lancers' shots stopping at the skin it throws.
+    pp.load_test(15);
+    pp.running = true;
+    while pp.arena.score[1].shielded < 6 && pp.arena.tick < 15 * 60 {
+        pp.tick();
+    }
+    hover_slot(&mut pp, 8);
+    pp.draw(&mut fb);
+    save(&fb, &pp, "64_aegis_covers_two_beamers.png");
     println!("exported proving-ground screenshots to {}", dir.display());
 }
 

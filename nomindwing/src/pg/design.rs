@@ -58,6 +58,85 @@ pub const SHIELD_R: i32 = 10;
 pub const SHIELD_CHARGES: u8 = 4;
 pub const SHIELD_REST: i32 = 45;
 
+/// The missile (2026-11-12). A launcher pixel sends one at the nearest enemy within
+/// `MISSILE_RANGE` px, in any direction, every `MISSILE_PERIOD` ticks. It flies `MISSILE_SPEED`
+/// thousandths of a pixel a tick, which is as fast as the fastest ship, straight at wherever its
+/// target is now, for `MISSILE_LIFE` ticks, and bursts like a cannon's shell. Flak shoots it down.
+pub const MISSILE_RANGE: i32 = 200;
+pub const MISSILE_PERIOD: i32 = 90;
+pub const MISSILE_SPEED: i32 = 3000;
+pub const MISSILE_LIFE: u32 = 120;
+
+/// The repeater (2026-11-13). Repeater pixels one behind another in a column make one gun, as
+/// beam pixels do. It fires small shots straight ahead: it reaches `REPEAT_REACH0` px and
+/// `REPEAT_REACH` more for each pixel of the gun, up to `REPEAT_MAX` of them, and the longer it is
+/// the faster it fires (`repeat_period`).
+pub const REPEAT_REACH0: i32 = 60;
+pub const REPEAT_REACH: i32 = 8;
+pub const REPEAT_MAX: i32 = 16;
+/// The shield projector (2026-11-13). A lump of projector pixels reaches `PROJ_REACH` px for each
+/// pixel of the square root of its pixels, up to `PROJ_REACH_MAX`, and its ship holds a charge
+/// for each projector pixel, full again `PROJ_REST` ticks after the last shot stopped. A pixel
+/// needs `PROJ_NEAR` projector pixels among the eight round it, and its own row or column clear
+/// to the edge of the ship in `PROJ_OPEN` of the four directions.
+pub const PROJ_REACH: i32 = 10;
+pub const PROJ_REACH_MAX: i32 = 150;
+pub const PROJ_REST: i32 = 45;
+pub const PROJ_NEAR: usize = 4;
+pub const PROJ_OPEN: usize = 3;
+
+/// How far a repeater gun of `n` pixels reaches (0 for none).
+pub fn repeat_reach(n: i32) -> i32 {
+    if n <= 0 {
+        0
+    } else {
+        REPEAT_REACH0 + REPEAT_REACH * n.min(REPEAT_MAX)
+    }
+}
+
+/// Ticks between a repeater gun's shots: 8 for one pixel, a tick less for every two more, down to 3.
+pub fn repeat_period(n: i32) -> i32 {
+    (9 - (n.clamp(1, REPEAT_MAX) + 1) / 2).max(3)
+}
+
+/// How far a lump of `px` projector pixels reaches.
+pub fn proj_reach(px: i32) -> i32 {
+    let mut r = 0;
+    while (r + 1) * (r + 1) <= px {
+        r += 1;
+    }
+    (PROJ_REACH * r).min(PROJ_REACH_MAX)
+}
+
+/// Projector pixels that don't work where they are: too thin (fewer than `PROJ_NEAR` projector
+/// pixels among the eight round them) or hemmed in (their own row or column isn't clear to the
+/// edge of the ship in `PROJ_OPEN` of the four directions; other projector pixels don't count as
+/// in the way). Each pixel passes or fails where it stands, as an engine does. `part` says what a
+/// cell holds (anything outside the drawing is empty). Gives the pixels that fail, and how many of
+/// them fail for being thin.
+pub fn hemmed_projectors(bbox: (i32, i32, i32, i32), part: impl Fn(i32, i32) -> Option<Part>) -> (Vec<(i32, i32)>, usize) {
+    let (x0, y0, x1, y1) = bbox;
+    let is = |x: i32, y: i32| part(x, y) == Some(Part::Projector);
+    let (mut bad, mut thin) = (Vec::new(), 0);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            if !is(x, y) {
+                continue;
+            }
+            let near = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy))).filter(|&(dx, dy)| (dx, dy) != (0, 0) && is(x + dx, y + dy)).count();
+            let open = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+                .iter()
+                .filter(|&&(dx, dy)| (1..).map(|k| (x + dx * k, y + dy * k)).take_while(|&(px, py)| (x0..=x1).contains(&px) && (y0..=y1).contains(&py)).all(|(px, py)| part(px, py).map_or(true, |p| p == Part::Projector)))
+                .count();
+            if near < PROJ_NEAR || open < PROJ_OPEN {
+                bad.push((x, y));
+                thin += (near < PROJ_NEAR) as usize;
+            }
+        }
+    }
+    (bad, thin)
+}
+
 /// How far a beam gun of `n` pixels reaches.
 pub fn beam_reach(n: i32) -> i32 {
     if n <= 0 {
@@ -119,10 +198,17 @@ pub enum Part {
     Beam,
     /// Throws a circle round itself that stops enemy shots coming in.
     Shield,
+    /// Launches missiles that chase their target and that flak can shoot down.
+    Missile,
+    /// A gun made of a column of these that fires a stream of small shots straight ahead.
+    Repeater,
+    /// A lump of these stops shots at every friend in reach. Never at its own ship, and never
+    /// at a projector pixel.
+    Projector,
 }
 
 /// The parts in the order the yard shows them.
-pub const PARTS: [Part; 11] = [Part::Hull, Part::Plate, Part::Shield, Part::Flak, Part::Lance, Part::Beam, Part::Cannon, Part::Engine, Part::Scoop, Part::Factory, Part::Core];
+pub const PARTS: [Part; 14] = [Part::Hull, Part::Plate, Part::Shield, Part::Projector, Part::Flak, Part::Lance, Part::Beam, Part::Cannon, Part::Missile, Part::Repeater, Part::Engine, Part::Scoop, Part::Factory, Part::Core];
 
 /// The yard's part categories, keys 1-6. Power is empty until its parts arrive.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -195,7 +281,7 @@ pub fn secs(ticks: i32) -> String {
 }
 
 /// One row per part, in the order of the `Part` enum.
-pub const PART_INFO: [PartInfo; 11] = [
+pub const PART_INFO: [PartInfo; 14] = [
     PartInfo {
         ch: 'h',
         name: "HULL",
@@ -356,6 +442,48 @@ pub const PART_INFO: [PartInfo; 11] = [
         rank: 2,
         glyph: [".......", "..###..", ".#...#.", "#.....#", "#..#..#", ".......", "......."],
         about: || format!("THROWS A CIRCLE {SHIELD_R} PX ROUND ITSELF. AN ENEMY SHOT OF ANY KIND COMING INTO THE CIRCLE STOPS AT ITS EDGE. AFTER {SHIELD_CHARGES} THE CIRCLE IS OUT, AND {} S AFTER THE LAST IT'S BACK. SHOTS FIRED FROM INSIDE IT PASS.", secs(SHIELD_REST)),
+    },
+    PartInfo {
+        ch: 'm',
+        name: "MISSILE",
+        cat: Cat::Weapons,
+        mass: 2,
+        armor: 0,
+        makes: 0,
+        uses: 4,
+        block: 1,
+        colour: Some(pal::MISSILE),
+        rank: 5,
+        glyph: ["...#...", "..###..", "..###..", "..###..", "..###..", ".#.#.#.", "......."],
+        about: || format!("A LAUNCHER. EVERY {} S IT SENDS A MISSILE AT THE NEAREST ENEMY WITHIN {MISSILE_RANGE} PX, ANY WAY IT FACES. THE MISSILE CHASES AS FAST AS THE FASTEST SHIP AND BLASTS A 3X3 HOLE. FLAK SHOOTS IT DOWN. A SHIELD STOPS IT.", secs(MISSILE_PERIOD)),
+    },
+    PartInfo {
+        ch: 'r',
+        name: "REPEATER",
+        cat: Cat::Weapons,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 2,
+        block: 1,
+        colour: Some(pal::REPEATER),
+        rank: 5,
+        glyph: ["...#...", ".......", "...#...", ".......", "...#...", "..###..", "..###.."],
+        about: || format!("A STREAM OF SMALL SHOTS STRAIGHT AHEAD. PIXELS IN A COLUMN ARE ONE GUN: {} PX AND {} SHOTS A SECOND WITH ONE, {} PX AND {} WITH {REPEAT_MAX}. PLATE TURNS THEM. EACH COSTS A SHIELD A CHARGE.", repeat_reach(1), (15 + repeat_period(1) / 2) / repeat_period(1), repeat_reach(REPEAT_MAX), 15 / repeat_period(REPEAT_MAX)),
+    },
+    PartInfo {
+        ch: 'j',
+        name: "PROJECTOR",
+        cat: Cat::Armor,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 2,
+        block: 1,
+        colour: Some(pal::PROJECTOR),
+        rank: 2,
+        glyph: [".......", "..###..", ".#####.", ".#####.", ".#####.", "..###..", "......."],
+        about: || format!("STOPS SHOTS AT FRIENDS IN REACH, NOT AT ITS OWN SHIP OR ANY PROJECTOR PIXEL: ONE A PIXEL, ALL BACK AFTER {} S WITH NONE. 16 PX REACH {}, 64 REACH {}. EACH NEEDS {PROJ_NEAR} PROJECTOR PIXELS ROUND IT AND {PROJ_OPEN} OPEN SIDES.", secs(PROJ_REST), proj_reach(16), proj_reach(64)),
     },
 ];
 
@@ -542,6 +670,13 @@ pub struct Stats {
     pub beam: i32,
     pub beam_len: i32,
     pub shields: i32,
+    /// Missile launchers.
+    pub missile: i32,
+    /// Repeater pixels, and the length of the longest repeater gun.
+    pub repeater: i32,
+    pub rep_len: i32,
+    /// Projector pixels.
+    pub projector: i32,
     pub scoops: i32,
     pub factory: i32,
     /// Power made (hull and cores) and used (engines and guns).
@@ -558,11 +693,11 @@ pub struct Stats {
 
 impl Stats {
     pub fn armed(&self) -> bool {
-        self.flak + self.lance + self.cannon + self.beam > 0
+        self.flak + self.lance + self.cannon + self.beam + self.missile + self.repeater > 0
     }
     /// Whether it has a gun that fires straight ahead only, which the whole ship lines up.
     pub fn aims(&self) -> bool {
-        self.lance + self.beam > 0
+        self.lance + self.beam + self.repeater > 0
     }
     /// How far its longest beam gun reaches (0: it has none).
     pub fn beam_reach(&self) -> i32 {
@@ -570,7 +705,7 @@ impl Stats {
     }
     /// The reach of the gun it lines up: its longest beam or a lance, whichever reaches further.
     pub fn fwd_reach(&self) -> i32 {
-        self.beam_reach().max(if self.lance > 0 { LANCE_RANGE } else { 0 })
+        self.beam_reach().max(if self.lance > 0 { LANCE_RANGE } else { 0 }).max(repeat_reach(self.rep_len))
     }
     /// The biggest ship (in pixels) its factory pixels can build.
     pub fn max_build(&self) -> i32 {
@@ -612,7 +747,7 @@ impl Stats {
 /// Stats from a set of cells. `cannons` is how many working cannons there are (a cannon is a
 /// block, so the cells alone can't say), and `beam_len` the length of the longest beam gun (a
 /// column, which a list of cells can't say either).
-pub fn stats_of(cells: &[Option<Part>], cannons: i32, beam_len: i32) -> Stats {
+pub fn stats_of(cells: &[Option<Part>], cannons: i32, beam_len: i32, rep_len: i32) -> Stats {
     let n = |p: Part| cells.iter().filter(|c| **c == Some(p)).count() as i32;
     let count = cells.iter().flatten().count() as i32;
     let mass: i32 = cells.iter().flatten().map(|p| p.mass()).sum();
@@ -635,7 +770,7 @@ pub fn stats_of(cells: &[Option<Part>], cannons: i32, beam_len: i32) -> Stats {
         Flight::StandOff
     };
     let cost = count + core_cost(cores);
-    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
+    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
 }
 
 /// Which of a w x h grid's cells connect to `start` edge to edge, through cells where `on` holds.
@@ -731,11 +866,15 @@ pub struct Check {
     pub buried: Vec<(i32, i32)>,
     /// A seeded design whose seed cell (the grid's centre) isn't a core.
     pub no_seed: bool,
+    /// Projector pixels that are too thin or hemmed in (`hemmed_projectors`).
+    pub hemmed: Vec<(i32, i32)>,
+    /// How many of those are too thin. The rest are only hemmed in.
+    pub thin: usize,
 }
 
 impl Check {
     pub fn ok(&self) -> bool {
-        self.cores >= 1 && self.loose.is_empty() && self.buried.is_empty() && !self.no_seed
+        self.cores >= 1 && self.loose.is_empty() && self.buried.is_empty() && self.hemmed.is_empty() && !self.no_seed
     }
     pub fn problem(&self) -> Option<String> {
         let s = |n: usize| if n == 1 { "" } else { "S" };
@@ -749,6 +888,13 @@ impl Check {
         } else if !self.buried.is_empty() {
             let n = self.buried.len();
             Some(format!("{n} ENGINE{}: NO 3-WIDE EXIT", s(n)))
+        } else if !self.hemmed.is_empty() {
+            // The thin ones first: thickening a lump is what most often opens it up too.
+            if self.thin > 0 {
+                Some(format!("{} PROJECTOR PX TOO THIN", self.thin))
+            } else {
+                Some(format!("{} PROJECTOR PX SHUT IN", self.hemmed.len()))
+            }
         } else {
             None
         }
@@ -940,13 +1086,14 @@ impl Design {
             let (x0, y0, x1, y1) = bbox;
             let engines: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| self.get(x, y) == Some(Part::Engine)).collect();
             c.buried = buried_engines(&engines, bbox, |x, y| self.get(x, y).is_some());
+            (c.hemmed, c.thin) = hemmed_projectors(bbox, |x, y| self.get(x, y));
         }
         c
     }
 
     pub fn stats(&self) -> Stats {
-        let beam_len = beam_guns(GRID, GRID, |i| self.cells[i] == Some(Part::Beam)).iter().map(|g| g.1).max().unwrap_or(0);
-        stats_of(&self.cells, self.cannon_blocks().0.len() as i32, beam_len)
+        let longest = |p: Part| beam_guns(GRID, GRID, |i| self.cells[i] == Some(p)).iter().map(|g| g.1).max().unwrap_or(0);
+        stats_of(&self.cells, self.cannon_blocks().0.len() as i32, longest(Part::Beam), longest(Part::Repeater))
     }
 
     /// How it flies at what it's fighting: what was chosen for it, or else what its drawing
@@ -1431,6 +1578,38 @@ pub fn part_examples() -> Vec<Design> {
         drawn("BEAMER", Order::Hunt, (47, 44), &["..b..", ".hbh.", ".hbh.", "hhbhh", "hhbhh", "hhbhh", "hhbhh", "phbhp", "phbhp", "hhchh", "egege"], None),
         drawn("WARDEN", Order::Hunt, (45, 45), &["....o....", "...hlh...", "..hhlhh..", ".hghlhgh.", "ohhhchhho", ".hghhhgh.", "..hhhhh..", ".eehhhee.", "....o...."], None),
         drawn("NEEDLE", Order::Hunt, (48, 47), &[".b.", "hbh", "hch", "e.e"], None),
+        // Two launchers and a flak gun against other people's missiles. Its card says KITE, so it
+        // holds off at missile range: left as drawn it has the thrust to make attack runs.
+        Design { style: Some(Style::Kite), ..drawn("ARCHER", Order::Hunt, (47, 47), &[".m.m.", "hhghh", "hhchh", "e.e.e"], None) },
+        // A ten-pixel repeater down the spine of a long ship: 140 px of reach, a shot every
+        // quarter of a second.
+        drawn("RAKER", Order::Hunt, (47, 43), &["..r..", "..r..", "..r..", "..r..", ".hrh.", ".hrh.", ".hrh.", ".hrh.", "hhrhh", "hhrhh", "hhchh", "ee.ee"], None),
+        // A projector knob of 38 pixels on a thick neck, on the bow of a wide hull: it reaches
+        // 60 px and stops 38 shots. Its base is five wide, so one shell's 3x3 hole can't cut it
+        // off. It has no guns, so it stays beside the nearest friend that has (as any unarmed
+        // ship on HUNT does), and its fourteen engines keep it up with the other big ships.
+        drawn(
+            "AEGIS",
+            Order::Hunt,
+            (42, 43),
+            &[
+                ".....jjjjj.....",
+                "....jjjjjjj....",
+                "....jjjjjjj....",
+                "....jjjjjjj....",
+                "....jjjjjjj....",
+                ".....jjjjj.....",
+                ".....hhhhh.....",
+                "....hhhhhhh....",
+                "hhhhhhhhhhhhhhh",
+                "hhhhhhhhhhhhhhh",
+                "hhhhhhhchhhhhhh",
+                "hhhhhhhhhhhhhhh",
+                "hhhhhhhhhhhhhhh",
+                "eeeeeee.eeeeeee",
+            ],
+            None,
+        ),
     ]
 }
 
@@ -2167,5 +2346,61 @@ mod tests {
         assert!(team_of(starter_deck())[7].is_empty());
         let many: Vec<Design> = (0..12).flat_map(|_| starter_deck()).collect();
         assert_eq!(team_of(many).len(), SLOTS);
+    }
+
+    #[test]
+    fn a_projector_pixel_needs_four_projector_neighbours_and_open_space_on_three_sides() {
+        let hemmed = |rows: &[&str]| Design::from_rows("T", Order::Hold, rows).check().hemmed.len();
+        // The smallest lump that passes: a 4x4 with its corners off, standing on a neck. Its
+        // inner pixels look out through the outer ones: projector pixels aren't in the way.
+        let knob = [".jj.", "jjjj", "jjjj", ".jj.", ".hh.", "hhhh", "hchh"];
+        assert_eq!(hemmed(&knob), 0);
+        assert!(Design::from_rows("T", Order::Hold, &knob).check().ok());
+        // Too thin: a wire has two neighbours a pixel at most, a square's corners three, and a
+        // plus's arms one or two (its middle pixel has its four).
+        assert_eq!(hemmed(&["jjjj", ".hh.", "hchh"]), 4);
+        assert_eq!(hemmed(&["jjjj", "jjjj", "jjjj", "jjjj", ".hh.", "hchh"]), 4);
+        assert_eq!(hemmed(&[".j.", "jjj", ".j.", ".h.", "hch"]), 4);
+        let thin = Design::from_rows("T", Order::Hold, &["jjjj", "jjjj", "jjjj", "jjjj", ".hh.", "hchh"]).check();
+        assert_eq!((thin.thin, thin.problem().unwrap().as_str()), (4, "4 PROJECTOR PX TOO THIN"));
+        // A handle two pixels thick is a loop, and passes: a pixel looks out through its hole.
+        assert_eq!(hemmed(&[".jjjjj.", "jjjjjjj", "jj...jj", "jj...jj", "jjjjjjj", ".jjjjj.", "..hhh..", "hhhhhhh", "hhhchhh"]), 0);
+        // Shut in: the same knob with a wall of hull on one side of it has two open sides, not
+        // three, and in a bay between two walls it has one. Every pixel of it fails.
+        assert_eq!(hemmed(&["h.jj.", "hjjjj", "hjjjj", "h.jj.", "hhhhh", "hhchh"]), 12);
+        assert_eq!(hemmed(&["h.jj.h", "hjjjjh", "hjjjjh", "h.jj.h", "hhhhhh", "hhchhh"]), 12);
+        // A design with one that fails can't fly, and says why.
+        let shut = Design::from_rows("T", Order::Hold, &["h.jj.", "hjjjj", "hjjjj", "h.jj.", "hhhhh", "hhchh"]);
+        assert!(!shut.check().ok());
+        assert_eq!((shut.check().thin, shut.check().problem().unwrap().as_str()), (0, "12 PROJECTOR PX SHUT IN"));
+        // Reach and what it holds come from how many pixels there are, nothing else.
+        assert_eq!((proj_reach(12), proj_reach(25), proj_reach(37), proj_reach(81), proj_reach(225), proj_reach(900)), (30, 50, 60, 90, 150, 150));
+        assert_eq!(Design::from_rows("T", Order::Hold, &knob).stats().projector, 12);
+    }
+
+    #[test]
+    fn a_repeater_column_is_one_gun_and_a_longer_one_reaches_further_and_fires_faster() {
+        let st = |rows: &[&str]| Design::from_rows("T", Order::Hold, rows).stats();
+        // Three in a column are one gun three long. Three abreast are three guns one long.
+        assert_eq!((st(&["hrh", "hrh", "hrh", "hch"]).repeater, st(&["hrh", "hrh", "hrh", "hch"]).rep_len), (3, 3));
+        assert_eq!((st(&["rrr", "hch"]).repeater, st(&["rrr", "hch"]).rep_len), (3, 1));
+        assert!(st(&["rrr", "hch"]).aims() && st(&["rrr", "hch"]).armed());
+        // Each pixel adds reach, and every two take a tick off the wait, down to three ticks.
+        assert_eq!((repeat_reach(0), repeat_reach(1), repeat_reach(6), repeat_reach(10), repeat_reach(16), repeat_reach(40)), (0, 68, 108, 140, 188, 188));
+        assert_eq!((repeat_period(1), repeat_period(2), repeat_period(3), repeat_period(10), repeat_period(11), repeat_period(16)), (8, 8, 7, 4, 3, 3));
+        for n in 1..REPEAT_MAX {
+            assert!(repeat_reach(n + 1) > repeat_reach(n) && repeat_period(n + 1) <= repeat_period(n));
+        }
+        // The examples: a ten-pixel gun, and a knob of 38.
+        let ex = part_examples();
+        let (raker, aegis) = (ex.iter().find(|d| d.name == "RAKER").unwrap().stats(), ex.iter().find(|d| d.name == "AEGIS").unwrap().stats());
+        assert_eq!((raker.rep_len, raker.fwd_reach()), (10, 140));
+        assert_eq!((aegis.projector, proj_reach(aegis.projector)), (38, 60));
+        // The AEGIS has no guns and keeps up with the big ships it's drawn to fly beside.
+        assert!(!aegis.armed());
+        for big in ["BEAMER", "WARDEN", "RAKER"] {
+            let st = ex.iter().find(|d| d.name == big).unwrap().stats();
+            assert!(aegis.vmax >= st.vmax, "the AEGIS ({}) can't keep up with the {big} ({})", aegis.vmax, st.vmax);
+        }
     }
 }

@@ -30,10 +30,10 @@ const COST_Y: i32 = 47;
 const FLIGHT_Y: i32 = 58;
 const GAUGE_Y: [i32; 4] = [69, 79, 89, 99];
 const TALLY_Y: i32 = 111;
-const BTN_ZOOM_OUT: Rect = Rect::new(6, 282, 16, 15);
-const BTN_ZOOM_IN: Rect = Rect::new(70, 282, 16, 15);
-const BTN_TO_ARENA: Rect = Rect::new(122, 282, 40, 15);
-pub const BTN_MATCH: Rect = Rect::new(164, 282, 40, 15);
+const BTN_ZOOM_OUT: Rect = Rect::new(6, 284, 16, 13);
+const BTN_ZOOM_IN: Rect = Rect::new(70, 284, 16, 13);
+const BTN_TO_ARENA: Rect = Rect::new(122, 284, 40, 13);
+pub const BTN_MATCH: Rect = Rect::new(164, 284, 40, 13);
 pub const ZOOMS: [i32; 4] = [1, 2, 4, 8];
 /// Screen pixels the canvas scrolls per tick while a direction is held.
 const SCROLL: i32 = 16;
@@ -45,19 +45,31 @@ pub fn tab_rect(i: usize) -> Rect {
 }
 /// How much of a design's name a tab has room for.
 const TAB_NAME: usize = 7;
+/// Under the canvas: the categories, two rows for the open category's parts, the tools and the
+/// zoom, each row 13 px high.
 fn cat_rect(i: usize) -> Rect {
-    Rect::new(6 + i as i32 * 33, 228, 32, 16)
+    Rect::new(6 + i as i32 * 33, 228, 32, 13)
 }
 /// The i-th of n part buttons for the open category.
 /// The button of part `i` of a category's `parts`: each as wide as its swatch and its name, so
 /// four parts with names of different lengths all show theirs in the row.
+/// A row that would run past the canvas carries on in the second row: five weapons don't fit one.
 fn part_rect(i: usize, parts: &[Part]) -> Rect {
     let w = |p: &Part| 18 + Framebuffer::text_width(p.name(), 1);
-    let x: i32 = parts[..i].iter().map(|p| w(p) + 2).sum();
-    Rect::new(6 + x, 246, w(&parts[i]), 15)
+    let (mut x, mut row) = (0, 0);
+    for p in &parts[..i] {
+        if x + w(p) > CANVAS.w + 2 {
+            (x, row) = (0, row + 1);
+        }
+        x += w(p) + 2;
+    }
+    if x + w(&parts[i]) > CANVAS.w + 2 {
+        (x, row) = (0, row + 1);
+    }
+    Rect::new(6 + x, 242 + row * 14, w(&parts[i]), 13)
 }
 fn tool_rect(i: usize) -> Rect {
-    Rect::new(6 + i as i32 * 25, 264, 23, 16)
+    Rect::new(6 + i as i32 * 25, 270, 23, 13)
 }
 /// The order buttons, three to a row.
 fn order_rect(i: usize) -> Rect {
@@ -231,6 +243,13 @@ impl Pg {
     }
 
     /// The screen point in the middle of a cell (for the screenshot tool).
+    /// The middle of a part's button, with its category open (the screenshots point at it).
+    pub fn part_button(&self, part: Part) -> (i32, i32) {
+        let parts = Cat::of(part).parts();
+        let r = part_rect(parts.iter().position(|&p| p == part).unwrap_or(0), &parts);
+        (r.x + r.w / 2, r.y + r.h / 2)
+    }
+
     pub fn cell_screen(&self, (cx, cy): (i32, i32)) -> (i32, i32) {
         let e = &self.ed;
         (CANVAS.x + e.pan.0 + cx * e.zoom + e.zoom / 2, CANVAS.y + e.pan.1 + cy * e.zoom + e.zoom / 2)
@@ -733,17 +752,17 @@ impl Pg {
             let (sel, hov) = (cat == e.cat, r.contains(m.0, m.1));
             ui::button(fb, r, "", hov && !sel, sel);
             let col = if cat.parts().is_empty() { TEXT_FAINT } else if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
-            icons::draw(fb, Icon::Cat(cat), r.x + 7, r.y + 4, col);
-            fb.text(&format!("{}", i + 1), r.x + 20, r.y + 4, if hov && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
+            icons::draw(fb, Icon::Cat(cat), r.x + 7, r.y + 3, col);
+            fb.text(&format!("{}", i + 1), r.x + 20, r.y + 3, if hov && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
         }
         let parts = e.cat.parts();
         for (i, &p) in parts.iter().enumerate() {
             let r = part_rect(i, &parts);
             let (sel, hov) = (p == e.part && e.tool != Tool::Copy, r.contains(m.0, m.1));
             ui::button(fb, r, "", hov && !sel, sel);
-            swatch(fb, r.x + 3, r.y + 3, p);
+            swatch(fb, r.x + 3, r.y + 2, p);
             if r.w >= 17 + Framebuffer::text_width(p.name(), 1) {
-                fb.text(p.name(), r.x + 15, r.y + 4, if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT }, None, 1);
+                fb.text(p.name(), r.x + 15, r.y + 3, if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT }, None, 1);
             }
         }
         for (i, &b) in BTNS.iter().enumerate() {
@@ -757,13 +776,13 @@ impl Pg {
             ui::button(fb, r, "", hov && !down, down);
             let off = b == Btn::Turn && e.stamp.is_none();
             let col = if off { TEXT_FAINT } else if down { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
-            icons::draw(fb, b.icon(), r.x + 8, r.y + 4, col);
+            icons::draw(fb, b.icon(), r.x + 8, r.y + 3, col);
         }
         ui::button(fb, BTN_ZOOM_OUT, "-", BTN_ZOOM_OUT.contains(m.0, m.1), false);
         ui::button(fb, BTN_ZOOM_IN, "+", BTN_ZOOM_IN.contains(m.0, m.1), false);
-        fb.text_centered(&format!("ZOOM {}X", e.zoom), 46, 286, TEXT_DIM, None, 1);
+        fb.text_centered(&format!("ZOOM {}X", e.zoom), 46, 287, TEXT_DIM, None, 1);
         if let Some((cx, cy)) = self.cell_under(m.0, m.1) {
-            fb.text(&format!("{cx},{cy}"), 90, 286, TEXT_FAINT, None, 1);
+            fb.text(&format!("{cx},{cy}"), 90, 287, TEXT_FAINT, None, 1);
         }
         ui::button(fb, BTN_TO_ARENA, "ARENA", BTN_TO_ARENA.contains(m.0, m.1), false);
         ui::button(fb, BTN_MATCH, "MATCH", BTN_MATCH.contains(m.0, m.1), false);
@@ -896,7 +915,7 @@ impl Pg {
                     }
                 }
             }
-            for &(cx, cy) in check.loose.iter().chain(&check.buried) {
+            for &(cx, cy) in check.loose.iter().chain(&check.buried).chain(&check.hemmed) {
                 outline_clip(fb, c, ox + cx * z - 1, oy + cy * z - 1, inner + 2, inner + 2, BAD);
             }
         }
@@ -1037,7 +1056,7 @@ impl Pg {
             return format!("THRUST {}{short}, FOR WEIGHT {} (8 PER ENGINE). AT THE GOLD MARK OR PAST IT, 1 THRUST PER WEIGHT, IT RUNS UNLESS YOU CHOOSE; SHORT OF IT, IT KITES. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
         }
         if on_row(GAUGE_Y[3]) {
-            return format!("POWER: IT USES {} OF THE {} IT MAKES. MADE PER PIXEL: {}. USED: {}. SHORT OF POWER, IT ALL SLOWS IN STEP: AT 75%, GUNS RELOAD A THIRD SLOWER.", st.used, st.made, Part::power_list(true), Part::power_list(false));
+            return format!("POWER: IT USES {} OF THE {} IT MAKES. MADE PER PIXEL: {}. WHAT A PART USES IS ON ITS OWN HOVER. SHORT OF POWER, IT ALL SLOWS IN STEP: AT 75%, GUNS RELOAD A THIRD SLOWER.", st.used, st.made, Part::power_list(true));
         }
         if let Some(k) = (0..10).find(|&k| at(tally_rect(k))) {
             if let Some((p, _)) = tally(d, st).get(k) {
@@ -1117,19 +1136,25 @@ mod tests {
 
     #[test]
     fn every_parts_button_shows_its_name_and_the_row_fits_under_the_canvas() {
-        // Four weapons in a row once left CANNON with a swatch and no name.
+        // Four weapons in a row once left CANNON with a swatch and no name. A fifth doesn't fit
+        // the row at all, so it goes in a second one: two rows, between the categories above
+        // and the tools below.
+        let apart = |a: Rect, b: Rect| a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
         for cat in CATS {
             let parts = cat.parts();
             for (i, p) in parts.iter().enumerate() {
                 let r = part_rect(i, &parts);
                 assert!(r.w >= 17 + Framebuffer::text_width(p.name(), 1), "{}'s button is too narrow for its name", p.name());
-                assert!(r.x + r.w <= CANVAS.x + CANVAS.w + 2, "{}'s button runs past the canvas", p.name());
-                if i > 0 {
-                    let before = part_rect(i - 1, &parts);
-                    assert!(r.x >= before.x + before.w, "{}'s button overlaps the one before it", p.name());
+                assert!(r.x >= CANVAS.x && r.x + r.w <= CANVAS.x + CANVAS.w + 2, "{}'s button runs past the canvas", p.name());
+                assert!(r.y >= cat_rect(0).y + cat_rect(0).h && r.y + r.h <= tool_rect(0).y, "{}'s button is off its two rows", p.name());
+                for k in 0..i {
+                    assert!(apart(r, part_rect(k, &parts)), "{}'s button overlaps {}'s", p.name(), parts[k].name());
                 }
             }
         }
+        assert!(Cat::Weapons.parts().len() >= 5 && part_rect(4, &Cat::Weapons.parts()).y > part_rect(0, &Cat::Weapons.parts()).y, "the fifth weapon should be on the second row");
+        // The rows under the canvas keep clear of each other, down to the foot of the screen.
+        assert!(CANVAS.y + CANVAS.h <= cat_rect(0).y && tool_rect(0).y + tool_rect(0).h <= BTN_ZOOM_OUT.y && BTN_MATCH.y + BTN_MATCH.h <= 300);
     }
 
     #[test]

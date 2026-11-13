@@ -120,11 +120,16 @@ pub fn reference_tests() -> Vec<Test> {
 
 /// A library that shows the beam and the shield at work (`--parts`): the three example ships,
 /// and four of the starter deck's to set them against. Slots: 0 beamer, 1 warden, 2 needle,
-/// 3 fighter, 4 lancer, 5 frigate, 6 outpost.
+/// 2 raker (the repeater), 3 fighter, 4 lancer, 5 frigate, 6 outpost, 7 archer (the missile),
+/// 8 aegis (the projector).
 pub fn parts_library() -> Vec<Design> {
-    let deck = starter_deck();
-    let mut lib = crate::pg::design::part_examples();
+    let (deck, ex) = (starter_deck(), crate::pg::design::part_examples());
+    let named = |name: &str| ex.iter().find(|d| d.name == name).unwrap_or_else(|| panic!("no example called {name}")).clone();
+    // Nine slots: the examples (the small NEEDLE gave its slot to the RAKER, and is still in the
+    // library), and four of the starter deck's to set them against.
+    let mut lib = vec![named("BEAMER"), named("WARDEN"), named("RAKER")];
     lib.extend([0, 1, 2, 4].map(|s| deck[s].clone()));
+    lib.extend([named("ARCHER"), named("AEGIS")]);
     lib
 }
 
@@ -140,7 +145,24 @@ pub fn part_tests() -> Vec<Test> {
         vs("6 FIGHTERS VS 1 WARDEN", block(0, 3, 6, 150, 180, 10), block(1, 1, 1, 330, 180, 0)),
         vs("1 FRIGATE VS 1 WARDEN", block(0, 5, 1, 150, 180, 0), block(1, 1, 1, 330, 180, 0)),
         vs("1 BEAMER VS 1 WARDEN", block(0, 0, 1, 110, 180, 0), block(1, 1, 1, 330, 180, 0)),
-        vs("6 NEEDLES VS 6 FIGHTERS", block(0, 2, 6, 150, 180, 10), block(1, 3, 6, 330, 180, 10)),
+        // The repeater: against a shield, against plate, and beside lancers that can't crack
+        // the shield alone.
+        vs("2 RAKERS VS 1 WARDEN", block(0, 2, 2, 110, 180, 30), block(1, 1, 1, 330, 180, 0)),
+        vs("2 RAKERS VS 1 FRIGATE", block(0, 2, 2, 110, 180, 30), block(1, 5, 1, 330, 180, 0)),
+        vs("1 RAKER + 6 LANCERS VS 1 WARDEN", [block(0, 2, 1, 110, 180, 0), block(0, 4, 6, 150, 180, 10)].concat(), block(1, 1, 1, 330, 180, 0)),
+        // The missile: against what can't move and has little flak, a flak screen, what outruns
+        // it, and a shield.
+        vs("2 ARCHERS VS 1 OUTPOST", block(0, 7, 2, 90, 180, 30), block(1, 6, 1, 330, 180, 0)),
+        vs("2 ARCHERS VS 1 FRIGATE", block(0, 7, 2, 90, 180, 30), block(1, 5, 1, 330, 180, 0)),
+        vs("2 ARCHERS VS 6 FIGHTERS", block(0, 7, 2, 90, 180, 30), block(1, 3, 6, 330, 180, 10)),
+        vs("2 ARCHERS VS 1 WARDEN", block(0, 7, 2, 90, 180, 30), block(1, 1, 1, 330, 180, 0)),
+        // The projector, beside the big slow ships it can keep up with: three fights from above
+        // again with an AEGIS added (lances, which it stops one for one; flak, which empties
+        // it; missiles, which it rests between), and the stream that keeps it empty.
+        vs("2 BEAMERS + 1 AEGIS VS 6 LANCERS", [block(0, 0, 2, 110, 180, 30), block(0, 8, 1, 70, 180, 0)].concat(), block(1, 4, 6, 330, 180, 10)),
+        vs("2 BEAMERS + 1 AEGIS VS 6 FIGHTERS", [block(0, 0, 2, 110, 180, 30), block(0, 8, 1, 70, 180, 0)].concat(), block(1, 3, 6, 330, 180, 10)),
+        vs("2 ARCHERS VS 1 OUTPOST + 1 AEGIS", block(0, 7, 2, 90, 180, 30), [block(1, 6, 1, 330, 180, 0), block(1, 8, 1, 370, 180, 0)].concat()),
+        vs("2 RAKERS VS 2 BEAMERS + 1 AEGIS", block(0, 2, 2, 110, 180, 30), [block(1, 0, 2, 330, 180, 30), block(1, 8, 1, 370, 180, 0)].concat()),
         Test { name: "OPEN FIELD", place: Vec::new() },
     ]
 }
@@ -157,7 +179,7 @@ pub struct Placement {
 fn help_body() -> Vec<(&'static str, String)> {
     vec![
         ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. IT NEEDS A CORE, EVERY PIXEL JOINED EDGE TO EDGE, AND A STRAIGHT 3-WIDE WAY OUT FOR EVERY ENGINE.".into()),
-        ("POWER", format!("MADE PER PIXEL: {}. USED: {}. SHORT OF POWER, GUNS RELOAD SLOWER AND ENGINES PUSH LESS, IN STEP.", Part::power_list(true), Part::power_list(false))),
+        ("POWER", format!("MADE PER PIXEL: {}. EVERYTHING ELSE THAT WORKS USES IT: A PART'S HOVER IN THE YARD SAYS HOW MUCH. SHORT OF POWER, GUNS RELOAD SLOWER AND ENGINES PUSH LESS, IN STEP.", Part::power_list(true))),
         ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. 1-6 PICK A PART CATEGORY, TAB ITS NEXT PART. P PENCIL, R RECTANGLE, F FILL, C STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
         ("FLYING", "RUNS, KITE OR ORBIT: PICK IN THE YARD. LEFT ALONE, 1 THRUST PER WEIGHT RUNS AND LESS KITES. HEAVIER SHIPS TURN SLOWER.".into()),
         ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW.".into()),
@@ -242,12 +264,16 @@ pub fn draw_shape(fb: &mut Framebuffer, clip: Rect, sh: &Shape, x: i32, y: i32, 
     let (w, h) = sh.dims(facing);
     let (l, t) = (x - w / 2, y - h / 2);
     let mut grid = vec![false; (w * h) as usize];
+    // Where its projector pixels are: a lump of them is drawn with a pale middle.
+    let mut knob = vec![false; (w * h) as usize];
     for i in 0..sh.cells.len() {
         if sh.cells[i].is_some() && solid(i) {
             let (px, py) = sh.cell_xy(x, y, facing, i);
             grid[((py - t) * w + (px - l)) as usize] = true;
+            knob[((py - t) * w + (px - l)) as usize] = sh.cells[i] == Some(Part::Projector);
         }
     }
+    let in_knob = |gx: i32, gy: i32| gx >= 0 && gy >= 0 && gx < w && gy < h && knob[(gy * w + gx) as usize];
     if !ghost {
         for gy in 0..h {
             for gx in 0..w {
@@ -276,6 +302,9 @@ pub fn draw_shape(fb: &mut Framebuffer, clip: Rect, sh: &Shape, x: i32, y: i32, 
             team_col(team, 2)
         } else if p == Part::Cannon && sh.cannons.contains(&i) {
             GOLD
+        } else if p == Part::Projector && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|&(dx, dy)| in_knob(px - l + dx, py - t + dy)) {
+            // Projector on all four sides of it: the lump's pale middle.
+            PROJECTOR_HI
         } else {
             part_col(p, team)
         };
@@ -333,6 +362,8 @@ pub struct Pg {
     pub cam: (i32, i32),
     held: [bool; 4],
     latch: [bool; 4],
+    /// Ctrl is held: in a match, a seed goes to open space.
+    pub ctrl: bool,
     map_drag: bool,
     pub help: bool,
     confirm_quit: bool,
@@ -428,6 +459,7 @@ impl Pg {
             cam: ((AW - FIELD.w) / 2, (AH - FIELD.h) / 2),
             held: [false; 4],
             latch: [false; 4],
+            ctrl: false,
             map_drag: false,
             help: true,
             confirm_quit: false,
@@ -792,7 +824,7 @@ impl Pg {
                         s[k].px_lost,
                         s[k].broken,
                         s[1 - k].bounced,
-                        if s[1 - k].shielded > 0 { format!(", {} stopped at its shields", s[1 - k].shielded) } else { String::new() },
+                        format!("{}{}", if s[1 - k].shielded > 0 { format!(", {} stopped at its shields", s[1 - k].shielded) } else { String::new() }, if s[k].downed > 0 { format!(", shot down {} missiles", s[k].downed) } else { String::new() }),
                         s[k].mined,
                         if a.disarmed(k) { ", DISARMED" } else { "" }
                     )
@@ -899,10 +931,14 @@ impl Pg {
             if s.st.power_pct() < 100 {
                 parts.push(format!("POWER {}%", s.st.power_pct()));
             }
-            for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON"), (s.st.beam, "BEAM"), (s.st.shields, "SHIELD")] {
+            for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON"), (s.st.beam, "BEAM"), (s.st.missile, "MISSILE"), (s.st.repeater, "REPEATER"), (s.st.shields, "SHIELD")] {
                 if n > 0 {
                     parts.push(format!("{name} {n}"));
                 }
+            }
+            // A projector: how many shots it can still stop, of how many when it's rested.
+            if s.st.projector > 0 {
+                parts.push(format!("PROJECTOR {}/{}", s.skin.0, s.st.projector));
             }
             if s.carry > 0 {
                 parts.push(format!("CARRYING {}", s.carry));
@@ -1074,13 +1110,18 @@ impl Pg {
             }
             y += lines.len() as i32 * 9 + 6;
         }
-        // Every part's colour, in the yard's order, in two rows of six.
+        // Every part's colour, in the yard's order, seven to a row, each as wide as its name.
         let ly = r.y + r.h - 44;
+        let mut x = r.x + 14;
         for (k, p) in PARTS.iter().enumerate() {
-            let (x, y) = (r.x + 14 + (k % 6) as i32 * 60, ly + (k / 6) as i32 * 10);
+            if k % 7 == 0 {
+                x = r.x + 14;
+            }
+            let y = ly + (k / 7) as i32 * 10;
             fb.rect_fill(x - 1, y - 1, 6, 6, OUTLINE);
             fb.rect_fill(x, y, 4, 4, part_col(*p, 0));
             fb.text(p.name(), x + 8, y - 1, TEXT_DIM, None, 1);
+            x += 14 + Framebuffer::text_width(p.name(), 1);
         }
         fb.text_centered("CLICK OR PRESS ANY KEY", r.x + r.w / 2, r.y + r.h - 18, ACCENT, None, 1);
     }
@@ -1131,6 +1172,9 @@ impl App for Pg {
                 }
             }
         }
+    }
+    fn ctrl(&mut self, held: bool) {
+        self.ctrl = held;
     }
     fn hold(&mut self, dirs: [bool; 4]) {
         self.held = dirs;
@@ -1249,6 +1293,8 @@ mod tests {
             Check { cores: 1, loose: vec![(0, 0); n], ..Check::default() },
             Check { cores: 1, buried: vec![(0, 0)], ..Check::default() },
             Check { cores: 1, buried: vec![(0, 0); n], ..Check::default() },
+            Check { cores: 1, hemmed: vec![(0, 0)], ..Check::default() },
+            Check { cores: 1, hemmed: vec![(0, 0); n], ..Check::default() },
         ];
         for c in checks.iter().chain([&Check { cores: 1, ..Check::default() }]) {
             for (armed, power) in [(false, 100), (true, 100), (true, 99), (false, 1)] {

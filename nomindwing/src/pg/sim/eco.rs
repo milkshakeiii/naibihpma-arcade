@@ -89,6 +89,10 @@ pub enum Cmd {
     /// The king prints a deck slot. A seeded design is paid for in full on the spot, and its seed
     /// flies to the rock pixel `target`.
     Print { team: usize, slot: usize, target: Option<(i32, i32)> },
+    /// The king sends a seeded design's seed to the spot `at` in open space. The seed is paid for
+    /// in full on the spot, like any seed. With no rock under it, what grows there takes every
+    /// pixel from its network's bank.
+    Sow { team: usize, slot: usize, at: (i32, i32) },
     /// A design's standing order: every ship of it, flying or still to be printed, takes it.
     Order { team: usize, slot: usize, order: Order },
     /// The king keeps printing a deck slot, or stops. A repeating job goes back on the end of the
@@ -116,7 +120,7 @@ impl Cmd {
     /// Whose command it is.
     pub fn team(&self) -> usize {
         match *self {
-            Cmd::Steer { team, .. } | Cmd::Print { team, .. } | Cmd::Order { team, .. } | Cmd::Repeat { team, .. } | Cmd::Cancel { team, .. } => team,
+            Cmd::Steer { team, .. } | Cmd::Print { team, .. } | Cmd::Sow { team, .. } | Cmd::Order { team, .. } | Cmd::Repeat { team, .. } | Cmd::Cancel { team, .. } => team,
         }
     }
 
@@ -126,6 +130,7 @@ impl Cmd {
             Cmd::Steer { team, dx, dy } => format!("S {team} {dx} {dy}"),
             Cmd::Print { team, slot, target: None } => format!("P {team} {slot}"),
             Cmd::Print { team, slot, target: Some((x, y)) } => format!("P {team} {slot} {x} {y}"),
+            Cmd::Sow { team, slot, at: (x, y) } => format!("W {team} {slot} {x} {y}"),
             Cmd::Order { team, slot, order } => format!("O {team} {slot} {}", WIRE_ORDERS.iter().position(|&o| o == order).unwrap_or(0)),
             Cmd::Repeat { team, slot, at: None } => format!("R {team} {slot}"),
             Cmd::Repeat { team, slot, at: Some(at) } => format!("R {team} {slot} {at}"),
@@ -146,6 +151,7 @@ impl Cmd {
             ("S", 3) => Cmd::Steer { team, dx: far(1)?.signum(), dy: far(2)?.signum() },
             ("P", 2) => Cmd::Print { team, slot: n(1, 63)?, target: None },
             ("P", 4) => Cmd::Print { team, slot: n(1, 63)?, target: Some((far(2)?, far(3)?)) },
+            ("W", 4) => Cmd::Sow { team, slot: n(1, 63)?, at: (far(2)?, far(3)?) },
             ("O", 3) => Cmd::Order { team, slot: n(1, 63)?, order: WIRE_ORDERS[n(2, 5)?] },
             ("R", 2) => Cmd::Repeat { team, slot: n(1, 63)?, at: None },
             ("R", 3) => Cmd::Repeat { team, slot: n(1, 63)?, at: Some(n(2, 100_000)?) },
@@ -229,7 +235,7 @@ struct Mind {
 fn class_of(st: &Stats) -> usize {
     if st.count > 20 {
         2
-    } else if st.lance + st.cannon + st.beam > 0 {
+    } else if st.lance + st.cannon + st.beam + st.missile + st.repeater > 0 {
         1
     } else {
         0
@@ -241,6 +247,9 @@ fn class_of(st: &Stats) -> usize {
 enum Printer {
     King(usize),
     Factory(usize),
+    /// A factory still growing, with no rock left under it to grow from: its network pays for
+    /// each pixel, in turn with everything else that's printing.
+    Grower(usize),
 }
 
 /// What growing the next pixel of a ship would do: grow this pending cell, wait for an enemy to
@@ -662,6 +671,16 @@ impl Arena {
                         self.eco_mut().queue[team].push(Job { slot, target, paid: 0, cost, repeat: false });
                     }
                 }
+                Cmd::Sow { team, slot, at } => {
+                    let Ok(cost) = self.can_sow(team, slot, at) else { continue };
+                    let k = self.eco().king[team];
+                    for _ in 0..cost {
+                        let paid = self.take_px(k);
+                        debug_assert!(paid, "the bank was counted before the seed was sold");
+                    }
+                    let i = self.deliver(team, Job { slot, target: Some(at), paid: cost, cost, repeat: false });
+                    self.ships[i].sow = true;
+                }
                 Cmd::Order { team, slot, order } => {
                     if self.eco().orders[team].get(slot).map_or(true, |&o| o == order) {
                         continue;
@@ -762,8 +781,11 @@ impl Arena {
                 self.seed_step(i);
             } else if self.ships[i].grow.as_ref().is_some_and(|g| g.eats) {
                 // Its factory pixels grow it first. Wedged against an enemy with nowhere to grow,
-                // they print instead.
-                if self.growth_step(i) && self.factory_ready(i) {
+                // they print instead. With no rock left under it, its network feeds it.
+                let wedged = self.growth_step(i);
+                if self.bank_fed(i) {
+                    printers.push(Printer::Grower(i));
+                } else if wedged && self.factory_ready(i) {
                     printers.push(Printer::Factory(i));
                 }
             } else if self.factory_ready(i) {
@@ -1029,9 +1051,11 @@ impl Arena {
     }
 
     /// A factory growing out of its rock: the seed eats at a steady rate and every factory pixel
-    /// grown so far helps, one rock pixel for each pixel grown. It stops when it's whole or the
-    /// rock runs out, and waits while an enemy sits where its next pixels would go (returning true
-    /// for a tick it spent waiting).
+    /// grown so far helps, one rock pixel for each pixel grown. It waits while an enemy sits where
+    /// its next pixels would go (returning true for a tick it spent waiting). When there's no rock
+    /// left to eat, or never was (a seed sent into open space), a factory's network pays for the
+    /// rest a pixel at a time (`bank_fed`, `Printer::Grower`): the bank supplies what a rock would
+    /// have. Something with no factory pixels is in no network, and stops as it is.
     fn growth_step(&mut self, i: usize) -> bool {
         let f = self.ships[i].st.factory;
         let mut food = {
@@ -1039,14 +1063,12 @@ impl Arena {
             g.acc += GROW_RATE * UNIT / 15 + f;
             std::mem::take(&mut g.food)
         };
+        // Rock pixels mined away since it landed are no longer there to eat.
+        food.retain(|&(x, y)| self.rock_at(x, y));
         let (mut done, mut waiting) = (false, false);
         while self.ships[i].grow.as_ref().is_some_and(|g| g.acc >= UNIT) {
-            // The next rock pixel to eat (any mined away since it landed are skipped).
-            while food.last().is_some_and(|&(x, y)| !self.rock_at(x, y)) {
-                food.pop();
-            }
             let Some(&(x, y)) = food.last() else {
-                done = true;
+                done = !self.ships[i].node;
                 break;
             };
             match self.next_cell(i) {
@@ -1077,6 +1099,12 @@ impl Arena {
             g.food = food;
         }
         waiting
+    }
+
+    /// Whether a growing factory has nothing left to grow from but its network's bank.
+    fn bank_fed(&self, i: usize) -> bool {
+        let s = &self.ships[i];
+        s.node && s.grow.as_ref().is_some_and(|g| g.eats && !g.pending.is_empty() && g.food.is_empty())
     }
 
     /// Where something printed beside `m` goes: just outside it, on the side facing the enemy king,
@@ -1223,6 +1251,36 @@ impl Arena {
                     (Next::Done, _) => false,
                 }
             }
+            Printer::Grower(i) => {
+                if self.ships[i].grow.as_ref().map_or(true, |g| g.acc < UNIT) {
+                    return false;
+                }
+                match self.next_cell(i) {
+                    Next::Cell(k) => {
+                        // Short of pixels, it waits, as a factory printing does.
+                        if !self.take_px(i) {
+                            self.ships[i].grow.as_mut().unwrap().acc = UNIT;
+                            return false;
+                        }
+                        self.grow_cell(i, k);
+                        let g = self.ships[i].grow.as_mut().unwrap();
+                        g.acc -= UNIT;
+                        if g.pending.is_empty() {
+                            self.ships[i].grow = None;
+                            return false;
+                        }
+                        g.acc >= UNIT
+                    }
+                    Next::Blocked => {
+                        self.ships[i].grow.as_mut().unwrap().acc = UNIT;
+                        false
+                    }
+                    Next::Done => {
+                        self.ships[i].grow = None;
+                        false
+                    }
+                }
+            }
         }
     }
 
@@ -1315,7 +1373,7 @@ impl Arena {
     }
 
     /// What a king finishes printing arrives by hyperspace beside it.
-    fn deliver(&mut self, t: usize, job: Job) {
+    fn deliver(&mut self, t: usize, job: Job) -> usize {
         let k = self.eco().king[t];
         let seeded = self.eco().cards[t][job.slot].seeded;
         let d = if seeded { seed() } else { self.eco().deck[t][job.slot].clone() };
@@ -1334,6 +1392,7 @@ impl Arena {
         if !seeded {
             self.eco_mut().tally[t].summoned += 1;
         }
+        i
     }
 
     /// Whether a king may print a deck slot, and what it costs. A seeded design needs the rock pixel
@@ -1358,9 +1417,63 @@ impl Arena {
     /// rock pixel its core takes (the nearest within 10 px), and the middle of the design.
     fn landing(&self, team: usize, slot: usize, near: (i32, i32)) -> Option<((i32, i32), (i32, i32))> {
         let start = self.free_rock(near, team, Some(10))?;
+        Some((start, self.mid_from(team, slot, start)?))
+    }
+
+    /// The middle of a seeded design whose core comes down on the pixel `start`.
+    pub fn mid_from(&self, team: usize, slot: usize, start: (i32, i32)) -> Option<(i32, i32)> {
         let d = self.eco().deck[team].get(slot)?;
         let (ox, oy) = d.shape().cell_xy(0, 0, 0, d.start_cell()?);
-        Some((start, (start.0 - ox, start.1 - oy)))
+        Some((start.0 - ox, start.1 - oy))
+    }
+
+    /// Whether a king may send a seeded design's seed to the spot `at` in open space, and what
+    /// the seed costs: the design's whole price, as on a rock. (What it then grows costs as much
+    /// again, a pixel at a time from its network, where a rock would have supplied it.)
+    pub fn can_sow(&self, t: usize, slot: usize, at: (i32, i32)) -> Result<i32, &'static str> {
+        let card = *self.eco().cards.get(t).and_then(|c| c.get(slot)).ok_or("NO SUCH DESIGN")?;
+        if !card.ok {
+            return Err("THAT DESIGN CAN'T FLY YET");
+        }
+        if !card.seeded {
+            return Err("ONLY A SEEDED DESIGN IS PLANTED");
+        }
+        self.sow_links(t, slot, at)?;
+        if self.bank(self.eco().king[t]) < card.price() {
+            return Err("NOT ENOUGH IN THE BANK: A SEED IS PAID FOR IN FULL");
+        }
+        Ok(card.price())
+    }
+
+    /// What a seed sent to the spot `at` in open space would link to, or why it can't go there.
+    /// It has to be a factory (only a network can feed it), the whole drawing has to have room
+    /// on the map clear of rock and of everything planted, and it has to link to a node of its
+    /// side's, standing or on its way: out of reach of its network there'd be nothing to grow from.
+    pub fn sow_links(&self, t: usize, slot: usize, at: (i32, i32)) -> Result<Links, &'static str> {
+        let card = self.eco().cards.get(t).and_then(|c| c.get(slot)).ok_or("NO SUCH DESIGN")?;
+        if card.st.factory == 0 {
+            return Err("WITH NO FACTORY PIXELS IT HAS NO NETWORK TO FEED IT: IT NEEDS A ROCK");
+        }
+        let mid = self.mid_from(t, slot, at).ok_or("THAT DESIGN CAN'T FLY YET")?;
+        let sh = self.eco().deck[t][slot].shape();
+        for c in (0..sh.cells.len()).filter(|&c| sh.cells[c].is_some()) {
+            let (x, y) = sh.cell_xy(mid.0, mid.1, 0, c);
+            if x < 0 || y < 0 || x >= self.w || y >= self.h {
+                return Err("IT WOULD HANG OFF THE EDGE OF THE MAP");
+            }
+            if self.rock_at(x, y) {
+                return Err("THERE'S ROCK UNDER IT: PLANT ON THE ROCK, OR MOVE CLEAR OF IT");
+            }
+            // The whole of anything planted counts, what it has still to grow included.
+            if self.ships.iter().any(|s| s.alive && s.rooted && s.cell_at(x, y).is_some()) {
+                return Err("SOMETHING PLANTED IS IN THE WAY");
+            }
+        }
+        let links = self.links_at(t, mid);
+        if links.to.is_empty() {
+            return Err("TOO FAR FROM YOUR NETWORK: NOTHING THERE COULD FEED IT");
+        }
+        Ok(links)
     }
 
     /// What a seeded design would link to if its seed were sent to the rock pixel `target` now:
@@ -1374,11 +1487,21 @@ impl Arena {
             return None;
         }
         let (_, at) = self.landing(team, slot, target)?;
+        Some(self.links_at(team, at))
+    }
+
+    /// What a factory whose middle is `at` would link to, as things stand.
+    fn links_at(&self, team: usize, at: (i32, i32)) -> Links {
+        let e = self.eco();
+        let links = |slot: usize| e.cards[team].get(slot).is_some_and(|c| c.st.factory > 0);
         // Everything of the side's that links: x, y, reach, and whether it's the king.
         let mut sites: Vec<(i32, i32, i32, bool)> =
             (0..self.ships.len()).filter(|&i| self.is_node(i) && self.ships[i].team == team).map(|i| (self.ships[i].x, self.ships[i].y, self.reach(i), self.ships[i].role == Role::King)).collect();
         for s in self.ships.iter().filter(|s| s.alive && s.team == team && s.role == Role::Seed) {
-            if let Some((_, (x, y))) = s.seed_for.filter(|f| links(f.0)).and_then(|(sl, t)| self.landing(team, sl, t)) {
+            let Some((sl, t)) = s.seed_for.filter(|f| links(f.0)) else { continue };
+            // A seed bound for open space comes down just where it was sent.
+            let mid = if s.sow { self.mid_from(team, sl, t) } else { self.landing(team, sl, t).map(|l| l.1) };
+            if let Some((x, y)) = mid {
                 sites.push((x, y, NODE_RANGE, false));
             }
         }
@@ -1399,7 +1522,7 @@ impl Arena {
         // Nothing in reach: the nearest node by how far short the two reaches fall, rounded up.
         let short = |s: &(i32, i32, i32, bool)| isqrt(dist2(at.0, at.1, s.0, s.1) - 1) + 1 - (NODE_RANGE + s.2);
         let gap = if to.is_empty() { sites.iter().min_by_key(|s| short(s)).map(|s| ((s.0, s.1), short(s))) } else { None };
-        Some(Links { at, to, king, gap })
+        Links { at, to, king, gap }
     }
 
     pub(super) fn seed_plan(&mut self, i: usize) -> Plan {
@@ -1417,23 +1540,32 @@ impl Arena {
         let (x, y, team) = (self.ships[i].x, self.ships[i].y, self.ships[i].team);
         // It comes down when it reaches its rock pixel, or when it's run up against a bigger enemy
         // and the pixel it was after is gone or under an enemy (so it can never get there).
+        let sow = self.ships[i].sow;
         let there = cheb(x, y, target.0, target.1) <= 2;
-        let shut_out = self.ships[i].bumped && (!self.rock_at(target.0, target.1) || self.enemy_pixel(team, target.0, target.1));
+        let shut_out = !sow && self.ships[i].bumped && (!self.rock_at(target.0, target.1) || self.enemy_pixel(team, target.0, target.1));
         if !there && !shut_out {
             return;
         }
         // It lands on the rock pixel it was sent to, or the nearest to that with room (`landing`,
         // which is also what the match screen showed when the rock was picked). Shut out, it
         // lands by where it is.
-        let Some((start, mid)) = self.landing(team, slot, if there { target } else { (x, y) }) else {
+        // A seed sent into open space comes down on the very pixel it was sent to, once nothing
+        // is standing on it.
+        let landed = if sow {
+            Some(target).filter(|&(tx, ty)| self.room_to_grow(team, None, tx, ty)).and_then(|start| self.mid_from(team, slot, start).map(|mid| (start, mid)))
+        } else {
+            self.landing(team, slot, if there { target } else { (x, y) })
+        };
+        let Some((start, mid)) = landed else {
             // None in reach (its rock was mined or eaten away, or is covered): it heads for the
             // nearest free rock left anywhere, or waits where it is if there's none.
-            if there {
+            if there && !sow {
                 self.ships[i].seed_for = self.free_rock((x, y), team, None).map(|p| (slot, p));
             }
             return;
         };
-        let mut food = self.rock_blob(start);
+        // In open space there's no rock to eat: its network feeds it from the first pixel.
+        let mut food = if sow { Vec::new() } else { self.rock_blob(start) };
         food.sort_by_key(|&(px, py)| std::cmp::Reverse((dist2(px, py, start.0, start.1), py, px)));
         let d = self.eco().deck[team][slot].clone();
         let sh = d.shape();
@@ -1588,6 +1720,16 @@ impl Arena {
                 saving = cards[slot].price() + spare;
                 if left >= saving {
                     self.command(Cmd::Print { team: t, slot, target: Some(target) });
+                    mind.last_plant = tick;
+                    left -= cards[slot].price();
+                    saving = 0;
+                }
+            } else if let Some((slot, at)) = small.or(Some(slot)).filter(|_| bot == Bot::Ai && !outgunned).and_then(|s| self.ai_space(t, s).map(|at| (s, at))) {
+                // No rock will take a factory: the AI sends its cheapest one's seed into open
+                // space, in reach of its network. (The scripted openings never do.)
+                saving = cards[slot].price() + spare;
+                if left >= saving {
+                    self.command(Cmd::Sow { team: t, slot, at });
                     mind.last_plant = tick;
                     left -= cards[slot].price();
                     saving = 0;
@@ -1763,6 +1905,31 @@ impl Arena {
     /// link to its king's network (so what's mined there reaches the bank it plants from), then
     /// any rock on its own side, then any rock at least 300 px from the enemy king. Returns the
     /// rock pixel nearest the rock's middle.
+    /// Where the AI sends a seed when no rock will take it: a spot in open space a link's length
+    /// from something planted in its king's network, the nearest such to where its king started
+    /// (the safest end of its network), and not where a seed of its own is already headed.
+    fn ai_space(&self, t: usize, slot: usize) -> Option<(i32, i32)> {
+        let k = self.eco().king[t];
+        let net = self.eco().net.get(k).copied().filter(|&id| id != usize::MAX)?;
+        let home = KING_STARTS[t];
+        let step = 2 * NODE_RANGE - 30;
+        let mut best: Option<(i32, (i32, i32))> = None;
+        for j in (0..self.ships.len()).filter(|&j| self.ships[j].alive && self.ships[j].rooted && self.ships[j].node && self.eco().net.get(j) == Some(&net)) {
+            for (dx, dy) in [(10, 0), (-10, 0), (0, 10), (0, -10), (7, 7), (7, -7), (-7, 7), (-7, -7)] {
+                let at = (self.ships[j].x + dx * step / 10, self.ships[j].y + dy * step / 10);
+                let headed = self.ships.iter().any(|s| s.alive && s.team == t && s.sow && s.seed_for.is_some_and(|(_, p)| cheb(p.0, p.1, at.0, at.1) < NODE_RANGE));
+                if headed || self.sow_links(t, slot, at).is_err() {
+                    continue;
+                }
+                let d = dist2(at.0, at.1, home.0, home.1);
+                if best.map_or(true, |(b, _)| d < b) {
+                    best = Some((d, at));
+                }
+            }
+        }
+        best.map(|b| b.1)
+    }
+
     fn ai_rock(&self, t: usize, need: i32, raid: &[(i32, i32, i32, bool)], joined: bool) -> Option<(i32, i32)> {
         let (k, ek) = (self.eco().king[t], self.eco().king[1 - t]);
         let (kx, ky) = (self.ships[k].x, self.ships[k].y);
@@ -3782,5 +3949,292 @@ mod tests {
         assert_eq!(k, log.len());
         assert_eq!(fingerprint(&a), fingerprint(&b), "the replay went differently");
         assert_eq!(b.eco.as_ref().unwrap().log, log, "the replay's own log should match");
+    }
+
+    // ----- Seeds sent into open space -----
+
+    /// Puts pixels in a king's store as if it had made them, so the books still balance.
+    fn fund(a: &mut Arena, t: usize, n: i32) {
+        let k = a.eco.as_ref().unwrap().king[t];
+        a.ships[k].store += n;
+        a.eco.as_mut().unwrap().made[t] += n;
+    }
+
+    /// A spot in open space beside blue's king where its outpost (slot 4) may be sown.
+    fn open_spot(a: &Arena) -> (i32, i32) {
+        let (kx, ky) = KING_STARTS[0];
+        [(100, 0), (0, -100), (70, -70), (120, -40), (40, -120)].iter().map(|d| (kx + d.0, ky + d.1)).find(|&p| a.sow_links(0, 4, p).is_ok()).expect("no open space in reach of blue's king")
+    }
+
+    fn rock_count(a: &Arena) -> usize {
+        a.rock.iter().filter(|&&r| r).count()
+    }
+
+    fn living(a: &Arena, i: usize) -> i32 {
+        a.ships[i].hp.iter().filter(|&&h| h > 0).count() as i32
+    }
+
+    #[test]
+    fn a_seed_sent_into_space_grows_from_its_network_and_costs_its_price_again() {
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (price, count) = (a.eco.as_ref().unwrap().cards[0][4].price(), a.eco.as_ref().unwrap().cards[0][4].count);
+        fund(&mut a, 0, 2 * price);
+        let (at, rock, bank) = (open_spot(&a), rock_count(&a), a.bank(k));
+        assert_eq!(a.can_sow(0, 4, at), Ok(price), "the seed costs what a seed for a rock costs");
+        a.command(Cmd::Sow { team: 0, slot: 4, at });
+        a.step();
+        assert_eq!(a.bank(k), bank - price, "the seed is paid for in full when it's sent");
+        assert_eq!(a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Seed && s.sow).count(), 1);
+        // It flies there, comes down on the very spot, and grows with nothing under it.
+        let mut landed = None;
+        for _ in 0..15 * 240 {
+            a.step();
+            a.audit().unwrap();
+            if let Some(f) = factory(&a) {
+                landed.get_or_insert(a.tick);
+                assert!(a.ships[f].rooted, "growing in space but not planted");
+                if a.ships[f].grow.is_none() {
+                    break;
+                }
+            }
+        }
+        let f = factory(&a).expect("the seed never came down");
+        assert!(a.ships[f].grow.is_none(), "it never finished growing");
+        assert_eq!(living(&a, f), count, "it isn't whole");
+        let core = a.ships[f].cell_at(at.0, at.1).expect("its core isn't on the spot it was sent to");
+        assert!(a.ships[f].shape.is_core(core));
+        assert_eq!(rock_count(&a), rock, "it ate rock, in open space");
+        // Every pixel but the seed's own core came out of the bank: the price, as good as twice.
+        let e = a.eco.as_ref().unwrap();
+        assert_eq!(e.spent[0], price + count - 1);
+        assert_eq!(a.bank(k), bank + (e.made[0] - 2 * price) - price - (count - 1));
+        assert_eq!(e.tally[0].planted, 1);
+    }
+
+    #[test]
+    fn a_factory_whose_rock_runs_out_finishes_from_the_bank() {
+        let mut a = quiet();
+        let (price, count) = (a.eco.as_ref().unwrap().cards[0][4].price(), a.eco.as_ref().unwrap().cards[0][4].count);
+        fund(&mut a, 0, 2 * price);
+        let (_, target) = home_rock(&a);
+        let blob = a.rock_blob(target);
+        a.command(Cmd::Print { team: 0, slot: 4, target: Some(target) });
+        while factory(&a).is_none() {
+            a.step();
+            assert!(a.tick < 15 * 120, "the seed never landed");
+        }
+        // The rock is mined away from under it, all but thirty pixels.
+        let left: Vec<(i32, i32)> = blob.iter().copied().filter(|&(x, y)| a.rock_at(x, y)).collect();
+        for &(x, y) in &left[30..] {
+            a.rock[(y * a.w + x) as usize] = false;
+        }
+        let f = factory(&a).unwrap();
+        let had = living(&a, f);
+        for _ in 0..15 * 240 {
+            a.step();
+            a.audit().unwrap();
+            if a.ships[f].grow.is_none() {
+                break;
+            }
+        }
+        assert_eq!(living(&a, f), count, "it stopped short when its rock ran out");
+        // It ate the thirty that were left, and its network paid for the rest.
+        assert_eq!(blob.iter().filter(|&&(x, y)| a.rock_at(x, y)).count(), 0);
+        assert_eq!(a.eco.as_ref().unwrap().spent[0], price + (count - had - 30));
+    }
+
+    #[test]
+    fn something_with_no_factory_pixels_has_no_network_and_stops_when_its_rock_does() {
+        // A seeded warship isn't a node. On a rock too small for it, it grows what the rock holds
+        // and flies off as it is, as it always did: there's nothing to feed it.
+        let mut blue = starter_deck();
+        let mut d = blue[0].clone();
+        d.name = "SPROUT".into();
+        d.seeded = true;
+        assert!(d.stats().factory == 0 && d.check().ok() && d.stats().count > 6);
+        blue[4] = d;
+        let mut a = Arena::for_match(1, [blue, starter_deck()], [false, false]);
+        fund(&mut a, 0, 500);
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (_, target) = home_rock(&a);
+        // Into open space it can't go at all.
+        let (kx, ky) = KING_STARTS[0];
+        assert!(a.can_sow(0, 4, (kx + 100, ky)).unwrap_err().contains("NO FACTORY PIXELS"));
+        // Its rock is mined down to four pixels: the one it's sent to and three more.
+        let blob = a.rock_blob(target);
+        for &(x, y) in blob.iter().filter(|&&p| p != target).skip(3) {
+            a.rock[(y * a.w + x) as usize] = false;
+        }
+        a.command(Cmd::Print { team: 0, slot: 4, target: Some(target) });
+        let sprout = |a: &Arena| (0..a.ships.len()).find(|&i| a.ships[i].alive && a.ships[i].role == Role::Ship && a.ships[i].name == "SPROUT");
+        for _ in 0..15 * 120 {
+            a.step();
+            a.audit().unwrap();
+        }
+        let i = sprout(&a).expect("it never landed");
+        let bank = a.bank(k);
+        assert!(a.ships[i].grow.is_none(), "it's still waiting to be fed");
+        // The seed's own core, and a pixel for each of the four the rock held.
+        assert!(living(&a, i) <= 5, "it grew {} px on a rock of four", living(&a, i));
+        for _ in 0..15 * 20 {
+            a.step();
+        }
+        assert!(a.bank(k) >= bank, "it took pixels from a network it isn't in");
+    }
+
+    #[test]
+    fn a_factory_growing_from_the_bank_waits_when_its_empty_and_shares_with_the_king() {
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (price, count) = (a.eco.as_ref().unwrap().cards[0][4].price(), a.eco.as_ref().unwrap().cards[0][4].count);
+        // Just the seed's price in the bank: it lands and has nothing to grow with.
+        let short = a.bank(k) - price;
+        a.ships[k].store -= short;
+        a.eco.as_mut().unwrap().made[0] -= short;
+        let at = open_spot(&a);
+        a.command(Cmd::Sow { team: 0, slot: 4, at });
+        while factory(&a).is_none() {
+            a.step();
+            assert!(a.tick < 15 * 120, "the seed never landed");
+        }
+        let f = factory(&a).unwrap();
+        for _ in 0..15 * 30 {
+            a.step();
+            a.audit().unwrap();
+        }
+        // It has grown only what the king has made since, a pixel every four seconds.
+        let made = a.eco.as_ref().unwrap().made[0] + short;
+        assert!(a.ships[f].grow.is_some() && living(&a, f) <= 1 + made, "it grew {} px on {made} px of income", living(&a, f));
+        assert_eq!(a.bank(k), 0, "it's waiting with pixels in the bank");
+        // With the king printing too and pixels coming in slower than the two could use them,
+        // they take turns: the factory, which is much the hungrier, doesn't starve the king.
+        a.command(Cmd::Print { team: 0, slot: 2, target: None });
+        let had = living(&a, f);
+        for tick in 0..15 * 20 {
+            if tick % 5 == 0 {
+                fund(&mut a, 0, 1);
+            }
+            a.step();
+            a.audit().unwrap();
+        }
+        let job = a.eco.as_ref().unwrap().queue[0][0];
+        assert!(living(&a, f) - had >= 30 && job.paid >= 8, "one starved the other: the factory grew {} px and the king's job has {} px", living(&a, f) - had, job.paid);
+        // Fed, it finishes.
+        fund(&mut a, 0, 2 * count);
+        for _ in 0..15 * 120 {
+            a.step();
+            if a.ships[f].grow.is_none() {
+                break;
+            }
+        }
+        assert_eq!(living(&a, f), count);
+    }
+
+    #[test]
+    fn a_seed_goes_into_space_only_where_it_fits_and_its_network_reaches() {
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        fund(&mut a, 0, 1000);
+        let (kx, ky) = KING_STARTS[0];
+        let why = |a: &Arena, slot: usize, at: (i32, i32)| a.can_sow(0, slot, at).unwrap_err();
+        // On rock, or with any of it over rock: that's what planting on a rock is for.
+        let (_, on_rock) = home_rock(&a);
+        assert!(why(&a, 4, on_rock).contains("ROCK UNDER IT"));
+        // Out past where a node of its own could link to it.
+        let far = (kx + KING_RANGE + NODE_RANGE + 40, ky - 250);
+        assert!(!a.rock_at(far.0, far.1));
+        assert!(why(&a, 4, far).contains("TOO FAR"), "{}", why(&a, 4, far));
+        // Hanging off the map.
+        assert!(why(&a, 4, (2, ky)).contains("EDGE"));
+        // A design that isn't seeded, and a card that isn't there.
+        assert!(why(&a, 0, (kx + 100, ky)).contains("ONLY A SEEDED"));
+        assert!(a.can_sow(0, 40, (kx + 100, ky)).is_err());
+        // A command that isn't allowed is dropped, and the bank isn't touched.
+        let bank = a.bank(k);
+        a.command(Cmd::Sow { team: 0, slot: 4, at: far });
+        a.command(Cmd::Sow { team: 0, slot: 0, at: (kx + 100, ky) });
+        a.step();
+        assert!(a.bank(k) >= bank, "a refused seed was paid for");
+        assert_eq!(a.eco.as_ref().unwrap().spent[0], 0);
+        assert_eq!(a.ships.iter().filter(|s| s.alive && s.role == Role::Seed).count(), 0);
+        // One that's allowed, and while its seed is still flying a second can be sent on past it,
+        // out of the king's own reach: the first counts as the node it will be.
+        let at = open_spot(&a);
+        let beyond = [(150, 0), (0, -150), (105, -105)].iter().map(|d| (at.0 + d.0, at.1 + d.1)).find(|&p| a.sow_links(0, 4, p).is_err() && !a.rock_at(p.0, p.1)).expect("everywhere near is in reach already");
+        assert!(why(&a, 4, beyond).contains("TOO FAR"), "{}", why(&a, 4, beyond));
+        a.command(Cmd::Sow { team: 0, slot: 4, at });
+        a.step();
+        let first = a.sow_links(0, 4, beyond).expect("a seed on its way wasn't counted as the node it will be");
+        assert_eq!(first.to.len(), 1);
+        // Once it's down, nothing else goes where it stands or where it will grow.
+        while factory(&a).is_none() {
+            a.step();
+            assert!(a.tick < 15 * 120, "the seed never landed");
+        }
+        assert!(why(&a, 4, at).contains("IN THE WAY"));
+        assert!(why(&a, 4, (at.0 + 5, at.1 + 5)).contains("IN THE WAY"), "what it has still to grow should count");
+        a.audit().unwrap();
+    }
+
+    #[test]
+    fn a_seed_for_open_space_crosses_the_wire() {
+        let c = Cmd::Sow { team: 1, slot: 4, at: (700, 312) };
+        assert_eq!(c.to_wire(), "W 1 4 700 312");
+        assert_eq!(Cmd::from_wire(&c.to_wire()), Some(c));
+        assert_eq!(c.team(), 1);
+        for bad in ["W 1 4 700", "W 2 4 700 312", "W 1 64 700 312", "W 1 4 700 9999999", "W 1 4 700 312 5", "W 1 4 x 312"] {
+            assert_eq!(Cmd::from_wire(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_ai_sends_a_seed_into_space_only_when_no_rock_will_take_it() {
+        let sown = |a: &Arena| a.eco.as_ref().unwrap().log.iter().find_map(|(_, c)| match c {
+            Cmd::Sow { team: 0, slot, at } => Some((*slot, *at)),
+            _ => None,
+        });
+        // With rocks to hand it plants on a rock, as it always has.
+        let mut a = ai_alone();
+        for _ in 0..15 * 60 {
+            a.step();
+        }
+        assert!(first_seed_sent_to(&a).is_some(), "the test needs the AI to have planted");
+        assert_eq!(sown(&a), None, "it sent a seed into space with rocks to hand");
+        // Every rock gone and pixels to spend: its next factory goes into open space, in reach
+        // of its network, and grows there from its bank.
+        for r in a.rock.iter_mut() {
+            *r = false;
+        }
+        let nodes = |a: &Arena| a.ships.iter().filter(|s| s.alive && s.team == 0 && s.role == Role::Ship && s.node && s.rooted).count();
+        let had = nodes(&a);
+        for tick in 0..15 * 240 {
+            if tick % 15 == 0 {
+                fund(&mut a, 0, 30);
+            }
+            a.step();
+            a.audit().unwrap();
+            if nodes(&a) > had && a.ships.iter().all(|s| !(s.alive && s.team == 0 && s.rooted && s.grow.is_some())) {
+                break;
+            }
+        }
+        let (slot, at) = sown(&a).expect("with no rock left it never sent a seed into open space");
+        assert!(a.eco.as_ref().unwrap().cards[0][slot].st.factory > 0);
+        assert!(nodes(&a) > had, "the seed it sent to {at:?} never grew into a factory");
+        // The scripted openings never do: they're the yardstick, and stay as they were.
+        let mut a = Arena::for_bots(1, [starter_deck(), starter_deck()], [Bot::Expander, Bot::None]);
+        for _ in 0..15 * 60 {
+            a.step();
+        }
+        for r in a.rock.iter_mut() {
+            *r = false;
+        }
+        for tick in 0..15 * 120 {
+            if tick % 15 == 0 {
+                fund(&mut a, 0, 30);
+            }
+            a.step();
+        }
+        assert_eq!(sown(&a), None, "a scripted opening sent a seed into space");
     }
 }
