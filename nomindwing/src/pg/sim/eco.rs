@@ -229,7 +229,7 @@ struct Mind {
 fn class_of(st: &Stats) -> usize {
     if st.count > 20 {
         2
-    } else if st.lance + st.cannon > 0 {
+    } else if st.lance + st.cannon + st.beam > 0 {
         1
     } else {
         0
@@ -821,6 +821,8 @@ impl Arena {
         let s = &mut self.ships[k];
         s.vx = if mx != 0 && x == x0 { 0 } else { dx * pace };
         s.vy = if my != 0 && y == y0 { 0 } else { dy * pace };
+        // A king answers its keys at once: what it's flying at is what it's trying to.
+        s.want = (s.vx, s.vy);
         if let Some(f) = axis_face(dx, dy) {
             if f != self.ships[k].facing {
                 self.try_turn(k, f);

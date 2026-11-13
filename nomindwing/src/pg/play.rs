@@ -7,7 +7,7 @@ use super::design::*;
 use super::link::{Link, Lobby, Met, Msg, Wire, PORT};
 use super::scene;
 use super::sim::*;
-use super::{draw_icon, pc, team_name, Pg, Screen, FIELD};
+use super::{draw_icon, pc, team_name, Pg, Screen, FIELD, ROW_H, ROW_NAME};
 use crate::app::Key;
 use crate::framebuffer::{wrap, Framebuffer};
 use crate::geom::{cheb, dist2};
@@ -38,8 +38,9 @@ const LOBBY_FIELD: Rect = Rect::new(120, 140, 160, 13);
 const LOBBY_BTNS: [Rect; 2] = [Rect::new(106, 186, 90, 18), Rect::new(204, 186, 90, 18)];
 const NO_PAUSE: &str = "A NETWORK MATCH RUNS AT ONE SPEED: THE OTHER PLAYER'S CLOCK IS RUNNING TOO";
 
+/// A card: one line each, so a team of nine fits above the queue.
 fn card_rect(i: usize) -> Rect {
-    Rect::new(306, 14 + i as i32 * 18, 90, 17)
+    Rect::new(306, 14 + i as i32 * ROW_H, 90, ROW_H - 1)
 }
 /// The king's queue, under the cards: its first jobs as icons, the one being printed first, each
 /// with room under it for the loop sign. Five fit; a longer queue shows four and a count of the
@@ -67,10 +68,12 @@ fn loop_mark(fb: &mut Framebuffer, x: i32, y: i32, col: u8) {
     }
 }
 
-/// The order tag on a card: a click there switches the design's standing order.
+/// The order tag on a card, the order's letter in its colour: a click there switches the
+/// design's standing order. It fills the card's right end, top to bottom, so a click meant for
+/// it doesn't land on the card and print a ship.
 fn tag_rect(i: usize) -> Rect {
     let r = card_rect(i);
-    Rect::new(r.x + 67, r.y + 8, 21, 8)
+    Rect::new(r.x + 78, r.y + 1, 11, r.h - 2)
 }
 
 fn order_col(o: Order) -> u8 {
@@ -87,7 +90,7 @@ fn order_col(o: Order) -> u8 {
 /// The match's rules panel, by heading.
 const MATCH_HELP: [(&str, &str); 9] = [
     ("GOAL", "KILL THE ENEMY KING. LOSE YOURS AND YOU LOSE. A KING IS SLOW WHILE ITS SIDE HAS UNDER 40 PX LEFT."),
-    ("KING", "WASD OR ARROWS FLY IT. 1-7 OR A CARD: IT PRINTS THAT SHIP, PIXEL BY PIXEL. RIGHT-CLICK: IT GOES LAST IN THE QUEUE, ON REPEAT. BACKSPACE STOPS IT."),
+    ("KING", "WASD OR ARROWS FLY IT. 1-9 OR A CARD: IT PRINTS THAT SHIP, PIXEL BY PIXEL. RIGHT-CLICK: IT GOES LAST IN THE QUEUE, ON REPEAT. BACKSPACE STOPS IT."),
     ("SEEDS", "A SEEDED CARD COSTS ALL IT GROWS INTO, PAID AT ONCE. CLICK A ROCK: ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK, PIXEL BY PIXEL."),
     ("FACTORY", "IT PRINTS ITS BUILD ORDER ROUND AND ROUND, A PIXEL AT A TIME, WAITING WHEN THE BANK IS EMPTY."),
     ("BANK", "MINERS HAUL TO THE NEAREST NODE (KING OR FACTORY). LINKED NODES SHARE A BANK; NODES CUT OFF FROM YOUR KING KEEP THEIR OWN."),
@@ -127,7 +130,7 @@ pub struct Play {
 impl Pg {
     // ----- Starting and leaving -----
 
-    /// Starts a match with your seven designs as your deck, or the starter deck. The AI always
+    /// Starts a match with your team as your deck, or the starter deck. The AI always
     /// plays the starter deck.
     pub fn start_match(&mut self, starter: bool, seed: u64) {
         let mine = if starter { starter_deck() } else { self.lib.clone() };
@@ -149,7 +152,7 @@ impl Pg {
     }
 
     /// Starts a match against a person on another machine, now that the two have met: the host
-    /// plays blue and the joiner red, each with their own seven designs.
+    /// plays blue and the joiner red, each with their own team.
     pub fn start_net(&mut self, met: Met) {
         let me = if met.host { 0 } else { 1 };
         self.start_linked(me, met.seed, met.deck, Box::new(met.wire), met.backlog);
@@ -359,8 +362,8 @@ impl Pg {
         let Some(p) = self.play.as_mut() else { return };
         let (me, net) = (p.link.me, p.link.net.is_some());
         match k {
-            Key::Num(n) if (1..=7).contains(&n) => self.card(n as usize - 1),
-            Key::ShiftNum(n) if (1..=7).contains(&n) => self.next_order(n as usize - 1),
+            Key::Num(n) if (1..=SLOTS as u8).contains(&n) => self.card(n as usize - 1),
+            Key::ShiftNum(n) if (1..=SLOTS as u8).contains(&n) => self.next_order(n as usize - 1),
             Key::Space | Key::Letter('P') | Key::Letter('F') if net => self.say(NO_PAUSE),
             Key::Space | Key::Letter('P') => {
                 if p.arena.over.is_none() {
@@ -407,6 +410,10 @@ impl Pg {
         let Some(p) = self.play.as_mut() else { return };
         let me = p.link.me;
         let Some(card) = p.arena.eco.as_ref().and_then(|e| e.cards[me].get(i).copied()) else { return };
+        if p.arena.eco.as_ref().is_some_and(|e| e.deck[me][i].is_empty()) {
+            self.say(&format!("SLOT {} IS EMPTY: DRAW A SHIP THERE IN THE YARD", i + 1));
+            return;
+        }
         if !card.ok {
             self.say("THAT DESIGN CAN'T FLY YET: FIX IT IN THE YARD");
             return;
@@ -529,7 +536,7 @@ impl Pg {
         if right {
             if p.planting.is_some() {
                 p.planting = None;
-            } else if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
+            } else if let Some(i) = (0..SLOTS).find(|&i| card_rect(i).contains(x, y)) {
                 self.repeat(i);
             } else if let Some((k, _)) = p.job_at(x, y) {
                 self.repeat_job(k);
@@ -555,9 +562,9 @@ impl Pg {
             }
             return;
         }
-        if let Some(i) = (0..7).find(|&i| tag_rect(i).contains(x, y) && p.arena.eco.as_ref().is_some_and(|e| e.cards[me].get(i).is_some_and(|c| c.takes_orders()))) {
+        if let Some(i) = (0..SLOTS).find(|&i| tag_rect(i).contains(x, y) && p.arena.eco.as_ref().is_some_and(|e| e.cards[me].get(i).is_some_and(|c| c.takes_orders()))) {
             self.next_order(i);
-        } else if let Some(i) = (0..7).find(|&i| card_rect(i).contains(x, y)) {
+        } else if let Some(i) = (0..SLOTS).find(|&i| card_rect(i).contains(x, y)) {
             self.card(i);
         } else if MINI.contains(x, y) {
             match (p.planting, p.world_point(x, y)) {
@@ -814,7 +821,7 @@ impl Pg {
             let s = format!("+{cut}");
             fb.text(&s, 396 - Framebuffer::text_width(&s, 1), 4, TEXT_DIM, None, 1);
         }
-        for i in 0..7 {
+        for i in 0..SLOTS {
             let r = card_rect(i);
             let hov = r.contains(m.0, m.1);
             let busy = e.queue[me].first().is_some_and(|j| j.slot == i);
@@ -828,28 +835,31 @@ impl Pg {
             } else {
                 ui::panel(fb, r);
             }
-            // A card the king keeps printing wears a blue frame, as in Toy 1, and the loop sign
-            // its job wears in the queue.
+            // A card the king keeps printing wears a blue frame, as in Toy 1 (and its job wears
+            // the loop sign in the queue).
             if repeats {
                 fb.rect_outline(r.x, r.y, r.w, r.h, ACCENT_HI);
-                loop_mark(fb, r.x + 58, r.y + 11, ACCENT_HI);
             }
-            let Some(d) = e.deck[me].get(i) else { continue };
+            let Some(d) = e.deck[me].get(i).filter(|d| !d.is_empty()) else {
+                fb.text("EMPTY", r.x + 14, r.y + 3, TEXT_FAINT, None, 1);
+                continue;
+            };
             let card = e.cards[me][i];
             let lit = hov && !(busy || picked);
             // A seeded card you can't pay for yet is greyed, with its price in red.
             let short = card.ok && card.seeded && bank < card.price();
-            draw_icon(fb, d, Rect::new(r.x + 2, r.y + 1, 14, 14), me);
-            let name: String = d.name.chars().take(10).collect();
-            fb.text(&name, r.x + 19, r.y + 1, if !card.ok { BAD } else if short { TEXT_DIM } else if lit { PANEL_DEEP } else { TEXT }, None, 1);
-            let what = if card.seeded { format!("SEED {}", card.price()) } else { format!("{} PX", card.price()) };
-            fb.text(&what, r.x + 19, r.y + 9, if short { BAD } else if lit { PANEL_LO } else if card.seeded { FACTORY } else { TEXT_DIM }, None, 1);
-            fb.text(&format!("{}", i + 1), r.x + r.w - 8, r.y + 1, TEXT_FAINT, None, 1);
+            draw_icon(fb, d, Rect::new(r.x + 1, r.y + 1, 11, 11), me);
+            // The price, in factory orange for a seed, keeps its room: a long name gives way.
+            let what = format!("{}", card.price());
+            let px = r.x + 76 - Framebuffer::text_width(&what, 1);
+            let name: String = d.name.chars().take(ROW_NAME.min(((px - 2 - (r.x + 14)) / 6) as usize)).collect();
+            fb.text(&name, r.x + 14, r.y + 3, if !card.ok { BAD } else if short { TEXT_DIM } else if lit { PANEL_DEEP } else { TEXT }, None, 1);
+            fb.text(&what, px, r.y + 3, if short { BAD } else if card.seeded { FACTORY } else if lit { PANEL_LO } else { TEXT_DIM }, None, 1);
             if card.takes_orders() {
                 let t = tag_rect(i);
                 let o = e.orders[me][i];
                 fb.rect_fill(t.x, t.y, t.w, t.h, if t.contains(m.0, m.1) { OUTLINE } else { PANEL_DEEP });
-                fb.text(o.tag(), t.x + 2, t.y + 1, order_col(o), None, 1);
+                fb.text(o.letter(), t.x + 3, t.y + 2, order_col(o), None, 1);
             }
         }
         // The king's queue: what it's printing first, then what waits, each as its card's icon.
@@ -920,8 +930,11 @@ impl Pg {
         if net && (BTN_PAUSE.contains(m.0, m.1) || BTN_SPEED.contains(m.0, m.1)) {
             return Some(format!("{NO_PAUSE}."));
         }
-        if let Some(i) = (0..7).find(|&i| card_rect(i).contains(m.0, m.1)) {
-            let d = e.deck[me].get(i)?;
+        if let Some(i) = (0..SLOTS).find(|&i| card_rect(i).contains(m.0, m.1)) {
+            let d = e.deck[me].get(i).filter(|d| !d.is_empty());
+            let Some(d) = d else {
+                return Some(format!("[{}] AN EMPTY SLOT. A TEAM HOLDS NINE DESIGNS: DRAW ONE HERE IN THE YARD, OR TAKE ONE FROM THE LIBRARY.", i + 1));
+            };
             let c = e.cards[me][i];
             if c.takes_orders() && tag_rect(i).contains(m.0, m.1) {
                 let (now, choices) = (e.orders[me][i], Order::in_match(c.order));
@@ -1457,8 +1470,10 @@ mod tests {
         use crate::pg::link::tests::pipes;
         let (a, b, clock, _) = pipes();
         let (mut host, mut join) = (Pg::new(None, None), Pg::new(None, None));
-        host.start_linked(0, 11, starter_deck(), Box::new(a), Vec::new());
-        join.start_linked(1, 11, starter_deck(), Box::new(b), Vec::new());
+        // Each is sent the other's team, empty slots and all, as the hellos carry it.
+        let (theirs, ours) = (join.lib.clone(), host.lib.clone());
+        host.start_linked(0, 11, theirs, Box::new(a), Vec::new());
+        join.start_linked(1, 11, ours, Box::new(b), Vec::new());
         let frames = |host: &mut Pg, join: &mut Pg, n: u32| {
             for _ in 0..n {
                 clock.set(clock.get() + 1);
@@ -1602,5 +1617,65 @@ mod tests {
         // The number in the rules is the number in the sim.
         assert!(MATCH_HELP[0].1.contains(&format!("UNDER {KING_NEEDS} PX")));
         assert_eq!(KING_SPEED, 5 * KING_SLOW, "the hover text says a fifth");
+    }
+
+    #[test]
+    fn nine_cards_fit_above_the_queue_each_with_room_for_its_tag() {
+        for i in 0..SLOTS {
+            let (r, t) = (card_rect(i), tag_rect(i));
+            assert!(r.y + r.h <= QUEUE.y, "card {} runs into the king's queue", i + 1);
+            assert!(i == 0 || card_rect(i - 1).y + card_rect(i - 1).h <= r.y, "card {} overlaps the one above", i + 1);
+            assert!(t.x >= r.x && t.x + t.w <= r.x + r.w && t.y >= r.y && t.y + t.h <= r.y + r.h, "card {}'s tag is off its card", i + 1);
+            // One line of text, with a pixel clear above and below.
+            assert!(r.h >= 9);
+        }
+    }
+
+    #[test]
+    fn an_empty_slot_is_a_card_that_prints_nothing() {
+        use crate::app::{App, Ev};
+        // Your team: the starter deck and two empty slots.
+        let mut pg = Pg::new(None, None);
+        pg.start_match(false, 5);
+        pg.help = false;
+        let queue = |pg: &Pg| pg.play.as_ref().unwrap().arena.eco.as_ref().unwrap().queue[0].len();
+        let click = |pg: &mut Pg, r: Rect, right: bool| {
+            let (x, y) = (r.x + r.w / 2, r.y + r.h / 2);
+            pg.event(Ev::Move(x, y));
+            pg.event(Ev::Press { x, y, right });
+            pg.event(Ev::Release { x, y, right });
+            pg.tick();
+        };
+        for n in [8, 9] {
+            pg.event(Ev::Key(Key::Num(n)));
+            pg.event(Ev::Key(Key::ShiftNum(n)));
+            pg.tick();
+            click(&mut pg, card_rect(n as usize - 1), false);
+            click(&mut pg, card_rect(n as usize - 1), true);
+            assert_eq!(queue(&pg), 0, "slot {n} is empty and went on the king's queue");
+            // The card says what it is.
+            pg.event(Ev::Move(card_rect(n as usize - 1).x + 20, card_rect(n as usize - 1).y + 5));
+            assert!(pg.match_tip().unwrap().contains("AN EMPTY SLOT"));
+        }
+        // Against the starter deck, which has seven: the same keys, and nothing breaks.
+        let mut pg = Pg::new(None, None);
+        pg.start_match(true, 5);
+        pg.help = false;
+        for n in [8, 9] {
+            pg.event(Ev::Key(Key::Num(n)));
+            pg.event(Ev::Key(Key::ShiftNum(n)));
+            pg.tick();
+            click(&mut pg, card_rect(n as usize - 1), false);
+            click(&mut pg, card_rect(n as usize - 1), true);
+            assert_eq!(queue(&pg), 0);
+        }
+        // And the ninth key is a card like any other when the slot is filled.
+        let mut pg = Pg::new(None, None);
+        pg.lib[8] = starter_deck()[0].clone();
+        pg.start_match(false, 5);
+        pg.help = false;
+        pg.event(Ev::Key(Key::Num(9)));
+        pg.tick();
+        assert_eq!(queue(&pg), 1, "the ninth card didn't print");
     }
 }

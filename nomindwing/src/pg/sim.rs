@@ -24,6 +24,10 @@ pub const STALEMATE: u32 = 15 * 20;
 pub const STATIONS: [(i32, i32); 2] = [(10, AH / 2), (AW - 11, AH / 2)];
 const FLAK_SPEED: i32 = 6;
 const LANCE_SPEED: i32 = 4;
+/// How far a lance shot flies before it's spent: a little past the range the gun is given, so a
+/// shot at something at the end of that range gets there. The gun fires at what the shot will
+/// reach, which is this.
+const LANCE_LIFE: i32 = LANCE_RANGE + 12;
 const SHELL_SPEED: i32 = 4;
 /// A ship on GUARD fights what comes this near the place it was built: further than any gun
 /// reaches, so nothing can shell the factory beside it unanswered.
@@ -50,6 +54,8 @@ const SPREAD: i32 = 12;
 pub const KEEP: i32 = 30;
 /// How far round its circle an orbiting ship aims, in pixels.
 const ORBIT_LEAD: i32 = 12;
+/// How far beyond clear of a warming beam's line a ship still won't fly back towards it.
+const DODGE_ROOM: i32 = 4;
 /// Ticks per 1/64 turn of a cannon turret: about 42 degrees a second.
 const TURRET_TURN: u32 = 2;
 /// Length of a drawn cannon barrel from the turret's centre.
@@ -148,6 +154,8 @@ pub enum Doing {
     Orbit,
     /// Waiting at its post for the rest of its group.
     Muster,
+    /// Getting off the line of an enemy beam that's warming.
+    Dodge,
 }
 
 impl Doing {
@@ -168,6 +176,7 @@ impl Doing {
             Doing::ToRock => "FLYING TO ITS ROCK",
             Doing::Orbit => "ORBITING",
             Doing::Muster => "WAITING FOR ITS GROUP",
+            Doing::Dodge => "DODGING A BEAM",
         }
     }
 }
@@ -206,7 +215,11 @@ pub struct Ship {
     turn_t: i32,
     /// 1 while a pixel survives, 0 once it's gone.
     pub hp: Vec<u8>,
+    /// Per pixel: a gun's ticks until it can fire. A beam gun's muzzle counts up from below zero
+    /// while it warms. A shield pixel's is its ticks of rest still to go.
     cool: Vec<i32>,
+    /// Per shield pixel: the shots its circle will still stop. 0 everywhere else.
+    pub charge: Vec<u8>,
     pub turrets: Vec<Turret>,
     pub alive: bool,
     pub doing: Doing,
@@ -234,6 +247,10 @@ pub struct Ship {
     /// Where the ship was, and which way it faced, at the start of this tick: shots are tested
     /// against the path they take relative to the ship.
     pose0: (i32, i32, u8),
+    /// The speed it's trying to fly at, in quarter pixels a tick: what its brain (or its king's
+    /// keys) last asked for, no faster than it can go. While that's the speed it has, it's flying
+    /// steadily. While it isn't, it's speeding up, slowing or turning towards it.
+    want: (i32, i32),
     /// The target pixel (relative to the target's centre) a lance ship is lining up on.
     aim_off: (i32, i32),
     aim_for: Option<usize>,
@@ -309,6 +326,19 @@ impl Ship {
     pub fn has_core(&self) -> bool {
         (0..self.hp.len()).any(|c| self.hp[c] > 0 && self.shape.is_core(c))
     }
+    /// Its beam guns as they stand: the muzzle cell and the length of each.
+    pub fn beam_guns(&self) -> Vec<(usize, i32)> {
+        beam_guns(self.shape.w, self.shape.h, |c| self.hp[c] > 0 && self.shape.cells[c] == Some(Part::Beam))
+    }
+    /// The shield pixels whose circles are up: standing, with a shot still to stop.
+    pub fn live_shields(&self) -> Vec<usize> {
+        (0..self.hp.len()).filter(|&c| self.hp[c] > 0 && self.charge[c] > 0 && self.shape.cells[c] == Some(Part::Shield)).collect()
+    }
+    /// Its stats from the pixels it has left.
+    fn stats_now(&self) -> Stats {
+        let cannons = self.turrets.iter().filter(|t| self.hp[t.cell] > 0).count() as i32;
+        stats_of(&self.alive_cells(), cannons, self.beam_guns().iter().map(|g| g.1).max().unwrap_or(0))
+    }
 
     /// A new ship made of some of this one's cells (a cut-off piece with a core of its own). It
     /// keeps the same pixels in the same places, facing and drift, and takes along the guns,
@@ -322,9 +352,11 @@ impl Ship {
         let map = |c: usize| ((c as i32 / w - y0) * nw + (c as i32 % w - x0)) as usize;
         let mut new_cells = vec![None; (nw * nh) as usize];
         let mut cool = vec![0; (nw * nh) as usize];
+        let mut charge = vec![0; (nw * nh) as usize];
         for &c in cells {
             new_cells[map(c)] = self.shape.cells[c];
             cool[map(c)] = self.cool[c];
+            charge[map(c)] = self.charge[c];
         }
         let turrets: Vec<Turret> = self.turrets.iter().filter(|t| cells.contains(&t.cell)).map(|t| Turret { cell: map(t.cell), ..t.clone() }).collect();
         let shape = Shape { w: nw, h: nh, cells: new_cells, cannons: turrets.iter().map(|t| t.cell).collect() };
@@ -335,7 +367,8 @@ impl Ship {
         let (x, y) = (wx - lx, wy - ly);
         let hp = shape.cells.iter().map(|c| c.is_some() as u8).collect();
         let working = turrets.len() as i32;
-        let st = stats_of(&shape.cells, working);
+        let beam_len = beam_guns(nw, nh, |c| shape.cells[c] == Some(Part::Beam)).iter().map(|g| g.1).max().unwrap_or(0);
+        let st = stats_of(&shape.cells, working, beam_len);
         Ship {
             shape,
             st,
@@ -343,6 +376,7 @@ impl Ship {
             y,
             hp,
             cool,
+            charge,
             turrets,
             // A piece told to hold stays where it broke off; the rest keep the old ship's home.
             home: if self.order == Order::Hold { (x, y) } else { self.home },
@@ -418,7 +452,26 @@ pub struct Debris {
     taken: bool,
 }
 
-/// A short-lived flash: a shot bouncing off plate, or a shell's blast.
+/// A beam's line as it cut, shown for a few ticks: from its muzzle to where it stopped.
+#[derive(Clone, Copy, Debug, Hash)]
+pub struct Cut {
+    pub team: usize,
+    pub from: (i32, i32),
+    pub to: (i32, i32),
+    pub t: u8,
+}
+
+/// A beam gun that's warming: where its line runs, and the ticks until it cuts.
+#[derive(Clone, Copy, Debug)]
+pub struct Warm {
+    pub team: usize,
+    pub from: (i32, i32),
+    pub dir: (i32, i32),
+    pub reach: i32,
+    pub left: i32,
+}
+
+/// A short-lived flash: a shot bouncing off plate or stopped at a shield, or a shell's blast.
 #[derive(Clone, Copy, Debug, Hash)]
 pub struct Spark {
     pub x: i32,
@@ -441,6 +494,8 @@ pub struct Score {
     pub hits: i32,
     /// Hits that bounced off plate.
     pub bounced: i32,
+    /// Shots stopped at an enemy shield's circle.
+    pub shielded: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -478,6 +533,10 @@ pub struct Arena {
     pub shots: Vec<Shot>,
     pub debris: Vec<Debris>,
     pub sparks: Vec<Spark>,
+    /// Beams that have just cut.
+    pub cuts: Vec<Cut>,
+    /// The beams warming at the start of this tick, for ships to get out of the way of.
+    warm: Vec<Warm>,
     pub rock: Vec<bool>,
     rock_px: Vec<(i32, i32)>,
     pub stars: Vec<(i32, i32, u8)>,
@@ -527,12 +586,14 @@ impl std::hash::Hasher for Fnv {
 /// this number: see `Arena::checksum`.
 impl std::hash::Hash for Arena {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let Arena { tick, ships, shots, debris, sparks, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco } = self;
+        // `warm` is worked out afresh from the ships at the start of every tick.
+        let Arena { tick, ships, shots, debris, sparks, cuts, warm: _, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco } = self;
         tick.hash(state);
         ships.hash(state);
         shots.hash(state);
         debris.hash(state);
         sparks.hash(state);
+        cuts.hash(state);
         // A million rock pixels, 64 to a word.
         rock.len().hash(state);
         for chunk in rock.chunks(64) {
@@ -571,6 +632,8 @@ impl Arena {
             shots: Vec::new(),
             debris: Vec::new(),
             sparks: Vec::new(),
+            cuts: Vec::new(),
+            warm: Vec::new(),
             rock: vec![false; (w * h) as usize],
             rock_px: Vec::new(),
             stars: Vec::new(),
@@ -649,8 +712,9 @@ impl Arena {
         let shape = d.shape();
         let n = shape.cells.len();
         let hp = shape.cells.iter().map(|c| (c.is_some() && !empty) as u8).collect();
-        // Stagger the guns so a broadside ripples instead of firing as one.
-        let cool = (0..n).map(|i| (i as i32 * 7) % FLAK_PERIOD).collect();
+        // Stagger the guns so a broadside ripples instead of firing as one. A shield starts full.
+        let cool = (0..n).map(|i| if shape.cells[i] == Some(Part::Shield) { 0 } else { (i as i32 * 7) % FLAK_PERIOD }).collect();
+        let charge = shape.cells.iter().map(|c| if *c == Some(Part::Shield) { SHIELD_CHARGES } else { 0 }).collect();
         let turrets = shape
             .cannons
             .iter()
@@ -675,6 +739,7 @@ impl Arena {
             turn_t: 0,
             hp,
             cool,
+            charge,
             turrets,
             alive: true,
             doing: Doing::Idle,
@@ -697,6 +762,7 @@ impl Arena {
             aim_for: None,
             aim_t: 0,
             pose0: (x, y, facing),
+            want: (0, 0),
             role: Role::Ship,
             store: 0,
             node: d.cells.contains(&Some(Part::Factory)),
@@ -722,7 +788,7 @@ impl Arena {
         s.home = (s.x, s.y);
         s.pose0 = (s.x, s.y, facing);
         if empty {
-            s.st = stats_of(&s.alive_cells(), 0);
+            s.st = s.stats_now();
         }
         self.ships.push(s);
         self.ships.len() - 1
@@ -764,6 +830,7 @@ impl Arena {
         if self.eco.is_some() {
             self.eco_pre();
         }
+        self.warm = self.warming();
         // Ships still arriving by hyperspace aren't there yet.
         let snap: Vec<Snap> = self
             .ships
@@ -816,8 +883,7 @@ impl Arena {
         for s in self.ships.iter_mut().filter(|s| s.alive) {
             if s.dirty {
                 s.dirty = false;
-                let cannons = s.turrets.iter().filter(|t| s.hp[t.cell] > 0).count() as i32;
-                s.st = stats_of(&s.alive_cells(), cannons);
+                s.st = s.stats_now();
             }
             if self.tick % 2 == 0 {
                 s.trail.push((s.x, s.y));
@@ -830,6 +896,10 @@ impl Arena {
             sp.t = sp.t.saturating_sub(1);
         }
         self.sparks.retain(|sp| sp.t > 0);
+        for c in &mut self.cuts {
+            c.t = c.t.saturating_sub(1);
+        }
+        self.cuts.retain(|c| c.t > 0);
         if self.eco.is_some() {
             // A match ends when a king dies (eco_post decides).
             return;
@@ -936,8 +1006,8 @@ impl Arena {
             }
             Order::Hold => {
                 let mut p = self.go(i, home, Doing::Hold);
-                if st.lance > 0 {
-                    if let Some(e) = nearest(LANCE_RANGE + 10, (x, y)) {
+                if st.aims() {
+                    if let Some(e) = nearest(st.fwd_reach() + 10, (x, y)) {
                         p.face = axis_face(e.x - x, e.y - y);
                         p.target = Some(e.idx);
                     }
@@ -955,8 +1025,8 @@ impl Arena {
             let spot = self.clear_post(i, self.post(i), snap);
             let mut p = self.go(i, spot, plan.doing);
             if plan.doing == Doing::Hold {
-                // Holding, it turns only to bring a lance to bear.
-                if plan.target.is_some() || st.lance == 0 {
+                // Holding, it turns only to bring a lance or a beam to bear.
+                if plan.target.is_some() || !st.aims() {
                     p.face = plan.face;
                 }
                 p.target = plan.target;
@@ -984,7 +1054,78 @@ impl Arena {
                 plan.dv.1 += ay;
             }
         }
+        // Whatever it was doing, a ship that can get off the line of a warming beam does, and
+        // stays off it until the beam has cut.
+        if let Some(dv) = self.dodge(i, plan.dv) {
+            plan.dv = dv;
+            plan.doing = Doing::Dodge;
+        }
         plan
+    }
+
+    /// The beam guns that are warming, as things stand: where each one's line runs.
+    pub fn warming(&self) -> Vec<Warm> {
+        let mut out = Vec::new();
+        for s in self.ships.iter().filter(|s| s.alive && s.warp == 0 && s.st.beam > 0) {
+            for (c, n) in s.beam_guns() {
+                if s.cool[c] < 0 {
+                    out.push(Warm { team: s.team, from: s.cell_xy(c), dir: facing_vec(s.facing), reach: beam_reach(n), left: -s.cool[c] });
+                }
+            }
+        }
+        out
+    }
+
+    /// How ship `i` flies to keep off the line of an enemy beam that's warming, when what it
+    /// wanted was to fly at `want`. On the line, it gets off: flat out, square to the line, to
+    /// the side it's already on (or the other, at the map's edge). That's only if it can be clear
+    /// by the time the beam cuts: a ship too wide or too slow for that carries on with what it
+    /// was doing. Just clear of the line, it doesn't fly back onto it until the beam has cut:
+    /// whatever of `want` would take it towards the line is left out. None: no beam concerns it.
+    /// A beam's line moves with its ship, so against a gun that's sliding or turning to follow,
+    /// getting clear is a race.
+    fn dodge(&self, i: usize, want: (i32, i32)) -> Option<(i32, i32)> {
+        let s = &self.ships[i];
+        if s.st.thrust == 0 {
+            return None;
+        }
+        let clear = s.half() + 2;
+        let (mut kept, mut held) = (want, false);
+        let mut out: Option<(i32, (i32, i32))> = None;
+        for w in self.warm.iter().filter(|w| w.team != s.team) {
+            let (rx, ry) = (s.x - w.from.0, s.y - w.from.1);
+            let along = rx * w.dir.0 + ry * w.dir.1;
+            // Across the line, on the side of the vector (-dy, dx).
+            let (px, py) = (-w.dir.1, w.dir.0);
+            let across = rx * px + ry * py;
+            if along < -clear || along > w.reach + clear {
+                continue;
+            }
+            if across.abs() < clear {
+                if (clear - across.abs()) * 4 > s.st.vmax * w.left {
+                    continue;
+                }
+                let mut side = if across > 0 || (across == 0 && i % 2 == 0) { 1 } else { -1 };
+                let to = (s.x + px * side * clear, s.y + py * side * clear);
+                if to.0 < clear || to.1 < clear || to.0 > self.w - 1 - clear || to.1 > self.h - 1 - clear {
+                    side = -side;
+                }
+                if out.map_or(true, |(a, _)| along < a) {
+                    out = Some((along, (px * side * s.st.vmax, py * side * s.st.vmax)));
+                }
+            } else if across.abs() < clear + DODGE_ROOM {
+                let towards = kept.0 * px + kept.1 * py;
+                if towards * across.signum() < 0 {
+                    kept = (kept.0 - px * towards, kept.1 - py * towards);
+                    held = true;
+                }
+            }
+        }
+        match out {
+            Some((_, dv)) => Some(dv),
+            None if held => Some(kept),
+            None => None,
+        }
     }
 
     /// Where a built ship waits with nothing to do: its own place in the rings round what built
@@ -1152,11 +1293,12 @@ impl Arena {
     }
 
     /// How far from target `e` ship `i` holds, centre to centre: most of the range of its guns
-    /// (its lance if it has one, else its cannon, else its flak), from the target's edge.
+    /// (the gun it lines up if it has one, a lance or a beam; else its cannon; else its flak),
+    /// from the target's edge.
     fn gun_reach(&self, i: usize, e: &Snap) -> i32 {
         let st = &self.ships[i].st;
-        let gun = if st.lance > 0 {
-            LANCE_RANGE * 3 / 4
+        let gun = if st.aims() {
+            st.fwd_reach() * 3 / 4
         } else if st.cannon > 0 {
             CANNON_RANGE * 2 / 3
         } else {
@@ -1226,7 +1368,7 @@ impl Arena {
         // Flying through only works on ships smaller than you. If this course would hit a
         // bigger one before we could stop, peel off sideways: a strafing pass along its hull.
         let peel = self.impact(i).map(|b| self.peel(i, b));
-        let lance_run = if !self.ships[i].outbound && self.ships[i].st.lance > 0 { Some(self.line_up(i, e, (tx, ty))) } else { None };
+        let lance_run = if !self.ships[i].outbound && self.ships[i].st.aims() { Some(self.line_up(i, e, (tx, ty))) } else { None };
         let s = &mut self.ships[i];
         s.run_t += 1;
         if !s.outbound {
@@ -1277,7 +1419,7 @@ impl Arena {
         // extra, so a group spreads into a firing line instead of stacking (own shots pass through
         // own ships, so a line behind a line still fires).
         let crowd = |(px, py): (i32, i32)| snap.iter().filter(|f| f.team == team && f.idx != i && cheb(f.x, f.y, px, py) <= f.half + h + 2).count() as i32;
-        let lined_up = if st.lance > 0 {
+        let lined_up = if st.aims() {
             let aim = self.lance_aim(i, e);
             let mut spots = Vec::new();
             for d in [pref, pref - 14, pref + 14] {
@@ -1327,12 +1469,35 @@ impl Arena {
 
     /// Where ship `i`'s centre has to be, across the line of fire, for its lance to bear on `aim`
     /// when the ship faces `f` from `dist` px away: a y when facing east or west, an x when facing
-    /// north or south. It leads a moving target by the time a lance shot takes to cross `dist`.
+    /// north or south. It leads a moving target by the time a lance shot takes to reach it: the
+    /// `dist` to cross, against how fast the target is opening or closing that as it flies, and
+    /// never longer than the shot lasts. A ship with a beam lines up its longest beam instead, and
+    /// leads by the time it warms.
     fn lance_line(&self, i: usize, e: &Snap, aim: (i32, i32), f: u8, dist: i32) -> i32 {
         let s = &self.ships[i];
+        let beam = s.beam_guns().into_iter().max_by_key(|g| g.1).map(|g| g.0);
         let lance = (0..s.shape.cells.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance) && s.hp[c] > 0);
-        let (ox, oy) = lance.map_or((0, 0), |c| s.shape.cell_xy(0, 0, f, c));
-        let t = dist.abs() / LANCE_SPEED;
+        let (ox, oy) = beam.or(lance).map_or((0, 0), |c| s.shape.cell_xy(0, 0, f, c));
+        // A target that's lining up on this ship is flying to this ship's row or column itself.
+        // To lead it there is to run from the very line it's coming to, and two ships doing
+        // that to each other chase the length of the map and back, with whichever is faster
+        // getting its shots in. So a ship doesn't lead a target that's lining a gun up on it:
+        // it holds that target's line as it stands, and the two settle on one row or column.
+        let ts = &self.ships[e.idx];
+        let met = ts.st.aims() && ts.target == Some(i);
+        let t = if met {
+            0
+        } else if beam.is_some() {
+            BEAM_WARM
+        } else {
+            let (fx, fy) = facing_vec(f);
+            let (v, life) = (e.vx * fx + e.vy * fy, LANCE_LIFE / LANCE_SPEED);
+            if 4 * LANCE_SPEED - v <= 0 {
+                life
+            } else {
+                (dist.abs() * 4 / (4 * LANCE_SPEED - v)).min(life)
+            }
+        };
         if f % 2 == 1 {
             e.y + aim.1 + e.vy * t / 4 - oy
         } else {
@@ -1450,9 +1615,13 @@ impl Arena {
             s.acc %= st.mass.max(1);
             s.vx += (p.dv.0 - s.vx).clamp(-budget, budget);
             s.vy += (p.dv.1 - s.vy).clamp(-budget, budget);
+            // What it's making for: the speed its plan asked for, cut to what it can do.
+            let w = isqrt(p.dv.0 * p.dv.0 + p.dv.1 * p.dv.1);
+            s.want = if w > st.vmax && w > 0 { (p.dv.0 * st.vmax / w, p.dv.1 * st.vmax / w) } else { p.dv };
         } else {
             s.vx = 0;
             s.vy = 0;
+            s.want = (0, 0);
         }
         let v = isqrt(s.vx * s.vx + s.vy * s.vy);
         if v > st.vmax && v > 0 {
@@ -1563,6 +1732,21 @@ impl Arena {
 
     fn weapons(&mut self, i: usize, snap: &[Snap], pending: &mut [i32]) {
         let team = self.ships[i].team;
+        if self.ships[i].st.shields > 0 {
+            // A circle that has stopped a shot is full again once it has had its rest.
+            let s = &mut self.ships[i];
+            for c in 0..s.charge.len() {
+                if s.hp[c] > 0 && s.shape.cells[c] == Some(Part::Shield) && s.charge[c] < SHIELD_CHARGES {
+                    s.cool[c] -= 1;
+                    if s.cool[c] <= 0 {
+                        (s.charge[c], s.cool[c]) = (SHIELD_CHARGES, 0);
+                    }
+                }
+            }
+        }
+        if self.ships[i].st.beam > 0 {
+            self.beams(i, snap);
+        }
         for c in 0..self.ships[i].shape.cells.len() {
             let part = self.ships[i].shape.cells[c];
             if self.ships[i].hp[c] == 0 || !matches!(part, Some(Part::Flak) | Some(Part::Lance)) {
@@ -1598,27 +1782,16 @@ impl Arena {
                     self.score[team].fired += 1;
                 }
             } else {
-                // A lance only fires straight ahead, and only when its line would cross a pixel
-                // still standing where the slow shot will meet it.
-                let (dx, dy) = facing_vec(self.ships[i].facing);
-                let ships = &self.ships;
-                let in_line = snap.iter().any(|e| {
-                    if e.team == team {
-                        return false;
-                    }
-                    let along = (e.x - gx) * dx + (e.y - gy) * dy;
-                    if along <= 0 || along > LANCE_RANGE + e.half {
-                        return false;
-                    }
-                    let t = along / LANCE_SPEED;
-                    let (ox, oy) = (e.vx * t / 4, e.vy * t / 4);
-                    let ts = &ships[e.idx];
-                    ((along - e.half - 1).max(1)..=along + e.half + 1).any(|k| ts.cell_at(gx + dx * k - ox, gy + dy * k - oy).map_or(false, |c| ts.hp[c] > 0))
-                });
+                // A lance only fires straight ahead, and only when its slow shot would meet a
+                // pixel still standing, within its range, on an enemy, whatever that enemy does
+                // of the three things `shot_meets` asks about.
+                let dir = facing_vec(self.ships[i].facing);
+                let (dx, dy) = dir;
+                let in_line = snap.iter().any(|e| e.team != team && self.shot_meets(e.idx, (gx, gy), dir, LANCE_SPEED, LANCE_LIFE - 1));
                 if in_line {
                     self.ships[i].aim_t = 0;
                     let line = Line::new(gx, gy, gx + dx * 400, gy + dy * 400);
-                    self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_RANGE + 12, speed: LANCE_SPEED, dmg: LANCE_DMG, pen: LANCE_PEN, target: None, prev: (gx, gy), connected: false, born: self.tick });
+                    self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_LIFE, speed: LANCE_SPEED, dmg: LANCE_DMG, pen: LANCE_PEN, target: None, prev: (gx, gy), connected: false, born: self.tick });
                     self.ships[i].cool[c] = self.ships[i].st.reload(LANCE_PERIOD);
                     self.score[team].fired += 1;
                 }
@@ -1627,6 +1800,170 @@ impl Arena {
         for k in 0..self.ships[i].turrets.len() {
             self.cannon(i, k, snap, pending);
         }
+    }
+
+    /// Whether a gun that fires straight ahead should fire now at ship `j`: a shot from `g` along
+    /// `dir`, at `speed` px a tick and good for `range` px. Only if the shot would land three
+    /// ways: with the ship flying on as it is, with it flying as it's trying to, and with it
+    /// stopped dead where it is. A lance shot takes 1.7 s to cross its range, and in that time a
+    /// ship may hold its course, finish the turn it has begun, or pull up. The shot needn't
+    /// hit the same pixel each time, only some pixel: a ship is wider than a shot, and one
+    /// flying along the line stays on it at any speed. A shot that needs the ship to do exactly
+    /// one of the three is a guess, and it's held, so the gun is loaded when a shot that
+    /// doesn't comes. A crossing ship is fired at only if it moves less than its own width
+    /// while the shot is in flight. In practice: it fires
+    /// at what's flying along its line, towards it or away, at what's sitting still, and at
+    /// what's crossing so slowly or so near that it can't get off the line in time.
+    fn shot_meets(&self, j: usize, g: (i32, i32), dir: (i32, i32), speed: i32, range: i32) -> bool {
+        let ts = &self.ships[j];
+        let (now, want) = ((ts.vx, ts.vy), ts.want);
+        self.meets_at(j, g, dir, speed, range, now) && (want == now || self.meets_at(j, g, dir, speed, range, want)) && (now == (0, 0) || self.meets_at(j, g, dir, speed, range, (0, 0)))
+    }
+
+    /// Whether a shot fired now from `(gx, gy)` along `(dx, dy)`, at `speed` px a tick, would meet
+    /// a living pixel of ship `j` within `range` px, if `j` flew on at `(vx, vy)` quarter-pixels a
+    /// tick. The shot is `k` px down its line `k / speed` ticks from now, and the pixel that will
+    /// be at that place then is the one that's now where the place will have come from. So every
+    /// place the ship could be met is asked about with its own moment: a ship coming straight
+    /// down the line is met sooner and nearer than where it is now, one flying off later and
+    /// further, and one flying off as fast as the shot never.
+    fn meets_at(&self, j: usize, (gx, gy): (i32, i32), (dx, dy): (i32, i32), speed: i32, range: i32, (vx, vy): (i32, i32)) -> bool {
+        let ts = &self.ships[j];
+        // Where down the line the ship's middle will be when the shot gets to it: `along` px
+        // off now, and that changing by `v` quarter-pixels a tick while the shot makes
+        // `4 * speed`.
+        let along = (ts.x - gx) * dx + (ts.y - gy) * dy;
+        let v = vx * dx + vy * dy;
+        if 4 * speed - v <= 0 {
+            return false;
+        }
+        let (mid, half) = (along * 4 * speed / (4 * speed - v), ts.half());
+        // (Nothing would be found below either: this only saves the looking.)
+        if mid + half < 1 || mid - half > range {
+            return false;
+        }
+        // The shot is at place `k` from `(k - 1) / speed` to `k / speed` ticks from now, and the
+        // ship has moved between so much and so much by then: every whole pixel of that.
+        let moved = |v: i32, k: i32| {
+            let (a, b) = (v * (k - 1) / (4 * speed), v * k / (4 * speed));
+            a.min(b)..=a.max(b)
+        };
+        ((mid - half - 2).max(1)..=(mid + half + 2).min(range)).any(|k| moved(vx, k).any(|ox| moved(vy, k).any(|oy| ts.cell_at(gx + dx * k - ox, gy + dy * k - oy).map_or(false, |c| ts.hp[c] > 0))))
+    }
+
+    /// Beam guns. A rested gun starts to warm when an enemy pixel will be on its line, within
+    /// its reach, by the time it has warmed. Warming, it shows its line (which moves with the
+    /// ship); warmed, it cuts along that line whatever is or isn't on it by then, and rests.
+    fn beams(&mut self, i: usize, snap: &[Snap]) {
+        let team = self.ships[i].team;
+        let (dx, dy) = facing_vec(self.ships[i].facing);
+        for (c, n) in self.ships[i].beam_guns() {
+            let (gx, gy) = self.ships[i].cell_xy(c);
+            let cool = self.ships[i].cool[c];
+            if cool > 0 {
+                self.ships[i].cool[c] -= 1;
+            } else if cool < 0 {
+                self.ships[i].cool[c] += 1;
+                if self.ships[i].cool[c] == 0 {
+                    self.cut(i, (gx, gy), (dx, dy), n);
+                    let s = &mut self.ships[i];
+                    s.cool[c] = s.st.reload(BEAM_PERIOD);
+                    s.aim_t = 0;
+                    self.score[team].fired += 1;
+                }
+            } else {
+                let reach = beam_reach(n);
+                let ships = &self.ships;
+                let in_line = snap.iter().any(|e| {
+                    if e.team == team {
+                        return false;
+                    }
+                    // Where the target will be when the beam cuts, if it flies on as it's
+                    // flying: so far along the line, and each of its pixels moved by so much.
+                    let (ox, oy) = (e.vx * BEAM_WARM / 4, e.vy * BEAM_WARM / 4);
+                    let then = (e.x + ox - gx) * dx + (e.y + oy - gy) * dy;
+                    if then + e.half < 1 || then - e.half > reach {
+                        return false;
+                    }
+                    let ts = &ships[e.idx];
+                    ((then - e.half - 1).max(1)..=(then + e.half + 1).min(reach)).any(|k| ts.cell_at(gx + dx * k - ox, gy + dy * k - oy).map_or(false, |c| ts.hp[c] > 0))
+                });
+                if in_line {
+                    self.ships[i].cool[c] = -BEAM_WARM;
+                }
+            }
+        }
+    }
+
+    /// A beam gun of `n` pixels fires from its muzzle at `(gx, gy)`: every enemy pixel on its line
+    /// goes at once, nearest first, until its cut is used up or its reach ends. Plate uses up two
+    /// of the cut. A shield's circle that the line comes into from outside stops it at the edge.
+    fn cut(&mut self, i: usize, (gx, gy): (i32, i32), (dx, dy): (i32, i32), n: i32) {
+        let team = self.ships[i].team;
+        let (reach, mut pen) = (beam_reach(n), beam_cut(n));
+        // The enemy's circles, and whether the line is inside each as it goes: it starts inside
+        // any circle the muzzle is in, and that circle doesn't stop it.
+        let mut rings: Vec<(usize, usize, (i32, i32), bool)> = Vec::new();
+        let mut boxes: Vec<(usize, (i32, i32, i32, i32))> = Vec::new();
+        for (id, s) in self.ships.iter().enumerate() {
+            if !s.alive || s.team == team || s.warp > 0 {
+                continue;
+            }
+            boxes.push((id, s.bbox()));
+            for c in s.live_shields() {
+                let at = s.cell_xy(c);
+                rings.push((id, c, at, dist2(gx, gy, at.0, at.1) <= SHIELD_R * SHIELD_R));
+            }
+        }
+        let (mut end, mut hit) = ((gx, gy), false);
+        'walk: for k in 1..=reach {
+            let (px, py) = (gx + dx * k, gy + dy * k);
+            if px < 0 || py < 0 || px >= self.w || py >= self.h {
+                break;
+            }
+            for r in rings.iter_mut() {
+                let inside = dist2(px, py, r.2 .0, r.2 .1) <= SHIELD_R * SHIELD_R;
+                if inside && !r.3 {
+                    let (id, c) = (r.0, r.1);
+                    self.shield_stop(id, c, end, team);
+                    break 'walk;
+                }
+                r.3 = inside;
+            }
+            end = (px, py);
+            for &(id, (l, t, r, b)) in &boxes {
+                if px < l || py < t || px > r || py > b {
+                    continue;
+                }
+                let Some(c) = self.ships[id].cell_at(px, py).filter(|&c| self.ships[id].hp[c] > 0) else { continue };
+                hit = true;
+                let armor = self.ships[id].shape.cells[c].map_or(0, |p| p.armor());
+                if BEAM_DMG <= armor {
+                    self.score[team].bounced += 1;
+                    self.sparks.push(Spark { x: px - dx, y: py - dy, t: 2, blast: false });
+                    break 'walk;
+                }
+                self.kill_cell(id, c, (px, py), (dx, dy));
+                pen -= 1 + armor;
+                if pen <= 0 {
+                    break 'walk;
+                }
+            }
+        }
+        if hit {
+            self.score[team].hits += 1;
+        }
+        self.cuts.push(Cut { team, from: (gx, gy), to: end, t: 3 });
+    }
+
+    /// A shot of team `by` is stopped at the edge of ship `id`'s shield circle `c`, at `at`: the
+    /// circle has one shot fewer to stop, and its rest starts again.
+    fn shield_stop(&mut self, id: usize, c: usize, at: (i32, i32), by: usize) {
+        let s = &mut self.ships[id];
+        s.charge[c] = s.charge[c].saturating_sub(1);
+        s.cool[c] = s.st.reload(SHIELD_REST);
+        self.score[by].shielded += 1;
+        self.sparks.push(Spark { x: at.0, y: at.1, t: 2, blast: false });
     }
 
     /// A cannon turret swings slowly toward its target and fires once its barrel is on it. Fast
@@ -1742,16 +2079,23 @@ impl Arena {
             // tick). Diagonal steps also meet the two pixels they squeeze between, so a staircase
             // of plate (pixels touching only at corners) stops shots like the wall it looks.
             let mut meets: Vec<(i32, usize, usize)> = Vec::new();
+            // Every enemy shield circle the shot comes into from outside, with when. Like the
+            // pixels, a circle is met along the path the shot takes relative to its ship.
+            let mut stops: Vec<(i32, usize, usize)> = Vec::new();
             for (id, s) in self.ships.iter().enumerate() {
                 if !s.alive || s.team == sh.team || s.warp > 0 {
                     continue;
                 }
                 // A shot fired this tick was fired after the ships moved.
                 let (x0, y0, f0) = if sh.born == self.tick { (s.x, s.y, s.facing) } else { s.pose0 };
-                let r = s.half() + 1;
+                let shields = if s.st.shields > 0 { s.live_shields() } else { Vec::new() };
+                let r = s.half() + 1 + if shields.is_empty() { 0 } else { SHIELD_R };
                 if pr < s.x.min(x0) - r || pb < s.y.min(y0) - r || pl > s.x.max(x0) + r || pt > s.y.max(y0) + r {
                     continue;
                 }
+                // The shot's path relative to the ship, in the ship's own grid, with when it's at
+                // each point: only worked out for a ship with a circle up.
+                let mut walk: Vec<(i32, (i32, i32))> = Vec::new();
                 let mut meet = |t: i32, c: Option<usize>| {
                     if let Some(c) = c.filter(|&c| s.hp[c] > 0) {
                         meets.push((t, id, c));
@@ -1763,6 +2107,9 @@ impl Arena {
                 meet(0, s.shape.cell_at(x0, y0, f0, s0.0, s0.1));
                 if (x0, y0, f0) == (s.x, s.y, s.facing) {
                     // The ship held still: the relative path is the shot's own.
+                    if !shields.is_empty() {
+                        walk.push((0, s.shape.to_local(s.x, s.y, s.facing, s0.0, s0.1)));
+                    }
                     for j in 1..=m {
                         let ((px, py), (nx, ny)) = (path[j as usize - 1], path[j as usize]);
                         let t = j * 1000 / m;
@@ -1771,6 +2118,9 @@ impl Arena {
                             meet(t, s.cell_at(px, ny));
                         }
                         meet(t, s.cell_at(nx, ny));
+                        if !shields.is_empty() {
+                            walk.push((t, s.shape.to_local(s.x, s.y, s.facing, nx, ny)));
+                        }
                     }
                 } else {
                     // The ship moved or turned: walk the relative path in the ship's own grid.
@@ -1778,6 +2128,9 @@ impl Arena {
                     let b = s.shape.to_local(s.x, s.y, s.facing, s1.0, s1.1);
                     let n = (b.0 - a.0).abs().max((b.1 - a.1).abs());
                     let mut l = Line::new(a.0, a.1, b.0, b.1);
+                    if !shields.is_empty() {
+                        walk.push((0, a));
+                    }
                     for j in 1..=n {
                         let (px, py) = (l.x, l.y);
                         l.step();
@@ -1788,11 +2141,36 @@ impl Arena {
                             meet(t, s.shape.local_cell(px, ny));
                         }
                         meet(t, s.shape.local_cell(nx, ny));
+                        if !shields.is_empty() {
+                            walk.push((t, (nx, ny)));
+                        }
+                    }
+                }
+                // A circle stops the shot where the shot comes into it: outside it at one point
+                // of the walk, inside at the next. A shot that starts the tick inside a circle
+                // (fired from in there, say) isn't stopped by that one.
+                for &c in &shields {
+                    let (cx, cy) = (c as i32 % s.shape.w, c as i32 / s.shape.w);
+                    let inside = |p: (i32, i32)| dist2(p.0, p.1, cx, cy) <= SHIELD_R * SHIELD_R;
+                    let mut was = walk.first().map_or(true, |&(_, p)| inside(p));
+                    for &(t, p) in walk.iter().skip(1) {
+                        let now = inside(p);
+                        if now && !was {
+                            stops.push((t, id, c));
+                            break;
+                        }
+                        was = now;
                     }
                 }
             }
             meets.sort_by_key(|&(t, _, _)| t);
+            // The first circle it comes into. A pixel met at the same moment is inside the
+            // circle, so the circle comes first.
+            let stop = stops.iter().min().copied();
             for (t, id, c) in meets {
+                if stop.is_some_and(|(ts, _, _)| t >= ts) {
+                    break;
+                }
                 if self.ships[id].hp[c] == 0 {
                     continue;
                 }
@@ -1821,6 +2199,13 @@ impl Arena {
                 if sh.pen <= 0 {
                     continue 'shot;
                 }
+            }
+            if let Some((t, id, c)) = stop {
+                // Stopped at the circle's edge: where the shot was just before it came in.
+                let k = ((t * m + 999) / 1000).clamp(1, m.max(1)) as usize;
+                let before = path[(k - 1).min(path.len() - 1)];
+                self.shield_stop(id, c, before, sh.team);
+                continue 'shot;
             }
             if gone {
                 continue;
@@ -2344,7 +2729,7 @@ mod tests {
         assert_eq!(pixels(&a, 0), before, "no pixel moved or vanished in the split");
         assert_eq!((a.score[0].split, a.score[0].placed), (1, 2));
         for s in a.ships.iter().filter(|s| s.alive) {
-            let st = stats_of(&s.alive_cells(), 0);
+            let st = stats_of(&s.alive_cells(), 0, 0);
             assert_eq!((st.cores, st.flak, st.engines, st.count), (1, 2, 2, 9), "{:?}", s.alive_cells());
         }
         // The original refreshes its stats at the end of the tick; the new ship starts with its own.
@@ -2685,6 +3070,586 @@ mod tests {
         assert!(a.ships[0].alive);
         assert_eq!((st.made, st.used, st.power_pct()), (6, 9, 66));
         assert!(st.reload(CANNON_PERIOD) > CANNON_PERIOD && st.thrust < full, "{:?}", st);
+    }
+
+    // ----- A lance's aim -----
+
+    /// Blue's lance on a hulk with no engines, facing east, and a red hull frame with engines
+    /// `far` px down its line and `side` px off it. Gives the arena, where the lance is, and the
+    /// frame's index. The frame flies and tries to fly as the test sets it.
+    fn lance_and_frame(far: i32, side: i32) -> (Arena, (i32, i32), usize) {
+        let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+        let frame = Design::from_rows("FRAME", Order::Hold, &[".h.", "hhh", "hch", "e.e"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &gun, 150, 120);
+        let s = &a.ships[0];
+        let l = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance)).unwrap();
+        let g = s.cell_xy(l);
+        a.add(1, 0, &frame, g.0 + far, g.1 + side);
+        (a, g, 1)
+    }
+
+    /// Whether the lance would fire at the frame, with the frame flying at `v` and trying to fly
+    /// at `want` (quarter pixels a tick).
+    fn fires(far: i32, side: i32, v: (i32, i32), want: (i32, i32)) -> bool {
+        let (mut a, g, j) = lance_and_frame(far, side);
+        ((a.ships[j].vx, a.ships[j].vy), a.ships[j].want) = (v, want);
+        a.shot_meets(j, g, (1, 0), LANCE_SPEED, LANCE_LIFE - 1)
+    }
+
+    #[test]
+    fn a_lance_fires_where_its_shot_and_the_ship_will_both_be() {
+        // Sitting still: anywhere on the line the shot will reach, and not beyond.
+        assert!(fires(90, 0, (0, 0), (0, 0)));
+        assert!(!fires(120, 0, (0, 0), (0, 0)), "it fired at a ship sitting further off than its shot flies");
+        assert!(!fires(60, 6, (0, 0), (0, 0)), "it fired at a ship sitting beside its line");
+        // Coming straight down the line at 3 px a tick, 90 px off: the shot meets it at about
+        // 50 px. The old check looked for it 90 px off with a 22 tick lead, found nothing there,
+        // and held.
+        assert!(fires(90, 0, (-12, 0), (-12, 0)), "it held its fire at a ship flying straight down its line at it");
+        // Flying straight off at 3 px a tick, the shot gains a pixel a tick. From 20 px it
+        // catches it at 80. From 30 px it would need 120, further than it flies, and it holds.
+        assert!(fires(20, 0, (12, 0), (12, 0)));
+        assert!(!fires(30, 0, (12, 0), (12, 0)), "it fired at a ship it can't catch before the shot is spent");
+        // Flying off as fast as the shot flies, never.
+        assert!(!fires(4, 0, (16, 0), (16, 0)));
+    }
+
+    #[test]
+    fn a_lance_holds_a_shot_that_needs_the_ship_to_do_one_thing_exactly() {
+        // The frame is 3 px wide. Crossing the line at 2 px a tick, 60 px out, it will be 30 px
+        // away by the time the shot is there: on the line now, the shot misses if it flies on.
+        assert!(!fires(60, 0, (0, 8), (0, 8)), "it fired at where a crossing ship is, not where it will be");
+        // 30 px short of the line and crossing towards it, the shot lands if it flies on and
+        // misses if it stops. A guess: held.
+        assert!(!fires(60, -30, (0, 8), (0, 8)), "it fired a shot that only lands if the ship doesn't stop");
+        // Flying down the line but trying to turn across it: lands if it carries on, misses once
+        // it has turned. Held.
+        assert!(!fires(90, 0, (-12, 0), (0, 12)), "it fired a shot that only lands if the ship doesn't finish its turn");
+        // The same ship with nothing else in mind: fired at.
+        assert!(fires(90, 0, (-12, 0), (-12, 0)));
+        // Crossing right under the gun, 8 px out, it can't get off the line in the two ticks
+        // the shot takes: fired at.
+        assert!(fires(8, 0, (0, 2), (0, 2)));
+    }
+
+    #[test]
+    fn a_lance_fires_at_a_crossing_ship_that_cant_clear_its_line_in_time() {
+        // A ship 13 px across, crossing the line at 1 px a tick, 40 px off. The shot takes about
+        // 10 ticks and the ship moves about 10 px, so some 3 px of it are on the line whether it
+        // flies on or stops: not the same pixels, but a shot down a line through them lands
+        // either way. A gun on such a line fires. One on a line through its middle holds (the
+        // ship would have flown clear), and so does one on a line it hasn't reached yet.
+        let crossing = |rows: &[&str], side: i32| {
+            let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+            let mut a = Arena::new();
+            a.add(0, 0, &gun, 150, 120);
+            let s = &a.ships[0];
+            let l = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance)).unwrap();
+            let g = s.cell_xy(l);
+            a.add(1, 0, &Design::from_rows("WALL", Order::Hold, rows), g.0 + 40, g.1 + side);
+            ((a.ships[1].vx, a.ships[1].vy), a.ships[1].want) = ((0, 4), (0, 4));
+            a.shot_meets(1, g, (1, 0), LANCE_SPEED, LANCE_LIFE - 1)
+        };
+        // (Drawn 13 wide facing up; placed facing west, that's 13 px across the gun's line.)
+        let wide = ["hhhhhhhhhhhhh", "hhhhhhchhhhhh", "hhhhhhhhhhhhh"];
+        assert!(crossing(&wide, -5), "it held a shot that lands on a wide ship whether it flies on or stops");
+        assert!(!crossing(&wide, 0), "it fired down a line the ship will have flown clear of");
+        assert!(!crossing(&wide, -12), "it fired down a line the ship only reaches if it flies on");
+        // The same crossing by a ship 3 px across: it moves three times its width while the shot
+        // is in flight, and no line catches it both ways.
+        let narrow = ["hhh", "hch", "hhh"];
+        assert!((-14..=4).all(|side| !crossing(&narrow, side)), "it fired at a narrow ship crossing far off");
+    }
+
+    #[test]
+    fn a_lance_counts_only_the_pixels_it_can_reach() {
+        // A 9x9 slab whose near edge is on the last pixel a lance shot reaches is fired at. One
+        // pixel further out it isn't. The old check counted pixels up to the far side of whatever
+        // had its middle in range, and against a big ship those shots were spent in flight.
+        let reach = |centre: i32| {
+            let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+            let mut a = Arena::new();
+            a.add(0, 0, &gun, 150, 120);
+            let s = &a.ships[0];
+            let l = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance)).unwrap();
+            let g = s.cell_xy(l);
+            a.add(1, 0, &slab('h'), g.0 + centre, g.1);
+            a.shot_meets(1, g, (1, 0), LANCE_SPEED, LANCE_LIFE - 1)
+        };
+        assert!(reach(LANCE_LIFE - 1 + 4), "a slab with its near edge on the last pixel the shot reaches wasn't fired at");
+        assert!(!reach(LANCE_LIFE + 4), "a slab with its near edge a pixel past where the shot is spent was fired at");
+        // A ship with a hollow nose: on the gun's line its two near cells are empty and its core
+        // is the third. With the core one pixel past where the shot is spent, the nose is in
+        // reach and nothing of it on the line is. Not fired at.
+        let hollow = Design::from_rows("HOLLOW", Order::Hold, &["h.h", "h.h", "hch"]);
+        let core_at = |k: i32| {
+            let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+            let mut a = Arena::new();
+            a.add(0, 0, &gun, 150, 120);
+            let s = &a.ships[0];
+            let l = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance)).unwrap();
+            let g = s.cell_xy(l);
+            a.add(1, 0, &hollow, g.0 + k - 1, g.1);
+            let t = &a.ships[1];
+            let core = (0..t.hp.len()).find(|&c| t.shape.is_core(c)).unwrap();
+            assert_eq!(t.cell_xy(core), (g.0 + k, g.1), "the hollow ship's core isn't where this test puts it");
+            a.shot_meets(1, g, (1, 0), LANCE_SPEED, LANCE_LIFE - 1)
+        };
+        assert!(core_at(LANCE_LIFE - 1), "a core on the last pixel the shot reaches wasn't fired at");
+        assert!(!core_at(LANCE_LIFE), "a ship with its nose in reach and nothing on the line in reach was fired at");
+    }
+
+    #[test]
+    fn a_lance_shot_reaches_everything_the_gun_fires_at() {
+        // A slab with its near edge on the last pixel the gun will fire at. It fires, and the
+        // shot gets there: what the gun counts as in reach and how far the shot flies are one
+        // number.
+        let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &gun, 150, 120);
+        let l = (0..a.ships[0].hp.len()).find(|&c| a.ships[0].shape.cells[c] == Some(Part::Lance)).unwrap();
+        a.ships[0].cool[l] = 0;
+        let g = a.ships[0].cell_xy(l);
+        a.add(1, 0, &slab('h'), g.0 + LANCE_LIFE - 1 + 4, g.1);
+        let full = a.ships[1].px_now();
+        for _ in 0..LANCE_LIFE / LANCE_SPEED + 3 {
+            a.step();
+        }
+        assert_eq!(a.score[0].fired, 1, "the lance should have fired once");
+        assert!(a.ships[1].px_now() < full, "the shot was spent before it reached what it was fired at");
+    }
+
+    #[test]
+    fn a_ship_shows_the_speed_its_trying_to_fly_at() {
+        // A lancer told to hunt a slab far off. A tick in, it's still gathering speed, and what
+        // it's trying for is flat out. A hulk with no engines is trying for nothing.
+        let lancer = Design::from_rows("LANCER", Order::Hunt, &[".l.", "hlh", "hch", "e.e"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &lancer, 100, 180);
+        a.add(1, 0, &slab('h'), 380, 180);
+        a.step();
+        let s = &a.ships[0];
+        let (v, w) = (isqrt(s.vx * s.vx + s.vy * s.vy), isqrt(s.want.0 * s.want.0 + s.want.1 * s.want.1));
+        assert!(v < s.st.vmax && w >= s.st.vmax - 1 && w <= s.st.vmax, "a tick in it's flying at {v} and trying for {w}, of a top speed of {}", s.st.vmax);
+        assert!(s.want.0 > 0, "it's trying to fly away from its target");
+        assert_eq!(a.ships[1].want, (0, 0));
+        // Up to speed, what it's trying for is what it's doing.
+        for _ in 0..20 {
+            a.step();
+        }
+        let s = &a.ships[0];
+        assert_eq!((s.vx, s.vy), s.want, "at full speed on a straight course, it isn't flying as it's trying to");
+    }
+
+    #[test]
+    fn a_lance_ship_leads_by_the_time_its_shot_really_takes() {
+        // Where a lancer has to sit, up or down the map, to bear on a target 80 px east of it
+        // that's drifting down the map at 2 px a tick.
+        let lancer = Design::from_rows("LANCER", Order::Hunt, &[".l.", "hlh", "hch", "e.e"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &lancer, 150, 180);
+        a.add(1, 0, &slab('h'), 230, 180);
+        let line = |a: &Arena, vx: i32, dist: i32| {
+            let e = Snap { idx: 1, team: 1, x: 230, y: 180, vx, vy: 8, half: 4, full: 81, working: false, worker: false };
+            a.lance_line(0, &e, (0, 0), 1, dist) - 180
+        };
+        // Holding its distance, the shot takes 80 / 4 = 20 ticks, and the target is 40 px on.
+        assert_eq!(line(&a, 0, 80), 40);
+        // Coming on at 1 px a tick, the shot meets it in 80 / 5 = 16 ticks: 32 px.
+        assert_eq!(line(&a, -4, 80), 32);
+        // Drawing off at 2 px a tick, in 80 / 2 = 40 ticks, but the shot only lasts 28: 56 px.
+        assert_eq!(line(&a, 8, 80), 56);
+        // From 400 px away it used to lead by 100 ticks. The shot it's lining up for lasts 28.
+        assert_eq!(line(&a, 0, 400), 56);
+        // A target that's lining a gun of its own up on this ship isn't led at all.
+        a.ships[1].st.lance = 1;
+        a.ships[1].target = Some(0);
+        assert_eq!(line(&a, 0, 80), 0, "it led a ship that's coming to its line");
+    }
+
+    #[test]
+    fn two_lance_ships_lining_up_on_each_other_settle_and_trade_shots() {
+        // Two of the starter deck's frigates. Each used to lead the other's sideways speed, so
+        // each ran ahead of the other and they flew the length of the map side by side, firing
+        // when one got ahead. Now each holds the other's line as it stands.
+        let frigate = crate::pg::design::starter_deck().remove(2);
+        let mut a = Arena::new();
+        a.add(0, 0, &frigate, 150, 180);
+        a.add(1, 0, &frigate, 330, 180);
+        let (mut lo, mut hi) = (a.ships[0].y, a.ships[0].y);
+        while a.tick < 15 * 30 && a.over.is_none() {
+            a.step();
+            lo = lo.min(a.ships[0].y);
+            hi = hi.max(a.ships[0].y);
+        }
+        assert!(hi - lo <= 90, "blue's frigate ranged {} px up and down the map", hi - lo);
+        // They do shoot: four lances each, a volley every few seconds. (How many land is another
+        // matter: a lance shot takes 23 ticks to cross the gap they hold, and a frigate shuffles
+        // further than its own width in that time.)
+        assert!(a.score[0].fired >= 12 && a.score[1].fired >= 12, "in thirty seconds they fired {} and {} shots", a.score[0].fired, a.score[1].fired);
+    }
+
+    // ----- The beam and the shield -----
+
+    /// A beam gun of three on a ship with no engines, so it stays where it's put and fires the way
+    /// it was placed facing: 76 px of reach, and a cut of 12.
+    fn beam_turret() -> Design {
+        Design::from_rows("TURRET", Order::Hold, &["hbh", "hbh", "hbh", "hch"])
+    }
+
+    /// A 9x9 slab of one part round a core. It stays put.
+    fn slab(part: char) -> Design {
+        let row: String = std::iter::repeat(part).take(9).collect();
+        let mid: String = (0..9).map(|x| if x == 4 { 'c' } else { part }).collect();
+        let rows: Vec<&str> = (0..9).map(|y| if y == 4 { mid.as_str() } else { row.as_str() }).collect();
+        Design::from_rows("SLAB", Order::Hold, &rows)
+    }
+
+    /// Blue's beam turret, rested and ready, facing east: the arena, and where its muzzle is.
+    fn turret_ready() -> (Arena, (i32, i32)) {
+        let mut a = Arena::new();
+        a.add(0, 0, &beam_turret(), 150, 120);
+        let (gun, n) = a.ships[0].beam_guns()[0];
+        assert_eq!(n, 3);
+        a.ships[0].cool[gun] = 0;
+        let at = a.ships[0].cell_xy(gun);
+        (a, at)
+    }
+
+    #[test]
+    fn a_beam_shows_its_line_for_a_second_then_cuts_along_it_all_at_once() {
+        // A hull slab 50 px out, its middle 2 px to one side of the line: the line runs along one
+        // whole row of nine, two rows from its edge.
+        let (mut a, (mx, my)) = turret_ready();
+        a.add(1, 0, &slab('h'), mx + 50, my + 2);
+        let full = a.ships[1].px_now();
+        a.step();
+        let w = a.warming();
+        assert_eq!(w.len(), 1, "with a slab on its line the gun isn't warming");
+        assert_eq!((w[0].from, w[0].dir, w[0].reach, w[0].left), ((mx, my), (1, 0), beam_reach(3), BEAM_WARM));
+        for _ in 0..BEAM_WARM - 1 {
+            a.step();
+            assert_eq!(a.ships[1].px_now(), full, "it cut before it had warmed");
+            assert_eq!(a.warming().len(), 1);
+        }
+        a.step();
+        // The row of nine is gone in the one tick, and the two rows beyond it, cut off from the
+        // core, have broken away.
+        assert_eq!(a.ships[1].px_now(), full - 9 - 18, "a cut of 12 through a row of nine hull pixels");
+        assert_eq!(a.cuts.len(), 1);
+        assert_eq!((a.cuts[0].from, a.cuts[0].to), ((mx, my), (mx + beam_reach(3), my)), "with cut to spare, the line runs to the end of its reach");
+        assert_eq!((a.score[0].fired, a.score[0].hits), (1, 1));
+        // With nothing left on its line, it doesn't warm again.
+        for _ in 0..BEAM_PERIOD + 20 {
+            a.step();
+            assert!(a.warming().is_empty(), "it warmed with nothing on its line");
+        }
+    }
+
+    #[test]
+    fn plate_uses_up_twice_the_cut_and_the_gun_rests_before_it_warms_again() {
+        let (mut a, (mx, my)) = turret_ready();
+        a.add(1, 0, &slab('p'), mx + 50, my + 2);
+        let (full, left) = (a.ships[1].px_now(), a.ships[1].bbox().0);
+        for _ in 0..BEAM_WARM + 1 {
+            a.step();
+        }
+        // Twelve of cut is six plates. It stops in the sixth, with three still standing behind.
+        assert_eq!(a.ships[1].px_now(), full - 6);
+        assert_eq!(a.cuts[0].to, (left + 5, my), "the line ends where the cut ran out");
+        // It rests its five seconds with three plates still on its line, then warms again.
+        for _ in 0..BEAM_PERIOD - 1 {
+            a.step();
+            assert!(a.warming().is_empty(), "it warmed again before it had rested");
+        }
+        a.step();
+        a.step();
+        assert_eq!(a.warming().len(), 1, "rested, with plate still on its line, it didn't warm again");
+    }
+
+    #[test]
+    fn a_beam_reaches_as_far_as_its_length_says_and_no_further() {
+        // The slab's near edge is 2 px beyond a gun of three's 76 px: it never warms.
+        let (mut a, (mx, my)) = turret_ready();
+        a.add(1, 0, &slab('h'), mx + beam_reach(3) + 2 + 4, my);
+        for _ in 0..40 {
+            a.step();
+            assert!(a.warming().is_empty(), "it warmed at a slab out of its reach");
+        }
+        // Two pixels nearer, the edge is on the last pixel of its reach, and that pixel is cut.
+        let (mut a, (mx, my)) = turret_ready();
+        a.add(1, 0, &slab('h'), mx + beam_reach(3) + 4, my + 2);
+        let full = a.ships[1].px_now();
+        for _ in 0..BEAM_WARM + 1 {
+            a.step();
+        }
+        assert_eq!(a.ships[1].px_now(), full - 1);
+    }
+
+    #[test]
+    fn a_beam_gun_shot_through_the_middle_is_two_shorter_guns() {
+        let d = Design::from_rows("LONG", Order::Hold, &["hb", "hb", "hb", "hb", "hb", "hc"]);
+        let mut a = Arena::new();
+        a.add(0, 0, &d, 150, 120);
+        a.tick = 5;
+        assert_eq!(a.ships[0].beam_guns(), vec![(1, 5)]);
+        assert_eq!(a.ships[0].st.beam_reach(), 100);
+        // The third pixel of the column goes. The two in front stay on the ship by the hull
+        // beside them, as a gun of their own.
+        let at = a.ships[0].cell_xy(5);
+        a.kill_cell(0, 5, at, (0, 1));
+        a.step();
+        assert_eq!(a.ships[0].beam_guns(), vec![(1, 2), (7, 2)]);
+        assert_eq!((a.ships[0].st.beam, a.ships[0].st.beam_len, a.ships[0].st.beam_reach()), (4, 2, 64));
+    }
+
+    #[test]
+    fn a_ship_that_can_get_off_a_warming_beams_line_does_and_one_too_wide_is_cut() {
+        // A fighter's frame parked on the line, told to hold: it sidesteps while the beam warms,
+        // and the beam cuts where it was. (It has no guns: 50 px out, a fighter's flak would have
+        // shot the muzzle off first.)
+        let fighter = Design::from_rows("FIGHTER", Order::Hold, &[".h.", "hhh", "hch", "e.e"]);
+        let (mut a, (mx, my)) = turret_ready();
+        a.add(1, 0, &fighter, mx + 50, my);
+        let full = a.ships[1].px_now();
+        let mut dodged = false;
+        for _ in 0..BEAM_WARM + 1 {
+            a.step();
+            dodged |= a.ships[1].doing == Doing::Dodge;
+        }
+        assert_eq!(a.cuts.len(), 1, "the beam should have fired");
+        assert!(dodged, "the fighter never tried to get off the line");
+        assert_eq!(a.ships[1].px_now(), full, "the fighter was cut all the same");
+        // A hull 25 px across with two engines can't be clear of the line in a second, so it
+        // doesn't try, and it's cut.
+        let wide: String = std::iter::repeat('h').take(25).collect();
+        let mid: String = (0..25).map(|x| if x == 12 { 'c' } else { 'h' }).collect();
+        let tail = format!("e{}e", ".".repeat(23));
+        let barge = Design::from_rows("BARGE", Order::Hold, &[wide.as_str(), wide.as_str(), mid.as_str(), wide.as_str(), tail.as_str()]);
+        let (mut a, (mx, my)) = turret_ready();
+        a.add(1, 0, &barge, mx + 50, my);
+        let full = a.ships[1].px_now();
+        for _ in 0..BEAM_WARM + 1 {
+            a.step();
+            assert!(a.ships[1].doing != Doing::Dodge, "the barge tried a dodge it couldn't make");
+        }
+        assert!(a.ships[1].px_now() < full, "the barge on the line wasn't cut");
+    }
+
+    #[test]
+    fn a_ship_with_a_beam_holds_off_and_lines_it_up_like_a_lance() {
+        // The beamer of the examples hunts a slab that sits still, 80 px off its row: flying
+        // straight at the slab it would never have it on its line. It makes for a place in line
+        // with the slab at about three quarters of its beam's 148 px, never dives in, and within
+        // forty seconds it has cut it.
+        let beamer = crate::pg::design::part_examples().remove(0);
+        let mut a = Arena::new();
+        a.add(0, 0, &beamer, 100, 120);
+        a.add(1, 0, &slab('h'), 360, 200);
+        let (full, mut nearest, mut cuts) = (a.ships[1].px_now(), i32::MAX, 0);
+        while a.tick < 15 * 40 && a.ships[1].alive {
+            a.step();
+            assert!(a.ships[0].doing != Doing::Dodge, "the beamer dodged its own beam");
+            if let (Doing::StandOff, Some(g)) = (a.ships[0].doing, a.ships[0].goal) {
+                let d = isqrt(dist2(g.0, g.1, a.ships[1].x, a.ships[1].y));
+                assert!(d >= 97, "holding off, it made for a place {d} px from its target");
+            }
+            nearest = nearest.min(isqrt(dist2(a.ships[0].x, a.ships[0].y, a.ships[1].x, a.ships[1].y)));
+            // A cut is shown for three ticks: it has two left at the end of the tick it's made.
+            cuts += a.cuts.iter().filter(|c| c.t == 2).count();
+        }
+        assert!(cuts >= 1 && a.ships[1].px_now() < full, "in forty seconds the beamer fired {cuts} times and the slab lost {} px", full - a.ships[1].px_now());
+        assert!(nearest >= 90, "a ship whose beam reaches 148 px came within {nearest} px of its target");
+    }
+
+    #[test]
+    fn a_beam_starts_to_warm_on_a_target_that_will_be_on_its_line_when_it_cuts() {
+        // A hull frame 24 px beyond a gun of three's reach, on its line. Parked there, it's out
+        // of reach and the gun stays cold. Flying down the line at 3 px a tick, it will be well
+        // inside the reach a second from now, and the gun starts to warm at once.
+        let frame = Design::from_rows("FRAME", Order::Hold, &[".h.", "hhh", "hch", "e.e"]);
+        let warming_after_a_tick = |vx: i32| {
+            let (mut a, (mx, my)) = turret_ready();
+            a.add(1, 0, &frame, mx + beam_reach(3) + 24, my);
+            a.ships[1].vx = vx;
+            a.step();
+            a.warming().len()
+        };
+        assert_eq!(warming_after_a_tick(0), 0, "it warmed at a ship parked out of its reach");
+        assert_eq!(warming_after_a_tick(-12), 1, "it didn't warm at a ship flying down its line into its reach");
+    }
+
+    #[test]
+    fn a_beam_ship_and_a_lance_ship_lining_up_on_each_other_dont_chase_each_other_about() {
+        // The beamer and the warden of the examples. Each lines its gun up on the other. Leading
+        // each other, they ran side by side from one edge of the map to the other and back, and
+        // the beamer fired three times in a minute. Holding each other's line, they stay near
+        // the row they met on and get on with it.
+        let ex = crate::pg::design::part_examples();
+        let mut a = Arena::new();
+        a.add(0, 0, &ex[0], 150, 180);
+        a.add(1, 1, &ex[1], 330, 180);
+        let (mut lo, mut hi) = (a.ships[0].y, a.ships[0].y);
+        while a.tick < 15 * 40 && a.over.is_none() {
+            a.step();
+            lo = lo.min(a.ships[0].y);
+            hi = hi.max(a.ships[0].y);
+        }
+        assert!(hi - lo <= 90, "the beamer ranged {} px up and down the map", hi - lo);
+        assert!(a.score[0].shielded >= 4, "in forty seconds only {} of the beamer's cuts reached the warden's circles", a.score[0].shielded);
+    }
+
+    /// A hull hulk with one shield pixel on its nose, and no engines or guns.
+    fn egg() -> Design {
+        Design::from_rows("EGG", Order::Hold, &["hoh", "hhh", "hch"])
+    }
+
+    /// Red's egg, where its shield pixel is, and which way out from the egg that is (-1: west).
+    fn egg_alone() -> (Arena, usize, (i32, i32), i32) {
+        let mut a = Arena::new();
+        a.add(1, 0, &egg(), 300, 120);
+        a.tick = 5;
+        let s = &a.ships[0];
+        let c = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Shield)).unwrap();
+        let (sx, sy) = s.cell_xy(c);
+        assert_eq!(sy, s.y);
+        let out = (sx - s.x).signum();
+        assert!(out != 0);
+        (a, c, (sx, sy), out)
+    }
+
+    /// Fires a flak shot of blue's from `from`, flying along the row, and steps until it's gone.
+    /// Returns the tick it went on.
+    fn flak_from(a: &mut Arena, from: (i32, i32), dx: i32) -> u32 {
+        let shot = flak_at(a, from, (from.0 + dx * 60, from.1));
+        a.shots.push(shot);
+        while !a.shots.is_empty() {
+            a.step();
+        }
+        a.tick
+    }
+
+    #[test]
+    fn a_shield_stops_four_shots_coming_in_and_is_back_three_seconds_after_the_last() {
+        let (mut a, c, (sx, sy), out) = egg_alone();
+        let full = a.ships[0].px_now();
+        assert_eq!(a.ships[0].charge[c], SHIELD_CHARGES);
+        let mut last = 0;
+        for n in 1..=SHIELD_CHARGES {
+            last = flak_from(&mut a, (sx + out * 30, sy), -out);
+            assert_eq!(a.ships[0].charge[c], SHIELD_CHARGES - n, "shot {n} didn't cost the circle a charge");
+            assert_eq!((a.ships[0].px_now(), a.score[0].shielded as u8), (full, n), "shot {n} wasn't stopped at the circle");
+        }
+        assert!(a.ships[0].live_shields().is_empty(), "with no charge left the circle should be out");
+        // The fifth, at the hull beside the shield, goes through.
+        flak_from(&mut a, (sx + out * 30, sy + 1), -out);
+        assert_eq!((a.ships[0].px_now(), a.score[0].shielded as u8), (full - 1, SHIELD_CHARGES), "with the circle out, a shot was still stopped");
+        // It comes back full, all at once, when it has gone its three seconds since the last
+        // shot it stopped.
+        while a.tick < last + SHIELD_REST as u32 - 1 {
+            a.step();
+            assert_eq!(a.ships[0].charge[c], 0, "it came back before it had rested");
+        }
+        a.step();
+        assert_eq!(a.ships[0].charge[c], SHIELD_CHARGES, "three seconds after the last shot it stopped, it isn't back");
+    }
+
+    #[test]
+    fn a_shot_stopped_starts_the_circles_rest_again() {
+        // Two shots stopped two seconds apart: it's full three seconds after the second, not
+        // the first.
+        let (mut a, c, (sx, sy), out) = egg_alone();
+        let first = flak_from(&mut a, (sx + out * 30, sy), -out);
+        while a.tick < first + 30 {
+            a.step();
+        }
+        let second = flak_from(&mut a, (sx + out * 30, sy), -out);
+        while a.tick < first + SHIELD_REST as u32 + 5 {
+            a.step();
+        }
+        assert_eq!(a.ships[0].charge[c], SHIELD_CHARGES - 2, "it was full three seconds after the first shot, with a second stopped since");
+        while a.tick < second + SHIELD_REST as u32 {
+            a.step();
+        }
+        assert_eq!(a.ships[0].charge[c], SHIELD_CHARGES);
+    }
+
+    #[test]
+    fn a_shot_fired_from_inside_a_circle_isnt_stopped_by_it() {
+        // From 5 px out, inside the 10 px circle, at the shield pixel itself.
+        let (mut a, c, (sx, sy), out) = egg_alone();
+        let full = a.ships[0].px_now();
+        flak_from(&mut a, (sx + out * 5, sy), -out);
+        assert_eq!((a.score[0].shielded, a.ships[0].hp[c], a.ships[0].px_now()), (0, 0, full - 1), "a shot from inside the circle should hit what it's aimed at");
+    }
+
+    #[test]
+    fn a_circle_covers_a_friend_inside_it() {
+        // A one-pixel friend 6 px out from the shield pixel, shot at from beyond the circle.
+        let dot = Design::from_rows("DOT", Order::Hold, &["c"]);
+        let fired_at_the_dot = |charged: bool| {
+            let (mut a, c, (sx, sy), out) = egg_alone();
+            a.add(1, 1, &dot, sx + out * 6, sy);
+            if !charged {
+                // Out, with its rest still to come.
+                (a.ships[0].charge[c], a.ships[0].cool[c]) = (0, SHIELD_REST);
+            }
+            flak_from(&mut a, (sx + out * 30, sy), -out);
+            (a.ships[1].alive, a.score[0].shielded)
+        };
+        assert_eq!(fired_at_the_dot(true), (true, 1), "a friend inside the circle was hit");
+        assert_eq!(fired_at_the_dot(false), (false, 0), "with the circle out, the friend should have been hit");
+    }
+
+    #[test]
+    fn a_circle_stops_a_beam_and_a_shell_as_it_stops_flak() {
+        // The beam turret, with the egg on its line 50 px out.
+        let (mut a, (mx, my)) = turret_ready();
+        a.add(1, 0, &egg(), mx + 50, my);
+        let s = &a.ships[1];
+        let c = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Shield)).unwrap();
+        let ((sx, sy), full) = (s.cell_xy(c), s.px_now());
+        assert_eq!(sy, my);
+        for _ in 0..BEAM_WARM + 1 {
+            a.step();
+        }
+        assert_eq!(a.cuts.len(), 1, "the beam should have fired");
+        assert_eq!(a.cuts[0].to, (sx - SHIELD_R - 1, my), "the beam should end at the circle's edge");
+        assert_eq!((a.ships[1].px_now(), a.ships[1].charge[c], a.score[0].shielded, a.score[0].hits), (full, SHIELD_CHARGES - 1, 1, 0));
+        // A shell at the same egg: stopped, with no blast.
+        let line = Line::new(sx - 30, sy, sx + 30, sy);
+        a.shots.push(Shot { team: 0, kind: Kind::Shell, line, left: CANNON_RANGE, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: None, prev: (sx - 30, sy), connected: false, born: a.tick });
+        while !a.shots.is_empty() {
+            a.step();
+        }
+        assert_eq!((a.ships[1].px_now(), a.ships[1].charge[c], a.score[0].shielded), (full, SHIELD_CHARGES - 2, 2));
+        assert!(a.sparks.iter().all(|s| !s.blast), "a shell stopped at a circle burst");
+    }
+
+    #[test]
+    fn a_ship_that_moves_onto_a_shot_doesnt_take_it_inside_its_circle() {
+        // The egg has just moved 3 px towards a shot that's now 9 px from its shield pixel. Where
+        // the egg stands now the shot is inside the circle already; where the egg stood when the
+        // tick began it was 12 px off, outside. It came into the circle, so it's stopped.
+        let (mut a, c, (sx, sy), out) = egg_alone();
+        let full = a.ships[0].px_now();
+        let shot = flak_at(&a, (sx + out * 9, sy), (sx - out * 60, sy));
+        a.shots.push(shot);
+        let s = &mut a.ships[0];
+        s.pose0 = (s.x - out * 3, s.y, s.facing);
+        a.shots_step();
+        assert_eq!((a.score[0].shielded, a.ships[0].charge[c], a.ships[0].px_now()), (1, SHIELD_CHARGES - 1, full), "the shot got inside the circle by the ship moving onto it");
+        // The other way about: the egg has just moved 3 px away from a shot that was 9 px from
+        // its shield pixel, inside the circle. The shot is 12 px off now and flies 6 px nearer.
+        // It never came into the circle: it was in it. So it isn't stopped.
+        let (mut a, _, (sx, sy), out) = egg_alone();
+        let shot = flak_at(&a, (sx + out * 12, sy), (sx - out * 60, sy));
+        a.shots.push(shot);
+        let s = &mut a.ships[0];
+        s.pose0 = (s.x + out * 3, s.y, s.facing);
+        a.shots_step();
+        assert_eq!((a.score[0].shielded, a.shots.len()), (0, 1), "a shot already inside the circle was stopped when the ship moved off it");
     }
 
     #[test]

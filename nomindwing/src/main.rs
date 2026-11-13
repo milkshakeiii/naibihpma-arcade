@@ -1,5 +1,6 @@
 mod ai;
 mod app;
+mod clip;
 mod design;
 mod export;
 mod framebuffer;
@@ -86,7 +87,9 @@ fn main() {
     }
     if let Some(which) = arg("--pg-sim") {
         // `--pg-sim old`: the proving ground's own fleet, as its rounds were judged.
-        export::pg_sim(which.as_deref() == Some("old"));
+        // `--pg-sim parts`: the beam and shield examples (see `--parts`).
+        // `--pg-sim mine`: your own saved team, with the orders and styles your cards carry.
+        export::pg_sim(which.as_deref().unwrap_or(""));
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--trace") {
@@ -104,7 +107,13 @@ fn main() {
         let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1);
         let mut game = Game::new(seed, Some(PathBuf::from("nomindwing_playtest.log")));
         run_window(&mut game, windowed, "NO MIND WING - TOY 1 [400x300 64-COLOR VGA | 15 FPS]");
+    } else if args.iter().any(|a| a == "--parts") {
+        // The beam and the shield at work: three example ships and the fights that show what
+        // the parts do. Nothing is loaded or saved, so your own designs are untouched.
+        let mut pg = pg::Pg::parts();
+        run_window(&mut pg, windowed, "NO MIND WING - BEAM AND SHIELD EXAMPLES, NOTHING SAVED [400x300 64-COLOR VGA | 15 FPS]");
     } else {
+        log_crashes("proving_ground.log");
         let mut pg = pg::Pg::new(Some(PathBuf::from("proving_ground_designs.txt")), Some(PathBuf::from("proving_ground.log")));
         // --host [PORT] waits for another machine to join a match; --join ADDR[:PORT] joins one.
         // Both are on the match menu too. `--host local` hears only this machine.
@@ -115,7 +124,30 @@ fn main() {
             pg.join(addr.as_deref().filter(|a| !a.starts_with("--")));
         }
         run_window(&mut pg, windowed, "NO MIND WING - PROVING GROUND [400x300 64-COLOR VGA | 15 FPS]");
+        log_line("proving_ground.log", &format!("SESSION END {}", game::utc_stamp()));
     }
+}
+
+fn log_line(path: &str, line: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+/// What a crash writes to the play log: when, where in the code, and what it said, on one line.
+fn crash_line(stamp: &str, what: &str) -> String {
+    format!("CRASH {stamp} | {}", what.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// From here on a crash writes itself to the play log before the window goes. A session that
+/// ends properly writes SESSION END, so a log that stops with neither was stopped from outside.
+fn log_crashes(path: &'static str) {
+    let before = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log_line(path, &crash_line(&game::utc_stamp(), &info.to_string()));
+        before(info);
+    }));
 }
 
 fn key_down(vk: i32) -> bool {
@@ -401,5 +433,15 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
             1
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_crash_is_one_line_in_the_log_saying_where_and_what() {
+        let l = super::crash_line("2026-11-13 01:00:00 UTC", "panicked at src\\pg\\sim.rs:10:5:\nindex out of bounds: the len is 0\n   but the index is 9");
+        assert_eq!(l.lines().count(), 1, "a crash that spills over several lines is hard to find in the log");
+        assert_eq!(l, "CRASH 2026-11-13 01:00:00 UTC | panicked at src\\pg\\sim.rs:10:5: index out of bounds: the len is 0 but the index is 9");
     }
 }

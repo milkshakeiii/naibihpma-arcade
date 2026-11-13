@@ -182,17 +182,35 @@ pub fn sim(n: u64) {
 /// measured is the rules and not a wasteful drawing. `old` fights them with the proving ground's
 /// own fleet instead (`defaults()`), as its five rounds were judged: those drawings carry spare
 /// hull, and are kept so the rounds' numbers can be had again.
-pub fn pg_sim(old: bool) {
+pub fn pg_sim(which: &str) {
     use crate::pg::design::{defaults, starter_deck};
     use crate::pg::sim::Arena;
-    use crate::pg::{block, reference_tests, tests};
-    let (lib, fights) = if old { (defaults(), reference_tests()) } else { (starter_deck(), tests()) };
+    use crate::pg::{block, part_tests, parts_library, reference_tests, tests};
+    let (old, parts) = (which == "old", which == "parts");
+    let (lib, fights) = match which {
+        "old" => (defaults(), reference_tests()),
+        "parts" => (parts_library(), part_tests()),
+        // Your own team as the window has it, read from its save (nothing is written): the
+        // fights the window shows, with the orders and styles your cards carry.
+        "mine" => (crate::pg::Pg::new(Some(std::path::PathBuf::from("proving_ground_designs.txt")), None).lib, tests()),
+        _ => (starter_deck(), tests()),
+    };
+    if which == "mine" {
+        println!("your team, from proving_ground_designs.txt:");
+        for (i, d) in lib.iter().enumerate().filter(|(_, d)| !d.is_empty()) {
+            let flying = d.flies().map_or(String::new(), |s| format!(", {}, groups of {}", s.name(), d.group.max(1)));
+            println!("  {} {}: {} px, {}{flying}", i + 1, d.name, d.stats().cost, d.order.name());
+        }
+    }
     // One replay can be luck, so every matchup runs on SEEDS rolls of the dice. Seed 1 is the
     // fight the window shows.
     const SEEDS: u64 = 12;
     let report = |name: &str, place: &[(usize, usize, i32, i32)]| {
         let (mut wins, mut secs, mut lost, mut px, mut window) = ([0; 3], 0, [0; 2], [0; 2], String::new());
-        let (mut placed, mut stale, mut splits) = ([0; 2], 0, [0; 2]);
+        let (mut placed, mut stale, mut splits, mut stopped) = ([0; 2], 0, [0; 2], [0; 2]);
+        // Shots fired and shots that hit something, each side, over all the seeds.
+        let (mut fired, mut hit) = ([0; 2], [0; 2]);
+        let n = SEEDS as i32;
         for seed in 1..=SEEDS {
             let mut a = Arena::seeded(seed);
             for &(team, slot, x, y) in place {
@@ -214,16 +232,23 @@ pub fn pg_sim(old: bool) {
                 px[t] += a.score[t].px_lost;
                 placed[t] = a.score[t].placed - a.score[t].split;
                 splits[t] += a.score[t].split;
+                stopped[t] += a.score[t].shielded;
+                fired[t] += a.score[t].fired;
+                hit[t] += a.score[t].hits;
             }
             if seed == 1 {
                 let t = a.tick / 15;
                 window = format!("{} {}:{:02}", ["BLUE", "RED", "DRAW"][k], t / 60, t % 60);
             }
         }
-        let n = SEEDS as i32;
         let t = secs / SEEDS as u32;
+        // Shots of each side's that the other's shields stopped, a fight: only said where there
+        // were any.
+        let pct = |t: usize| if fired[t] > 0 { format!("{}%", hit[t] * 100 / fired[t]) } else { "-".to_string() };
+        let aim = format!("  shots that hit: blue {} of {} ({})  red {} of {} ({})", hit[0], fired[0], pct(0), hit[1], fired[1], pct(1));
+        let shields = if stopped[0] + stopped[1] > 0 { format!("  stopped at shields: blue's {} red's {}", stopped[0] / n, stopped[1] / n) } else { String::new() };
         println!(
-            "{name:34} blue {:2}  red {:2}  draw {:2} ({:2} stalemate)  avg {}:{:02}  lost: blue {}/{} ({} px)  red {}/{} ({} px)  splits {}/{}  window: {window}",
+            "{name:34} blue {:2}  red {:2}  draw {:2} ({:2} stalemate)  avg {}:{:02}  lost: blue {}/{} ({} px)  red {}/{} ({} px)  splits {}/{}  window: {window}{aim}{shields}",
             wins[0],
             wins[1],
             wins[2],
@@ -248,6 +273,9 @@ pub fn pg_sim(old: bool) {
     // Every pair of warships at (roughly) the same budget: the swarm question. Cost is pixels plus
     // extra cores. The old fleet's five at 600 px; the starter deck's four at what its dearest
     // costs.
+    if parts {
+        return;
+    }
     let warships: Vec<usize> = if old { (0..5).collect() } else { (0..lib.len()).filter(|&s| crate::pg::sim::Card::of(&lib[s]).warship()).collect() };
     let budget = if old { 600 } else { warships.iter().map(|&s| lib[s].stats().cost).max().unwrap_or(600) };
     println!("--- equal cost, about {budget} px a side ---");
@@ -299,7 +327,7 @@ pub fn deck_sheet(file: Option<&str>) {
         let c = d.check();
         let kind = if d.seeded { "SEEDED" } else { "BUILT" };
         println!(
-            "{} {:9} {:6} {:7} {:4} px, cost {:4}, mass {:4}, power {}/{} ({}%), thrust {} speed {} px/s turn {}, flak {} lance {} cannon {} scoops {} cores {}, factory {} (builds to {} px){}",
+            "{} {:9} {:6} {:7} {:4} px, cost {:4}, mass {:4}, power {}/{} ({}%), thrust {} speed {} px/s turn {}, flak {} lance {} cannon {} beam {} (longest {}, {} px) shields {} scoops {} cores {}, factory {} (builds to {} px){}",
             i + 1,
             d.name,
             kind,
@@ -316,6 +344,10 @@ pub fn deck_sheet(file: Option<&str>) {
             st.flak,
             st.lance,
             st.cannon,
+            st.beam,
+            st.beam_len,
+            st.beam_reach(),
+            st.shields,
             st.scoops,
             st.cores,
             st.factory,
@@ -1138,6 +1170,86 @@ pub fn pg_screenshots(dir: &Path) {
     pg.mouse = (262, 189);
     pg.draw(&mut fb);
     save(&fb, &pg, "29_start_yard_shipyard.png");
+    // The library, open over the yard: single drawings, then whole teams.
+    pg.select_slot(7);
+    pg.event(crate::app::Ev::Key(crate::app::Key::Letter('L')));
+    pg.mouse = (300, 196);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "55_library_drawings.png");
+    pg.event(crate::app::Ev::Key(crate::app::Key::Enter));
+    pg.mouse = (30, 14);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "56_yard_drawing_taken_into_slot_8.png");
+    pg.event(crate::app::Ev::Key(crate::app::Key::Letter('L')));
+    pg.event(crate::app::Ev::Key(crate::app::Key::Tab));
+    pg.event(crate::app::Ev::Key(crate::app::Key::Letter('K')));
+    pg.mouse = (300, 196);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "57_library_teams.png");
+    pg.event(crate::app::Ev::Key(crate::app::Key::Esc));
+    // The beam and the shield, from the examples (`--parts`).
+    let mut pp = Pg::parts();
+    pp.help = false;
+    let hover_slot = |pp: &mut Pg, slot: usize| {
+        if let Some(s) = pp.arena.ships.iter().find(|s| s.alive && s.slot == slot) {
+            pp.mouse = (s.x - pp.cam.0, s.y - pp.cam.1);
+        }
+    };
+    // A beamer warming on an outpost.
+    pp.load_test(0);
+    pp.running = true;
+    while pp.arena.warming().is_empty() && pp.arena.tick < 15 * 60 {
+        pp.tick();
+    }
+    for _ in 0..8 {
+        pp.tick();
+    }
+    hover_slot(&mut pp, 0);
+    pp.draw(&mut fb);
+    save(&fb, &pp, "48_beam_warming.png");
+    // The tick a beam cuts, at a warden: it stops at the circle's edge.
+    pp.load_test(7);
+    pp.running = true;
+    while pp.arena.cuts.is_empty() && pp.arena.tick < 15 * 120 {
+        pp.tick();
+    }
+    hover_slot(&mut pp, 1);
+    pp.draw(&mut fb);
+    save(&fb, &pp, "49_beam_stopped_at_a_shield.png");
+    // Fighters getting off two beamers' lines.
+    pp.load_test(1);
+    pp.running = true;
+    while !pp.arena.ships.iter().any(|s| s.doing == crate::pg::sim::Doing::Dodge) && pp.arena.tick < 15 * 60 {
+        pp.tick();
+    }
+    pp.tick();
+    if let Some(s) = pp.arena.ships.iter().find(|s| s.alive && s.doing == crate::pg::sim::Doing::Dodge) {
+        pp.mouse = (s.x - pp.cam.0, s.y - pp.cam.1);
+    }
+    pp.draw(&mut fb);
+    save(&fb, &pp, "50_fighters_dodge_beams.png");
+    // A warden's circles under lances, and under flak.
+    for (t, name) in [(4, "51_lancers_vs_warden.png"), (5, "52_fighters_vs_warden.png")] {
+        pp.load_test(t);
+        pp.running = true;
+        while pp.arena.score[0].shielded < 6 && pp.arena.tick < 15 * 60 {
+            pp.tick();
+        }
+        hover_slot(&mut pp, 1);
+        pp.draw(&mut fb);
+        save(&fb, &pp, name);
+    }
+    // The two parts in the yard.
+    pp.running = false;
+    pp.screen = Screen::Yard;
+    for (slot, cat, part, name) in [(0, crate::pg::design::Cat::Weapons, Part::Beam, "53_yard_beamer.png"), (1, crate::pg::design::Cat::Armor, Part::Shield, "54_yard_warden.png")] {
+        pp.select_slot(slot);
+        pp.ed.cat = cat;
+        pp.ed.part = part;
+        pp.mouse = pp.cell_screen((c + 6, c - 8));
+        pp.draw(&mut fb);
+        save(&fb, &pp, name);
+    }
     println!("exported proving-ground screenshots to {}", dir.display());
 }
 

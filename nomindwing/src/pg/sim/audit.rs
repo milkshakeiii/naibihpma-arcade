@@ -23,8 +23,14 @@ impl Arena {
             }
             let n = s.shape.cells.len();
             let bad = |what: &str| Err(format!("ship {i} ({}, team {}) {what}", s.name, s.team));
-            if s.hp.len() != n || s.cool.len() != n {
+            if s.hp.len() != n || s.cool.len() != n || s.charge.len() != n {
                 return bad("has pixel lists of different lengths");
+            }
+            if (0..n).any(|c| s.charge[c] > SHIELD_CHARGES || (s.charge[c] > 0 && s.shape.cells[c] != Some(Part::Shield))) {
+                return bad("has a shield's charge where it has no shield, or more than a shield holds");
+            }
+            if (0..n).any(|c| s.cool[c] < 0 && s.shape.cells[c] != Some(Part::Beam)) {
+                return bad("has something that isn't a beam warming up");
             }
             if (0..n).any(|c| s.hp[c] > 0 && s.shape.cells[c].is_none()) {
                 return bad("has a living pixel where its design has none");
@@ -48,8 +54,7 @@ impl Arena {
                     return bad("is in more than one piece");
                 }
             }
-            let cannons = s.turrets.iter().filter(|t| s.hp[t.cell] > 0).count() as i32;
-            if !s.dirty && s.st != stats_of(&s.alive_cells(), cannons) {
+            if !s.dirty && s.st != s.stats_now() {
                 return bad("has stats that don't match its pixels");
             }
             if s.turrets.iter().any(|t| s.shape.cells.get(t.cell) != Some(&Some(Part::Cannon))) {
@@ -164,11 +169,21 @@ impl Arena {
                     continue;
                 }
                 let (l, t, r, b) = s.bbox();
-                if pl > r || pr < l || pt > b || pb < t {
+                let pad = if s.st.shields > 0 { SHIELD_R } else { 0 };
+                if pl > r + pad || pr < l - pad || pt > b + pad || pb < t - pad {
                     continue;
                 }
                 if let Some(&(x, y)) = path.iter().find(|&&(x, y)| s.cell_at(x, y).is_some_and(|c| s.hp[c] > 0)) {
                     return Err(format!("a shot of team {team} flew through a living pixel of ship {i} ({}) at ({x},{y})", s.name));
+                }
+                // Nor did it come into a shield's circle that's still up. A circle with a shot
+                // left to stop stops every shot that comes into it from outside.
+                for c in s.live_shields() {
+                    let (cx, cy) = s.cell_xy(c);
+                    let inside = |p: &(i32, i32)| dist2(p.0, p.1, cx, cy) <= SHIELD_R * SHIELD_R;
+                    if path.windows(2).any(|w| !inside(&w[0]) && inside(&w[1])) {
+                        return Err(format!("a shot of team {team} flew into a shield circle of ship {i} ({}) that's still up", s.name));
+                    }
                 }
             }
         }
@@ -244,6 +259,37 @@ mod tests {
         // The longest stays come from a big ship turning: a titan's quarter turn swings its whole
         // hull round in one tick and can leave a lancer 12 px deep, which then takes 6 to 9 ticks
         // to get out at 2 px a tick.
+        assert!(longest <= 10, "a ship that could fly spent {longest} ticks inside a bigger enemy");
+    }
+
+    #[test]
+    fn fights_with_beams_and_shields_stay_sound() {
+        // The three example ships among the starter deck's, on both sides, in two fights: the
+        // examples against the deck, and a mixed fleet against its mirror image.
+        use crate::pg::design::part_examples;
+        let (ex, deck) = (part_examples(), starter_deck());
+        let fleets: [Vec<(&Design, i32)>; 3] = [
+            vec![(&ex[0], 2), (&ex[1], 2), (&ex[2], 6)],
+            vec![(&deck[0], 8), (&deck[1], 8), (&deck[2], 2)],
+            vec![(&ex[0], 1), (&ex[1], 2), (&ex[2], 4), (&deck[0], 4), (&deck[2], 1)],
+        ];
+        let mut longest = 0;
+        for (blue, red) in [(0, 1), (2, 2)] {
+            let mut a = Arena::new();
+            for (team, fleet) in [(0, &fleets[blue]), (1, &fleets[red])] {
+                for (col, &(d, n)) in fleet.iter().enumerate() {
+                    for k in 0..n {
+                        let x = if team == 0 { 150 - 40 * col as i32 } else { AW - 150 + 40 * col as i32 };
+                        a.add(team, col, d, x, AH / 2 - 14 * (n - 1) / 2 + 14 * k);
+                    }
+                }
+            }
+            longest = longest.max(soak(&mut a, TIME_LIMIT, |_| {}));
+            let fired = a.score[0].fired + a.score[1].fired;
+            let stopped = a.score[0].shielded + a.score[1].shielded;
+            println!("beams and shields: over {:?} at tick {}, {fired} shots fired, {stopped} stopped at circles", a.over, a.tick);
+            assert!(stopped > 0, "no shot was stopped at a shield in a fight with eight shielded ships in it");
+        }
         assert!(longest <= 10, "a ship that could fly spent {longest} ticks inside a bigger enemy");
     }
 

@@ -31,8 +31,8 @@ use std::time::Duration;
 /// Two games talk only if this matches. It goes up whenever what's sent changes, and whenever
 /// what a match's state holds does: the two machines compare a hash of it, so two versions with
 /// different state would fall out of step at the first check. (3: a bot remembers one more
-/// thing.)
-pub const PROTO: u32 = 3;
+/// thing. 4: the beam and the shield, in designs and in the state. 5: a team is nine slots.)
+pub const PROTO: u32 = 5;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.

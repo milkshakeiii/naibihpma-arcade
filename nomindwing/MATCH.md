@@ -316,7 +316,21 @@ What they say: the numbers can make every ship count, but slower isn't longer. W
 | D3 | **Its king stands beside its factory while a raid is on,** so the factory's flak and its own cover each other. It stays against what it outweighs. Outweighed, it falls back on a factory nobody is attacking. | Does the king's moving about make sense to watch? Is it too easy to catch out? | |
 | D4 | **Its miners are its to defend.** A raider within 200 px of one of its miners turns its fleet out. | With everything on SAB, do its ships now come for yours at the rocks? | |
 | D5 | **It arms while your fleet is a quarter bigger than its own.** Guns then come before what it's saving for a factory. | Does a fleet built early draw an answer before it lands? | |
-| D6 | **RUSH and SAB,** two scripted openings taken from Henry's two matches of 2026-11-11, beside the five the AI was measured against. | Nothing to judge in play. Is RUSH a fair picture of what Henry did on seed 28100? | |
+| D6 | **RUSH and SAB,** two scripted openings taken from Henry's two matches of 2026-11-11, beside the five the AI was measured against. | Nothing to judge in play. Is RUSH a fair picture of what Henry did on seed 28100? | The king going too: **yes** (Henry, 2026-11-12). |
+| P1 | **BEAM.** Beam pixels one behind another in a column are one gun, firing straight ahead. One reaches 52 px, each more adds 12 (up to 16), and it cuts 4 pixels for each, plate counting double. It shows its line for 1 s, cuts everything on it at once, and rests 5 s. | Does it read as one gun whose length you drew? Is a second's warning long enough to see and short enough not to be dull? | |
+| P2 | **Ships get off a warming beam's line** if they can be clear in time, and stay off it until it has cut. | Is it good to watch? Do ships ever dodge when you'd want them to stand and shoot? | |
+| P3 | **A ship with a beam flies like a lance ship,** holding off at three quarters of its beam's reach and lining it up. | Does a beam ship keep its distance sensibly? | |
+| P4 | **SHIELD.** Each shield pixel throws a 10 px circle that stops 4 enemy shots of any kind coming in. 3 s after the last, it's full again. Shots fired from inside pass. | Radius, charges or rest: which feels wrong first? Should a beam cost a circle more than a flak shot does? | |
+| P5 | **A ship's circles are drawn as one outline,** thinning by a quarter for each shot stopped. | Can you read what's left of a shield at a glance? | |
+| P6 | **`--parts`:** three example ships and ten ready-made fights in a window of their own, with nothing saved. | Is that a good way to be shown new parts, or should they come in a deck? | |
+| L1 | **A team is nine designs** (ruled: "Nine for now"). Nine tabs in the yard, nine rows in the arena, nine cards in a match, keys 1 to 9. A row or card is one line now: icon, name, price, and on a card the order's letter in its colour (H, S, G, E, V for harvest, L for hold). | Is one line a card enough to play from? Do you miss the slot number on the card, or the three-letter order? | |
+| L2 | **Empty slots.** A fresh team is the starter deck and two slots that say EMPTY. An empty card prints nothing and says why. | Should the starter deck fill all nine, and with what? | |
+| L3 | **The library,** open over the yard (LIBRARY beside the name, or L): your kept drawings, newest first, then the ready-made ones (the new parts' examples, the starter deck, the reference fleet). Each shows its price, order, how it flies and whether it can fly. | Is it where you'd look for it? Can you find a drawing in the list? | |
+| L4 | **TAKE puts a copy in the lit slot** and goes back to the yard, where it's redrawn like any drawing (ruled: orders and styles "go with the drawing, but you can easily customize a drawing from the database"). The drawing it replaces is kept in the library first, unless one just like it is there. KEEP keeps the lit slot's drawing. | Is take-then-redraw easy enough? Is keeping the replaced drawing by itself what you want, or clutter? | |
+| L5 | **Teams:** LOAD swaps all nine slots (keeping the team you had), KEEP TEAM keeps yours as TEAM 1, 2 and so on, RENAME types a name. | Do you want whole teams in the library yet? | |
+| L6 | **COPY and PASTE as text.** A drawing is one line and a team ten. PASTE keeps whatever on the clipboard reads as drawings and ignores the rest. | Does it work on your machine? (My tests use a stand-in clipboard: I didn't want to overwrite yours.) Is a line of text a fair way to hand someone a ship for now? | |
+| L7 | **`--pg-sim mine`:** the headless fights with your own saved team, orders and styles as your cards carry them. | Nothing to judge in play. | |
+| L8 | **CRASH and SESSION END lines in the play log.** | Nothing to judge until something crashes. | |
 
 **Henry's rulings on the plan (2026-11-10):**
 1. **The seed's price is its size, paid in full up front:** yes.
@@ -914,7 +928,7 @@ Strength against radius is then where the pixels are drawn. Four together: one s
 - **With the rushing king at home it loses.** 0 of 4 on Henry's deck and 1 of 4 on the starter deck. That's the SUMMONER opening over again, which the AI has always beaten.
 - **With the king flying over it wins every time.** 8 of 8 on both decks, the median match 2:55 on the starter deck and 2:21 on Henry's. The king crosses the map in 25 s, stops 40 px from the AI's first factory while it's still growing, and prints its lancers there. In the match I watched tick by tick (seed 1, starter deck) the factory was dead 25 s later.
 - **What the AI did meanwhile.** Its king stayed at its start, 125 px from the factory, where its flak reaches nothing that's attacking the factory. It finished its second miner first. Its first gun was delivered 20 s after the enemy king arrived, with the factory down to its last pixels. Then it backed away from the nearest gun until it was caught.
-- So I take it Henry's king went too. **That's a guess from the log, for Henry to confirm.**
+- So I took it Henry's king went too. **Confirmed** (Henry, 2026-11-12): "You asked me to confirm that attacking with my king is part of what made rushing the AI effective. Yes, it certainly is, confirmed."
 
 *The two new openings.*
 - **RUSH** (`rusher`): one factory at once, a king that prints its cheapest lance or cannon ship without a pause, everything on HUNT. Its king flies to within 40 px of the nearest thing the enemy has planted (or the enemy king, when nothing is planted) and prints there. Once it has lost a quarter of its pixels it goes home for good and prints from there. Without that last rule the AI beat it by killing a king that sat still under its lancers, which says little about defence.
@@ -991,6 +1005,198 @@ Against RUSH the AI's king was slowed (its side beaten down to under 40 px) in 2
 - **The arena's reference fights** aren't touched: nothing in a ship changed.
 
 *Checks (2026-11-12, after the AI's defence).* 164 tests pass, eleven of them new. 129 of 129 deliberate rule breaks are caught: the 103 from before (two of them re-pointed at lines this round rewrote) and 26 new ones. Among the new: no king taken for a raid, a king at home taken for one, miners first against a raid that outweighs the AI, a king answered before its ships, a post never taken, a post taken in peace, a post that cuts a factory off, a king that runs from everything, a king that runs from nothing, no falling back, falling back on a factory under attack, the 150 px back, a seed sent to the raiders, a factory planted out on its own, no arming while outarmed, arming against no fleet, miners not counted, a scripted opening given the AI's eyes, a rush that stays home, a rush that never goes home, a saboteur that hunts. Not done: I haven't watched any of it in a window, and nobody has played it. Every number here is the AI against scripts.
+
+**The beam and the shield, as built (2026-11-12).** Henry: "after finishing the AI defense, please commit+push, then continue on to the implementation of the beam and shield." The defence round went up as 4e632c3. Rows P1 to P6 above. Every number below is a placeholder until Henry has played it.
+
+*The beam's rules* (the shield had its six written out; the beam had one sentence).
+1. BEAM is a one-pixel part. Beam pixels one behind another in a column of the drawing are one gun, and its front pixel is the muzzle. A pixel alone is a gun of one. A row of them side by side is so many guns of one.
+2. It fires straight ahead only, like a lance.
+3. **Reach** is 40 px and 12 more for each pixel of the gun, counted up to 16 pixels: 52 px for one, 100 for five (a lance's), 148 for nine, 232 at sixteen and beyond.
+4. **Cut** is 4 pixels for each pixel of the gun, with no cap. Plate uses up two of it, as it does of a lance's punch.
+5. When an enemy pixel will be on its line, within reach, a second from now, it starts to warm. For that second its line shows as a dotted line, and the line moves with the ship.
+6. Then it cuts: every enemy pixel on the line goes at once, nearest first, until the cut is used up or the reach ends. Whatever is cut off from every core breaks away, by the rule there already was. It cuts hit or miss, and then rests 5 s (longer short of power).
+7. Shoot a pixel out of the column and it's two shorter guns.
+8. A beam pixel uses 3 power and weighs 2, like a lance.
+
+*What ships do about it.*
+- **A ship on a warming beam's line gets off it** (P2): flat out, square to the line, to the side it's already on. It then stays off: it won't fly back towards the line until the beam has cut. Only ships that can be clear in time try. A ship too wide or too slow carries on with what it was doing, since a half-made dodge only spoils its own aim. Kings don't: they're steered.
+- **A ship with a beam flies like a lance ship** (P3): on KITE it holds at three quarters of its longest beam's reach and lines the gun up on the target's row or column; on RUNS it slides onto the line first.
+
+*The shield, as built.* The six rules as proposed, with these settled:
+- Any enemy shot costs a circle one charge: flak, lance, shell or beam. A shell stopped at a circle doesn't burst.
+- "After 3 s with no hit" is 3 s after the last shot that circle stopped. Every shot stopped starts the wait again. A circle that's out stops nothing, so it comes back 3 s after it went out however hard the ship is being hit.
+- A circle is met along the path a shot takes relative to the ship, like a pixel. A ship that moves onto a shot doesn't take it inside its circle.
+- No clearance rule. That stays with the projector.
+
+*What they do in a fight.* Three example ships, each spending all the power it makes, against the starter deck's. Twelve seeds a fight (`--pg-sim parts`).
+
+| Fight | Result | What it shows |
+|---|---|---|
+| 1 BEAMER (47 px) against 1 OUTPOST (121 px) | Beamer 12 of 12, in 5 s, untouched | It reaches 148 px and the outpost's flak 48. One cut along the row its core is in kills a one-core factory outright. |
+| 2 BEAMERS against 6 FIGHTERS | Fighters 9, beamers 2, 1 drawn | Fighters get off the lines, close, and shoot the guns apart. |
+| 2 BEAMERS against 6 LANCERS | Lancers 12 of 12 | The same, faster. |
+| 1 BEAMER against 1 FRIGATE | Frigate 12 of 12 | The frigate loses 14 px doing it. I haven't watched how. |
+| 6 LANCERS against 1 WARDEN (45 px, 4 shields) | Warden 8, 4 drawn | 45 lance shots a fight stop at its circles. |
+| 6 FIGHTERS against 1 WARDEN | Fighters 12 of 12, in 5 s | Sixteen flak shots stopped, and then it's open. |
+| 1 BEAMER against 1 WARDEN | Warden 12 of 12 | Every cut that reaches it stops at a circle. |
+| 6 NEEDLES (9 px, a beam of two) against 6 FIGHTERS | Fighters 12 of 12 | A short beam on a fighter's frame isn't a fighter's weapon. |
+
+So the beam is what I pitched: a siege gun, good against what can't get out of the way and poor against what can. And the shield turns away few strong shots and gives way to many weak ones. Whether any of it is the right strength is Henry's to say. I'd look first at the outpost dying to one cut.
+
+*My calls, for Henry to overrule.*
+1. **Every number.** Reach 40 + 12 a pixel to 16, cut 4 a pixel, 1 s warm, 5 s rest, 3 power; circle 10 px, 4 charges, 3 s, 4 power.
+2. **The line moves with the ship while it warms.** A beam comes from where its gun is. So dodging is a race against a ship sliding or turning to follow, not a step off a line fixed in space.
+3. **It cuts hit or miss.** Nothing calls a warming beam off.
+4. **A beam of sixteen costs a circle what a flak shot costs.** That's what makes the shield the answer to the beam, and flak the answer to the shield.
+5. **Every ship that flies dodges,** miners and guards on their posts included.
+6. **Beams pass over rocks,** as every shot does.
+7. **The parts are just in the yard.** No buildsets: the starter deck is unchanged, and the AI, which plays the starter deck, never fields either part. To meet them in a match Henry has to draw them into a deck.
+8. **`--parts` is its own window.** A library has seven slots and Henry's are his own, so the examples can't go in it.
+9. **The help screen's colour key now shows all eleven parts,** in two rows.
+10. **The network protocol is 4.**
+
+*Found on the way.*
+- **A gun that only fires ahead never fired at a target coming straight down its line.** The check asked whether a pixel would be on the line where the target is now, and a target closing at 3 px a tick is 45 px nearer a second later. The beam now looks where the target will be. **The lance has the same check and I've left it:** changing it moves every recorded fight. It's why lancers hold their fire at a fast ship coming straight at them until it's close.
+- **Two ships each lining a gun up on the other chase each other the length of the map.** Each leads the other's sideways speed, so each runs ahead of the other, and whichever is faster gets its shots in. A beamer and a warden went from the middle to the top edge, to the bottom and back, with three cuts in a minute. Where a beam is on either ship, neither leads now: each holds the other's line as it stands, and they settle. **Two lance ships still do it** (a frigate against a warden above: the warden wins 11 of 12 having stopped three shots, because it's faster). That's older than this round, and the same one-line rule would mend it at the price of moving the recorded fights. Henry's call. **Mended since, for the lance too: see "A lance's aim" below.**
+- **A ship that dodged flew straight back.** Clear of the line, it turned for home, was back on the line when the beam cut, and lost three pixels. Now it stays off until the cut.
+- **Fighters with guns shot the muzzle off** the test's beam turret before it fired. Not a fault: 50 px is inside flak range. But it's the commonest way a beam fails in the fights above.
+- **Four weapons in a row left CANNON's button without its name.** The yard's part buttons are now as wide as their names.
+- **I cut eight functions out of the sim** replacing the one before them, the second time I've made that mistake in this file. The compiler caught it at once, and they went back word for word from the last commit.
+
+*Not built.* The projector, the weapons charger, hold and the scoop rework, the missile. Shields that the AI draws. A beam's line on the minimap. Any change to the lance.
+
+*Checks (2026-11-12, after the beam and the shield).*
+- **182 tests pass, eighteen of them new.** Among them: a fight of the example ships on both sides with the sim's audit run every tick, and a new standing rule in that audit, that no shot which flew on came into a circle that's still up.
+- **158 of 158 deliberate rule breaks are caught:** the 129 from before and 29 new. Four of the new ones were missed at first, which showed four tests that couldn't tell right from wrong: the beam ship's target died before the ship's distance mattered, it sat near enough the ship's row to be cut without lining up, and two checks on circles and moving ships each looked at half the case. The tests were sharpened and all four are caught.
+- **Nothing that existed has moved.** Every arena fight of the starter deck and of the reference fleet prints the same results as before, byte for byte, and so do the AI's matches. Neither part is in any of them.
+- **Not done.** I've seen seven exported frames, not a window. Nobody has played either part. No match has been played with them, by a person or the AI. Nothing has been tried over the network since the protocol moved to 4.
+
+**Three steers from Henry (2026-11-12).**
+- **What the AI's match results are worth:** "remember AI match results are not really a strong signal for anything but code correctness yet." So the two tables in the defence section say that the rules do what they're written to do and break nothing, and no more. Two rules there were dropped on tables like those (holding posts, calling a wave home). They aren't shown to be bad ideas, only not shown to be good ones, and they're Henry's to bring back.
+- **Recorded fights don't protect anything:** "Don't make decisions based on the desire not to move recorded fights. This is early stage development, we don't want to lock in our early alpha build, right?" I'd left the lance's two faults alone for that reason. They're mended below.
+- **The lance:** "I have noticed that lance aim isn't great and I think it would be good to fix."
+
+**A lance's aim (2026-11-12).**
+
+*What was wrong.* Four things, found by counting where lance shots end.
+1. **It looked for a moving ship in the wrong place.** The gun asked whether a pixel would be on its line, using one lead for the whole ship worked out from where the ship is now. For a ship coming down the line or flying off along it, that's the wrong moment and the wrong place. One lancer fired three shots at a fighter in twelve fights.
+2. **It counted pixels its shot never reached.** Anything with its middle in range counted out to its far side, up to 137 px against a capital. The shot is spent at 112.
+3. **Two lance ships lining up on each other chased each other.** As found with the beam.
+4. **A ship lining up led by the wrong time:** the distance over the shot's speed, whatever the target was doing along the line, and with no end. From 400 px away it led by 100 ticks for a shot that lasts 28.
+
+*What was built.*
+1. **The gun fires at where its shot and a pixel will both be.** For each place down its line, the shot is there so many ticks from now, and the question is whether a living pixel will be there then. A ship coming at it is met sooner and nearer, one flying off later and further, and one flying off as fast as the shot never.
+2. **It reaches what its shot reaches:** 112 px, one number for the gun and the shot.
+3. **It holds fire if its target could be off its line when the shot arrives.** The gun can't turn. Leading is the ship's job, done by flying to the right row or column (rule 4). The gun only asks whether a shot fired now, straight down its line, would run into the ship, and it asks three times: with the target flying on as it is, flying as it's trying to fly, and stopped dead. It fires if the shot would hit some pixel of the ship each time. Not the same pixel each time: a ship is wider than a shot, and one flying along the line stays on it at any speed. A lance shot takes 1.7 s to cross its range, and a ship may do any of the three in that time. In practice it fires at what's flying along its line, at what's sitting still, and at a ship crossing its line only if that ship moves less than its own width while the shot is in flight. (Say a ship crossing at 1 px a tick, 40 px off: the shot takes 10 ticks and the ship moves 10 px. If the ship is 13 px wide, 3 px of it are on the line whether it flies on or stops, and a gun pointed at those fires. If it's 3 px wide, no line catches it both ways, and the gun holds.) I first called this "a sure shot" that "lands three ways". Henry, 2026-11-12: "This sounds very confusing. One reading would be that it never takes any shots because you can't both lead the enemy ship and not lead it at the same time." It isn't sure either: a ship can do a fourth thing. The part's hover text and the README now say it as this rule's heading does. It holds a long shot at something crossing or turning, and is loaded when the ship comes close. Every ship now carries the speed it's trying to fly at, which is what its engines are plainly working towards.
+4. **A ship lining up leads by the time its shot really takes,** and never by longer than the shot lasts.
+5. **A ship doesn't lead a target that's lining a gun up on it.** Lance or beam, either side. Two frigates now hold their ground about 93 px apart where they used to run the length of the map side by side.
+
+*What it did to the shots.* Shots that hit something, of shots fired, by the side with the lances. Twelve seeds a fight; these are counts of the thing that was changed, not match results.
+
+| Fight | Before | After |
+|---|---|---|
+| 12 LANCERS at 1 OUTPOST | 33% | 50% |
+| 6 LANCERS at 1 FRIGATE | 33% | 37% |
+| 6 LANCERS at 6 FIGHTERS | 66% | 64% |
+| 40 LANCERS at 1 CAPITAL | 48% | 54% |
+| 76 LANCERS at 76 FIGHTERS | 50% | 61% |
+| 76 LANCERS at 12 FRIGATES | 28% | 30% |
+| 76 LANCERS at 1 CAPITAL | 32% | 41% |
+| 12 FRIGATES (lances and flak) at 1 CAPITAL | 42% | 59% |
+| Reference fleet: 6 LANCERS at 1 FRIGATE | 45% | 49% |
+| Reference fleet: 6 LANCERS at 6 FIGHTERS | 72% | 77% |
+| Reference fleet: 40 LANCERS at 1 CAPITAL | 74% | 78% |
+| Reference fleet: 40 LANCERS at 1 TITAN | 73% | 93% |
+| Reference fleet: 85 LANCERS at 85 FIGHTERS | 69% | 80% |
+| Reference fleet: 85 LANCERS at 13 FRIGATES | 44% | 40% |
+| Reference fleet: 85 LANCERS at 3 DESTROYERS | 45% | 52% |
+| Reference fleet: 85 LANCERS at 1 CAPITAL | 51% | 62% |
+| Part examples: 6 LANCERS at 2 BEAMERS | 38% | 44% |
+
+*Corrected 2026-11-12.* This table first held seven rows I'd picked, and I told Henry the rate "rose by 4 to 20 points". It now holds every fight with a side of only lancers (and the frigate row from before). Of those sixteen, fourteen rose, by 2 to 20 points, and two fell: six lancers at six fighters by 2 points, on 95 and 76 shots, and 85 lancers at 13 frigates by 4. All sixteen together: 9,740 hits of 20,844 shots before (47%), 10,447 of 19,480 after (54%). So the gun fires about 6% fewer shots and lands about 7% more. Left out: six lancers at the shielded warden, where the shields stop nearly every shot either way.
+
+*What moved, since Henry will see it.*
+- **Fighters against lancers at equal cost, 76 a side: fighters 12 of 12 before, 9 of 12 now.** Lancers now shoot fighters that fly straight down their line at them, which is how a fighter on an attack run flies. Six against six, fighters still win 12 of 12.
+- The reference fleet's six lancers beat its frigate 12 of 12 (9 before), and its thirteen frigates beat its capital 8 times of 12 (2 before).
+- Six lancers against the shielded warden: the warden wins 11 of 12 in half a minute, where four of twelve were drawn at a minute and a half.
+
+*What it didn't fix, and the lever I haven't pulled.* A lance still misses a ship that's shuffling about at range. In the frigate duel a shot takes 23 ticks to cross the gap, and a frigate moves further than its own width in that time: of 48 shots in thirty seconds, ten landed. No aiming rule mends that. The shot's speed would. I ran every fight with the shot at 6 and at 8 px a tick, beside today's 4:
+
+| | Shot at 4 (as built) | At 6 | At 8 |
+|---|---|---|---|
+| 76 LANCERS at 1 CAPITAL, shots that hit | 41% | 43% | 49% |
+| Reference fleet: 85 LANCERS at 1 CAPITAL | 62% | 71% | 73% |
+| 76 FIGHTERS against 76 LANCERS, fighters win | 9 of 12 | 4 of 12 | 3 of 12 |
+| Reference fleet: 85 FIGHTERS against 85 LANCERS | 11 of 12 | 7 of 12 | 5 of 12 |
+
+A faster shot buys a little accuracy against big ships and turns fighters-beat-lancers over. That's a balance number and Henry's. I'd leave it at 4.
+
+*Found on the way.*
+- **My first cut of rule 2 was too strict.** I gave the gun the 100 px its text says, and an existing test failed: a frigate chasing a beaten king could no longer hit it, because the place it holds off at was just outside 100 px for a target drawing away. The shot really flies 112, so that's what the gun counts now.
+- **My own test caught a gap in rule 1.** Working in whole ticks, a ship closing at 3 px a tick was looked for at every fourth pixel and missed. The shot is in each pixel of its line for a quarter of a tick, and the check now covers everywhere the ship's pixel could be in that quarter.
+- **A first try at rule 3 called a ship steady if its speed hadn't changed since the last tick.** A heavy ship gathers speed a quarter-pixel every other tick, so half the time it looked steady while it was accelerating. What a ship is trying to fly at says it properly.
+- **Most of a lancer swarm's misses at a still target aren't misses.** One lancer hits an outpost with 31 shots of 32. Twelve hit with half of theirs: the rest are in flight when it dies, or fly down a tunnel the shots before them drilled.
+
+*Not built.* A faster lance shot. Anything to stop a swarm over-killing. The same hold-fire rule for the beam, which shows its line and is dodged anyway.
+
+*Checks (2026-11-12, after the lance).* 190 tests pass, eight of them new (the eighth came with the rewording of rule 3 and is its worked example: a 13 px ship crossing 40 px off is fired at down a line it can't clear, a 3 px one never). 169 of 169 deliberate rule breaks are caught, eleven of them new: a lance that asks where a ship is and not where it will be, one that fires at what flies as fast as its shot, one that counts pixels past where the shot is spent, a shot spent short of what the gun fires at, each of the gun's three checks (flies on, flies as it's trying to, stops) left out in turn, a lead worked from the distance alone, a lead longer than the shot lasts, a lead on a ship that's lining up, and a ship whose wanted speed is just its speed. The headless fights now print each side's shots that hit (`--pg-sim`). Every fight with a lance in it has moved, and those are re-recorded. Not done: I haven't watched a lance fight in a window, and nobody has played since the change.
+
+**The design database and how many slots a team has (talk, 2026-11-12).** Henry: "I'm tempted to design the design database soon and integrate it with teambuilding, I think it will help us as we start implementing new design options. I've always been wondering if we want to go up to 8 or 9 slots per team." Nothing here is ruled or built. What follows is mine.
+
+- **Why now.** The yard holds one team of seven and nowhere else to keep a drawing. I had to give the beam and shield examples a window of their own because there was no place to put three ships. Every new part makes more drawings worth keeping than a team has slots.
+- **A drawing and its place in a team are two things, and today they're one line.** A design's line holds its pixels and also its standing order, its style, its group size and, for a factory, a build order written as slot numbers. The pixels are what's worth sharing. The rest only means something inside one team: move a factory to another team and its build order points at the wrong ships. So: a library of drawings, and a team that lists which drawings it fields and what each is told.
+- **What a drawing would carry in the library.** Its pixels, a name, who drew it, what it was drawn from, and the parts it uses. The last one is the buildset question answered for free: a drawing belongs to any set that has all its parts. Two machines already send each other designs as text, so sharing is moving files until there's somewhere to put them.
+- **Seven, eight or nine.** A slot is a card the king can print, an entry factories can build, and one switch to work in a fight. The starter deck spends three of its seven on the economy (miner, outpost, shipyard), which leaves four that fight. That was a triangle and a capital. With a siege ship and a shielded ship it's already one short. Nine would be three for the economy and six that fight.
+- **What nine costs.** One more switch to work per slot, and more to read at 400 by 300. The match's cards are seven rows of 18 px with the queue right under them, so nine rows take 36 px from the queue and the minimap or the rows get thinner. The yard's seven tabs fill the width exactly; nine are 44 px each, seven letters. Keys 8 and 9 are free and the wire allows 64 slots. So it's a layout job, not a rules one.
+- **What I'd do.** Make the number of slots a property of the team's ruleset, not of the screens, and lay the screens out for nine. Then seven against nine is a number to play both ways, not a rebuild.
+
+**Henry plays the lance, and a steer on planning (2026-11-12, evening).** Henry: "I tried the arena and arena fight 2 is pretty weird. as you said, the lancers only take sure shots. which means they take very few shots while orbiting for example a frigate. so it took a lot of loops doing nothing before they won. don't fix anything yet, let's talk planning. I don't want to just spin our wheels on ship AI right now." Nothing in the game was changed after this.
+
+- **What fight 2 was.** Six lancers against one frigate: blue won at 2:24 without losing a ship. Henry's saved LANCER card is set to ORBIT in groups of 3 (`proving_ground_designs.txt`), and the window runs the saved cards. A lance fires straight ahead, an orbiting ship's target is always crossing its line, and the gun holds fire on a crossing target. So it almost never fires.
+- **The hole in my measuring.** The headless fights use the built-in deck, whose lancer flies RUNS: that fight is recorded as won 10 times of 12 in about 0:11. No headless fight has a lance ship on ORBIT or KITE. So when I told Henry the gun "doesn't go quiet", that was only true of lancers on RUNS. I haven't run Henry's card headless, so ORBIT being the whole difference is my reading, not a measurement.
+- **A crash, undiagnosed.** Henry: "it looks like I hit a crash either in the game or in claude. i was testing a match." What's left behind: the play log's last match (seed 10274, starter deck) stops at 4:12 with no result line, no game process is running, and Windows' application log holds no crash from that hour. A Rust panic doesn't go to that log, so the game isn't cleared. The Claude session was itself restarted around then. The game doesn't write a panic to its own log. It could, and then the next one would name itself.
+- **Parked on Henry's steer:** what a lance does about a crossing target (hold, or take the one guess that it flies on), what a lance ship should do when told to ORBIT, swarm over-kill, the lance shot's speed.
+
+**The plan, Henry's four rulings, and the first round of it (2026-11-12, night).**
+
+*The plan* (mine, put to Henry after the steer above; Henry: "Ok, let's do that plan"). One milestone: two players each build a team from a shared design library and play a match over the network.
+1. Now, small: crashes write themselves to the log. Ship behaviour is parked (the list above). An item jumps the queue only if it's a crash or makes a part unusable.
+2. The design database and the team builder. The arena and the headless fights read the same designs.
+3. Parts in batches, each with example drawings in the library.
+4. One ship-behaviour round, later, behind a sweep of every gun on every style, so gaps like a lance on ORBIT show as a table.
+5. The AI opponent: its economy against the boom, and levels.
+
+*The rulings* (Henry's words).
+- **Slots:** "Nine for now".
+- **Orders and styles:** "They go with the drawing, but you can easily customize a drawing from the database". (I'd proposed they belong to the team. They don't.)
+- **Buildsets:** "later".
+- **The library:** "Eventually I want real players to be able to share their designs with other real players. So I guess we're spinning up a web service! Can we make it so there's not too much development churn on the web service part for now, though? Maybe something that runs locally without much effort but can be put onto a cloud host (hopefully cheaply) later? Or is there some Steam integration that can do this nicely? I don't want players to have to use the Steam Workshop UI but if there's like a Steam Workshop API we can call and put it in our game maybe?"
+
+*Where a shared library lives: my answer, not ruled.*
+- **Sharing comes in three sizes, and only the last needs a service.** (1) A drawing as a line of text, by clipboard: built this round. (2) Two players joined for a match looking through each other's library over the link they already have: not built, and cheap. (3) A public shelf that strangers browse: that needs somewhere to keep it, a way to know who a player is, and someone to take down what shouldn't be there.
+- **Steam can be the public shelf, from inside the game.** Its `ISteamUGC` calls make an item, upload it, list and search what's there (50 to a page), and fetch one, all behind our own screens. Valve keeps the files for nothing and a player is their Steam account. What it asks: the game has to be a Steam app (100 dollars, paid back after 1,000 dollars of sales), with the option switched on in the app's Workshop settings, and Steam running. One thing the Workshop's own pages can't be kept out of: a player's first upload stays hidden until they accept the Workshop's terms, and the game has to send them to that page. There's a Rust crate (`steamworks`) that wraps these calls.
+- **Our own service is small to run and costly to look after.** A single small program with one file of data, started with one command here and later on a rented machine for a few dollars a month. The hosting isn't the cost. Accounts, spam and taking down an offensive drawing or name are, and those are what Steam brings with it.
+- **What keeps churn down either way.** The library screen asks a shelf for three things: its list, one entry, and to keep one. Today's shelf is a file. Steam or a service would answer the same three, later and sometimes not at all, so the one thing the screen will need then is a way to say it's waiting.
+- **What I'd do.** Run no service yet. When the two-machine play starts, add the second size. Choose between Steam and our own when there are strangers to share with: Steam if the game is going there.
+
+*As built.* Rows L1 to L8 in the table. The calls that were mine:
+- **A card and an arena row are one line,** 13 px high where they were 17. The slot number and the loop sign came off the card (a repeating card keeps its blue frame, and its job keeps the sign in the queue). The price is a bare number, orange for a seed. The order is one letter.
+- **The starter deck stays seven,** so the AI plays seven and a fresh team has two empty slots.
+- **TAKE goes straight back to the yard,** and keeps the replaced drawing without asking.
+- **A factory's build order still names slots by number.** It travels with the drawing as those numbers, and means whatever is in those slots of the team it lands in. Taken into another team, a shipyard may be set to print the wrong things until its build order is redone in the yard.
+- **Limits:** 200 drawings and 50 teams of your own, 20 things a paste. A pasted name is cut to capitals, digits, spaces and dashes.
+- **A design line with its corner off the grid is refused,** from the clipboard, a file or another machine. Before, a line from another machine could hold any number there.
+- **The other machine must be this version:** the network's version number went from 4 to 5.
+- **Nothing was done about buildsets, a service, or looking through another player's library.**
+
+*Fight 2, measured.* `--pg-sim mine` runs Henry's saved team. Six lancers on ORBIT in threes against the frigate: the fight the window shows ends BLUE 2:24, which is what Henry saw. Over twelve seeds blue wins 11 and one is drawn, in 1:47 on average, and the lancers land 80 of 295 shots. Twelve of them take an outpost in 0:19, where lancers on RUNS take 0:06. So ORBIT is the whole difference, and it's a measurement now.
+
+*The crash line, checked.* I made the game crash once on purpose, in a scratch folder. Its log got: `CRASH 2026-11-13 02:15:56 UTC | panicked at src\main.rs:109:25: index out of bounds: the len is 0 but the index is 7`. The switch that did it is gone.
+
+*Checks (2026-11-12, after the library).* 208 tests pass, 18 of them new. 192 of 192 deliberate rule breaks are caught, 23 of them new: a team left at seven, cards and rows too tall for nine, two orders sharing a letter, a taken drawing losing the one it replaced, undo reaching back into the replaced drawing, a drawing or a team kept twice, an empty slot kept, one press deleting, a ready-made drawing deleted, a paste without limit, a pasted name shown as it came, an empty line pasted as a drawing, a corner off the grid read, the ready-made shelves written to the file, ESC in the library asking to quit, an old save left at seven, a tab name too long for its tab, and a crash spilling over several log lines. The arena's headless fights (`--pg-sim` and `--pg-sim parts`) are byte for byte what the lance round recorded. Not done:
+- **The real Windows clipboard is untested.** The tests use a stand-in, and I wouldn't overwrite whatever Henry had copied to try it.
+- **AI matches aren't compared byte for byte.** The only older build I'd kept turned out to be from before the lance change, so it differs for that reason. What this rests on: no file of the sim was touched this round, and nothing in the sim reads the slot count.
+- **Nothing was watched in a window,** only exported screenshots, and nobody has played it.
 
 **Checks (2026-11-11, after N1):** 141 tests pass. 84 of 84 deliberate rule breaks are caught, twenty of them new. Among them: a command that skips the lag, a machine that plays on without the other's turn, each machine applying its own commands first, a check that compares nothing, a hash with the ships left out, a command counted whoever's name is on it, a turn let through out of order, the joiner's cards printing for blue, a network match that stops under a panel, a right-clicked card marking a job already queued, and the edge shoving a hulk. One was missed at first: the king's keys sent every frame change nothing in the match (the sim drops the repeats), only what crosses the wire, and no test had looked at the wire. One does now. The arena's 41 reference fights are exactly as last recorded.
 

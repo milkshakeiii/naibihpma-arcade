@@ -4,6 +4,7 @@
 
 pub mod design;
 mod icons;
+pub mod library;
 pub mod link;
 pub mod play;
 mod scene;
@@ -11,6 +12,7 @@ pub mod sim;
 mod yard;
 
 use self::design::*;
+use self::library::{Browse, Library};
 use self::sim::*;
 use self::play::Play;
 use self::yard::{Ed, NAME_RECT};
@@ -116,6 +118,33 @@ pub fn reference_tests() -> Vec<Test> {
     ]
 }
 
+/// A library that shows the beam and the shield at work (`--parts`): the three example ships,
+/// and four of the starter deck's to set them against. Slots: 0 beamer, 1 warden, 2 needle,
+/// 3 fighter, 4 lancer, 5 frigate, 6 outpost.
+pub fn parts_library() -> Vec<Design> {
+    let deck = starter_deck();
+    let mut lib = crate::pg::design::part_examples();
+    lib.extend([0, 1, 2, 4].map(|s| deck[s].clone()));
+    lib
+}
+
+/// The ready-made fights for `parts_library`. The beam against what can't get out of its way,
+/// what can, and what holds off at range; a shield under lances, under flak, and under a beam.
+pub fn part_tests() -> Vec<Test> {
+    vec![
+        vs("1 BEAMER VS 1 OUTPOST", block(0, 0, 1, 110, 180, 0), block(1, 6, 1, 330, 180, 0)),
+        vs("2 BEAMERS VS 6 FIGHTERS", block(0, 0, 2, 110, 180, 30), block(1, 3, 6, 330, 180, 10)),
+        vs("2 BEAMERS VS 6 LANCERS", block(0, 0, 2, 110, 180, 30), block(1, 4, 6, 330, 180, 10)),
+        vs("1 BEAMER VS 1 FRIGATE", block(0, 0, 1, 110, 180, 0), block(1, 5, 1, 330, 180, 0)),
+        vs("6 LANCERS VS 1 WARDEN", block(0, 4, 6, 150, 180, 10), block(1, 1, 1, 330, 180, 0)),
+        vs("6 FIGHTERS VS 1 WARDEN", block(0, 3, 6, 150, 180, 10), block(1, 1, 1, 330, 180, 0)),
+        vs("1 FRIGATE VS 1 WARDEN", block(0, 5, 1, 150, 180, 0), block(1, 1, 1, 330, 180, 0)),
+        vs("1 BEAMER VS 1 WARDEN", block(0, 0, 1, 110, 180, 0), block(1, 1, 1, 330, 180, 0)),
+        vs("6 NEEDLES VS 6 FIGHTERS", block(0, 2, 6, 150, 180, 10), block(1, 3, 6, 330, 180, 10)),
+        Test { name: "OPEN FIELD", place: Vec::new() },
+    ]
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Placement {
     pub team: usize,
@@ -132,7 +161,7 @@ fn help_body() -> Vec<(&'static str, String)> {
         ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. 1-6 PICK A PART CATEGORY, TAB ITS NEXT PART. P PENCIL, R RECTANGLE, F FILL, C STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
         ("FLYING", "RUNS, KITE OR ORBIT: PICK IN THE YARD. LEFT ALONE, 1 THRUST PER WEIGHT RUNS AND LESS KITES. HEAVIER SHIPS TURN SLOWER.".into()),
         ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW.".into()),
-        ("KEYS", "ENTER YARD/ARENA  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
+        ("KEYS", "ENTER YARD/ARENA  L LIBRARY  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
     ]
 }
 
@@ -158,8 +187,13 @@ const HELP_RECT: Rect = Rect::new(10, 8, 380, 284);
 const QUIT_RECT: Rect = Rect::new(112, 108, 176, 70);
 const QUIT_BTNS: [Rect; 2] = [Rect::new(124, 150, 72, 18), Rect::new(204, 150, 72, 18)];
 
+/// A design's row in the arena's roster and on the match's cards is one line, so a team of nine
+/// fits where seven rows of two lines did: this high, with this much of its name.
+pub const ROW_H: i32 = 14;
+pub const ROW_NAME: usize = 7;
+
 fn roster_rect(i: usize) -> Rect {
-    Rect::new(306, 22 + i as i32 * 18, 90, 17)
+    Rect::new(306, 22 + i as i32 * ROW_H, 90, ROW_H - 1)
 }
 
 pub fn team_name(t: usize) -> &'static str {
@@ -315,10 +349,14 @@ pub struct Pg {
     /// Finding another machine to play against, before the match.
     pub lobby: Option<link::Lobby>,
     pub play: Option<Play>,
+    /// Every drawing and team you've kept, and the ready-made ones.
+    pub library: Library,
+    /// The library, when it's open over the yard.
+    pub browse: Option<Browse>,
 }
 
 impl Pg {
-    /// The game as it starts: the starter deck as your seven designs (so there's a working match
+    /// The game as it starts: the starter deck in your first seven slots (so there's a working match
     /// deck to redraw from the first minute), unless a save says otherwise.
     pub fn new(save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
         Pg::with(starter_deck(), tests(), save_path, log_path)
@@ -330,7 +368,16 @@ impl Pg {
         Pg::with(defaults(), reference_tests(), None, None)
     }
 
-    fn with(mut lib: Vec<Design>, tests: Vec<Test>, save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
+    /// The beam and the shield at work: three example ships and the fights that show what the
+    /// parts do. Nothing is saved or logged, so the examples can be redrawn freely.
+    pub fn parts() -> Pg {
+        Pg::with(parts_library(), part_tests(), None, None)
+    }
+
+    fn with(lib: Vec<Design>, tests: Vec<Test>, save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
+        // A team is nine slots: what it starts with, and empty ones after. A save from when a
+        // team was seven fills the first seven.
+        let mut lib = team_of(lib);
         if let Some(p) = &save_path {
             if let Ok(text) = std::fs::read_to_string(p) {
                 if matches!(text.lines().next(), Some(SAVE_HEADER | OLD_SAVE_HEADER)) {
@@ -361,6 +408,8 @@ impl Pg {
             }
         }
         let log = log_path.and_then(|p| OpenOptions::new().create(true).append(true).open(p).ok());
+        // Your library lives beside your team's save.
+        let library = Library::load(save_path.as_ref().map(|p| p.with_file_name("design_library.txt")));
         let mut pg = Pg {
             lib,
             screen: Screen::Arena,
@@ -393,6 +442,8 @@ impl Pg {
             menu: false,
             lobby: None,
             play: None,
+            library,
+            browse: None,
         };
         pg.log(&format!("##### proving ground round 5 session {} #####", crate::game::utc_stamp()));
         pg.load_test(0);
@@ -499,6 +550,13 @@ impl Pg {
             self.confirm_quit = false;
             return;
         }
+        if library::open(self) {
+            match k {
+                Key::Help => self.help = true,
+                k => self.key_library(k),
+            }
+            return;
+        }
         if self.key_lobby(k) {
             return;
         }
@@ -590,6 +648,10 @@ impl Pg {
                 self.quit = true;
             }
             self.confirm_quit = false;
+            return;
+        }
+        if library::open(self) {
+            self.press_library(x, y, right);
             return;
         }
         if self.naming && !NAME_RECT.contains(x, y) {
@@ -687,7 +749,11 @@ impl Pg {
                 self.set_cam(self.cam.0 + dx, self.cam.1 + dy);
             }
         }
-        if self.screen == Screen::Yard && !self.help && !self.confirm_quit && !self.naming && !self.menu {
+        if library::open(self) {
+            if !self.help && !self.confirm_quit {
+                self.nav_library(&dirs);
+            }
+        } else if self.screen == Screen::Yard && !self.help && !self.confirm_quit && !self.naming && !self.menu {
             self.scroll_yard(&dirs);
         }
         self.step_lobby();
@@ -719,13 +785,14 @@ impl Pg {
                 let a = &self.arena;
                 let side = |k: usize| {
                     format!(
-                        "lost {}/{} ships ({} split off), {} px ({} broke away), {} bounced off plate, mined {}{}",
+                        "lost {}/{} ships ({} split off), {} px ({} broke away), {} bounced off plate{}, mined {}{}",
                         s[k].lost,
                         s[k].placed,
                         s[k].split,
                         s[k].px_lost,
                         s[k].broken,
                         s[1 - k].bounced,
+                        if s[1 - k].shielded > 0 { format!(", {} stopped at its shields", s[1 - k].shielded) } else { String::new() },
                         s[k].mined,
                         if a.disarmed(k) { ", DISARMED" } else { "" }
                     )
@@ -743,6 +810,9 @@ impl Pg {
             Screen::Yard => self.draw_yard(fb),
             Screen::Arena => self.draw_arena(fb),
             Screen::Match => self.draw_match(fb),
+        }
+        if library::open(self) {
+            self.draw_library(fb);
         }
         if self.menu && self.screen == Screen::Yard {
             self.draw_menu(fb);
@@ -829,7 +899,7 @@ impl Pg {
             if s.st.power_pct() < 100 {
                 parts.push(format!("POWER {}%", s.st.power_pct()));
             }
-            for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON")] {
+            for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON"), (s.st.beam, "BEAM"), (s.st.shields, "SHIELD")] {
                 if n > 0 {
                     parts.push(format!("{name} {n}"));
                 }
@@ -894,14 +964,18 @@ impl Pg {
             } else {
                 ui::panel(fb, r);
             }
-            draw_icon(fb, d, Rect::new(r.x + 2, r.y + 1, 14, 14), self.team);
+            if d.is_empty() {
+                fb.text("EMPTY", r.x + 14, r.y + 3, TEXT_FAINT, None, 1);
+                continue;
+            }
+            draw_icon(fb, d, Rect::new(r.x + 1, r.y + 1, 11, 11), self.team);
             let ok = d.check().ok();
             let tc = if !ok { BAD } else if hover && !sel { PANEL_DEEP } else { TEXT };
-            let name: String = d.name.chars().take(10).collect();
-            fb.text(&name, r.x + 19, r.y + 1, tc, None, 1);
-            let st = d.stats();
-            fb.text(&format!("{} PX {}", st.cost, &d.order.name()[..4]), r.x + 19, r.y + 9, if hover && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
-            fb.text(&format!("{}", i + 1), r.x + r.w - 8, r.y + 1, TEXT_FAINT, None, 1);
+            let cost = format!("{}", d.stats().cost);
+            let cx = r.x + r.w - 3 - Framebuffer::text_width(&cost, 1);
+            let name: String = d.name.chars().take(ROW_NAME.min(((cx - 2 - (r.x + 14)) / 6) as usize)).collect();
+            fb.text(&name, r.x + 14, r.y + 3, tc, None, 1);
+            fb.text(&cost, cx, r.y + 3, if hover && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
         }
         let run_label = if self.running { "PAUSE" } else if a.over.is_some() { "REPLAY" } else { "RUN" };
         ui::button(fb, BTN_RUN, run_label, BTN_RUN.contains(m.0, m.1), self.running);
@@ -925,6 +999,14 @@ impl Pg {
 
         // Button tips go in the inspector's place when nothing in the field is hovered.
         if !f.contains(m.0, m.1) {
+            let row = (0..self.lib.len()).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|i| {
+                let d = &self.lib[i];
+                if d.is_empty() {
+                    format!("[{}] AN EMPTY SLOT. DRAW A SHIP IN IT IN THE YARD, OR TAKE ONE FROM THE LIBRARY THERE.", i + 1)
+                } else {
+                    format!("[{}] {}: {} PX, ON {}. YOUR CLICKS PLACE IT. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.", i + 1, d.name, d.stats().cost, d.order.name())
+                }
+            });
             let tip = if BTN_RUN.contains(m.0, m.1) {
                 Some("[SPACE] RUN OR PAUSE THE FIGHT.")
             } else if BTN_RESET.contains(m.0, m.1) {
@@ -944,7 +1026,7 @@ impl Pg {
             } else if (306..400).contains(&m.0) && m.1 >= 276 {
                 Some("SHIPS LEFT / PLACED, AND PIXELS LOST, FOR EACH TEAM.")
             } else {
-                (0..self.lib.len()).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|_| "[1-7] THE DESIGN YOUR CLICKS PLACE. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.")
+                row.as_deref()
             };
             if let Some(tip) = tip {
                 let lines = wrap(tip, 49);
@@ -992,12 +1074,13 @@ impl Pg {
             }
             y += lines.len() as i32 * 9 + 6;
         }
-        let ly = r.y + r.h - 40;
-        for (k, p) in [Part::Flak, Part::Lance, Part::Cannon, Part::Plate, Part::Engine, Part::Core].iter().enumerate() {
-            let x = r.x + 14 + k as i32 * 60;
-            fb.rect_fill(x - 1, ly - 1, 6, 6, OUTLINE);
-            fb.rect_fill(x, ly, 4, 4, part_col(*p, 0));
-            fb.text(p.name(), x + 8, ly - 1, TEXT_DIM, None, 1);
+        // Every part's colour, in the yard's order, in two rows of six.
+        let ly = r.y + r.h - 44;
+        for (k, p) in PARTS.iter().enumerate() {
+            let (x, y) = (r.x + 14 + (k % 6) as i32 * 60, ly + (k / 6) as i32 * 10);
+            fb.rect_fill(x - 1, y - 1, 6, 6, OUTLINE);
+            fb.rect_fill(x, y, 4, 4, part_col(*p, 0));
+            fb.text(p.name(), x + 8, y - 1, TEXT_DIM, None, 1);
         }
         fb.text_centered("CLICK OR PRESS ANY KEY", r.x + r.w / 2, r.y + r.h - 18, ACCENT, None, 1);
     }
@@ -1009,6 +1092,7 @@ impl App for Pg {
             Ev::Key(k) => self.key(k),
             Ev::Char(c) => {
                 self.char_lobby(c);
+                self.char_library(c);
                 if self.naming {
                     let c = c.to_ascii_uppercase();
                     let name = &mut self.lib[self.slot].name;
@@ -1040,7 +1124,9 @@ impl App for Pg {
                 }
             }
             Ev::Wheel(n) => {
-                if self.screen == Screen::Yard && !self.help && !self.confirm_quit {
+                if library::open(self) {
+                    self.wheel_library(n);
+                } else if self.screen == Screen::Yard && !self.help && !self.confirm_quit {
                     self.wheel_yard(n);
                 }
             }
@@ -1099,12 +1185,14 @@ mod tests {
 
     #[test]
     fn the_game_starts_with_a_deck_that_plays_a_match() {
-        // A fresh library is the starter deck: every design legal, a seeded factory to plant, a
-        // miner on a build order, and nothing on any build order that could never be built.
+        // A fresh team is the starter deck and two empty slots: every design legal, a seeded
+        // factory to plant, a miner on a build order, and nothing on any build order that could
+        // never be built.
         let pg = Pg::new(None, None);
-        assert_eq!(pg.lib.len(), 7);
-        assert_eq!(pg.lib.iter().map(|d| d.to_line()).collect::<Vec<_>>(), starter_deck().iter().map(|d| d.to_line()).collect::<Vec<_>>());
-        assert!(pg.lib.iter().all(|d| d.check().ok()));
+        assert_eq!(pg.lib.len(), SLOTS);
+        assert_eq!(pg.lib[..7].iter().map(|d| d.to_line()).collect::<Vec<_>>(), starter_deck().iter().map(|d| d.to_line()).collect::<Vec<_>>());
+        assert!(pg.lib[..7].iter().all(|d| d.check().ok()));
+        assert!(pg.lib[7..].iter().all(|d| d.is_empty()));
         assert!(pg.lib.iter().any(|d| d.seeded && d.stats().factory > 0));
         assert!(pg.lib.iter().filter(|d| d.seeded).any(|d| d.build.iter().any(|&b| pg.lib[b].stats().scoops > 0)));
         for d in &pg.lib {
@@ -1201,5 +1289,37 @@ mod tests {
         // starts 41 px from the bottom, so the last line of text must end at least 3 px above it.
         let end: i32 = 34 + help_body().iter().map(|(_, t)| wrap(t, 50).len() as i32 * 9 + 6).sum::<i32>() - 8;
         assert!(end <= HELP_RECT.h - 44, "the help runs {} px into the legend", end - (HELP_RECT.h - 44));
+    }
+
+    #[test]
+    fn nine_roster_rows_fit_above_the_run_button() {
+        for i in 0..SLOTS {
+            let r = roster_rect(i);
+            assert!(r.y + r.h <= BTN_RUN.y, "roster row {} runs into RUN", i + 1);
+            assert!(r.y >= BTN_TEAM[0].y + BTN_TEAM[0].h, "roster row {} runs into the team buttons", i + 1);
+            assert!(i == 0 || roster_rect(i - 1).y + roster_rect(i - 1).h <= r.y);
+        }
+        // Every slot answers to its number key, the ninth too.
+        let mut pg = Pg::new(None, None);
+        pg.help = false;
+        pg.key(Key::Num(9));
+        assert_eq!(pg.slot, 8);
+    }
+
+    #[test]
+    fn a_team_saved_when_it_was_seven_opens_as_nine() {
+        let path = std::env::temp_dir().join(format!("nmw_seven_{}.txt", std::process::id()));
+        let seven: String = std::iter::once(SAVE_HEADER.to_string()).chain(starter_deck().iter().map(|d| d.to_line())).collect::<Vec<_>>().join("\n");
+        std::fs::write(&path, seven).unwrap();
+        let mut pg = Pg::new(Some(path.clone()), None);
+        assert_eq!(pg.lib.len(), SLOTS);
+        assert!(pg.lib[..7].iter().all(|d| !d.is_empty()) && pg.lib[7..].iter().all(|d| d.is_empty()));
+        // Filling the ninth and saving writes nine lines, which read back the same.
+        pg.lib[8] = starter_deck()[1].clone();
+        pg.save();
+        let again = Pg::new(Some(path.clone()), None);
+        assert_eq!(again.lib.iter().map(|d| d.to_line()).collect::<Vec<_>>(), pg.lib.iter().map(|d| d.to_line()).collect::<Vec<_>>());
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_file_name("design_library.txt"));
     }
 }

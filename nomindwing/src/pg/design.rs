@@ -41,6 +41,58 @@ pub const FACTORY_REACH: i32 = 10;
 /// What the second core costs on top of the ship's pixels. Each core after that costs twice the
 /// one before: +8, +16, +32 and so on.
 pub const CORE_EXTRA: i32 = 8;
+/// The beam (2026-11-12). Beam pixels one behind another in a column make one gun. It reaches
+/// `BEAM_REACH0` px and `BEAM_REACH` more for each pixel of the gun, up to `BEAM_MAX` of them.
+pub const BEAM_REACH0: i32 = 40;
+pub const BEAM_REACH: i32 = 12;
+pub const BEAM_MAX: i32 = 16;
+/// Pixels a beam cuts for each pixel of the gun. Plate uses up two, as with a lance.
+pub const BEAM_CUT: i32 = 4;
+pub const BEAM_DMG: i32 = 2;
+/// Ticks a beam shows its line before it cuts, and ticks it rests after.
+pub const BEAM_WARM: i32 = 15;
+pub const BEAM_PERIOD: i32 = 75;
+/// The shield (2026-11-12): the radius of the circle each shield pixel throws, the shots it stops
+/// before it's out, and the ticks after the last shot it stopped before it's full again.
+pub const SHIELD_R: i32 = 10;
+pub const SHIELD_CHARGES: u8 = 4;
+pub const SHIELD_REST: i32 = 45;
+
+/// How far a beam gun of `n` pixels reaches.
+pub fn beam_reach(n: i32) -> i32 {
+    if n <= 0 {
+        0
+    } else {
+        BEAM_REACH0 + BEAM_REACH * n.min(BEAM_MAX)
+    }
+}
+
+/// How many pixels a beam gun of `n` pixels cuts.
+pub fn beam_cut(n: i32) -> i32 {
+    BEAM_CUT * n.max(0)
+}
+
+/// The beam guns in a w x h grid of cells, north up (so up a column is forward): each unbroken
+/// run of beam cells down a column is one gun. Gives each gun's front cell, its muzzle, and its
+/// length. `beam` says whether a cell holds a beam pixel (a living one, on a ship).
+pub fn beam_guns(w: i32, h: i32, beam: impl Fn(usize) -> bool) -> Vec<(usize, i32)> {
+    let mut guns = Vec::new();
+    for x in 0..w {
+        let mut y = 0;
+        while y < h {
+            if beam((y * w + x) as usize) {
+                let top = y;
+                while y < h && beam((y * w + x) as usize) {
+                    y += 1;
+                }
+                guns.push(((top * w + x) as usize, y - top));
+            } else {
+                y += 1;
+            }
+        }
+    }
+    guns
+}
 
 /// The extra cost of a ship's cores beyond the first.
 pub fn core_cost(cores: i32) -> i32 {
@@ -63,10 +115,14 @@ pub enum Part {
     Core,
     /// Prints ships (match only): speed and the biggest ship it can build come from the count.
     Factory,
+    /// A gun made of a column of these: the longer, the further it reaches and the more it cuts.
+    Beam,
+    /// Throws a circle round itself that stops enemy shots coming in.
+    Shield,
 }
 
 /// The parts in the order the yard shows them.
-pub const PARTS: [Part; 9] = [Part::Hull, Part::Plate, Part::Flak, Part::Lance, Part::Cannon, Part::Engine, Part::Scoop, Part::Factory, Part::Core];
+pub const PARTS: [Part; 11] = [Part::Hull, Part::Plate, Part::Shield, Part::Flak, Part::Lance, Part::Beam, Part::Cannon, Part::Engine, Part::Scoop, Part::Factory, Part::Core];
 
 /// The yard's part categories, keys 1-6. Power is empty until its parts arrive.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -139,7 +195,7 @@ pub fn secs(ticks: i32) -> String {
 }
 
 /// One row per part, in the order of the `Part` enum.
-pub const PART_INFO: [PartInfo; 9] = [
+pub const PART_INFO: [PartInfo; 11] = [
     PartInfo {
         ch: 'h',
         name: "HULL",
@@ -194,7 +250,7 @@ pub const PART_INFO: [PartInfo; 9] = [
         colour: Some(pal::LANCE),
         rank: 5,
         glyph: ["...#...", "..###..", ".#.#.#.", "...#...", "...#...", "...#...", "......."],
-        about: || format!("SHOOTS STRAIGHT AHEAD ONLY, UP TO {LANCE_RANGE} PX. PUNCHES THROUGH {LANCE_PEN} PIXELS, OR {} OF PLATE. ONE SHOT EVERY {} S.", LANCE_PEN / 2, secs(LANCE_PERIOD)),
+        about: || format!("SHOOTS STRAIGHT AHEAD ONLY, UP TO {LANCE_RANGE} PX. PUNCHES THROUGH {LANCE_PEN} PIXELS, OR {} OF PLATE. ONE SHOT EVERY {} S. IT HOLDS FIRE IF ITS TARGET COULD BE OFF ITS LINE WHEN THE SHOT ARRIVES.", LANCE_PEN / 2, secs(LANCE_PERIOD)),
     },
     PartInfo {
         ch: 'n',
@@ -266,6 +322,41 @@ pub const PART_INFO: [PartInfo; 9] = [
         glyph: [".......", ".#.#.#.", ".......", ".#.#.#.", ".......", ".#.#.#.", "......."],
         about: || format!("IN A MATCH, PRINTS ITS BUILD ORDER FROM YOUR BANK: 1 PIXEL EVERY {} S EACH, AND SHIPS UP TO {FACTORY_REACH} PX BIGGER EACH. A SHIP WITH ANY STORES PIXELS AND LINKS YOUR NETWORK.", secs(PRINT_TICKS)),
     },
+    PartInfo {
+        ch: 'b',
+        name: "BEAM",
+        cat: Cat::Weapons,
+        mass: 2,
+        armor: 0,
+        makes: 0,
+        uses: 3,
+        block: 1,
+        colour: Some(pal::BEAM),
+        rank: 5,
+        glyph: ["..#.#..", "..#.#..", "..#.#..", "..#.#..", "..#.#..", "..###..", "......."],
+        about: || {
+            format!(
+                "A COLUMN OF THESE IS ONE GUN, FIRING STRAIGHT AHEAD. ONE REACHES {} PX, EACH MORE ADDS {BEAM_REACH} (UP TO {BEAM_MAX}). IT CUTS {BEAM_CUT} PIXELS FOR EACH, PLATE COUNTING DOUBLE. IT SHOWS ITS LINE FOR {} S, CUTS, AND RESTS {} S.",
+                beam_reach(1),
+                secs(BEAM_WARM),
+                secs(BEAM_PERIOD)
+            )
+        },
+    },
+    PartInfo {
+        ch: 'o',
+        name: "SHIELD",
+        cat: Cat::Armor,
+        mass: 2,
+        armor: 0,
+        makes: 0,
+        uses: 4,
+        block: 1,
+        colour: Some(pal::SHIELD),
+        rank: 2,
+        glyph: [".......", "..###..", ".#...#.", "#.....#", "#..#..#", ".......", "......."],
+        about: || format!("THROWS A CIRCLE {SHIELD_R} PX ROUND ITSELF. AN ENEMY SHOT OF ANY KIND COMING INTO THE CIRCLE STOPS AT ITS EDGE. AFTER {SHIELD_CHARGES} THE CIRCLE IS OUT, AND {} S AFTER THE LAST IT'S BACK. SHOTS FIRED FROM INSIDE IT PASS.", secs(SHIELD_REST)),
+    },
 ];
 
 impl Part {
@@ -333,14 +424,16 @@ impl Order {
         }
     }
     /// Three letters, for a card's order tag in a match.
-    pub fn tag(self) -> &'static str {
+    /// One letter for a match card's tag, no two orders alike: a card has one line now, and
+    /// colour alone shouldn't have to tell HUNT from HARVEST.
+    pub fn letter(self) -> &'static str {
         match self {
-            Order::Hunt => "HNT",
-            Order::Guard => "GRD",
-            Order::Escort => "ESC",
-            Order::Harvest => "HRV",
-            Order::Hold => "HLD",
-            Order::Sab => "SAB",
+            Order::Hunt => "H",
+            Order::Guard => "G",
+            Order::Escort => "E",
+            Order::Harvest => "V",
+            Order::Hold => "L",
+            Order::Sab => "S",
         }
     }
     pub fn blurb(self) -> &'static str {
@@ -445,6 +538,10 @@ pub struct Stats {
     pub flak: i32,
     pub lance: i32,
     pub cannon: i32,
+    /// Beam pixels, and the length of its longest beam gun (a column of them).
+    pub beam: i32,
+    pub beam_len: i32,
+    pub shields: i32,
     pub scoops: i32,
     pub factory: i32,
     /// Power made (hull and cores) and used (engines and guns).
@@ -461,7 +558,19 @@ pub struct Stats {
 
 impl Stats {
     pub fn armed(&self) -> bool {
-        self.flak + self.lance + self.cannon > 0
+        self.flak + self.lance + self.cannon + self.beam > 0
+    }
+    /// Whether it has a gun that fires straight ahead only, which the whole ship lines up.
+    pub fn aims(&self) -> bool {
+        self.lance + self.beam > 0
+    }
+    /// How far its longest beam gun reaches (0: it has none).
+    pub fn beam_reach(&self) -> i32 {
+        beam_reach(self.beam_len)
+    }
+    /// The reach of the gun it lines up: its longest beam or a lance, whichever reaches further.
+    pub fn fwd_reach(&self) -> i32 {
+        self.beam_reach().max(if self.lance > 0 { LANCE_RANGE } else { 0 })
     }
     /// The biggest ship (in pixels) its factory pixels can build.
     pub fn max_build(&self) -> i32 {
@@ -501,8 +610,9 @@ impl Stats {
 }
 
 /// Stats from a set of cells. `cannons` is how many working cannons there are (a cannon is a
-/// block, so the cells alone can't say).
-pub fn stats_of(cells: &[Option<Part>], cannons: i32) -> Stats {
+/// block, so the cells alone can't say), and `beam_len` the length of the longest beam gun (a
+/// column, which a list of cells can't say either).
+pub fn stats_of(cells: &[Option<Part>], cannons: i32, beam_len: i32) -> Stats {
     let n = |p: Part| cells.iter().filter(|c| **c == Some(p)).count() as i32;
     let count = cells.iter().flatten().count() as i32;
     let mass: i32 = cells.iter().flatten().map(|p| p.mass()).sum();
@@ -525,7 +635,7 @@ pub fn stats_of(cells: &[Option<Part>], cannons: i32) -> Stats {
         Flight::StandOff
     };
     let cost = count + core_cost(cores);
-    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
+    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
 }
 
 /// Which of a w x h grid's cells connect to `start` edge to edge, through cells where `on` holds.
@@ -684,10 +794,27 @@ pub struct Design {
 pub const SEED_CELL: (i32, i32) = (GRID / 2, GRID / 2);
 /// The longest build order the yard allows.
 pub const BUILD_MAX: usize = 12;
+/// How many designs a team holds (Henry, 2026-11-12: "Nine for now"). The yard's tabs, the
+/// arena's roster and the match's cards are all laid out for this many.
+pub const SLOTS: usize = 9;
+
+/// A team from a list of designs: the first `SLOTS` of them, and empty slots after.
+pub fn team_of(mut designs: Vec<Design>) -> Vec<Design> {
+    designs.truncate(SLOTS);
+    while designs.len() < SLOTS {
+        designs.push(Design::blank(&format!("DESIGN {}", designs.len() + 1)));
+    }
+    designs
+}
 
 impl Design {
     pub fn blank(name: &str) -> Design {
         Design { name: name.into(), order: Order::Hunt, cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new(), style: None, group: 1 }
+    }
+
+    /// Nothing drawn yet: an empty slot.
+    pub fn is_empty(&self) -> bool {
+        self.cells.iter().all(|c| c.is_none())
     }
 
     /// A design from art rows, centred in the grid.
@@ -818,7 +945,8 @@ impl Design {
     }
 
     pub fn stats(&self) -> Stats {
-        stats_of(&self.cells, self.cannon_blocks().0.len() as i32)
+        let beam_len = beam_guns(GRID, GRID, |i| self.cells[i] == Some(Part::Beam)).iter().map(|g| g.1).max().unwrap_or(0);
+        stats_of(&self.cells, self.cannon_blocks().0.len() as i32, beam_len)
     }
 
     /// How it flies at what it's fighting: what was chosen for it, or else what its drawing
@@ -1015,6 +1143,11 @@ impl Design {
             }
             _ => return None,
         };
+        // A line may come from another machine or a clipboard: a corner off the grid isn't a
+        // drawing.
+        if !(0..GRID).contains(&at.0) || !(0..GRID).contains(&at.1) {
+            return None;
+        }
         let mut d = Design::blank(name);
         d.order = order;
         for (y, r) in rows.split('/').enumerate() {
@@ -1286,6 +1419,19 @@ fn drawn(name: &str, order: Order, at: (i32, i32), rows: &[&str], build: Option<
         d.build = b.to_vec();
     }
     d
+}
+
+/// Three ships that show the parts of 2026-11-12 at work, for the checks and the screenshots.
+/// They're in nobody's deck. Each spends every pixel of power it makes.
+/// - BEAMER: a siege ship. Nine beam pixels down its spine reach 148 px and cut 36.
+/// - WARDEN: an escort inside four shield circles, with three lances in a column and four flak.
+/// - NEEDLE: the smallest ship a beam fits, two beam pixels on a fighter's frame: 64 px.
+pub fn part_examples() -> Vec<Design> {
+    vec![
+        drawn("BEAMER", Order::Hunt, (47, 44), &["..b..", ".hbh.", ".hbh.", "hhbhh", "hhbhh", "hhbhh", "hhbhh", "phbhp", "phbhp", "hhchh", "egege"], None),
+        drawn("WARDEN", Order::Hunt, (45, 45), &["....o....", "...hlh...", "..hhlhh..", ".hghlhgh.", "ohhhchhho", ".hghhhgh.", "..hhhhh..", ".eehhhee.", "....o...."], None),
+        drawn("NEEDLE", Order::Hunt, (48, 47), &[".b.", "hbh", "hch", "e.e"], None),
+    ]
 }
 
 /// The deck the AI plays, and the one you can borrow before you've drawn factories of your own.
@@ -1957,5 +2103,69 @@ mod tests {
         assert_eq!(Part::power_list(true), "HULL 1, CORE 4");
         assert_eq!(secs(20), "1.3");
         assert_eq!(secs(45), "3");
+    }
+
+    #[test]
+    fn beam_pixels_down_a_column_are_one_gun_and_a_gap_makes_two() {
+        // Five in a column, with hull beside them to hold the ship together.
+        let d = Design::from_rows("LONG", Order::Hold, &["hb", "hb", "hb", "hb", "hb", "hc"]);
+        let st = d.stats();
+        assert_eq!((st.beam, st.beam_len, st.beam_reach()), (5, 5, 100));
+        assert_eq!(beam_cut(st.beam_len), 20);
+        assert!(st.armed() && st.aims());
+        // A row of them is five guns of one, side by side: only a column fires as one.
+        let wide = Design::from_rows("WIDE", Order::Hold, &["bbbbb", "hhchh"]);
+        assert_eq!((wide.stats().beam, wide.stats().beam_len, wide.stats().beam_reach()), (5, 1, 52));
+        // The guns of a grid: each unbroken run down a column, by its front cell.
+        let cells = ["b.b", "b..", ".b.", "b.b", "b.b"];
+        let at = |i: usize| cells[i / 3].as_bytes()[i % 3] == b'b';
+        assert_eq!(beam_guns(3, 5, at), vec![(0, 2), (9, 2), (7, 1), (2, 1), (11, 2)]);
+        // Reach grows by the pixel up to sixteen of them, and no further; the cut has no such end.
+        assert_eq!((beam_reach(0), beam_reach(1), beam_reach(16), beam_reach(40)), (0, 52, 232, 232));
+        assert_eq!((beam_cut(1), beam_cut(40)), (4, 160));
+    }
+
+    #[test]
+    fn the_part_examples_are_legal_spend_their_power_and_keep_their_letters() {
+        for d in part_examples() {
+            let st = d.stats();
+            assert!(d.check().ok(), "{}: {:?}", d.name, d.check().problem());
+            assert_eq!(st.used, st.made, "{} makes {} power and uses {}", d.name, st.made, st.used);
+            // A design with the new parts in it comes back from its line as it went.
+            let back = Design::from_line(&d.to_line()).unwrap_or_else(|| panic!("{} didn't load from its own line", d.name));
+            assert_eq!(back.cells, d.cells, "{} changed on the way through its line", d.name);
+        }
+        let ex = part_examples();
+        assert_eq!((ex[0].stats().beam_len, ex[0].stats().beam_reach()), (9, 148));
+        assert_eq!(ex[1].stats().shields, 4);
+        assert_eq!((ex[2].stats().beam_len, ex[2].stats().count), (2, 9));
+    }
+
+    #[test]
+    fn no_two_orders_share_a_tag_letter() {
+        for (i, a) in ORDERS.iter().enumerate() {
+            assert_eq!(a.letter().len(), 1);
+            for b in &ORDERS[i + 1..] {
+                assert_ne!(a.letter(), b.letter(), "{} and {} would look alike on a card", a.name(), b.name());
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_from_outside_with_its_corner_off_the_grid_is_no_drawing() {
+        let good = starter_deck()[0].to_line();
+        assert!(Design::from_line(&good).is_some());
+        for corner in ["-1,0", "0,-1", "99,0", "0,99", "2147483647,2147483647", "-2147483648,5"] {
+            assert!(Design::from_line(&format!("X|HUNT|{corner}|c|BUILT|")).is_none(), "a drawing at {corner} was read");
+        }
+        // The far corner of the grid is on it; rows that run off the edge lose only what's off.
+        let d = Design::from_line("X|HUNT|98,98|ch/hh|BUILT|").unwrap();
+        assert_eq!(d.stats().count, 1);
+        // A team is nine slots, and a list of any length makes one.
+        assert_eq!(team_of(Vec::new()).len(), SLOTS);
+        assert_eq!(team_of(starter_deck()).len(), SLOTS);
+        assert!(team_of(starter_deck())[7].is_empty());
+        let many: Vec<Design> = (0..12).flat_map(|_| starter_deck()).collect();
+        assert_eq!(team_of(many).len(), SLOTS);
     }
 }

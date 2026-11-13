@@ -6,7 +6,7 @@
 //! Everything takes the field it draws into and the camera: the world point at the field's top
 //! left. A world point (x, y) lands on screen at (x - cam.0, y - cam.1).
 
-use super::design::{Part, SCOOP_CARRY};
+use super::design::{Part, SCOOP_CARRY, SHIELD_R};
 use super::sim::*;
 use super::{clipped_line, draw_shape, pc};
 use crate::framebuffer::Framebuffer;
@@ -87,6 +87,38 @@ pub fn ship(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
         let (ex, ey) = (gx + ux * BARREL / 1024, gy + uy * BARREL / 1024);
         clipped_line(fb, f, gx - cx, gy - cy, ex - cx, ey - cy, GUN, true);
     }
+    shields(fb, f, s, (cx, cy));
+}
+
+/// The circles a ship's shield pixels throw, as one outline: a circle's edge shows only where no
+/// other of the ship's circles covers it. A full circle is a solid line, and it thins by a
+/// quarter of its pixels for each shot it has stopped, so what's left of it can be read at a
+/// glance. A circle that's out isn't drawn.
+fn shields(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
+    if s.st.shields == 0 {
+        return;
+    }
+    let up: Vec<((i32, i32), u8)> = s.live_shields().into_iter().map(|c| (s.cell_xy(c), s.charge[c])).collect();
+    let (r2, band) = (SHIELD_R * SHIELD_R, SHIELD_R);
+    for (k, &((sx, sy), charge)) in up.iter().enumerate() {
+        for dy in -SHIELD_R..=SHIELD_R {
+            for dx in -SHIELD_R..=SHIELD_R {
+                // The ring of pixels at the circle's edge.
+                let d = dx * dx + dy * dy;
+                if d > r2 || d <= r2 - 2 * band {
+                    continue;
+                }
+                if ((dx + dy) & 3) >= charge as i32 {
+                    continue;
+                }
+                let (x, y) = (sx + dx, sy + dy);
+                let covered = up.iter().enumerate().any(|(j, &((ox, oy), _))| j != k && (x - ox) * (x - ox) + (y - oy) * (y - oy) <= r2 - 2 * band);
+                if !covered {
+                    pc(fb, f, x - cx, y - cy, SHIELD_DIM);
+                }
+            }
+        }
+    }
 }
 
 /// The white corners round the ship under the pointer.
@@ -95,8 +127,17 @@ pub fn corners(fb: &mut Framebuffer, s: &Ship, (cx, cy): (i32, i32)) {
     fb.corners(l - 2 - cx, t - 2 - cy, r - l + 5, b - t + 5, 2, WHITE);
 }
 
-/// Shots in flight, and the sparks and blasts where they landed.
+/// Shots in flight, and the sparks and blasts where they landed. A beam that's warming shows
+/// where it will cut as a dotted line, and one that has just cut as a solid one.
 pub fn fire(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    for w in a.warming() {
+        for k in (2..=w.reach).step_by(2) {
+            pc(fb, f, w.from.0 + w.dir.0 * k - cx, w.from.1 + w.dir.1 * k - cy, BEAM);
+        }
+    }
+    for c in &a.cuts {
+        clipped_line(fb, f, c.from.0 - cx, c.from.1 - cy, c.to.0 - cx, c.to.1 - cy, if c.t >= 2 { BEAM_HI } else { BEAM }, true);
+    }
     for sh in &a.shots {
         let (p, q) = ((sh.prev.0 - cx, sh.prev.1 - cy), (sh.line.x - cx, sh.line.y - cy));
         let (c0, c1) = match sh.kind {

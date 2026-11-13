@@ -24,6 +24,12 @@ pub const LANCE_HI: u8 = 28;
 pub const CANNON: u8 = 29;
 /// Factory pixels (the match's printers).
 pub const FACTORY: u8 = 30;
+/// Beam pixels and a beam's line as it warms; the line as it cuts.
+pub const BEAM: u8 = 31;
+pub const BEAM_HI: u8 = 32;
+/// Shield pixels, and the circles they throw.
+pub const SHIELD: u8 = 33;
+pub const SHIELD_DIM: u8 = 34;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -83,6 +89,10 @@ pub fn game() -> Pal {
     set(&mut p, LANCE_HI, (255, 196, 248));
     set(&mut p, CANNON, (172, 116, 60));
     set(&mut p, FACTORY, (64, 188, 164));
+    set(&mut p, BEAM, (132, 232, 72));
+    set(&mut p, BEAM_HI, (224, 255, 188));
+    set(&mut p, SHIELD, (164, 148, 252));
+    set(&mut p, SHIELD_DIM, (92, 80, 164));
 
     set(&mut p, PANEL_LO, (36, 40, 56));
     set(&mut p, PANEL, (60, 66, 88));

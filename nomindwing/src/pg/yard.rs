@@ -14,7 +14,9 @@ use crate::ui::{self, Rect};
 
 // Layout. The canvas is exactly the whole grid at 2x.
 pub const CANVAS: Rect = Rect::new(6, 26, 198, 198);
-pub const NAME_RECT: Rect = Rect::new(210, 26, 186, 18);
+pub const NAME_RECT: Rect = Rect::new(210, 26, 134, 18);
+/// The library, beside the name of the drawing it would take or keep.
+pub const BTN_LIBRARY: Rect = Rect::new(346, 27, 50, 16);
 pub const STATUS_RECT: Rect = Rect::new(210, 133, 186, 11);
 const INFO_RECT: Rect = Rect::new(208, 213, 190, 85);
 /// Built or seeded, and the build order: the deck slots it prints, and buttons to add them.
@@ -37,16 +39,22 @@ pub const ZOOMS: [i32; 4] = [1, 2, 4, 8];
 const SCROLL: i32 = 16;
 const UNDO_DEPTH: usize = 64;
 
+/// The team's tabs: `SLOTS` of them across the top.
 pub fn tab_rect(i: usize) -> Rect {
-    Rect::new(1 + i as i32 * 57, 3, 56, 20)
+    Rect::new(2 + i as i32 * 44, 3, 43, 20)
 }
+/// How much of a design's name a tab has room for.
+const TAB_NAME: usize = 7;
 fn cat_rect(i: usize) -> Rect {
     Rect::new(6 + i as i32 * 33, 228, 32, 16)
 }
 /// The i-th of n part buttons for the open category.
-fn part_rect(i: usize, n: usize) -> Rect {
-    let w = (200 / n.max(1) as i32 - 2).min(64);
-    Rect::new(6 + i as i32 * (w + 2), 246, w, 15)
+/// The button of part `i` of a category's `parts`: each as wide as its swatch and its name, so
+/// four parts with names of different lengths all show theirs in the row.
+fn part_rect(i: usize, parts: &[Part]) -> Rect {
+    let w = |p: &Part| 18 + Framebuffer::text_width(p.name(), 1);
+    let x: i32 = parts[..i].iter().map(|p| w(p) + 2).sum();
+    Rect::new(6 + x, 246, w(&parts[i]), 15)
 }
 fn tool_rect(i: usize) -> Rect {
     Rect::new(6 + i as i32 * 25, 264, 23, 16)
@@ -131,6 +139,13 @@ pub struct Ed {
 }
 
 impl Ed {
+    /// Drops what undo remembers: the drawings it remembers have been swapped for others.
+    pub(super) fn forget(&mut self) {
+        self.undo.clear();
+        self.stamp = None;
+        self.drag = None;
+    }
+
     pub fn new() -> Ed {
         Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, drag: None, last_cell: None, undo: Vec::new(), framed: None }
     }
@@ -522,6 +537,7 @@ impl Pg {
             Key::Letter('T') => self.turn_stamp(),
             Key::Letter('U') => self.undo(),
             Key::Letter('M') => self.ed.mirror = !self.ed.mirror,
+            Key::Letter('L') => self.open_library(),
             Key::Letter('Q') => self.zoom_by(-1, canvas_centre()),
             Key::Letter('E') => self.zoom_by(1, canvas_centre()),
             // The design's order, how it flies and how many leave together: each key steps on.
@@ -594,7 +610,7 @@ impl Pg {
         let parts = self.ed.cat.parts();
         if let Some(i) = (0..CATS.len()).find(|&i| cat_rect(i).contains(x, y)) {
             self.pick_cat(CATS[i]);
-        } else if let Some(i) = (0..parts.len()).find(|&i| part_rect(i, parts.len()).contains(x, y)) {
+        } else if let Some(i) = (0..parts.len()).find(|&i| part_rect(i, &parts).contains(x, y)) {
             self.pick_part(parts[i]);
         } else if let Some(i) = (0..BTNS.len()).find(|&i| tool_rect(i).contains(x, y)) {
             self.press_btn(BTNS[i]);
@@ -624,6 +640,8 @@ impl Pg {
             } else {
                 self.say("A BUILD ORDER HOLDS 12 AT MOST");
             }
+        } else if BTN_LIBRARY.contains(x, y) {
+            self.open_library();
         } else if NAME_RECT.contains(x, y) {
             self.naming = true;
         }
@@ -698,9 +716,11 @@ impl Pg {
             let r = tab_rect(i);
             let (sel, hov) = (i == self.slot, r.contains(m.0, m.1));
             ui::button(fb, r, "", hov && !sel, sel);
-            let name: String = d.name.chars().take(9).collect();
-            let col = if !d.check().ok() { BAD } else if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
-            fb.text_centered(&name, r.x + r.w / 2, r.y + 7, col, None, 1);
+            // An empty slot says so, quietly: it isn't a drawing with something wrong with it.
+            let name: String = if d.is_empty() { "EMPTY".into() } else { d.name.chars().take(TAB_NAME).collect() };
+            let col = if d.is_empty() { if sel { ACCENT } else { TEXT_FAINT } } else if !d.check().ok() { BAD } else if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
+            fb.text_centered(&name, r.x + r.w / 2, r.y + 3, col, None, 1);
+            fb.text_centered(&format!("{}", i + 1), r.x + r.w / 2, r.y + 11, if sel { ACCENT } else { TEXT_FAINT }, None, 1);
         }
 
         let d = &self.lib[self.slot];
@@ -718,7 +738,7 @@ impl Pg {
         }
         let parts = e.cat.parts();
         for (i, &p) in parts.iter().enumerate() {
-            let r = part_rect(i, parts.len());
+            let r = part_rect(i, &parts);
             let (sel, hov) = (p == e.part && e.tool != Tool::Copy, r.contains(m.0, m.1));
             ui::button(fb, r, "", hov && !sel, sel);
             swatch(fb, r.x + 3, r.y + 3, p);
@@ -747,6 +767,7 @@ impl Pg {
         }
         ui::button(fb, BTN_TO_ARENA, "ARENA", BTN_TO_ARENA.contains(m.0, m.1), false);
         ui::button(fb, BTN_MATCH, "MATCH", BTN_MATCH.contains(m.0, m.1), false);
+        ui::button(fb, BTN_LIBRARY, "LIBRARY", BTN_LIBRARY.contains(m.0, m.1), false);
 
         // The name, and what the drawing implies.
         if self.naming {
@@ -949,7 +970,7 @@ impl Pg {
             let names: Vec<&str> = c.parts().iter().map(|p| p.name()).collect();
             return format!("[{}] {}: {}. [TAB] OR THE KEY AGAIN FOR THE NEXT PART.", i + 1, c.name(), names.join(", "));
         }
-        if let Some(i) = (0..parts.len()).find(|&i| at(part_rect(i, parts.len()))) {
+        if let Some(i) = (0..parts.len()).find(|&i| at(part_rect(i, &parts))) {
             return parts[i].blurb().into();
         }
         if let Some(i) = (0..BTNS.len()).find(|&i| at(tool_rect(i))) {
@@ -979,10 +1000,13 @@ impl Pg {
             return "BUILT: A FACTORY OR YOUR KING PRINTS IT. SEEDED: YOUR KING PRINTS A SEED THAT GROWS IT OUT OF A ROCK, PIXEL BY PIXEL FROM ITS CORE; THE ROCK MUST HOLD AS MANY PIXELS AS THE SHIP. ITS SEED CORE STAYS AT THE CENTRE.".into();
         }
         if at(BTN_MATCH) {
-            return "PLAY A MATCH AGAINST THE AI WITH YOUR SEVEN DESIGNS AS YOUR DECK, OR WITH THE STARTER DECK.".into();
+            return "PLAY A MATCH AGAINST THE AI WITH YOUR TEAM AS YOUR DECK, OR WITH THE STARTER DECK.".into();
         }
         if at(BTN_TO_ARENA) {
             return "[ENTER] THE ARENA, TO WATCH YOUR DESIGNS FIGHT.".into();
+        }
+        if at(BTN_LIBRARY) {
+            return "[L] THE LIBRARY: EVERY DRAWING AND TEAM YOU'VE KEPT, AND THE READY-MADE ONES. TAKE ONE INTO THIS SLOT, KEEP THIS ONE, OR PASS A DRAWING TO SOMEONE AS TEXT.".into();
         }
         if at(NAME_RECT) {
             return "CLICK TO RENAME. ENTER WHEN DONE.".into();
@@ -1092,6 +1116,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_parts_button_shows_its_name_and_the_row_fits_under_the_canvas() {
+        // Four weapons in a row once left CANNON with a swatch and no name.
+        for cat in CATS {
+            let parts = cat.parts();
+            for (i, p) in parts.iter().enumerate() {
+                let r = part_rect(i, &parts);
+                assert!(r.w >= 17 + Framebuffer::text_width(p.name(), 1), "{}'s button is too narrow for its name", p.name());
+                assert!(r.x + r.w <= CANVAS.x + CANVAS.w + 2, "{}'s button runs past the canvas", p.name());
+                if i > 0 {
+                    let before = part_rect(i - 1, &parts);
+                    assert!(r.x >= before.x + before.w, "{}'s button overlaps the one before it", p.name());
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_whole_grid_fits_the_canvas_at_2x() {
         assert_eq!(GRID * 2, CANVAS.w);
         assert_eq!(CANVAS.w, CANVAS.h);
@@ -1107,7 +1148,8 @@ mod tests {
         for mut pg in [Pg::new(None, None), Pg::reference()] {
             for i in 0..pg.lib.len() {
                 pg.select_slot(i);
-                let (x0, y0, x1, y1) = pg.lib[i].used_box().unwrap();
+                // (An empty slot has nothing to frame.)
+                let Some((x0, y0, x1, y1)) = pg.lib[i].used_box() else { continue };
                 // Both corners of the drawing are on the canvas.
                 for c in [(x0, y0), (x1, y1)] {
                     let (sx, sy) = pg.cell_screen(c);
@@ -1328,7 +1370,7 @@ mod tests {
             for &cat in &CATS {
                 pg.ed.cat = cat;
                 for i in 0..cat.parts().len() {
-                    let r = part_rect(i, cat.parts().len());
+                    let r = part_rect(i, &cat.parts());
                     pg.mouse = (r.x + 2, r.y + 2);
                     look(&pg, &st);
                 }
@@ -1337,5 +1379,19 @@ mod tests {
         long.sort();
         let list: Vec<String> = long.iter().map(|(n, t)| format!("{n} lines: {t}")).collect();
         assert!(long.is_empty(), "the box has {rows} lines; these need more:\n{}", list.join("\n"));
+    }
+
+    #[test]
+    fn nine_tabs_and_nine_add_buttons_fit_the_screen() {
+        for i in 0..SLOTS {
+            let (t, a) = (tab_rect(i), add_rect(i));
+            assert!(t.x >= 0 && t.x + t.w <= 400, "tab {} is off the screen", i + 1);
+            assert!(i == 0 || tab_rect(i - 1).x + tab_rect(i - 1).w <= t.x, "tab {} overlaps the one before", i + 1);
+            assert!(t.w >= Framebuffer::text_width(&"W".repeat(TAB_NAME), 1), "a tab is too narrow for the name it shows");
+            assert!(a.x + a.w <= 398 && (i == 0 || add_rect(i - 1).x + add_rect(i - 1).w <= a.x), "add button {} doesn't fit", i + 1);
+        }
+        // The name being typed, with its cursor, stays clear of the LIBRARY button beside it.
+        assert!(NAME_RECT.x + 2 + Framebuffer::text_width(&"W".repeat(11), 2) <= BTN_LIBRARY.x + 1);
+        assert!(BTN_LIBRARY.w >= Framebuffer::text_width("LIBRARY", 1) + 4 && BTN_LIBRARY.x + BTN_LIBRARY.w <= 398);
     }
 }
