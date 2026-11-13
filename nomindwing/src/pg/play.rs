@@ -26,8 +26,6 @@ const BTN_SPEED: Rect = Rect::new(352, 159, 44, 14);
 const BTN_TAC: Rect = Rect::new(306, 175, 44, 14);
 const BTN_LEAVE: Rect = Rect::new(352, 175, 44, 14);
 const VIEW_NOTE_Y: i32 = 191;
-/// While a seed is being placed: where it goes, a rock or open space. It takes the view note's line.
-const BTN_SPACE: Rect = Rect::new(306, 190, 90, 10);
 /// The lag dial, on the field's top edge beside the network's state.
 const BTN_LAG: Rect = Rect::new(258, 1, 44, 11);
 const OVER: Rect = Rect::new(52, 100, 200, 88);
@@ -93,7 +91,7 @@ fn order_col(o: Order) -> u8 {
 const MATCH_HELP: [(&str, &str); 9] = [
     ("GOAL", "KILL THE ENEMY KING. LOSE YOURS AND YOU LOSE. A KING IS SLOW WHILE ITS SIDE HAS UNDER 40 PX LEFT."),
     ("KING", "WASD OR ARROWS FLY IT. 1-9 OR A CARD: IT PRINTS THAT SHIP, PIXEL BY PIXEL. RIGHT-CLICK: IT GOES LAST IN THE QUEUE, ON REPEAT. BACKSPACE STOPS IT."),
-    ("SEEDS", "A SEEDED CARD IS PAID FOR AT ONCE. ITS SEED GROWS IT OUT OF THE ROCK YOU CLICK, OR FROM YOUR BANK IN OPEN SPACE (CTRL+CLICK), AT TWICE THE COST."),
+    ("SEEDS", "A SEEDED CARD IS PAID FOR AT ONCE. ITS SEED GROWS IT OUT OF THE ROCK YOU CLICK, OR FROM ITS NETWORK IN OPEN SPACE (CTRL+CLICK), AT TWICE THE COST."),
     ("FACTORY", "IT PRINTS ITS BUILD ORDER ROUND AND ROUND, A PIXEL AT A TIME, WAITING WHEN THE BANK IS EMPTY."),
     ("BANK", "MINERS HAUL TO THE NEAREST NODE (KING OR FACTORY). LINKED NODES SHARE A BANK; NODES CUT OFF FROM YOUR KING KEEP THEIR OWN."),
     ("ORDERS", "A DESIGN THAT FLIES HAS A STANDING ORDER, ON ITS CARD: HUNT THE NEAREST ENEMY, SAB ITS MINERS AND FACTORIES, GUARD WHERE IT WAS BUILT, OR ESCORT YOUR KING. THE TAG OR SHIFT+NUMBER CHANGES IT."),
@@ -114,9 +112,6 @@ pub struct Play {
     pub tactical: bool,
     /// A seeded card picked, waiting for you to click the rock its seed should go to.
     pub planting: Option<usize>,
-    /// The seed being placed goes to open space, not a rock (the IN SPACE button; Ctrl does
-    /// the same while it's held).
-    pub space: bool,
     pub running: bool,
     pub speed: u32,
     pub starter: bool,
@@ -140,7 +135,7 @@ impl Pg {
     pub fn start_match(&mut self, starter: bool, seed: u64) {
         let mine = if starter { starter_deck() } else { self.lib.clone() };
         let arena = Arena::for_match(seed, [mine, starter_deck()], [false, true]);
-        let mut p = Play { arena, link: Link::solo(), cam: (0, 0), follow: true, tactical: false, planting: None, space: false, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
+        let mut p = Play { arena, link: Link::solo(), cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
         p.look_at_king();
         self.play = Some(p);
         self.menu = false;
@@ -167,7 +162,7 @@ impl Pg {
     pub fn start_linked(&mut self, me: usize, seed: u64, theirs: Vec<Design>, wire: Box<dyn Wire>, backlog: Vec<Msg>) {
         let decks = if me == 0 { [self.lib.clone(), theirs] } else { [theirs, self.lib.clone()] };
         let arena = Arena::for_match(seed, decks, [false, false]);
-        let mut p = Play { arena, link: Link::net(me, wire, backlog), cam: (0, 0), follow: true, tactical: false, planting: None, space: false, running: true, speed: 1, starter: false, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
+        let mut p = Play { arena, link: Link::net(me, wire, backlog), cam: (0, 0), follow: true, tactical: false, planting: None, running: true, speed: 1, starter: false, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
         p.look_at_king();
         self.play = Some(p);
         self.menu = false;
@@ -431,7 +426,6 @@ impl Pg {
                 return;
             }
             p.planting = Some(i);
-            p.space = false;
             self.say("CLICK A ROCK FOR THE SEED. RIGHT-CLICK CANCELS");
         } else {
             match p.arena.can_print(me, i, None) {
@@ -531,7 +525,7 @@ impl Pg {
         let me = p.link.me;
         match p.arena.can_sow(me, slot, at) {
             Ok(cost) => {
-                (p.planting, p.space) = (None, false);
+                p.planting = None;
                 let line = format!("SOW {} for {cost} at {}, in open space", p.arena.eco.as_ref().unwrap().deck[me][slot].name, clock(p.arena.tick));
                 p.link.give(&p.arena, Cmd::Sow { team: me, slot, at });
                 self.log(&line);
@@ -572,8 +566,8 @@ impl Pg {
         }
         if FIELD.contains(x, y) {
             match (p.planting, p.world_point(x, y)) {
-                // Ctrl held, or IN SPACE pressed: the seed goes to that spot in open space.
-                (Some(slot), Some(at)) if p.space || ctrl => self.sow(slot, at),
+                // Ctrl held: the seed goes to that spot in open space.
+                (Some(slot), Some(at)) if ctrl => self.sow(slot, at),
                 (Some(slot), Some(at)) => {
                     let slack = if p.tactical { 2 * TAC_SCALE } else { 6 };
                     self.plant(slot, at, slack);
@@ -591,8 +585,6 @@ impl Pg {
             self.next_order(i);
         } else if let Some(i) = (0..SLOTS).find(|&i| card_rect(i).contains(x, y)) {
             self.card(i);
-        } else if p.planting.is_some() && BTN_SPACE.contains(x, y) {
-            p.space = !p.space;
         } else if MINI.contains(x, y) {
             match (p.planting, p.world_point(x, y)) {
                 // Planting from the small map: the rock nearest the click.
@@ -721,7 +713,9 @@ impl Pg {
         if let (Some(slot), Some(at)) = (p.planting, at) {
             let need = e.cards[me][slot].count;
             let (name, price) = (&e.deck[me][slot].name, e.cards[me][slot].price());
-            // Lines to what a new factory there would link to, and the words for it.
+            // Lines to what a new factory there would link to: green if that leads to your king,
+            // gold if not. With nothing in reach, a dim one to the nearest node, and the words
+            // for how far short it is.
             let linked = |fb: &mut Framebuffer, l: &crate::pg::sim::Links| {
                 let from = spot(l.at);
                 let mut line = |to: (i32, i32), col: u8| {
@@ -732,15 +726,14 @@ impl Pg {
                     line(to, if l.king { GOOD } else { GOLD });
                 }
                 match (l.king, l.gap) {
-                    (true, _) => " IT JOINS YOUR KING'S BANK.".to_string(),
                     (false, Some((to, short))) => {
                         line(to, TEXT_DIM);
-                        format!(" {short} PX TOO FAR TO LINK: IT'LL KEEP ITS OWN BANK.")
+                        format!(" {short} PX TOO FAR TO LINK.")
                     }
-                    (false, None) => " IT LINKS, BUT NOT TO YOUR KING'S BANK.".to_string(),
+                    _ => String::new(),
                 }
             };
-            if p.space || self.ctrl {
+            if self.ctrl {
                 // The drawing's own box at the spot: gold where the seed may go, red where not.
                 let sh = e.deck[me][slot].shape();
                 let mid = a.mid_from(me, slot, at).unwrap_or(at);
@@ -781,16 +774,14 @@ impl Pg {
                         None if fits => "IT FITS.".to_string(),
                         None if e.cards[me][slot].st.factory > 0 => {
                             bar_col = GOLD;
-                            format!("THE ROCK IS {short} PX SHORT: YOUR BANK PAYS FOR THOSE AS IT GROWS.")
+                            format!("THE ROCK IS {short} PX SHORT: IT DRAWS THOSE FROM ITS NETWORK.")
                         }
                         None => format!("IT'LL STAY {}% GROWN.", rock.len() as i32 * 100 / need.max(1)),
                     };
-                    // A line to every node it would link to, green if that leads to the king's
-                    // bank; with nothing in reach, a dim one to the nearest and how far short it is.
                     let link = a.plant_links(me, slot, px).map_or(String::new(), |l| linked(fb, &l));
                     bar = Some(wrap(&format!("PLANT {name} HERE FOR {price} PX: ROCK {} PX, NEEDS {need}. {fit}{link} RIGHT-CLICK OR ESC CANCELS.", rock.len()), 49));
                 }
-                None => bar = Some(wrap(&format!("PLANT {name}: CLICK A ROCK. FOR A SPOT IN OPEN SPACE, HOLD CTRL OR PRESS IN SPACE. RIGHT-CLICK OR ESC CANCELS."), 49)),
+                None => bar = Some(wrap(&format!("PLANT {name}: CLICK A ROCK. FOR A SPOT IN OPEN SPACE, HOLD CTRL. RIGHT-CLICK OR ESC CANCELS."), 49)),
             }
             }
         }
@@ -950,11 +941,8 @@ impl Pg {
         ui::button(fb, BTN_SPEED, &format!("{}X", p.speed), BTN_SPEED.contains(m.0, m.1), p.speed > 1);
         ui::button(fb, BTN_TAC, "MAP", BTN_TAC.contains(m.0, m.1), p.tactical);
         ui::button(fb, BTN_LEAVE, "LEAVE", BTN_LEAVE.contains(m.0, m.1), false);
-        // While a seed is being placed, where it goes. Otherwise how the view works, where the
-        // eye goes to look at the map.
-        if p.planting.is_some() {
-            ui::button(fb, BTN_SPACE, "IN SPACE", BTN_SPACE.contains(m.0, m.1), p.space || self.ctrl);
-        } else if p.follow {
+        // How the view works, where the eye goes to look at the map.
+        if p.follow {
             fb.text("HOLD TO LOOK", 308, VIEW_NOTE_Y, TEXT_DIM, None, 1);
         } else {
             fb.text("STEER TO RETURN", 306, VIEW_NOTE_Y, GOLD, None, 1);
@@ -989,9 +977,6 @@ impl Pg {
         if net && (BTN_PAUSE.contains(m.0, m.1) || BTN_SPEED.contains(m.0, m.1)) {
             return Some(format!("{NO_PAUSE}."));
         }
-        if p.planting.is_some() && BTN_SPACE.contains(m.0, m.1) {
-            return Some("[CTRL] HELD, OR THIS PRESSED: THE SEED GOES TO A SPOT IN OPEN SPACE WITHIN REACH OF YOUR NETWORK. NO ROCK FEEDS IT THERE, SO YOUR BANK PAYS FOR EVERY PIXEL IT GROWS ON TOP OF THE SEED: ABOUT TWICE THE PRICE.".into());
-        }
         if let Some(i) = (0..SLOTS).find(|&i| card_rect(i).contains(m.0, m.1)) {
             let d = e.deck[me].get(i).filter(|d| !d.is_empty());
             let Some(d) = d else {
@@ -1005,7 +990,7 @@ impl Pg {
             }
             let builds: Vec<String> = d.build.iter().filter_map(|&b| e.deck[me].get(b)).map(|o| o.name.clone()).collect();
             let what = if c.seeded {
-                format!("[{}] {}: {} PX, PAID IN FULL WHEN YOU PICK ITS ROCK. ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK. WHERE THE ROCK HOLDS UNDER {} PX, OR IN OPEN SPACE (CTRL), YOUR BANK PAYS FOR THE REST AS IT GROWS.", i + 1, d.name, c.price(), c.count)
+                format!("[{}] {}: {} PX, PAID IN FULL WHEN YOU PICK ITS ROCK. ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK. WHERE THE ROCK HOLDS UNDER {} PX, OR IN OPEN SPACE (CTRL), IT DRAWS THE REST FROM ITS NETWORK AS IT GROWS.", i + 1, d.name, c.price(), c.count)
             } else {
                 format!("[{}] {}: YOUR KING PRINTS IT FOR {} PX, A PIXEL AT A TIME. RIGHT-CLICK: ONE GOES ON THE END OF THE QUEUE, ON REPEAT.", i + 1, d.name, c.cost)
             };
@@ -1068,9 +1053,10 @@ impl Pg {
 
 /// What the match screen says while a seed is about to be sent into open space: what the seed
 /// costs, and that the growing costs as much again. Henry, 2026-11-12: twice the price "might be
-/// a bit counterintuitive to players", so it's said where the seed is placed.
+/// a bit counterintuitive to players", so it's said where the seed is placed. And 2026-11-13:
+/// say the one rule, that it draws from its network, and none of what follows from it.
 fn space_warning(name: &str, price: i32, grows: i32) -> String {
-    format!("SEND {name}'S SEED HERE FOR {price} PX. NO ROCK FEEDS IT IN OPEN SPACE: YOUR BANK PAYS FOR THE {grows} PX IT GROWS AS WELL, SO IT COSTS ABOUT TWICE.")
+    format!("SEND {name}'S SEED HERE FOR {price} PX. NO ROCK FEEDS IT IN OPEN SPACE: IT DRAWS THE {grows} PX IT GROWS FROM ITS NETWORK, SO IT COSTS ABOUT TWICE.")
 }
 
 /// How a card's ships fly at what they fight and how many leave together, for its hover text:
@@ -1749,7 +1735,7 @@ mod tests {
     }
 
     #[test]
-    fn a_seed_goes_to_open_space_with_ctrl_or_the_button_and_is_told_what_that_costs() {
+    fn a_seed_goes_to_open_space_with_ctrl_and_is_told_what_that_costs() {
         use crate::app::{App, Ev};
         let mut pg = Pg::new(None, None);
         pg.start_match(true, 3);
@@ -1782,7 +1768,7 @@ mod tests {
         };
         // The outpost's card. A plain click on open space is still not a rock: nothing is sent.
         click(&mut pg, mid(card_rect(4)));
-        assert_eq!((pg.play.as_ref().unwrap().planting, pg.play.as_ref().unwrap().space), (Some(4), false));
+        assert_eq!(pg.play.as_ref().unwrap().planting, Some(4));
         let at = on_screen(&pg, spots[0]);
         assert!(FIELD.contains(at.0, at.1));
         click(&mut pg, at);
@@ -1798,14 +1784,10 @@ mod tests {
             pg.tick();
         }
         assert_eq!((pg.play.as_ref().unwrap().planting, seeds(&pg)), (None, 1));
-        // The IN SPACE button does it for the mouse alone, and says what it means.
+        // Somewhere it can't go, nothing is sent and the card stays picked; a spot that will
+        // take it then does.
         click(&mut pg, mid(card_rect(4)));
-        pg.event(Ev::Move(BTN_SPACE.x + 3, BTN_SPACE.y + 3));
-        let tip = pg.match_tip().unwrap();
-        assert!(tip.contains("TWICE") && tip.contains("[CTRL]"), "{tip}");
-        click(&mut pg, mid(BTN_SPACE));
-        assert!(pg.play.as_ref().unwrap().space);
-        // Somewhere it can't go, the card stays picked and the button stays down.
+        pg.ctrl(true);
         let far = on_screen(&pg, (KING_STARTS[0].0 + 60, KING_STARTS[0].1 - 140));
         let bad = {
             let a = &pg.play.as_ref().unwrap().arena;
@@ -1813,26 +1795,27 @@ mod tests {
             (0..FIELD.w).step_by(7).flat_map(|x| (14..FIELD.h - 60).step_by(7).map(move |y| (x, y))).find(|&(x, y)| a.sow_links(0, 4, (x + c.0, y + c.1)).is_err()).unwrap_or(far)
         };
         click(&mut pg, bad);
-        assert_eq!((pg.play.as_ref().unwrap().planting, pg.play.as_ref().unwrap().space, seeds(&pg)), (Some(4), true, 1));
+        assert_eq!((pg.play.as_ref().unwrap().planting, seeds(&pg)), (Some(4), 1));
         pg.event(Ev::Move(bad.0, bad.1));
         pg.draw(&mut fb);
         let at2 = on_screen(&pg, spots[1]);
         click(&mut pg, at2);
+        pg.ctrl(false);
         for _ in 0..4 {
             pg.tick();
         }
-        assert_eq!((pg.play.as_ref().unwrap().planting, pg.play.as_ref().unwrap().space, seeds(&pg)), (None, false, 2));
-        // Picking a card again starts from a rock, not from open space; ESC lets it go.
-        click(&mut pg, mid(card_rect(4)));
-        click(&mut pg, mid(BTN_SPACE));
-        pg.event(Ev::Key(Key::Esc));
-        click(&mut pg, mid(card_rect(4)));
-        assert_eq!((pg.play.as_ref().unwrap().planting, pg.play.as_ref().unwrap().space), (Some(4), false));
-        // The warning, with the dearest design there could be, still fits a bar on the field.
+        assert_eq!((pg.play.as_ref().unwrap().planting, seeds(&pg)), (None, 2));
+        // There's no button for it: the card's own hover text names the key.
+        let card = mid(card_rect(4));
+        pg.event(Ev::Move(card.0, card.1));
+        let tip = pg.match_tip().unwrap();
+        assert!(tip.contains("IN OPEN SPACE (CTRL)"), "{tip}");
+        // The bar gives the one rule, that what grows with no rock under it is drawn from its
+        // network, and that this costs about twice. With the dearest design there could be, it
+        // still fits a bar on the field.
         let warn = space_warning("WWWWWWWWWW", 9999, 9998);
-        assert!(warn.contains("TWICE") && warn.contains("9998 PX"));
-        assert!(wrap(&format!("{warn} IT LINKS, BUT NOT TO YOUR KING'S BANK. RIGHT-CLICK OR ESC CANCELS."), 49).len() <= 7);
-        // The button sits on the view note's line, clear of the buttons above and the map below.
-        assert!(BTN_SPACE.y >= BTN_TAC.y + BTN_TAC.h && BTN_SPACE.y + BTN_SPACE.h <= MINI.y && BTN_SPACE.w >= Framebuffer::text_width("IN SPACE", 1) + 4);
+        assert!(warn.contains("TWICE") && warn.contains("IT DRAWS THE 9998 PX IT GROWS FROM ITS NETWORK"), "{warn}");
+        assert!(!warn.contains("BANK"), "{warn}");
+        assert!(wrap(&format!("{warn} RIGHT-CLICK OR ESC CANCELS."), 49).len() <= 7);
     }
 }
