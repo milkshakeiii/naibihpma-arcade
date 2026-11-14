@@ -305,12 +305,12 @@ What they say: the numbers can make every ship count, but slower isn't longer. W
 | M2.22 | **A right-clicked card puts a repeating job on the end of the queue** (Henry: "I actually thought right-clicking the card should be the infinite-that-unit queue entry on the end of the queue"). It's a new job, whatever of that design is queued already. A right-click on a job in the queue sets that one job repeating, and R the last job asked for. | Is that the entry you meant? Should a ship you ask for once go ahead of the repeating jobs, even ones that haven't had their first turn? | **Keep as it is** (Henry, 2026-11-11): "I was thinking that clicking the cards, right or left, would always putting something on the end of the queue. I knew that that would mean you could put stuff after a repeating job which doesn't make sense unless you cancel the job- but of course every repeating job is bound to be cancelled eventually. I don't want to fiddle with it too much more though it's fine how it is." So: no one-off jumps ahead; the card's second right-click, which stops the repeat and adds nothing, is the one place it differs from what they pictured, and it stays. |
 | M2.23 | **The map's edge never moves what can't fly.** A fault the sim's own audit found while the spike was being built: a piece shot off a ship right beside the edge was shoved inwards on the next tick. | Nothing to judge. | |
 | N1 | **The network spike** (Henry: "I think we're ready for the network spike"). A lag dial against the AI; HOST and JOIN on the match menu; two games playing one match in step by sending only commands; a hash of the whole match compared once a second. | With the dial at 2, 3 and 4 against the AI: does your king still feel right, and where does it stop? In two windows, does a whole match stay IN STEP? Does it on two machines? | **The dial** (Henry, 2026-11-11): "honestly it was playable up to 4 lag." In step over a whole match, in two windows and on two machines: not yet tried. |
-| S1 | **How a design flies is chosen in the yard: RUNS, KITE or ORBIT.** Three buttons on the yard's flight row, or Y. Until one is picked the drawing picks, as before (1 thrust per weight runs, less kites). It's fixed for a match, and a card's hover line says it. | Is choosing it in the yard and not in a match right, in play? Do you miss a mark for it on the card itself? | **Keep** (Henry, 2026-11-11), on the yard, the card and the yard's layout: "all seems good for now." |
+| S1 | **How a design flies is chosen in the yard: RUNS, KITE or ORBIT.** Three buttons on the yard's flight row, or Y. Until one is picked the drawing picks, as before (1 thrust per weight runs, less kites). It's fixed for a match, and a card's hover line says it. | Is choosing it in the yard and not in a match right, in play? Do you miss a mark for it on the card itself? | **Keep** (Henry, 2026-11-11), on the yard, the card and the yard's layout: "all seems good for now." **Gone, 2026-11-14:** ships choose how they fly (A1), and the yard's buttons are out (A4). |
 | S2 | **KITE.** What stand-off was, open to any ship, plus one thing: it backs away from anything else that comes nearer than its guns reach. | Does a light ship on KITE do what you'd call kiting? | **Keep** (Henry, 2026-11-11): "i didn't see anything that seemed odd." |
 | S3 | **ORBIT.** Circles the target at the kite distance, flat out, facing it, and turns back the other way at the map's edge or a solid thing. | Does it read as an orbit? Is the circle the right size? | **Keep** (Henry, 2026-11-11): "i didn't see anything that seemed odd." |
 | S4 | **SAB, an order beside HUNT, GUARD and ESCORT.** The nearest enemy miner or factory first, past whatever guards it; never a king; with none left it hunts. | Does it go for what you meant by sabotage? | **Keep** (Henry, 2026-11-11): "i saw groups and sabotage, yes all good." |
 | S5 | **A ship keeps the enemy it's after** until that one is gone or another is 30 px nearer. Before, it picked the nearest again every tick. | Do fights look steadier, or do ships now ignore things they should turn on? | **Keep** (Henry, 2026-11-11): "i didn't see anything that seemed odd." |
-| S6 | **Groups: GROUP 1, 3, 6 or 12** on the yard's flight row, or G. On HUNT or SAB that many of the design gather, within 96 px of one another, before any leaves, and they guard meanwhile. | Do groups leave when you expect? They gather by nearness, so each factory makes its own group: is that right, or should a design gather across the map? | **Keep** (Henry, 2026-11-11), with everything waiting together leaving together: "i saw groups and sabotage, yes all good." |
+| S6 | **Groups: GROUP 1, 3, 6 or 12** on the yard's flight row, or G. On HUNT or SAB that many of the design gather, within 96 px of one another, before any leaves, and they guard meanwhile. | Do groups leave when you expect? They gather by nearness, so each factory makes its own group: is that right, or should a design gather across the map? | **Keep** (Henry, 2026-11-11), with everything waiting together leaving together: "i saw groups and sabotage, yes all good." **Gone, 2026-11-14,** with the flight buttons (A4, A5). Henry: "I think we can get rid of group size along with manual flight patterns." |
 | D1 | **The AI sees a king coming.** Your king counts as a raid from the moment it crosses to the AI's half of the map, not from when it arrives. | Fly your king over at the start with lancers on repeat, as on seed 28100. Does the AI answer in time? | |
 | D2 | **Guns before miners against a raid it can't match,** and nothing extra held back under a raid. Against a king with ships round it, it prints what answers the ships; against a king alone, lancers. | Does it spend its bank when you raid it, or sit on it as it did at 4:00 on seed 28100? | |
 | D3 | **Its king stands beside its factory while a raid is on,** so the factory's flak and its own cover each other. It stays against what it outweighs. Outweighed, it falls back on a factory nobody is attacking. | Does the king's moving about make sense to watch? Is it too easy to catch out? | |
@@ -372,6 +372,17 @@ What they say: the numbers can make every ship count, but slower isn't longer. W
 | K8 | **On the wire:** two new commands, the stance and a rally point (version 10). | Nothing to judge alone. | |
 | K9 | **The stance takes everything that flies unless it has mining equipment** (Henry's rule, 2026-11-14). A ship with a scoop mines, whatever it was drawn with. A flying design drawn to HOLD takes the stance now. | The HOLD half is my reading of "everything". Right? | |
 | K10 | **K selects your king. K again straight away takes the view to it,** as with a group's number. The note above the small map does the same. (Henry's tweak, 2026-11-14.) | | |
+| A1 | **Ships choose how they fly.** Each side has a planner, in a match and in the arena. While it has warships in a fight it takes one design at a time, plays the fight forward 8 s with that design on attack runs, kiting and orbiting, and keeps what came out best. | Does it look smart, or does it only win? | |
+| A2 | **What's played forward is the fight alone:** the ships within 300 px of an enemy, in a bare arena, with no match round them. | It's what makes it affordable. What it gets wrong is in the notes. | |
+| A3 | **The thinking is spread over ticks,** more of it a tick for a small fight: a design is decided in under a second in a fight of twenty ships, about 2 s in one of forty, about 12 s in one of a hundred. | Quick enough to matter in a big fight? | |
+| A4 | **The yard's flight buttons and group buttons are gone,** with their keys (Y and G). The flight row shows where the drawing starts its ships. Old saves load, and the two settings are dropped. | | |
+| A5 | **Ships leave as they're built.** No gathering into groups, on ATTACK or for the AI. | | |
+| A6 | **The arena's sides both plan too.** Its brain buttons are for comparing: ARCH (every side starts on it), PLAIN (no planner; this was CARD), DRILLED. | Keep the buttons? | |
+| A7 | **Hover a ship** for what its side has chosen: "ITS SIDE HAS EVERY FIGHTER ORBITING." | | |
+| O1 | **A drawing carries no order, and the yard has no order buttons** (or O key). What its ships do follows from the drawing: engines and a scoop mines, engines and no scoop fights, no engines stays put. | A ship with a scoop can't be a warship. Right? | |
+| O2 | **A card's own order is the AI's to give.** HUNT, SAB, GUARD and ESCORT are what an AI tells its cards. From a person's side the command is dropped, yours or another player's. | | |
+| O3 | **Nothing a player sees names an order:** the bar under a ship says who it is and what it's doing. | | |
+| O4 | **The AI orders its unarmed ships with its warships,** so a shield ship of its goes with its fleet. | | |
 
 **Henry's rulings on the plan (2026-11-10):**
 1. **The seed's price is its size, paid in full up front:** yes.
@@ -1695,6 +1706,93 @@ Henry, after playing a match and winning it at 6:15 (one ATTACK, at 5:06): "I th
 - Once ships choose how they fly, look again at the set of patterns itself. Henry's first thought for a new one: evasive manoeuvres.
 
 *Checks.* 285 tests pass. The rule-break list is 435 long: 7 new for these two changes, and 6 mended. All 13 were run and all are caught.
+
+**Automatic flight (2026-11-14).** Rows A1 to A7 in the table above. Not committed.
+
+Henry: "Commit and push, then we're ready for automatic flight. I think we can get rid of group size along with manual flight patterns. I think once we have the new automatic flight features, we can and should consider optimizing the set of patterns. One thing I think it might make sense to add is an evasive maneuvers pattern." (He approved ships choosing how they fly on 2026-11-13, twice.)
+
+*What's built.* Nobody sets how a design flies, in the yard or anywhere. Each side of a match has the planner that was the arena's ARCH brain, changed in two ways so that a match can afford it.
+
+*Why it had to change: the measurements.*
+- The arena's planner copied the whole fight and played it forward, every way of every design, before the first move, and one design again every 2 s. In a match that copy is the whole match. Playing a match forward 8 s costs 3 ms two minutes in, 45 to 70 ms at ten minutes and 200 to 450 ms from fourteen (`--plan-cost`). One think is three or four of those.
+- First cut: copy the match, put every ship that isn't in a fight to sleep in the copy, and spread the playing forward over ticks. It won as many fights as the old planner. But an AI match took 300 s to play where it had taken about 20, and the test suite went from 50 s to over ten minutes. The copy still paid, every tick, for the match round the fight: banks, miners, printing, both AIs. A played-forward tick with 14 ships awake cost 132 us at ten minutes, and 67 us of that was a tick with nobody awake at all.
+- As built: the fight alone. The ships within 300 px of an enemy are copied into a bare arena, with the shots flying at them, and that is played forward. The same 14 ships cost 15 us a tick, 34 ships 44 us, 120 ships 289 us.
+- The share played forward each tick is 24,000 divided by the ships in the fight squared plus 200, between 2 and 40 ticks. That holds the cost near 0.6 ms a side a tick in a match's fights (more for fleets of big ships: 2 ms a side with 38 frigates and capitals).
+
+*Does it still win?* Ships that choose against ships that fly as drawn, mixed fleets, five fights a deck, sides swapped, 12 seeds: 120 fights a deck (`--flight`).
+
+| deck | won | lost | drawn | the arena's old planner |
+|---|---|---|---|---|
+| starter | 81 | 39 | 0 | 76-44-0 |
+| parts library | 78 | 6 | 36 | 69-16-35 |
+| Henry's saved team | 87 | 3 | 30 | 74-2-44 |
+| all three | 246 | 48 | 66 | 219-62-79 |
+
+- **With a planner on both sides,** as in a match: of 60 fights a deck, 0 were drawn on the starter deck (0 with no planner), 18 on the parts library (4) and 29 on Henry's team (6). Two sides that each pick the way that loses them least keep away from each other more often, and in the arena 20 s with nothing lost is a draw. A match has no such rule, but the standing off is real and worth watching for.
+- **Fights run longer when both sides choose:** 35 s a fight against 22 s with no planner on the starter deck, 129 s against 76 s on the parts library, 121 s against 91 s on Henry's team.
+- **Cost:** on the twin fight with one side planning, the longest tick was 11, 7 and 4 ms on the three decks (38, 58 and 26 ships) and a tick averaged 3.2, 2.6 and 1.5 ms. The old planner's longest ticks were 77, 183 and 25 ms, after a first plan of 264, 514 and 113 ms. A frame is 66 ms.
+- **AI against AI, the starter deck:** seeds 1 to 3 ended at 20:16, 23:20 and 12:33, all won by red. Before: 20:37, 19:20 and 18:06, won by blue, red and blue. They take 14 to 45 s to play with nobody watching, where they took about 20 s, and the test suite takes three minutes where it took 50 s.
+
+*What the fight alone gets wrong.* It's a copy to score ways of flying by, not the match.
+- A king that was sent somewhere stands still in it. Kings in a fight are in it, and fire.
+- A miner stays where it is: there's no rock in it.
+- A ship that's hurt and unarmed runs for a corner of the map there, not for its base.
+- A ship still being printed isn't in it, and nothing new is printed during the 8 s.
+- Ships more than 300 px from any enemy aren't in it, so reinforcements on their way aren't counted.
+- Nobody's AI gives orders in it: every ship keeps the order it has.
+
+*Other things to know.*
+- **One way of flying a design, everywhere.** If your fighters are in two fights at once, one choice serves both, made on both fights together.
+- **The choice stands until it's thought about again.** Ships that meet a new enemy fly the way last chosen until their design's turn comes round.
+- **The AI's ships choose too,** so it fights better than it did.
+- **The wire is version 11:** two games that fly differently would fall out of step, so they don't pair.
+- **Miners aren't thought about,** armed or not: found by a test, when the planner spent its turns on a design that only mines.
+- **A design nobody has thought about flies as its drawing suggests:** at least 1 thrust per weight makes attack runs, less kites. The yard's flight row shows which.
+- **The reference fights are re-recorded** with a planner on each side, as the window now fights them. Starter deck, 15 fights: the same side wins every one, 4 scores moved, and a fight runs 19 s on average where it ran 14 s. Parts examples, 19 fights: 12 scores moved and three fights changed hands, 2 RAKERS V 1 FRIGATE (0-11-1 to 6-0-6), 2 ARCHERS V 1 FRIGATE (0-4-8 to 9-0-3) and 2 BEAMERS + 1 AEGIS V 6 FIGHTERS (9-1-2 to 4-8-0); a fight runs 77 s where it ran 60 s. Old fleet, 22 fights: 9 scores moved and two changed, 1 TITAN V 40 LANCERS (12-0-0 to 5-5-2, and 124 s where it took 19) and 13 FRIGATE V 1 CAPITAL (8-4-0 to 6-6-0); 59 s where it ran 53 s.
+
+*Rules changed from what Henry had agreed. Each on its own line.*
+- **S1: how a design flies was chosen in the yard.** Gone, on Henry's ruling of 2026-11-13.
+- **S6: groups.** Gone, on Henry's word above. A ship on ATTACK, or on an AI's HUNT, leaves as it's built.
+- **The presets' own ways are gone with the setting.** The ARCHER's card said KITE; now it starts on attack runs, as it's drawn, and its side decides.
+- **The arena's sides had no planner unless a button was pressed. Now both have one,** and PLAIN is the button's other choice. The arena should fight as a match does.
+- **The brain called CARD is called PLAIN,** since a card no longer says how its ships fly.
+- **The arena's planner thought the whole plan through before the first move.** It doesn't now: designs are taken one at a time from the first tick, flying as drawn until their turn. It was a 264 to 514 ms hitch.
+- **A test's bound moved.** "The AI doesn't change its orders every few seconds" allowed 80 changes in eight minutes of one match. With ships choosing, that match has 84, and the bound is 100.
+
+*Not built.*
+- **A better set of ways to fly, and evasive manoeuvres:** Henry's next thought, for once this has been played. The planner takes whatever ways there are: a fourth is a line in a list and the code that flies it.
+- **The yard's ORDER buttons are still there.** In a person's match they now do nothing: anything with a scoop mines and everything else that flies takes the stance. They still matter in the arena (HOLD stays put) and to the AI's reading of a deck. Whether they go too is Henry's call.
+- **The DRILLED brain** is still an arena button. It made nobody better, and nothing uses it.
+
+*Checks.* 288 tests pass. The planner has 9 where it had 4, the two tests of groups are gone, and the tests of the yard's flight buttons, of a design's line and of a card's hover text are rewritten. The rule-break list is 443 long: 22 new for the planner, 14 dropped with the rules they broke (groups, a design's own way of flying, the old planner), 3 mended. The 25 new and mended were run and all are caught. One is caught by a crash, not a failed check: a fight played forward that plans plays forward a fight that plans, and so on until the stack runs out. The runner missed that at first (it looked only for failed tests) and now sees a test run that dies. Screenshots of the yard and of the arena with a planner looked at. I haven't played it in the window: whether ships look smart is unjudged.
+
+**Orders off the drawings (2026-11-14, later).** Rows O1 to O4 in the table above. Not committed.
+
+Henry: "What role are the dispositions in the building screen playing now? I'd like to remove them unless they're there for some pernicious reason that needs more careful thought. My understanding is that they can become part of the opponent AI perhaps (and encapsulated to that scope - remember we want to have at least 3 levels in the future) but I don't believe they should be part of, for example, the PvP 1v1 match at all. Should never be used or referenced in human play at all is my understanding. I guess maybe except for the miner AI. Which is different from hunt and sab AI."
+
+*What they were doing.*
+- **In Henry's own matches, nothing.** Since the stance, everything of his that flies without a scoop guards or attacks together, and anything with a scoop mines, whatever it was drawn with.
+- **For the AI, two things.** It sorted a deck by them: a scoop and HARVEST marked a miner card, and HOLD marked a card as no warship. Every other order it gave its cards itself as the match went.
+- **In the arena, what a placed ship did:** HOLD stayed put, HARVEST mined, SAB went for miners, the rest hunted.
+- **In every design's line,** in saves and the library, and in the library's list and the bar under a ship.
+
+*Was there a reason to keep them?* None found.
+- All 9 designs in Henry's saved team, all 28 in his library and every ready-made design already had the order their drawing gives.
+- Both things the AI read are in the drawing: a scoop and engines is a miner, engines without a scoop is a ship that fights.
+- What's lost is on the test bench only: in the arena a flying ship can't be made to stand still or to go for miners.
+- One consequence to know: **a ship with a scoop is a miner and nothing else.** That was already true in Henry's matches. It's now true for the AI and in the arena too.
+
+*As built.*
+- A design is its pixels, its name, whether it's seeded and what it builds. Its line is `NAME|X,Y|rows|KIND|BUILD`. Older lines, with an order second and perhaps a way of flying and a group size on the end, load as the same drawing.
+- The yard: the six order buttons and the O key are gone. BUILT, SEEDED and the build rows moved up into their place, and the info box under them is 24 px taller.
+- A match starts every side's cards the same way: what flies without a scoop on GUARD, what flies with one mining, the rest holding. Then a person's stance moves the first kind together and an AI orders its cards one at a time.
+- The command that gives one card an order is dropped when it comes from a side no AI plays. Nothing on screen could send it since the tags went; now nothing over the wire can either.
+- The AI's orders go to everything of its that flies without a scoop, armed or not (O4). Before, an unarmed ship of its kept the order it was drawn with.
+- The bar under a ship no longer names its order (O3): "BLUE FIGHTER - ON GUARD", not "BLUE FIGHTER - GUARD - ON GUARD". The library's list says MINES, FIGHTS, STAYS PUT or FLIES, NO GUNS.
+- Orders themselves are untouched: HUNT, SAB, GUARD, ESCORT, HARVEST and HOLD are still what a ship is on, for the AI's levels to use. ESCORT has no user today.
+- The wire is version 12.
+
+*Checks.* 291 tests pass. The AI plays the same three matches as before the change, line for line, which is the check that a drawing's role comes out as its old setting did. The rule-break list is 451 long: 12 new, 3 mended, and 4 dropped with the drawn orders they broke. The 15 new and mended were run and 13 were caught at once. Two got past: an armed miner counted among the AI's warships (nothing checked how the AI sorts the starter miner, which has a gun), and a ship placed in a match taking its drawing's order, not its side's (the test set the order by hand). The tests check both now, and both are caught. Screenshots of the yard looked at. I haven't played it in the window.
 
 **Checks (2026-11-11, after N1):** 141 tests pass. 84 of 84 deliberate rule breaks are caught, twenty of them new. Among them: a command that skips the lag, a machine that plays on without the other's turn, each machine applying its own commands first, a check that compares nothing, a hash with the ships left out, a command counted whoever's name is on it, a turn let through out of order, the joiner's cards printing for blue, a network match that stops under a panel, a right-clicked card marking a job already queued, and the edge shoving a hulk. One was missed at first: the king's keys sent every frame change nothing in the match (the sim drops the repeats), only what crosses the wire, and no test had looked at the wire. One does now. The arena's 41 reference fights are exactly as last recorded.
 

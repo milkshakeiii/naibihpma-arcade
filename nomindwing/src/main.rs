@@ -88,6 +88,10 @@ fn main() {
         export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5), arg("--cards").flatten().as_deref(), arg("--only").flatten().as_deref(), args.iter().any(|a| a == "--whatif"));
         return;
     }
+    if args.iter().any(|a| a == "--plan-cost") {
+        export::plan_cost();
+        return;
+    }
     if let Some(i) = args.iter().position(|a| a == "--pace") {
         export::pace(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(10));
         return;
@@ -102,7 +106,13 @@ fn main() {
     if let Some(which) = arg("--brains") {
         // `--brains`: the drilled brain against the card brain, over every deck. Or one of
         // `starter`, `parts`, `old`, `mine`.
-        export::brains(which.as_deref().unwrap_or(""));
+        export::brains(which.as_deref().unwrap_or(""), false);
+        return;
+    }
+    if let Some(which) = arg("--flight") {
+        // `--flight [starter|parts|old|mine]`: ships that choose how they fly against ships
+        // that fly as drawn, and against each other.
+        export::brains(which.as_deref().unwrap_or(""), true);
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--trace") {

@@ -44,8 +44,6 @@ pub const SPILL_CAP: i32 = 300;
 pub const MATCH_LIMIT: u32 = 15 * 60 * 40;
 pub const KING_SLOT: usize = 100;
 pub const SEED_SLOT: usize = 101;
-/// Ships of a design count as one group once they're waiting this close to one of them.
-pub const MUSTER: i32 = 96;
 /// A wave needs this many pixels of warships, and is called home after this long.
 const WAVE_MIN: i32 = 100;
 const WAVE_TICKS: u32 = 15 * 240;
@@ -94,6 +92,8 @@ pub enum Cmd {
     /// pixel from its network's bank.
     Sow { team: usize, slot: usize, at: (i32, i32) },
     /// A design's standing order: every ship of it, flying or still to be printed, takes it.
+    /// An AI's command only: a person's side has the stance (`Stance`), and this is dropped
+    /// when it comes from one.
     Order { team: usize, slot: usize, order: Order },
     /// The king keeps printing a deck slot, or stops. A repeating job goes back on the end of the
     /// queue each time it's finished. With no place given (the card was picked): if a job of the
@@ -112,7 +112,8 @@ pub enum Cmd {
     /// is sent with one of these for each ship. A king can be sent too: it flies there while
     /// its keys are let go, and stops when it arrives.
     Send { team: usize, ship: usize, at: (i32, i32), pace: i32 },
-    /// A ship that was sent is let go: it does as its card says again.
+    /// A ship that was sent is let go: it does as its order says again, which for a person's
+    /// side is the stance.
     Home { team: usize, ship: usize },
     /// One of the side's ships (or its king) is sent after a thing, its own side's or the
     /// enemy's: as `Send`, to wherever that thing is, tick by tick. When the thing is gone the
@@ -120,8 +121,7 @@ pub enum Cmd {
     Follow { team: usize, ship: usize, target: usize, pace: i32 },
     /// The side's one stance, for every ship it hasn't sent anywhere: attack the nearest enemy,
     /// or guard where it was built. Every card that takes the stance (`Card::stanced`: all that
-    /// fly, bar what has mining equipment) goes on HUNT or on GUARD. Told to attack, the ships
-    /// already flying go at once; ships built afterwards leave in their groups.
+    /// fly, bar what has mining equipment) goes on HUNT or on GUARD, and its ships go at once.
     Stance { team: usize, attack: bool },
     /// A factory's rally point: the ships it builds from now on make that place their home, and
     /// wait and guard there and not round the factory. A place on the factory itself is no
@@ -356,10 +356,6 @@ pub struct Card {
     pub cost: i32,
     pub seeded: bool,
     pub st: Stats,
-    /// The order it was drawn with: the one it starts the match on.
-    pub order: Order,
-    /// How many of it gather before they leave on HUNT or SAB.
-    pub group: u8,
 }
 
 #[derive(Clone, Hash)]
@@ -402,20 +398,20 @@ pub struct Eco {
 impl Card {
     pub fn of(d: &Design) -> Card {
         let st = d.stats();
-        Card { ok: d.check().ok(), count: st.count, cost: st.cost, seeded: d.seeded, st, order: d.order, group: d.group.max(1) }
+        Card { ok: d.check().ok(), count: st.count, cost: st.cost, seeded: d.seeded, st }
     }
     /// What the king pays to print it. A ship is paid for a pixel at a time as it's printed; a
     /// seeded design is paid for in full, everything it will grow into, before its seed sets off.
     pub fn price(&self) -> i32 {
         self.cost
     }
-    /// A ship that mines.
+    /// A ship that mines: it flies and has mining equipment.
     pub fn miner(&self) -> bool {
-        self.ok && !self.seeded && self.st.scoops > 0 && self.order == Order::Harvest
+        self.ok && !self.seeded && self.st.thrust > 0 && self.st.scoops > 0
     }
-    /// A ship that flies and fights.
+    /// A ship that flies and fights: armed, with no mining equipment.
     pub fn warship(&self) -> bool {
-        self.ok && !self.seeded && self.st.armed() && self.st.thrust > 0 && !self.miner() && self.order != Order::Hold
+        self.ok && !self.seeded && self.st.armed() && self.st.thrust > 0 && self.st.scoops == 0
     }
     /// A seeded design that prints.
     pub fn factory(&self) -> bool {
@@ -427,11 +423,7 @@ impl Card {
     pub fn stanced(&self) -> bool {
         self.ok && !self.seeded && self.st.thrust > 0 && self.st.scoops == 0
     }
-    /// Whether, on a person's side, its ships mine whatever the stance: anything that flies and
-    /// has mining equipment.
-    pub fn mines(&self) -> bool {
-        self.ok && !self.seeded && self.st.thrust > 0 && self.st.scoops > 0
-    }
+
 }
 
 impl Arena {
@@ -443,6 +435,8 @@ impl Arena {
     /// The same, saying who plays each side.
     pub fn for_bots(seed: u64, deck: [Vec<Design>; 2], bot: [Bot; 2]) -> Arena {
         let mut a = Arena::blank(MW, MH, seed);
+        // In a match every ship chooses how it flies: each side has its planner.
+        a.brain = [Brain::ARCH; 2];
         let rocks = a.match_rocks();
         for _ in 0..900 {
             let (x, y) = (a.rng.range(0, MW - 1), a.rng.range(0, MH - 1));
@@ -462,19 +456,11 @@ impl Arena {
             kings[t] = i;
         }
         let cards: [Vec<Card>; 2] = [deck[0].iter().map(Card::of).collect(), deck[1].iter().map(Card::of).collect()];
-        // A person's side has one stance for all its ships, and starts the match on GUARD,
-        // whatever order each design was drawn with. What has mining equipment mines, whatever
-        // it was drawn with. An AI orders its own cards one by one.
-        let mut orders: [Vec<Order>; 2] = [deck[0].iter().map(|d| d.order).collect(), deck[1].iter().map(|d| d.order).collect()];
-        for t in 0..2 {
-            for s in (0..cards[t].len()).filter(|_| bot[t] == Bot::None) {
-                if cards[t][s].stanced() {
-                    orders[t][s] = Order::Guard;
-                } else if cards[t][s].mines() {
-                    orders[t][s] = Order::Harvest;
-                }
-            }
-        }
+        // What each card's ships start on follows from its drawing, on every side: what flies
+        // with no mining equipment guards where it was built, what flies with a scoop mines, and
+        // what can't fly holds where it is. After that a person's stance moves the first kind
+        // all together, and an AI orders its cards one by one.
+        let orders: [Vec<Order>; 2] = [0, 1].map(|t| cards[t].iter().map(|c| if c.stanced() { Order::Guard } else { c.st.order() }).collect());
         a.eco = Some(Eco {
             deck,
             cards,
@@ -646,57 +632,18 @@ impl Arena {
 
     // ----- The tick -----
 
-    /// Groups set off. Ships of a design that leaves in groups wait at their posts, guarding,
-    /// until as many as its group size are waiting within `MUSTER` px of one of them. Those go,
-    /// all of them, and anything that joins later waits for a group of its own.
-    fn muster(&mut self) {
-        for team in 0..2 {
-            for slot in 0..self.eco().cards[team].len() {
-                let size = self.eco().cards[team][slot].group as usize;
-                let waiting: Vec<usize> = (0..self.ships.len())
-                    .filter(|&i| {
-                        let s = &self.ships[i];
-                        s.alive && s.waiting && s.team == team && s.slot == slot && s.role == Role::Ship && matches!(s.order, Order::Hunt | Order::Sab) && s.warp == 0 && s.grow.is_none() && s.maker.is_none()
-                    })
-                    .collect();
-                for &a in &waiting {
-                    if !self.ships[a].waiting {
-                        continue;
-                    }
-                    let (ax, ay) = (self.ships[a].x, self.ships[a].y);
-                    let near: Vec<usize> = waiting.iter().copied().filter(|&b| self.ships[b].waiting && cheb(self.ships[b].x, self.ships[b].y, ax, ay) <= MUSTER).collect();
-                    if near.len() >= size {
-                        for b in near {
-                            self.ships[b].waiting = false;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// A design's standing order changes: every ship of it takes the new one, and so will the
-    /// ones still to be printed. With `muster`, ships sent out from guarding or escorting
-    /// gather first and leave as a group (switched between HUNT and SAB, the ones already out
-    /// stay out); without, they leave as they are.
-    fn set_order(&mut self, team: usize, slot: usize, order: Order, muster: bool) {
+    /// ones still to be printed. (Ships sent out used to gather into groups first. Group size
+    /// went with the manual flight patterns, 2026-11-14.)
+    fn set_order(&mut self, team: usize, slot: usize, order: Order) {
         if self.eco().orders[team].get(slot).map_or(true, |&o| o == order) {
             return;
         }
         let e = self.eco_mut();
-        let out = |o: Order| matches!(o, Order::Hunt | Order::Sab);
-        let gather = muster && e.cards[team][slot].group > 1 && !(out(e.orders[team][slot]) && out(order));
         e.orders[team][slot] = order;
         e.tally[team].orders += 1;
         for s in self.ships.iter_mut().filter(|s| s.alive && s.team == team && s.slot == slot && s.role == Role::Ship) {
             s.order = order;
-            if gather {
-                s.waiting = true;
-            } else if !muster && out(order) && s.grow.is_none() && s.warp == 0 {
-                // Sent out all at once: what's flying goes as it is. What's still being printed
-                // waits for its group when it's done.
-                s.waiting = false;
-            }
         }
     }
 
@@ -717,8 +664,6 @@ impl Arena {
             self.apply_commands();
             self.steer_king(t);
         }
-        // After this tick's orders, so a group already gathered leaves on the tick it's told to.
-        self.muster();
     }
 
     /// Queues a command for the next tick. A steer that changes nothing is dropped.
@@ -786,14 +731,18 @@ impl Arena {
                     let Some(s) = self.ships.get_mut(ship).filter(|s| s.commandable(team)) else { continue };
                     (s.sent, s.pace, s.chase) = (Some(at), pace, Some(target));
                 }
-                Cmd::Order { team, slot, order } => self.set_order(team, slot, order, true),
+                Cmd::Order { team, slot, order } => {
+                    // A card's own order is an AI's to give. A person's side has the stance and
+                    // nothing else: from one, this is dropped.
+                    if self.eco().bot[team] != Bot::None {
+                        self.set_order(team, slot, order);
+                    }
+                }
                 Cmd::Stance { team, attack } => {
-                    // Told to attack, what's flying goes now, from wherever it is: it doesn't
-                    // fly home first to gather.
                     let order = if attack { Order::Hunt } else { Order::Guard };
                     let stanced: Vec<usize> = (0..self.eco().cards[team].len()).filter(|&s| self.eco().cards[team][s].stanced()).collect();
                     for slot in stanced {
-                        self.set_order(team, slot, order, false);
+                        self.set_order(team, slot, order);
                     }
                 }
                 Cmd::Rally { team, ship, at } => {
@@ -1811,7 +1760,9 @@ impl Arena {
                 mind.wave_worth = army;
             }
         }
-        for &s in &warships {
+        // (Its ships that fly without guns, a shield ship say, take the same orders as its
+        // warships: they go with the fleet.)
+        for s in (0..cards.len()).filter(|&s| cards[s].stanced()) {
             let out = bot != Bot::Ai || turned_out || (mind.wave && mind.release.get(s).is_some_and(|&r| tick >= r));
             let want = if sends { Order::Guard } else if bot == Bot::Saboteur { Order::Sab } else if out { Order::Hunt } else { Order::Guard };
             if self.eco().orders[t][s] != want {
@@ -2233,7 +2184,7 @@ mod tests {
         // A tiny factory (2 factory pixels: ships up to 20 px) with a frigate (44 px) first on its
         // list skips straight to the fighter.
         let mut deck = starter_deck();
-        let mut tiny = Design::from_rows("TINY", Order::Hold, &["hfh", "hch", "hfh"]);
+        let mut tiny = Design::from_rows("TINY", &["hfh", "hch", "hfh"]);
         tiny.seeded = true;
         tiny.build = vec![2, 0];
         deck[4] = tiny;
@@ -2406,7 +2357,7 @@ mod tests {
     /// A block of hull round a core, `w` by `h`: pixels standing that do nothing else.
     fn slab(w: usize, h: usize) -> Design {
         let rows: Vec<String> = (0..h).map(|y| (0..w).map(|x| if (x, y) == (w / 2, h / 2) { 'c' } else { 'h' }).collect()).collect();
-        Design::from_rows("SLAB", Order::Hold, &rows.iter().map(|r| r.as_str()).collect::<Vec<_>>())
+        Design::from_rows("SLAB", &rows.iter().map(|r| r.as_str()).collect::<Vec<_>>())
     }
 
     #[test]
@@ -2490,7 +2441,7 @@ mod tests {
                 // Enough standing, and too far off for the hunter to prefer it to the king.
                 a.spawn(0, 0, &slab(8, 5), kx + 600, ky - 320, 0, false);
             }
-            let hunter = Design { order: Order::Hunt, ..ship.clone() };
+            let hunter = ship.clone();
             let f = a.spawn(1, 0, &hunter, kx - behind, ky, 1, false);
             a.ships[f].order = Order::Hunt;
             a.command(Cmd::Steer { team: 0, dx: 1, dy: 0 });
@@ -2939,7 +2890,7 @@ mod tests {
         // Blue grows a yard, then sends a second seed to the very same rock pixel. The second
         // comes down on the nearest rock the first isn't on and grows up against it, not through
         // it: stacking factories on one spot would otherwise be free armour.
-        let mut yard = Design::from_rows("YARD", Order::Hold, &["hhhhhhh", "hfffffh", "hfhhhfh", "hfhchfh", "hfhhhfh", "hfffffh", "hhhhhhh"]);
+        let mut yard = Design::from_rows("YARD", &["hhhhhhh", "hfffffh", "hfhhhfh", "hfhchfh", "hfhhhfh", "hfffffh", "hhhhhhh"]);
         yard.seeded = true;
         let mut blue = starter_deck();
         blue[4] = yard;
@@ -2975,7 +2926,7 @@ mod tests {
         // Red's king, far bigger than a little plated hulk with no engines, is steered straight
         // over it. The hulk can't move itself, so it stays exactly where it is while the king
         // passes over. It used to be pushed out from under the king a pixel or two a tick.
-        let hulk = Design::from_rows("HULK", Order::Hold, &["ppppp", "pfffp", "pfcfp", "pfffp", "ppppp"]);
+        let hulk = Design::from_rows("HULK", &["ppppp", "pfffp", "pfcfp", "pfffp", "ppppp"]);
         let mut a = Arena::for_match(1, [starter_deck(), starter_deck()], [false, false]);
         let k = a.eco.as_ref().unwrap().king[1];
         let (kx, ky) = (a.ships[k].x, a.ships[k].y);
@@ -2999,7 +2950,7 @@ mod tests {
         // The same little yard, planted this time. Red's king is steered straight at it and stops
         // against its plate: it never shares a pixel with it, however much bigger it is, and the
         // yard doesn't move. Steered diagonally instead, the king slides along the plate and past.
-        let yard = Design::from_rows("YARD", Order::Hold, &["ppppp", "pfffp", "pfcfp", "pfffp", "ppppp"]);
+        let yard = Design::from_rows("YARD", &["ppppp", "pfffp", "pfcfp", "pfffp", "ppppp"]);
         for slide in [false, true] {
             let mut a = Arena::for_match(1, [starter_deck(), starter_deck()], [false, false]);
             let k = a.eco.as_ref().unwrap().king[1];
@@ -3038,7 +2989,6 @@ mod tests {
         let mut d = blue[0].clone();
         d.name = "SPROUT".into();
         d.seeded = true;
-        d.order = Order::Hunt;
         assert!(d.stats().thrust > 0, "the test needs a design that can fly");
         blue[4] = d;
         let mut a = Arena::for_match(1, [blue, starter_deck()], [false, false]);
@@ -3074,7 +3024,7 @@ mod tests {
         // it), comes down on the nearest free rock, grows round blue's factory, not through it,
         // and prints with what it managed to grow.
         let yard = |build: Vec<usize>| {
-            let mut d = Design::from_rows("YARD", Order::Hold, &["hhhhh", "hfffh", "hfcfh", "hfffh", "hhhhh"]);
+            let mut d = Design::from_rows("YARD", &["hhhhh", "hfffh", "hfcfh", "hfffh", "hhhhh"]);
             d.seeded = true;
             d.build = build;
             d
@@ -3168,7 +3118,7 @@ mod tests {
         // should get half. Before turns, whichever was built first took the lot and the other
         // printed nothing.
         let yard = |name: &str, build: Vec<usize>| {
-            let mut d = Design::from_rows(name, Order::Hold, &["hhhhh", "hfffh", "hfcfh", "hfffh", "hhhhh"]);
+            let mut d = Design::from_rows(name, &["hhhhh", "hfffh", "hfcfh", "hfffh", "hhhhh"]);
             d.seeded = true;
             d.build = build;
             d
@@ -3176,9 +3126,7 @@ mod tests {
         let mut deck = starter_deck();
         deck[4] = yard("YARD A", vec![0]);
         deck[5] = yard("YARD B", vec![1]);
-        // Hold-order copies, so what's printed stays put and nothing wanders off to fight.
-        deck[0].order = Order::Hold;
-        deck[1].order = Order::Hold;
+        // (What's printed guards where it was built: nothing wanders off to fight.)
         let mut a = Arena::for_match(1, [deck, starter_deck()], [false, false]);
         let e = a.eco.as_ref().unwrap();
         let (kx, ky) = KING_STARTS[0];
@@ -3292,7 +3240,8 @@ mod tests {
         run(&mut a, 5);
         assert!(fighters(&a).iter().all(|&i| far(&a, i) > 200), "a guard left its post to follow the king");
         // ESCORT: all three form up on the king, and follow when it moves on.
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Escort });
+        // (A card's own order is an AI's to give, so it's set here as an AI's command sets it.)
+        a.set_order(0, 0, Order::Escort);
         run(&mut a, 20);
         assert!(fighters(&a).iter().all(|&i| a.ships[i].order == Order::Escort && far(&a, i) < 40), "an escort isn't with the king");
         a.command(Cmd::Steer { team: 0, dx: 1, dy: 0 });
@@ -3301,7 +3250,7 @@ mod tests {
         run(&mut a, 8);
         assert!(fighters(&a).iter().all(|&i| far(&a, i) < 40), "an escort lost the king");
         // HUNT: off they go, and the next one printed is a hunter from the start.
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Hunt });
+        a.set_order(0, 0, Order::Hunt);
         run(&mut a, 8);
         let f = fighters(&a);
         assert!(f.len() == 3 && f.iter().all(|&i| a.ships[i].order == Order::Hunt && far(&a, i) > 150), "a hunter stayed at home");
@@ -3386,40 +3335,33 @@ mod tests {
 
     #[test]
     fn a_persons_side_starts_on_guard_and_its_one_stance_sends_every_ship_out_or_home() {
-        // A fighter drawn to HUNT in groups of three, a lancer drawn to ESCORT and a frigate
-        // drawn to SAB, with the miner and the outpost as they are.
+        // The starter deck, with a second fighter in the seventh slot.
         let mut deck = starter_deck();
-        (deck[0].order, deck[0].group) = (Order::Hunt, 3);
-        deck[1].order = Order::Escort;
-        deck[2].order = Order::Sab;
-        // The miner drawn to HUNT: it has mining equipment, so on a person's side it mines.
-        deck[3].order = Order::Hunt;
-        // And a picket: a fighter drawn to HOLD. It flies and has no scoop, so it takes the
-        // stance like any other.
         deck[6] = deck[0].clone();
-        (deck[6].name, deck[6].order) = ("PICKET".to_string(), Order::Hold);
-        // A person's cards that fly start on GUARD whatever was drawn, bar the one with a
-        // scoop, which mines; its outpost, which can't fly, holds. An AI's cards are as drawn
-        // until it orders them.
+        deck[6].name = "PICKET".to_string();
+        // What each card's ships start on follows from its drawing, on a person's side and on
+        // an AI's alike: what flies with no scoop guards, the miner (a scoop) mines, and the
+        // outpost, which can't fly, holds.
         let b = Arena::for_match(5, [deck.clone(), deck.clone()], [false, true]);
-        assert_eq!(b.eco().orders[0][..5], [Order::Guard, Order::Guard, Order::Guard, Order::Harvest, Order::Hold]);
-        assert_eq!(b.eco().orders[1][..5], [Order::Hunt, Order::Escort, Order::Sab, Order::Hunt, Order::Hold]);
-        assert!(b.eco().cards[0][6].stanced() && b.eco().orders[0][6] == Order::Guard && b.eco().orders[1][6] == Order::Hold);
-        assert!(b.eco().cards[0][3].mines() && !b.eco().cards[0][3].stanced() && !b.eco().cards[0][4].stanced() && !b.eco().cards[0][4].mines());
+        for t in 0..2 {
+            assert_eq!(b.eco().orders[t][..5], [Order::Guard, Order::Guard, Order::Guard, Order::Harvest, Order::Hold]);
+            assert_eq!(b.eco().orders[t][6], Order::Guard);
+        }
+        assert!(b.eco().cards[0][6].stanced() && b.eco().cards[0][3].miner() && !b.eco().cards[0][3].stanced() && !b.eco().cards[0][4].stanced() && !b.eco().cards[0][4].miner());
         let mut a = Arena::for_match(5, [deck.clone(), deck.clone()], [false, false]);
         assert!(!a.attacking(0) && !a.attacking(1));
         let k = a.eco().king[0];
         let (kx, ky) = (a.ships[k].x, a.ships[k].y);
-        // Built as the king's printer builds them: on their card's order.
+        // A ship put into a match is on its side's order for its card, as one printed is: not
+        // on the order its drawing alone would give it (a fighter's drawing says fight).
         let built = |a: &mut Arena, slot: usize, dx: i32, dy: i32| {
             let d = a.eco().deck[0][slot].clone();
             let i = a.spawn(0, slot, &d, kx + dx, ky + dy, 1, false);
-            a.ships[i].order = a.eco().orders[0][slot];
+            assert_eq!(a.ships[i].order, a.eco().orders[0][slot], "a {} put into the match isn't on its card's order", d.name);
             i
         };
         let far = |a: &Arena, i: usize| cheb(a.ships[i].x, a.ships[i].y, a.ships[i].home.0, a.ships[i].home.1);
-        // Two fighters (no group of three), a lancer and a miner: the warships wait where they
-        // were built.
+        // Two fighters, a lancer and a miner: the warships wait where they were built.
         let two = [built(&mut a, 0, 40, 0), built(&mut a, 0, 40, 14)];
         let lancer = built(&mut a, 1, 40, -14);
         let miner = built(&mut a, 3, 60, 0);
@@ -3429,15 +3371,14 @@ mod tests {
         }
         assert!(warships.iter().all(|&i| a.ships[i].order == Order::Guard && far(&a, i) <= 6));
         // ATTACK: every card that flies is on HUNT, the picket's too, and what's flying goes at
-        // once, the two fighters included though they're no group. The miner, which has a scoop,
-        // and the outpost are as they were, and so is red.
+        // once. The miner, which has a scoop, and the outpost are as they were, and so is red.
         a.command(Cmd::Stance { team: 0, attack: true });
         a.step();
         assert!(a.attacking(0) && !a.attacking(1));
         assert_eq!(a.eco().orders[0][..5], [Order::Hunt, Order::Hunt, Order::Hunt, Order::Harvest, Order::Hold]);
         assert_eq!(a.eco().orders[0][6], Order::Hunt);
         assert_eq!(a.eco().orders[1][..3], [Order::Guard, Order::Guard, Order::Guard]);
-        assert!(warships.iter().all(|&i| a.ships[i].order == Order::Hunt && !a.ships[i].waiting));
+        assert!(warships.iter().all(|&i| a.ships[i].order == Order::Hunt));
         assert_eq!(a.ships[miner].order, Order::Harvest);
         for _ in 0..15 * 10 {
             a.step();
@@ -3445,12 +3386,13 @@ mod tests {
         for i in warships {
             assert!(far(&a, i) > GUARD_RADIUS, "ten seconds on, ship {i} has gone {} px", far(&a, i));
         }
-        // A fighter built after that waits for a group of its own.
+        // A fighter built after that goes too, as soon as it's built. (Ships used to gather
+        // into groups first: group size went with the manual flight patterns.)
         let late = built(&mut a, 0, 40, 0);
-        for _ in 0..15 * 5 {
+        for _ in 0..15 * 10 {
             a.step();
         }
-        assert!(a.ships[late].order == Order::Hunt && a.ships[late].waiting && a.ships[late].doing == Doing::Muster && far(&a, late) <= 6);
+        assert!(a.ships[late].order == Order::Hunt && far(&a, late) > GUARD_RADIUS, "ten seconds on, the late fighter has gone {} px", far(&a, late));
         // A ship that's been sent somewhere stays sent, whatever the stance.
         a.command(Cmd::Send { team: 0, ship: lancer, at: (kx + 300, ky - 200), pace: 0 });
         // GUARD: they all come home.
@@ -3470,9 +3412,14 @@ mod tests {
         a.command(Cmd::Stance { team: 0, attack: false });
         a.step();
         assert_eq!(a.eco().tally[0].orders, orders);
-        // One card told HUNT by itself (as the AI tells its cards) isn't the side attacking.
+        // A card's own order is an AI's to give. From a person's side it's dropped: the card
+        // stays as the stance left it.
         a.command(Cmd::Order { team: 0, slot: 1, order: Order::Hunt });
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Sab });
         a.step();
+        assert!(a.eco().orders[0][..3] == [Order::Guard; 3] && !a.attacking(0) && a.eco().tally[0].orders == orders);
+        // One card out of several isn't the side attacking. (Set here as an AI sets it.)
+        a.set_order(0, 1, Order::Hunt);
         assert!(a.eco().orders[0][1] == Order::Hunt && !a.attacking(0));
         // A side with nothing that flies and fights is never attacking.
         let mut c = Arena::for_match(5, [vec![deck[3].clone(), deck[4].clone()], deck.clone()], [false, false]);
@@ -3481,96 +3428,16 @@ mod tests {
         assert!(!c.attacking(0));
     }
 
-    /// A match with blue's fighters on HUNT in groups of three, and blue's king's place.
-    fn match_with_groups_of_three() -> (Arena, Design, (i32, i32)) {
-        let mut deck = starter_deck();
-        deck[0].order = Order::Hunt;
-        deck[0].group = 3;
-        let mut a = Arena::for_match(5, [deck.clone(), starter_deck()], [false, false]);
-        // A person's side starts on GUARD whatever was drawn: the card is told HUNT.
-        assert_eq!(a.eco().orders[0][0], Order::Guard);
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Hunt });
-        a.step();
-        assert_eq!(a.eco().orders[0][0], Order::Hunt);
-        let k = a.eco().king[0];
-        let at = (a.ships[k].x, a.ships[k].y);
-        (a, deck[0].clone(), at)
-    }
-
-    #[test]
-    fn ships_of_a_design_that_leaves_in_groups_wait_until_the_group_is_there() {
-        let (mut a, fighter, (kx, ky)) = match_with_groups_of_three();
-        let far = |a: &Arena, f: usize| cheb(a.ships[f].x, a.ships[f].y, a.ships[f].home.0, a.ships[f].home.1);
-        // Two of them wait where they were built, however long, and guard there.
-        let two = [a.spawn(0, 0, &fighter, kx + 40, ky, 1, false), a.spawn(0, 0, &fighter, kx + 40, ky + 14, 1, false)];
-        for _ in 0..15 * 20 {
-            a.step();
-        }
-        for f in two {
-            assert!(a.ships[f].waiting && a.ships[f].doing == Doing::Muster, "{:?}", a.ships[f].doing);
-            assert!(far(&a, f) <= 6, "it wandered {} px from where it was built", far(&a, f));
-        }
-        // A third makes the group, and all three go.
-        let third = a.spawn(0, 0, &fighter, kx + 40, ky - 14, 1, false);
-        a.step();
-        let three = [two[0], two[1], third];
-        assert!(three.iter().all(|&f| !a.ships[f].waiting));
-        for _ in 0..15 * 10 {
-            a.step();
-        }
-        for f in three {
-            assert!(far(&a, f) > GUARD_RADIUS, "ten seconds on it has gone {} px", far(&a, f));
-        }
-        // One built after they've gone waits for a group of its own.
-        let late = a.spawn(0, 0, &fighter, kx + 40, ky, 1, false);
-        for _ in 0..15 * 5 {
-            a.step();
-        }
-        assert!(a.ships[late].waiting && far(&a, late) <= 6);
-        // Told SAB, the three out stay out, even one that's strayed from the others, and the one
-        // waiting still waits.
-        (a.ships[three[0]].x, a.ships[three[0]].y) = (kx + 400, ky);
-        assert!(three[1..].iter().all(|&f| cheb(a.ships[f].x, a.ships[f].y, kx + 400, ky) > MUSTER));
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Sab });
-        a.step();
-        assert!(three.iter().all(|&f| !a.ships[f].waiting) && a.ships[late].waiting);
-        // Called home and sent out again, they gather first. Four of them, but no three together:
-        // nobody leaves.
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Guard });
-        a.step();
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Hunt });
-        a.step();
-        assert!(three.iter().all(|&f| a.ships[f].waiting) && a.ships[late].waiting, "ships more than {MUSTER} px apart left as a group");
-    }
-
-    #[test]
-    fn a_group_already_gathered_leaves_on_the_tick_its_told_to_and_ones_leave_at_once() {
-        let (mut a, fighter, (kx, ky)) = match_with_groups_of_three();
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Guard });
-        let three = [a.spawn(0, 0, &fighter, kx + 40, ky, 1, false), a.spawn(0, 0, &fighter, kx + 40, ky + 14, 1, false), a.spawn(0, 0, &fighter, kx + 40, ky - 14, 1, false)];
-        for _ in 0..15 {
-            a.step();
-        }
-        assert!(three.iter().all(|&f| a.ships[f].order == Order::Guard));
-        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Hunt });
-        a.step();
-        assert!(three.iter().all(|&f| !a.ships[f].waiting && a.ships[f].doing != Doing::Muster));
-        // Lancers, in the same deck, leave in ones: each is off the moment it exists.
-        let lancer = a.eco().deck[0][1].clone();
-        assert_eq!(lancer.group, 1);
-        let one = a.spawn(0, 1, &lancer, kx + 60, ky, 1, false);
-        assert!(!a.ships[one].waiting);
-    }
-
     #[test]
     fn sab_passes_a_king_by_for_a_miner_and_goes_on_the_wire_like_any_order() {
-        let mut deck = starter_deck();
-        deck[0].order = Order::Sab;
+        let deck = starter_deck();
         let mut a = Arena::for_match(5, [deck.clone(), starter_deck()], [false, false]);
         let k = a.eco().king[1];
         let (kx, ky) = (a.ships[k].x, a.ships[k].y);
-        // A raider 60 px from the red king, and a red miner 200 px beyond: the miner.
+        // A raider on SAB (an order an AI gives) 60 px from the red king, and a red miner 200 px
+        // beyond: the miner.
         let raider = a.spawn(0, 0, &deck[0], kx - 60, ky, 1, false);
+        a.ships[raider].order = Order::Sab;
         let miner = a.spawn(1, 3, &deck[3], kx - 260, ky, 1, false);
         a.step();
         assert_eq!(a.ships[raider].prey, Some(miner));
@@ -3797,6 +3664,41 @@ mod tests {
     }
 
     #[test]
+    fn orders_are_an_ais_to_give_and_it_gives_them_to_everything_of_its_that_flies_without_a_scoop() {
+        // A deck with a tender in its seventh slot: a ship that flies with no guns and no scoop.
+        let mut deck = starter_deck();
+        deck[6] = Design::from_rows("TENDER", &["hhh", "hch", "e.e"]);
+        assert!(deck[6].check().ok() && !deck[6].stats().armed());
+        // Red is a scripted side that puts everything on HUNT, and blue a person.
+        let mut a = Arena::for_bots(3, [deck.clone(), deck.clone()], [Bot::None, Bot::Planter]);
+        // The miner has a flak gun and a scoop: it's a miner to the AI, and no warship.
+        let miner = a.eco().cards[1][3];
+        assert!(miner.st.armed() && miner.miner() && !miner.warship() && !miner.stanced());
+        assert!(a.eco().cards[1][0].warship() && !a.eco().cards[1][6].warship() && a.eco().cards[1][6].stanced());
+        // Before anyone thinks: what flies without a scoop guards, on both sides.
+        for t in 0..2 {
+            assert_eq!((a.eco().orders[t][0], a.eco().orders[t][6], a.eco().orders[t][3]), (Order::Guard, Order::Guard, Order::Harvest));
+        }
+        for _ in 0..40 {
+            a.step();
+        }
+        // The script's fighters, lancers and frigates are on HUNT, and so is its tender, which
+        // goes with the fleet. Its miner still mines and its outpost holds.
+        assert_eq!(a.eco().orders[1][..5], [Order::Hunt, Order::Hunt, Order::Hunt, Order::Harvest, Order::Hold]);
+        assert_eq!(a.eco().orders[1][6], Order::Hunt, "the script left its unarmed ship at home");
+        // The person's side is as it started: nobody gives its cards orders, and one sent as a
+        // command from that side is dropped.
+        a.command(Cmd::Order { team: 0, slot: 0, order: Order::Sab });
+        a.command(Cmd::Order { team: 0, slot: 6, order: Order::Hunt });
+        a.step();
+        assert_eq!((a.eco().orders[0][0], a.eco().orders[0][6], a.eco().tally[0].orders), (Order::Guard, Order::Guard, 0));
+        // The same command from the script's side is taken.
+        a.command(Cmd::Order { team: 1, slot: 6, order: Order::Guard });
+        a.step();
+        assert_eq!(a.eco().orders[1][6], Order::Guard);
+    }
+
+    #[test]
     fn the_ai_masses_then_attacks_and_the_scripts_just_hunt() {
         // By 8:00 the AI has sent its warships out and called them back at least once each way,
         // without switching every few seconds. A scripted side sets HUNT once per warship design
@@ -3811,7 +3713,9 @@ mod tests {
         let hunts = e.log.iter().filter(|(_, c)| matches!(c, Cmd::Order { team: 0, order: Order::Hunt, .. })).count();
         let guards = e.log.iter().filter(|(_, c)| matches!(c, Cmd::Order { team: 0, order: Order::Guard, .. })).count();
         assert!(hunts >= 4 && guards >= 1, "the AI sent {hunts} designs out and called {guards} back in eight minutes");
-        assert!(switches(0) <= 80, "the AI changed orders {} times in eight minutes", switches(0));
+        // (Under 80 until ships chose how they fly, 2026-11-14: its fights go differently now,
+        // and it's 84 in this match. Still one change of a design's order every 20 s or so.)
+        assert!(switches(0) <= 100, "the AI changed orders {} times in eight minutes", switches(0));
     }
 
     // ----- The AI's defence, and the two openings it's measured against -----
@@ -4201,7 +4105,7 @@ mod tests {
         // stays in hyperspace until the king moves and its spot is clear.
         let mut rows = vec!["ppppppppp"; 9];
         rows[4] = "ppppcpppp";
-        let slab = Design::from_rows("SLAB", Order::Hold, &rows);
+        let slab = Design::from_rows("SLAB", &rows);
         let mut a = quiet();
         let k = a.eco.as_ref().unwrap().king[0];
         let (_, _, r, _) = a.ships[k].bbox();
@@ -4236,15 +4140,21 @@ mod tests {
     #[test]
     fn a_match_replays_from_its_commands() {
         // Five minutes of AI against AI, keeping the log of every command. The same commands fed
-        // on the same ticks into a match with no AI at all give the same match: commands are the
-        // only thing that drives one.
+        // on the same ticks into a match where no AI thinks give the same match: commands are
+        // the only thing that drives one.
         let mut a = Arena::for_match(4, [starter_deck(), starter_deck()], [true, true]);
         while a.over.is_none() && a.tick < 15 * 300 {
             a.step();
         }
         let log = a.eco.as_ref().unwrap().log.clone();
         assert!(log.len() >= 6, "only {} commands in five minutes", log.len());
-        let mut b = Arena::for_match(4, [starter_deck(), starter_deck()], [false, false]);
+        // The replay's sides are AIs' sides too (a card's own order is an AI's to give, and is
+        // dropped from a person's side), but nobody thinks for them: every command comes from
+        // the log.
+        let mut b = Arena::for_match(4, [starter_deck(), starter_deck()], [true, true]);
+        for t in 0..2 {
+            b.eco_mut().mind[t].next = u32::MAX;
+        }
         let mut k = 0;
         while b.tick < a.tick {
             while k < log.len() && log[k].0 == b.tick + 1 {

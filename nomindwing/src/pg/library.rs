@@ -1,5 +1,6 @@
 //! The design library: every drawing you've kept, the ready-made ones, and whole teams of nine.
-//! A drawing carries its order, how it flies and its group size with it (Henry, 2026-11-12), and
+//! A drawing carries its order with it (Henry, 2026-11-12; until ships chose how they fly it
+//! carried a way of flying and a group size too), and
 //! taking one into a slot makes a copy the yard edits like any other. Yours live in one text
 //! file beside the save, and a drawing passes between players as a line of text on the
 //! clipboard. The screen only ever asks a shelf for its list, for one entry, and to keep one:
@@ -781,7 +782,6 @@ impl Pg {
                 fb.text(&d.name, r.x + 18, r.y + 4, if !ok { BAD } else if sel { WHITE } else { TEXT }, None, 1);
                 let cost = format!("{}", d.stats().cost);
                 fb.text(&cost, r.x + 106 - Framebuffer::text_width(&cost, 1), r.y + 4, GOLD, None, 1);
-                fb.text(&d.order.name()[..4], r.x + 112, r.y + 4, TEXT_DIM, None, 1);
                 fb.text(shelf.tag(), r.x + r.w - 3 - Framebuffer::text_width(shelf.tag(), 1), r.y + 4, if shelf == Shelf::Mine { ACCENT } else { TEXT_FAINT }, None, 1);
             }
         }
@@ -812,12 +812,7 @@ impl Pg {
             fb.text(&d.name, PREVIEW.x, y(0), TEXT, None, 1);
             let cost = format!("{} PX", st.cost);
             fb.text(&cost, PREVIEW.x + PREVIEW.w - Framebuffer::text_width(&cost, 1), y(0), GOLD, None, 1);
-            let how = match d.flies() {
-                Some(style) if d.group > 1 => format!("{}, {}, IN {}S", d.order.name(), style.name(), d.group),
-                Some(style) => format!("{}, {}", d.order.name(), style.name()),
-                None => format!("{}, STAYS PUT", d.order.name()),
-            };
-            fb.text(&how, PREVIEW.x, y(1), TEXT_DIM, None, 1);
+            fb.text(d.does(), PREVIEW.x, y(1), TEXT_DIM, None, 1);
             let (why, col) = match d.check().problem() {
                 None => ("READY TO FLY".to_string(), GOOD),
                 Some(p) => (p.chars().take(25).collect(), BAD),
@@ -919,7 +914,6 @@ mod tests {
         key(&mut pg, Key::Enter);
         assert!(pg.browse.is_none(), "taking a drawing should go back to the yard");
         assert_eq!(pg.lib[0].to_line(), beamer.to_line(), "the slot doesn't hold the drawing taken");
-        assert_eq!(pg.lib[0].order, beamer.order, "it didn't bring its order with it");
         assert_eq!(lines(&pg.library.ships), vec![mine.clone()], "the drawing it replaced wasn't kept");
         // Undo doesn't reach back into the drawing that was there.
         key(&mut pg, Key::Letter('U'));
@@ -932,7 +926,6 @@ mod tests {
         assert_eq!(pg.library.ships.len(), 1, "a drawing the library already had was kept again");
         // It's a copy: redrawn in the yard, the one in the library stays as it was.
         pg.lib[0].set(0, 0, Some(Part::Hull));
-        pg.lib[0].order = Order::Sab;
         assert_eq!(pg.library.ships[0].to_line(), mine);
         // An empty slot takes a drawing and has nothing to keep.
         pg.select_slot(8);
@@ -963,12 +956,6 @@ mod tests {
         key(&mut pg, Key::Letter('K'));
         assert_eq!(pg.library.ships.len(), 1);
         assert!(note(&pg).contains("NOTHING DRAWN"));
-        // The same pixels on another order are another drawing: its order goes with it.
-        key(&mut pg, Key::Num(3));
-        pg.lib[2].order = Order::Sab;
-        key(&mut pg, Key::Letter('K'));
-        assert_eq!(pg.library.ships.len(), 2);
-        assert_eq!(pg.library.ships[0].order, Order::Sab);
     }
 
     #[test]
@@ -1073,8 +1060,6 @@ mod tests {
     fn a_drawing_goes_out_as_text_and_comes_back_the_same() {
         let mut pg = yard();
         pg.lib[0] = own("SENDER");
-        pg.lib[0].order = Order::Sab;
-        (pg.lib[0].style, pg.lib[0].group) = (Some(Style::Orbit), 6);
         let sent = pg.lib[0].to_line();
         pg.select_slot(0);
         key(&mut pg, Key::Letter('L'));
@@ -1161,8 +1146,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let mut lib = Library::load(Some(path.clone()));
         assert_eq!((lib.ships.len(), lib.teams.len()), (0, 0));
-        let mut orbiter = own("ORBITER");
-        (orbiter.style, orbiter.group, orbiter.order) = (Some(Style::Orbit), 3, Order::Guard);
+        let orbiter = own("ORBITER");
         lib.keep(&orbiter).unwrap();
         lib.keep(&own("SECOND")).unwrap();
         let mut team = team_of(starter_deck());

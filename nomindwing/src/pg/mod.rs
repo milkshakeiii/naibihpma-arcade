@@ -227,7 +227,7 @@ fn help_body() -> Vec<(&'static str, String)> {
         ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. IT NEEDS A CORE, EVERY PIXEL JOINED EDGE TO EDGE, AND A STRAIGHT 3-WIDE WAY OUT FOR EVERY ENGINE.".into()),
         ("POWER", format!("MADE PER PIXEL: {}. EVERYTHING ELSE THAT WORKS USES IT: A PART'S HOVER IN THE YARD SAYS HOW MUCH. SHORT OF POWER, GUNS RELOAD SLOWER AND ENGINES PUSH LESS, IN STEP.", Part::power_list(true))),
         ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. 1-6 PICK A PART CATEGORY, TAB ITS NEXT PART. P PENCIL, R RECTANGLE, F FILL, C STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
-        ("FLYING", "RUNS, KITE OR ORBIT: PICK IN THE YARD. LEFT ALONE, 1 THRUST PER WEIGHT RUNS AND LESS KITES. HEAVIER SHIPS TURN SLOWER.".into()),
+        ("FLYING", "SHIPS CHOOSE HOW TO FLY: THEIR SIDE PLAYS A FIGHT FORWARD EACH WAY (RUNS, KITE, ORBIT) AND KEEPS THE BEST. HEAVIER SHIPS TURN SLOWER.".into()),
         ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW.".into()),
         ("KEYS", "ENTER YARD/ARENA  L LIBRARY  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
     ]
@@ -237,17 +237,17 @@ fn help_body() -> Vec<(&'static str, String)> {
 fn brain_tip(team: usize, b: Brain) -> String {
     let key = ["B", "V"][team];
     let now = match (b.targets, b.ways) {
-        (false, Ways::Card) => "CARD: EACH SHIP GOES FOR THE NEAREST ENEMY AND FLIES AT IT AS ITS CARD SAYS.".to_string(),
+        (false, Ways::Drawn) => "PLAIN: NO PLANNER. EACH SHIP GOES FOR THE NEAREST ENEMY AND FLIES AT IT AS ITS DRAWING SUGGESTS.".to_string(),
         (targets, ways) => {
             let t = if targets { " A SHIP GOES FOR WHAT ITS DRILLS SAY IT BEATS, NOT JUST THE NEAREST." } else { "" };
             let w = match ways {
-                Ways::Card => "",
+                Ways::Drawn => "",
                 Ways::Safe => " IT FLIES AT EACH ENEMY THE WAY WHOSE WORST DRILL WAS BEST.",
                 Ways::Bold => " IT FLIES AT EACH ENEMY THE WAY THAT DID BEST IN ITS DRILLS.",
                 Ways::Plan => "",
             };
             if ways == Ways::Plan {
-                format!("ARCH: ONE PLANNER FOR THE SIDE. IT PLAYS THE FIGHT FORWARD {} S FOR EACH WAY EACH DESIGN COULD FLY AND KEEPS WHAT CAME OUT BEST, AND THINKS AGAIN EVERY {} S.", ARCH_AHEAD / 15, ARCH_EVERY / 15)
+format!("ARCH: ONE PLANNER FOR THE SIDE. WHILE THERE'S A FIGHT IT TAKES ONE DESIGN AT A TIME, PLAYS THE FIGHT FORWARD {} S FOR EACH WAY THAT DESIGN COULD FLY, AND KEEPS WHAT CAME OUT BEST.", ARCH_AHEAD / 15)
             } else {
                 format!("DRILLED: BEFORE THE FIGHT EVERY DESIGN FIGHTS EVERY ENEMY DESIGN, EACH WAY IT CAN FLY.{t}{w}")
             }
@@ -545,7 +545,7 @@ impl Pg {
             naming: false,
             arena: Arena::new(),
             setup: Vec::new(),
-            brains: [Brain::CARD; 2],
+            brains: [Brain::ARCH; 2],
             drill_wait: 0,
             drill_cache: Default::default(),
             test: None,
@@ -732,7 +732,7 @@ impl Pg {
                 }
                 counts.iter().map(|(s, n)| format!("{n} {}", self.lib[*s].name)).collect::<Vec<_>>().join(", ")
             };
-            let brains = if self.brains == [Brain::CARD; 2] { String::new() } else { format!(" | BRAINS {} V {}", self.brains[0].name(), self.brains[1].name()) };
+            let brains = if self.brains == [Brain::ARCH; 2] { String::new() } else { format!(" | BRAINS {} V {}", self.brains[0].name(), self.brains[1].name()) };
             let line = format!("RUN {}: BLUE {} | RED {}{brains}", self.test_name(), side(0), side(1));
             self.log(&line);
             let mut slots: Vec<usize> = self.setup.iter().map(|p| p.slot).collect();
@@ -1146,7 +1146,7 @@ impl Pg {
         let clock = format!("{}:{:02}", t / 60, t % 60);
         fb.text(&clock, f.w - 4 - Framebuffer::text_width(&clock, 1), 3, TEXT_DIM, Some(OUTLINE), 1);
         for t in 0..2 {
-            ui::button(fb, BTN_BRAIN[t], &format!("{} {}", team_name(t), self.brains[t].short()), on_brain == Some(t), self.brains[t] != Brain::CARD);
+            ui::button(fb, BTN_BRAIN[t], &format!("{} {}", team_name(t), self.brains[t].short()), on_brain == Some(t), self.brains[t] != Brain::ARCH);
         }
 
         // Inspector.
@@ -1170,15 +1170,15 @@ impl Pg {
             if s.carry > 0 {
                 parts.push(format!("CARRYING {}", s.carry));
             }
-            let mut lines = vec![format!("{} {} - {} - {}", team_name(s.team), s.name, s.order.name(), s.doing.name()), parts.join("  ")];
+            let mut lines = vec![format!("{} {} - {}", team_name(s.team), s.name, s.doing.name()), parts.join("  ")];
             // What a ship that goes by its drills learned about the one it's after.
             let foe = s.target.filter(|&t| a.ships[t].alive && a.ships[t].team != s.team);
             if a.brain[s.team].ways == Ways::Plan {
                 // What its side's arch-AI has decided for its design.
                 if let Some(style) = a.plan[s.team].get(s.slot).copied().flatten() {
-                    lines.push(format!("ARCH: EVERY {} FLIES {}", s.name, style.name()));
+                    lines.push(chosen_line(&s.name, style));
                 }
-            } else if let (Some(t), true) = (foe, a.brain[s.team] != Brain::CARD) {
+            } else if let (Some(t), true) = (foe, a.brain[s.team] != Brain::PLAIN) {
                 if let Some(k) = a.drills.get(s.slot, a.ships[t].slot) {
                     lines.push(learned_line(&a.ships[t].name, k, a.brain[s.team]));
                 }
@@ -1280,7 +1280,7 @@ impl Pg {
                 if d.is_empty() {
                     format!("[{}] AN EMPTY SLOT. DRAW A SHIP IN IT IN THE YARD, OR TAKE ONE FROM THE LIBRARY THERE.", i + 1)
                 } else {
-                    format!("[{}] {}: {} PX, ON {}. YOUR CLICKS PLACE IT. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.", i + 1, d.name, d.stats().cost, d.order.name())
+                    format!("[{}] {}: {} PX. {}. YOUR CLICKS PLACE IT. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.", i + 1, d.name, d.stats().cost, d.does())
                 }
             });
             let tip = if BTN_RUN.contains(m.0, m.1) {
@@ -1564,7 +1564,8 @@ mod tests {
         pg.help = false;
         // 6 FIGHTERS VS 1 FRIGATE: slots 0 and 2.
         pg.load_test(0);
-        assert_eq!((pg.brains, pg.arena.brain), ([Brain::CARD; 2], [Brain::CARD; 2]));
+        // Both sides start with a planner, as a match's sides do.
+        assert_eq!((pg.brains, pg.arena.brain), ([Brain::ARCH; 2], [Brain::ARCH; 2]));
         // Each side's key takes its brain to the next, and a click on its button does the same.
         pg.key(Key::Letter('B'));
         pg.key(Key::Letter('V'));
@@ -1575,7 +1576,7 @@ mod tests {
         assert!(pg.setup.len() == 7, "a click on the button places nothing");
         // A brain that goes by its drills: the fight is put back, the notice gets its frame,
         // and then the drills are run. The fight doesn't start before they are.
-        pg.brains = [Brain { targets: true, ways: Ways::Bold }, Brain::CARD];
+        pg.brains = [Brain { targets: true, ways: Ways::Bold }, Brain::PLAIN];
         pg.reset();
         pg.key(Key::Space);
         assert!(pg.arena.drills.get(0, 2).is_none() && pg.notice.as_ref().is_some_and(|n| n.0.contains("DRILLS")));
@@ -1589,7 +1590,7 @@ mod tests {
         pg.key(Key::Letter('R'));
         assert!(pg.arena.drills.get(0, 2).is_some() && pg.arena.tick == 0);
         // The arch-AI needs no drills.
-        pg.brains = [Brain::ARCH, Brain::CARD];
+        pg.brains = [Brain::ARCH, Brain::PLAIN];
         pg.reset();
         assert!(pg.arena.drills.get(0, 2).is_none() && pg.arena.brain[0] == Brain::ARCH);
         // Every label fits its button, every tip fits the bar, and so does what a ship learned

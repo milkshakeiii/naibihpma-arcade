@@ -32,8 +32,10 @@ use std::time::Duration;
 /// what a match's state holds does: the two machines compare a hash of it, so two versions with
 /// different state would fall out of step at the first check. (3: a bot remembers one more
 /// thing. 4: the beam and the shield, in designs and in the state. 5: a team is nine slots.
-/// 6: the missile, and seeds sent into open space.)
-pub const PROTO: u32 = 10;
+/// 6: the missile, and seeds sent into open space. 9 and 10: ships selected and sent, the stance
+/// and rally points. 11: ships choose how they fly, and no design carries a way or a group.
+/// 12: nor an order, and a card's own order is an AI's to give.)
+pub const PROTO: u32 = 12;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.

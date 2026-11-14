@@ -291,8 +291,8 @@ mod tests {
         // only where a move ends would let the dart land beyond the wall without ever touching it,
         // depending on where its steps happened to fall. Every phase of the approach is tried; the
         // dart never gets past, and stops right up against the wall.
-        let wall = Design::from_rows("WALL", Order::Hold, &["p", "p", "p", "c", "p", "p", "p"]);
-        let dart = Design::from_rows("DART", Order::Hunt, &["c", "e"]);
+        let wall = Design::from_rows("WALL", &["p", "p", "p", "c", "p", "p", "p"]);
+        let dart = Design::from_rows("DART", &["c", "e"]);
         for phase in 0..3 {
             let mut a = empty();
             let w = a.spawn(1, 0, &wall, 200, 150, 0, false);
@@ -311,8 +311,8 @@ mod tests {
     #[test]
     fn a_fast_thin_ship_cant_skip_through_a_thin_bigger_ship() {
         // The same for a ship that's merely bigger, not planted.
-        let wall = Design::from_rows("SPAR", Order::Hold, &["p", "p", "p", "c", "p", "p", "p"]);
-        let dart = Design::from_rows("DART", Order::Hunt, &["c", "e"]);
+        let wall = Design::from_rows("SPAR", &["p", "p", "p", "c", "p", "p", "p"]);
+        let dart = Design::from_rows("DART", &["c", "e"]);
         for phase in 0..3 {
             let mut a = empty();
             let w = a.spawn(1, 0, &wall, 200, 150, 0, false);
@@ -331,14 +331,14 @@ mod tests {
         // A fighter finds itself under a big enemy slab (the slab flew onto it), and the nearest
         // clear space lies east, past an enemy wall planted there. It must not be squeezed out
         // through the wall: it goes another way, never shares a pixel with the wall, and gets out.
-        let slab = Design::from_rows("SLAB", Order::Hold, &["hhhhhhhhhhhhhhhhhhhhh"; 21]);
-        let wall = Design::from_rows("WALL", Order::Hold, &["p", "p", "p", "p", "c", "p", "p", "p", "p"]);
-        let fighter = Design::from_rows("FIGHTER", Order::Hunt, &["hch", ".e."]);
+        let slab = Design::from_rows("SLAB", &["hhhhhhhhhhhhhhhhhhhhh"; 21]);
+        let wall = Design::from_rows("WALL", &["p", "p", "p", "p", "c", "p", "p", "p", "p"]);
+        let fighter = Design::from_rows("FIGHTER", &["hch", ".e."]);
         let mut a = empty();
         let mut rows: Vec<String> = vec!["h".repeat(21); 21];
         rows[10] = format!("{}c{}", "h".repeat(10), "h".repeat(10));
         let rows: Vec<&str> = rows.iter().map(|r| r.as_str()).collect();
-        let slab = Design::from_rows(&slab.name, Order::Hold, &rows);
+        let slab = Design::from_rows(&slab.name, &rows);
         let b = a.spawn(1, 0, &slab, 200, 150, 0, false);
         let w = a.spawn(1, 0, &wall, 209, 150, 0, false);
         a.ships[w].rooted = true;
@@ -360,8 +360,8 @@ mod tests {
     fn a_ship_cant_turn_into_a_factory() {
         // A long ship lying north-south beside a planted block can't swing round into it, even
         // though it's the bigger of the two.
-        let block = Design::from_rows("BLOCK", Order::Hold, &["ppp", "pcp", "ppp"]);
-        let long = Design::from_rows("LONG", Order::Hunt, &["h", "h", "h", "h", "c", "h", "h", "h", "e"]);
+        let block = Design::from_rows("BLOCK", &["ppp", "pcp", "ppp"]);
+        let long = Design::from_rows("LONG", &["h", "h", "h", "h", "c", "h", "h", "h", "e"]);
         let mut a = empty();
         let w = a.spawn(1, 0, &block, 204, 150, 0, false);
         a.ships[w].rooted = true;

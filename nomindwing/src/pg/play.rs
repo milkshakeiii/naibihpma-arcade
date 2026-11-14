@@ -1221,7 +1221,7 @@ impl Pg {
                 format!("{}{}: YOUR KING PRINTS IT FOR {} PX, A PIXEL AT A TIME. RIGHT-CLICK: ONE GOES ON THE END OF THE QUEUE, ON REPEAT.", card_key(i), d.name, c.cost)
             };
             let builds = if builds.is_empty() { String::new() } else { format!(" ITS FACTORY PIXELS PRINT {}.", builds.join(", ")) };
-            return Some(what + &builds + &flying(d) + &format!(" CTRL+{} SELECTS EVERY ONE YOU HAVE.", CARD_KEYS[i]));
+            return Some(what + &builds + &format!(" CTRL+{} SELECTS EVERY ONE YOU HAVE.", CARD_KEYS[i]));
         }
         if let Some((k, j)) = p.job_at(m.0, m.1) {
             let name = e.deck[me].get(j.slot).map_or("?", |d| d.name.as_str());
@@ -1428,22 +1428,6 @@ fn formation(a: &Arena, ships: &[usize], at: (i32, i32)) -> Vec<(i32, i32)> {
 
 fn space_warning(name: &str, price: i32, grows: i32) -> String {
     format!("SEND {name}'S SEED HERE FOR {price} PX. NO ROCK FEEDS IT IN OPEN SPACE: IT DRAWS THE {grows} PX IT GROWS FROM ITS NETWORK, SO IT COSTS ABOUT TWICE.")
-}
-
-/// How a card's ships fly at what they fight and how many leave together, for its hover text:
-/// " THESE ORBIT, AND LEAVE IN GROUPS OF 3." Nothing for a design with no engines.
-fn flying(d: &Design) -> String {
-    let Some(style) = d.flies() else { return String::new() };
-    let how = match style {
-        Style::Runs => "MAKE ATTACK RUNS",
-        Style::Kite => "KITE",
-        Style::Orbit => "ORBIT",
-    };
-    if d.group > 1 {
-        format!(" THESE {how}, AND LEAVE IN GROUPS OF {}.", d.group)
-    } else {
-        format!(" THESE {how}.")
-    }
 }
 
 /// Pixels held by a side's nodes that aren't in its king's network.
@@ -1788,7 +1772,7 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
     } else if s.grow.as_ref().is_some_and(|g| g.eats) {
         format!("GROWING OUT OF ITS ROCK: {} OF {} PX", s.px_now(), s.px_full())
     } else {
-        format!("{} - {}", s.order.name(), s.doing.name())
+        s.doing.name().to_string()
     };
     let mut lines = vec![format!("{who} {} - {status}", s.name)];
     let mut parts = vec![format!("{}/{} PX", s.px_now(), s.px_full())];
@@ -1811,6 +1795,10 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
         parts.push(format!("CARRYING {}", s.carry));
     }
     lines.push(parts.join("  "));
+    // What its side has decided for its design, once it's had a fight to think about.
+    if let Some(way) = a.plan[s.team].get(s.slot).copied().flatten().filter(|_| s.role == Role::Ship && s.st.thrust > 0 && s.st.armed()) {
+        lines.push(chosen_line(&s.name, way));
+    }
     if s.role == Role::King {
         lines.extend(wrap(&format!("ITS SIDE HAS {} PX OF SHIPS AND FACTORIES STANDING. WITH UNDER {KING_NEEDS}, AFTER THE FIRST MINUTE, A KING FLIES AT A FIFTH OF ITS SPEED.", a.standing(s.team)), 49));
     }
@@ -1822,22 +1810,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_card_says_how_its_ships_fly_and_how_many_leave_together() {
+    fn what_the_bar_says_of_a_ship_names_no_order() {
+        let (pg, f, miner, _, _, foe) = fleet_by_the_king();
+        let a = &pg.play.as_ref().unwrap().arena;
+        // Your fighter, your miner and an enemy fighter: who it is and what it's doing, and
+        // nothing about an order. (It read "BLUE FIGHTER - GUARD - ON GUARD" until orders
+        // stopped being anything a player sees.)
+        for (i, who) in [(f[0], "BLUE FIGHTER - "), (miner, "BLUE MINER - "), (foe, "RED FIGHTER - ")] {
+            let first = &ship_lines(a, i)[0];
+            assert!(first.starts_with(who), "{first}");
+            assert_eq!(first.matches(" - ").count(), 1, "{first}");
+            assert_eq!(first[who.len()..], *a.ships[i].doing.name(), "{first}");
+        }
+    }
+
+    #[test]
+    fn a_cards_hover_text_ends_with_the_key_that_selects_its_ships_and_says_nothing_of_flying() {
         use crate::app::{App, Ev};
         let mut pg = Pg::new(None, None);
         pg.lib = starter_deck();
-        (pg.lib[0].style, pg.lib[0].group) = (Some(Style::Orbit), 3);
         pg.start_match(false, 3);
         pg.help = false;
         let mut tip = |r: Rect| {
             pg.event(Ev::Move(r.x + 4, r.y + 4));
             pg.match_tip().unwrap_or_default()
         };
-        // The fighter; the lancer as it's drawn; the outpost, which doesn't fly, says nothing of
-        // it. Each ends with the key that selects every one of it.
-        assert!(tip(card_rect(0)).ends_with(" THESE ORBIT, AND LEAVE IN GROUPS OF 3. CTRL+Z SELECTS EVERY ONE YOU HAVE."), "{}", tip(card_rect(0)));
-        assert!(tip(card_rect(1)).ends_with(" THESE MAKE ATTACK RUNS. CTRL+X SELECTS EVERY ONE YOU HAVE."), "{}", tip(card_rect(1)));
-        assert!(!tip(card_rect(4)).contains("THESE") && tip(card_rect(4)).ends_with(" CTRL+B SELECTS EVERY ONE YOU HAVE."), "{}", tip(card_rect(4)));
+        // The fighter, the lancer and the outpost. (A card said how its ships flew and how many
+        // left together until ships chose for themselves.)
+        for (i, key) in [(0, 'Z'), (1, 'X'), (4, 'B')] {
+            let t = tip(card_rect(i));
+            assert!(t.ends_with(&format!(" CTRL+{key} SELECTS EVERY ONE YOU HAVE.")) && !t.contains("THESE") && !t.contains("GROUP"), "{t}");
+        }
     }
 
     #[test]

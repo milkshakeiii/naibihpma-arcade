@@ -8,9 +8,9 @@ use super::*;
 /// Which of the ways it drilled a ship flies at an enemy.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
 pub enum Ways {
-    /// The way its card says, whatever the enemy.
+    /// The way its drawing suggests, whatever the enemy.
     #[default]
-    Card,
+    Drawn,
     /// The way whose worst drill against that enemy was best.
     Safe,
     /// The way that did best against that enemy over all the ways the enemy flew.
@@ -28,12 +28,14 @@ pub struct Brain {
     pub ways: Ways,
 }
 
-/// The brains the arena's buttons step through. (The headless comparison, `--brains`, tries the
-/// rest: drilled targets, and the safe ways.)
-pub const BRAINS: [Brain; 3] = [Brain::CARD, Brain::DRILLED, Brain::ARCH];
+/// The brains the arena's buttons step through, the one every side starts on first. (The
+/// headless comparison, `--brains`, tries the rest: drilled targets, and the safe ways.)
+pub const BRAINS: [Brain; 3] = [Brain::ARCH, Brain::PLAIN, Brain::DRILLED];
 
 impl Brain {
-    pub const CARD: Brain = Brain { targets: false, ways: Ways::Card };
+    /// No planning: each ship goes for the nearest enemy and flies at it as its drawing
+    /// suggests. (This was CARD while a card carried a way of flying.)
+    pub const PLAIN: Brain = Brain { targets: false, ways: Ways::Drawn };
     /// Each ship flies at each enemy the way that did best in its drills. Of the drilled brains
     /// tried, the one that did no worse than the cards.
     pub const DRILLED: Brain = Brain { targets: false, ways: Ways::Bold };
@@ -42,8 +44,8 @@ impl Brain {
     /// For a button: at most eight letters.
     pub fn short(self) -> &'static str {
         match (self.targets, self.ways) {
-            (false, Ways::Card) => "CARD",
-            (true, Ways::Card) => "TARGETS",
+            (false, Ways::Drawn) => "PLAIN",
+            (true, Ways::Drawn) => "TARGETS",
             (false, Ways::Safe) => "SAFE",
             (false, Ways::Bold) => "DRILLED",
             (true, Ways::Safe) => "T+SAFE",
@@ -55,14 +57,14 @@ impl Brain {
 
     pub fn name(self) -> String {
         let ways = match self.ways {
-            Ways::Card => "",
+            Ways::Drawn => "",
             Ways::Safe => "SAFE WAYS",
             Ways::Bold => "BOLD WAYS",
             Ways::Plan => "ARCH",
         };
         match (self.targets, self.ways) {
-            (false, Ways::Card) => "CARD".into(),
-            (true, Ways::Card) => "TARGETS".into(),
+            (false, Ways::Drawn) => "PLAIN".into(),
+            (true, Ways::Drawn) => "TARGETS".into(),
             (false, _) => ways.into(),
             (true, _) => format!("TARGETS+{ways}"),
         }
@@ -87,7 +89,7 @@ pub struct Drill {
 impl Drill {
     pub fn style(&self, ways: Ways) -> Option<Style> {
         match ways {
-            Ways::Card | Ways::Plan => None,
+            Ways::Drawn | Ways::Plan => None,
             Ways::Safe => self.safe,
             Ways::Bold => self.bold,
         }
@@ -285,7 +287,7 @@ mod tests {
         t.set(0, 1, k(-1000));
         t.set(0, 2, k(1000));
         a.drills = std::sync::Arc::new(t);
-        a.brain[0] = Brain { targets, ways: Ways::Card };
+        a.brain[0] = Brain { targets, ways: Ways::Drawn };
         a.step();
         a
     }
@@ -297,7 +299,7 @@ mod tests {
         // By its drills: the lancer seems half as far again as it is (90 px) and the frigate half
         // as far (37 px).
         assert_eq!(between_two(true).ships[0].prey, Some(2));
-        // The other side, on its cards, is none the wiser.
+        // The other side, flying as drawn, is none the wiser.
         assert_eq!(between_two(true).ships[1].prey, Some(0));
     }
 
@@ -321,7 +323,7 @@ mod tests {
     #[test]
     fn a_drilled_ship_flies_at_an_enemy_the_way_its_drills_found() {
         // The fighter's card flies attack runs.
-        assert!(matches!(flying_at_a_frigate(Ways::Card), Doing::RunIn | Doing::RunOut), "{:?}", flying_at_a_frigate(Ways::Card));
+        assert!(matches!(flying_at_a_frigate(Ways::Drawn), Doing::RunIn | Doing::RunOut), "{:?}", flying_at_a_frigate(Ways::Drawn));
         assert_eq!(flying_at_a_frigate(Ways::Safe), Doing::StandOff);
         assert_eq!(flying_at_a_frigate(Ways::Bold), Doing::Orbit);
     }

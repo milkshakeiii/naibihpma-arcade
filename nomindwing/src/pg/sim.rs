@@ -161,7 +161,6 @@ pub enum Doing {
     ToRock,
     Orbit,
     /// Waiting at its post for the rest of its group.
-    Muster,
     /// Getting off the line of an enemy beam that's warming.
     Dodge,
     /// On its way to where its side's dispatcher sent it, or standing there.
@@ -185,7 +184,6 @@ impl Doing {
             Doing::WithKing => "ESCORTING THE KING",
             Doing::ToRock => "FLYING TO WHERE IT'LL GROW",
             Doing::Orbit => "ORBITING",
-            Doing::Muster => "WAITING FOR ITS GROUP",
             Doing::Dodge => "DODGING A BEAM",
             Doing::Sent => "SENT TO A PLACE",
         }
@@ -297,19 +295,18 @@ pub struct Ship {
     /// planted for good; a seeded design with engines stops being planted the moment it flies.
     /// Anything planted is solid to every enemy ship (see `sim/space.rs`).
     pub rooted: bool,
-    /// How it flies at what it's fighting, if its design had that chosen. None: as its drawing
-    /// (what's left of it) suggests.
+    /// A way of flying forced on this ship, whatever its side has planned: only a drill and a
+    /// test set it. None: as its side has planned, or else as its drawing (what's left of it)
+    /// suggests.
     pub style: Option<Style>,
     /// The enemy it's after. It keeps it until that one is gone, or out of what it may go for, or
     /// another is `KEEP` px nearer.
     pub prey: Option<usize>,
     /// Which way round it orbits: 1 or -1, and 0 until it has picked.
     spin: i8,
-    /// On HUNT or SAB in a match, still waiting at its post for the rest of its group.
-    pub waiting: bool,
-    /// Where its side's dispatcher has sent it, whatever its card's order: it goes there, fights
-    /// what's round the place, and on the way fights what comes close. None: it does as its
-    /// card says.
+    /// Where its player, or its side's dispatcher, has sent it, whatever its order: it goes
+    /// there, fights what's round the place, and on the way fights what comes close. None: it
+    /// does as its order says.
     pub sent: Option<(i32, i32)>,
     /// The fastest it flies on its way to where it's sent, in quarter pixels a tick, so that a
     /// group arrives together (0: as fast as it can).
@@ -664,10 +661,14 @@ pub struct Arena {
     /// sides read the one table: a side's row is its own design, the column the enemy's.
     pub drills: std::sync::Arc<Drills>,
     /// What each side's arch-AI has decided: how each of its designs flies, by slot (None, or
-    /// past the end: as its card says).
+    /// past the end: as its drawing suggests).
     pub plan: [Vec<Option<Style>>; 2],
     /// Whose design each arch-AI last thought about, so each gets its turn.
     arch_turn: [usize; 2],
+    /// Each side's think, while it's in the middle of one, and the tick it next looks for a
+    /// fight to think about.
+    pub arch: [Option<Box<Think>>; 2],
+    arch_next: [u32; 2],
     /// This arena is a fight being played forward inside an arch-AI's plan, not the fight
     /// itself: nobody in it plans.
     rehearsal: bool,
@@ -702,7 +703,7 @@ impl std::hash::Hasher for Fnv {
 impl std::hash::Hash for Arena {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // `warm` is worked out afresh from the ships at the start of every tick.
-        let Arena { tick, ships, shots, debris, sparks, cuts, skins: _, warm: _, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco, brain, drills, plan, arch_turn, rehearsal } = self;
+        let Arena { tick, ships, shots, debris, sparks, cuts, skins: _, warm: _, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco, brain, drills, plan, arch_turn, arch: _, arch_next, rehearsal } = self;
         tick.hash(state);
         ships.hash(state);
         shots.hash(state);
@@ -728,7 +729,9 @@ impl std::hash::Hash for Arena {
         brain.hash(state);
         drills.hash(state);
         plan.hash(state);
+        // A think in hand follows from the rest: it isn't hashed, only when the next is due.
         arch_turn.hash(state);
+        arch_next.hash(state);
         rehearsal.hash(state);
     }
 }
@@ -768,10 +771,12 @@ impl Arena {
             w,
             h,
             eco: None,
-            brain: [Brain::CARD; 2],
+            brain: [Brain::PLAIN; 2],
             drills: Default::default(),
             plan: Default::default(),
             arch_turn: [0; 2],
+            arch: Default::default(),
+            arch_next: [0; 2],
             rehearsal: false,
         }
     }
@@ -810,7 +815,7 @@ impl Arena {
     }
 
     pub fn rock_at(&self, x: i32, y: i32) -> bool {
-        (0..self.w).contains(&x) && (0..self.h).contains(&y) && self.rock[(y * self.w + x) as usize]
+        (0..self.w).contains(&x) && (0..self.h).contains(&y) && self.rock.get((y * self.w + x) as usize).copied().unwrap_or(false)
     }
 
     /// Places a ship; refuses a design that can't fly (no core, loose pixels, buried engines).
@@ -822,11 +827,6 @@ impl Arena {
         // A seeded design is placed as it would stand on its rock in a match: planted, so solid to
         // every enemy ship, until it flies (if it can).
         self.ships[i].rooted = d.seeded;
-        // The arena is a fight, with no factory to guard and no king to escort: a design drawn on
-        // GUARD or ESCORT (the order it starts a match on) hunts here.
-        if self.eco.is_none() && matches!(d.order, Order::Guard | Order::Escort) {
-            self.ships[i].order = Order::Hunt;
-        }
         self.score[team].placed += 1;
         true
     }
@@ -851,7 +851,9 @@ impl Arena {
             team,
             slot,
             name: d.name.clone(),
-            order: d.order,
+            // In a match a ship takes its side's standing order for its design. In the bare
+            // arena, and for a king, it's the order its drawing gives it.
+            order: self.eco.as_ref().and_then(|e| e.orders[team].get(slot).copied()).unwrap_or_else(|| st.order()),
             shape,
             st,
             x,
@@ -905,11 +907,9 @@ impl Arena {
             sow: false,
             skin: (0, 0),
             rooted: false,
-            style: d.style,
+            style: None,
             prey: None,
             spin: 0,
-            // Only a match has posts to gather at; in the arena everything is there at once.
-            waiting: self.eco.is_some() && d.group > 1,
             sent: None,
             pace: 0,
             chase: None,
@@ -1054,7 +1054,9 @@ impl Arena {
             self.over = Some(None);
             self.stalemate = true;
         }
-        if self.over.is_none() && self.tick >= TIME_LIMIT {
+        // (A fight being played forward inside a plan keeps the clock of the match it came
+        // from, and runs for as long as the plan asks.)
+        if self.over.is_none() && !self.rehearsal && self.tick >= TIME_LIMIT {
             self.over = Some(None);
         }
     }
@@ -1107,10 +1109,8 @@ impl Arena {
             })
         };
         let mut chosen = None;
-        // A ship still waiting for the rest of its group guards where it was built.
-        let waiting = self.ships[i].waiting && matches!(order, Order::Hunt | Order::Sab);
         let sent = self.ships[i].sent.filter(|_| st.thrust > 0);
-        let mut plan = match if waiting { Order::Guard } else { order } {
+        let mut plan = match order {
             // Sent to a place, by its player or its side's dispatcher, whatever its order. Once
             // it's there it fights what's round the place. On the way it fights only what comes
             // close to it. A ship with no guns goes all the same, at its group's pace.
@@ -1165,7 +1165,7 @@ impl Arena {
                     self.engage(i, &e, snap)
                 }
                 _ if !armed && hurt => self.flee(i, station),
-                _ => self.go(i, home, if waiting { Doing::Muster } else { Doing::Guard }),
+                _ => self.go(i, home, Doing::Guard),
             },
             // With its king: it fights what comes near the king while it's near the king itself,
             // and otherwise keeps its place in the rings round it. With no king to escort (the
@@ -1210,7 +1210,7 @@ impl Arena {
         self.ships[i].prey = chosen;
         // A built ship sent home with nothing to do waits at its post instead: its own place in
         // the rings round what built it.
-        let posted = st.thrust > 0 && self.ships[i].ring0 > 0 && plan.goal == Some(home) && matches!(plan.doing, Doing::Guard | Doing::Idle | Doing::Hold | Doing::Muster);
+        let posted = st.thrust > 0 && self.ships[i].ring0 > 0 && plan.goal == Some(home) && matches!(plan.doing, Doing::Guard | Doing::Idle | Doing::Hold);
         if posted {
             let spot = self.clear_post(i, self.post(i), snap);
             let mut p = self.go(i, spot, plan.doing);
@@ -1478,14 +1478,16 @@ impl Arena {
         // A drilled ship flies at this enemy the way that did best against it.
         let ways = self.brain[s.team].ways;
         let learned = match ways {
-            Ways::Card => None,
+            Ways::Drawn => None,
             // Its side's arch-AI has decided how this design flies.
             Ways::Plan => self.plan[s.team].get(s.slot).copied().flatten(),
             _ => self.drills.get(s.slot, self.ships[e.idx].slot).and_then(|k| k.style(ways)),
         };
         let style = match s.st.flight {
             Flight::Still => None,
-            f => learned.or(s.style).or(Style::of(f)),
+            // A way forced on the ship (by a drill, or a test) comes first; then what its side
+            // has decided; then what its drawing suggests.
+            f => s.style.or(learned).or(Style::of(f)),
         };
         match style {
             Some(Style::Runs) => self.attack_run(i, e),
@@ -2854,10 +2856,8 @@ mod tests {
     }
 
     /// A fighter, and a slab of plate round a core that its flak can't hurt.
-    fn fighter_and_slab(order: Order, style: Option<Style>) -> (Design, Design) {
-        let mut f = Design::from_rows("FIGHTER", order, &["g.g", "hch", "e.e"]);
-        f.style = style;
-        (f, Design::from_rows("SLAB", Order::Hold, &["ppp", "pcp", "ppp"]))
+    fn fighter_and_slab() -> (Design, Design) {
+        (Design::from_rows("FIGHTER", &["g.g", "hch", "e.e"]), Design::from_rows("SLAB", &["ppp", "pcp", "ppp"]))
     }
 
     /// One tick with ship 0 put back at rest in the middle of the arena first, so what it's after
@@ -2871,7 +2871,7 @@ mod tests {
 
     #[test]
     fn a_ship_keeps_the_enemy_its_after_until_another_is_clearly_nearer() {
-        let (fighter, slab) = fighter_and_slab(Order::Hunt, None);
+        let (fighter, slab) = fighter_and_slab();
         let mut a = Arena::new();
         assert!(a.add(0, 0, &fighter, 240, 180));
         assert!(a.add(1, 0, &slab, 140, 180));
@@ -2896,13 +2896,14 @@ mod tests {
 
     #[test]
     fn a_light_ship_told_to_kite_holds_its_range_and_backs_off_what_comes_closer() {
-        let (kiter, slab) = fighter_and_slab(Order::Hunt, Some(Style::Kite));
-        // Left to its drawing, it would dive straight through.
-        assert_eq!(fighter_and_slab(Order::Hunt, None).0.flies(), Some(Style::Runs));
-        assert_eq!(kiter.flies(), Some(Style::Kite));
+        let (kiter, slab) = fighter_and_slab();
+        // Left to its drawing, it would dive straight through. (A way of flying is forced on a
+        // ship here, as a drill does it: nothing a player sets.)
+        assert_eq!(kiter.flies(), Some(Style::Runs));
         let mut a = Arena::new();
         assert!(a.add(0, 0, &kiter, 100, 180));
         assert!(a.add(1, 0, &slab, 300, 180));
+        a.ships[0].style = Some(Style::Kite);
         let apart = |a: &Arena, j: usize| isqrt(dist2(a.ships[0].x, a.ships[0].y, a.ships[j].x, a.ships[j].y));
         let want = FLAK_RANGE * 2 / 3 + a.ships[1].half();
         let mut nearest = i32::MAX;
@@ -2938,10 +2939,11 @@ mod tests {
 
     #[test]
     fn a_ship_told_to_orbit_circles_its_target_at_the_range_of_its_guns() {
-        let (orbiter, slab) = fighter_and_slab(Order::Hunt, Some(Style::Orbit));
+        let (orbiter, slab) = fighter_and_slab();
         let mut a = Arena::new();
         assert!(a.add(0, 0, &orbiter, 100, 180));
         assert!(a.add(1, 0, &slab, 240, 180));
+        a.ships[0].style = Some(Style::Orbit);
         let want = FLAK_RANGE * 2 / 3 + a.ships[1].half();
         run(&mut a, 15 * 6);
         // Twenty seconds on the circle: never far off it, and round and round the one way.
@@ -2964,10 +2966,11 @@ mod tests {
     #[test]
     fn an_orbit_that_runs_into_the_maps_edge_turns_back_the_other_way() {
         // The target sits so near the west edge that most of the circle round it is off the map.
-        let (orbiter, slab) = fighter_and_slab(Order::Hunt, Some(Style::Orbit));
+        let (orbiter, slab) = fighter_and_slab();
         let mut a = Arena::new();
         assert!(a.add(0, 0, &orbiter, 120, 100));
         assert!(a.add(1, 0, &slab, 14, 180));
+        a.ships[0].style = Some(Style::Orbit);
         run(&mut a, 15 * 6);
         let (mut flips, mut flown, mut spin, mut at) = (0, 0, a.ships[0].spin, (a.ships[0].x, a.ships[0].y));
         let mut seen = [false; 4];
@@ -2987,14 +2990,16 @@ mod tests {
 
     #[test]
     fn a_ship_on_sab_goes_for_miners_and_factories_past_what_guards_them() {
-        let (raider, slab) = fighter_and_slab(Order::Sab, None);
-        let miner = Design::from_rows("MINER", Order::Hold, &["sss", "hch", "e.e"]);
-        let works = Design::from_rows("WORKS", Order::Hold, &["f", "c"]);
+        let (raider, slab) = fighter_and_slab();
+        let miner = Design::from_rows("MINER", &["sss", "hch", "e.e"]);
+        let works = Design::from_rows("WORKS", &["f", "c"]);
         let mut a = Arena::new();
         assert!(a.add(0, 0, &raider, 240, 180));
         assert!(a.add(1, 0, &slab, 200, 180));
         assert!(a.add(1, 1, &miner, 400, 180));
         assert!(a.add(1, 2, &works, 60, 180));
+        // SAB is an order an AI gives its cards: no drawing carries it.
+        a.ships[0].order = Order::Sab;
         // A guard is 40 px off, a miner 160 and a factory 180: the miner.
         assert_eq!(step_from_the_middle(&mut a), Some(2));
         // On HUNT it would take the guard.
@@ -3037,14 +3042,14 @@ mod tests {
     #[test]
     fn illegal_designs_are_refused() {
         let mut a = Arena::new();
-        let mut d = Design::from_rows("LOOSE", Order::Hunt, &["g.g", "hch", "e.e"]);
+        let mut d = Design::from_rows("LOOSE", &["g.g", "hch", "e.e"]);
         d.set(0, 0, Some(Part::Hull));
         assert!(!a.add(0, 0, &d, 100, 100));
     }
 
     #[test]
     fn flak_bounces_off_plate_and_lances_break_it() {
-        let slab = Design::from_rows("SLAB", Order::Hold, &["ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
+        let slab = Design::from_rows("SLAB", &["ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
         let lib = defaults();
         let mut a = Arena::new();
         a.add(1, 0, &slab, 300, 180);
@@ -3066,8 +3071,8 @@ mod tests {
 
     #[test]
     fn a_cannon_shell_blasts_a_hole_through_plate() {
-        let slab = Design::from_rows("SLAB", Order::Hold, &["ppppppp", "ppppppp", "ppppppp", "pppcppp", "ppppppp", "ppppppp", "ppppppp"]);
-        let gun = Design::from_rows("GUN", Order::Hold, &["nnn", "nnn", "nnn", ".c."]);
+        let slab = Design::from_rows("SLAB", &["ppppppp", "ppppppp", "ppppppp", "pppcppp", "ppppppp", "ppppppp", "ppppppp"]);
+        let gun = Design::from_rows("GUN", &["nnn", "nnn", "nnn", ".c."]);
         let mut a = Arena::new();
         a.add(0, 0, &gun, 200, 180);
         a.add(1, 0, &slab, 290, 180);
@@ -3082,8 +3087,8 @@ mod tests {
     fn a_cannon_hits_small_targets_that_sit_still() {
         // Gunless, engineless hulks at odd bearings: the cannon must not keep missing between
         // its 64 barrel angles.
-        let gun = Design::from_rows("GUN", Order::Hold, &["nnn", "nnn", "nnn", ".c."]);
-        let hulk = Design::from_rows("HULK", Order::Hold, &["hch"]);
+        let gun = Design::from_rows("GUN", &["nnn", "nnn", "nnn", ".c."]);
+        let hulk = Design::from_rows("HULK", &["hch"]);
         let mut a = Arena::new();
         a.add(0, 0, &gun, 240, 180);
         for (dx, dy) in [(90, 7), (70, 52), (-83, 31), (5, -101), (-61, -73), (47, -88)] {
@@ -3140,7 +3145,7 @@ mod tests {
         // not plough into the plate and skim.
         let mut rows = vec!["ppppppppppppppp"; 15];
         rows[7] = "pppppppcppppppp";
-        let slab = Design::from_rows("SLAB", Order::Hold, &rows);
+        let slab = Design::from_rows("SLAB", &rows);
         let lib = defaults();
         let mut a = Arena::new();
         a.add(1, 0, &slab, 300, 180);
@@ -3158,11 +3163,11 @@ mod tests {
         // A lance fires only straight ahead. Any drawing with one, wherever the lance sits, should
         // slide onto the target's row or column during its attack run and fire from range, not
         // dive at the centre and come into line only when it's about to pass.
-        let slab = Design::from_rows("SLAB", Order::Hold, &["ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
+        let slab = Design::from_rows("SLAB", &["ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
         let ships = [
-            Design::from_rows("LANCER", Order::Hunt, &[".h.", ".l.", "hch", "e.e"]),
-            Design::from_rows("OFFSET", Order::Hunt, &["l..", "h..", "hch", "e.e"]),
-            Design::from_rows("WIDE", Order::Hunt, &["..l..", ".hhh.", "hhchh", "e...e"]),
+            Design::from_rows("LANCER", &[".h.", ".l.", "hch", "e.e"]),
+            Design::from_rows("OFFSET", &["l..", "h..", "hch", "e.e"]),
+            Design::from_rows("WIDE", &["..l..", ".hhh.", "hhchh", "e...e"]),
         ];
         for d in &ships {
             for (sx, sy) in [(200, 150), (200, 215), (330, 80)] {
@@ -3195,7 +3200,7 @@ mod tests {
 
     fn dumbbell() -> Design {
         // Two gun pods, each with a core and engines, on a thin spine.
-        Design::from_rows("DUMBBELL", Order::Hunt, &["g.g.....g.g", "hchhhhhhhch", "e.e.....e.e"])
+        Design::from_rows("DUMBBELL", &["g.g.....g.g", "hchhhhhhhch", "e.e.....e.e"])
     }
 
     #[test]
@@ -3239,7 +3244,7 @@ mod tests {
     fn moving_onto_a_shot_doesnt_let_it_skip_the_plate() {
         // The case Henry saw: a flak shot rests just outside a pod's plate, heading for its gun,
         // and the pod moves 1 px onto it. The shot has to meet the plate and bounce.
-        let pod = Design::from_rows("POD", Order::Hold, &["ppp", "pgp", "pcp", "ppp"]);
+        let pod = Design::from_rows("POD", &["ppp", "pgp", "pcp", "ppp"]);
         let mut a = Arena::new();
         a.add(1, 0, &pod, 200, 180);
         a.tick = 5;
@@ -3265,7 +3270,7 @@ mod tests {
         // Flak can't break plate, so a gun and core sealed inside a ring of plate must survive any
         // flak shot: from every spot near the pod, flying any of 8 ways, whichever way the pod
         // faces, however it moves (up to 3 px) and whether or not it turns in the same tick.
-        let pod = Design::from_rows("POD", Order::Hold, &["ppp", "pgp", "pcp", "ppp"]);
+        let pod = Design::from_rows("POD", &["ppp", "pgp", "pcp", "ppp"]);
         let mut a = Arena::new();
         a.add(1, 0, &pod, 200, 180);
         a.tick = 5;
@@ -3307,9 +3312,9 @@ mod tests {
     fn a_hunter_with_no_guns_stays_with_its_group() {
         // A gunless hunter far from its armed friend joins it instead of heading home, and stays
         // beside it even after being hit.
-        let turret = Design::from_rows("TURRET", Order::Hold, &["ggg", "hch"]);
-        let gunless = Design::from_rows("SPARE", Order::Hunt, &["hch", "e.e"]);
-        let slab = Design::from_rows("SLAB", Order::Hold, &["ppp", "pcp", "ppp"]);
+        let turret = Design::from_rows("TURRET", &["ggg", "hch"]);
+        let gunless = Design::from_rows("SPARE", &["hch", "e.e"]);
+        let slab = Design::from_rows("SLAB", &["ppp", "pcp", "ppp"]);
         let mut a = Arena::new();
         a.add(0, 0, &turret, 240, 100);
         a.add(0, 1, &gunless, 80, 280);
@@ -3328,7 +3333,7 @@ mod tests {
     /// Five miners put on one spot at the west face of the middle rock, between that rock and
     /// blue's station, and given a second to settle to their bites. Returns the spot.
     fn miners_at_work(a: &mut Arena) -> (i32, i32) {
-        let miner = Design::from_rows("MINER", Order::Harvest, &["sss", "hch", "e.e"]);
+        let miner = Design::from_rows("MINER", &["sss", "hch", "e.e"]);
         let at = (AW / 2 - 17, AH / 2);
         for _ in 0..5 {
             assert!(a.add(0, 0, &miner, at.0, at.1));
@@ -3348,14 +3353,14 @@ mod tests {
         // until the miners in it had filled up too: over a minute, in a match.)
         let mut a = Arena::new();
         let at = miners_at_work(&mut a);
-        let block = Design::from_rows("BLOCK", Order::Hold, &["hch"]);
+        let block = Design::from_rows("BLOCK", &["hch"]);
         for _ in 0..3 {
             assert!(a.add(0, 1, &block, at.0, at.1));
         }
-        let picket = Design::from_rows("PICKET", Order::Hold, &["ggg", "hch", "e.e"]);
+        let picket = Design::from_rows("PICKET", &["ggg", "hch", "e.e"]);
         assert!(a.add(0, 2, &picket, 60, at.1));
         let p = a.ships.len() - 1;
-        let miner = Design::from_rows("MINER", Order::Harvest, &["sss", "hch", "e.e"]);
+        let miner = Design::from_rows("MINER", &["sss", "hch", "e.e"]);
         assert!(a.add(0, 0, &miner, at.0 + 3, at.1));
         let m = a.ships.len() - 1;
         a.ships[m].carry = a.ships[m].st.scoops * SCOOP_CARRY;
@@ -3377,11 +3382,12 @@ mod tests {
         // worked. Something light and fast got through on its own momentum.)
         let mut a = Arena::new();
         let at = miners_at_work(&mut a);
-        let tug = Design::from_rows("TUG", Order::Hold, &["ppp", "pcp", "ppp", ".e."]);
+        let tug = Design::from_rows("TUG", &["ppp", "pcp", "ppp", ".e."]);
         assert!(a.add(0, 1, &tug, at.0 + 10, at.1));
         let r = a.ships.len() - 1;
         let spot = (at.0 - 20, at.1);
-        a.ships[r].home = spot;
+        // Told to hold a spot, as nothing a drawing carries tells it now.
+        (a.ships[r].order, a.ships[r].home) = (Order::Hold, spot);
         let until = a.tick + 15 * 10;
         run(&mut a, until);
         assert!(cheb(a.ships[r].x, a.ships[r].y, spot.0, spot.1) <= 2, "the tug didn't get through the miners in 10 s: it's {} px short", a.ships[r].x - spot.0);
@@ -3393,8 +3399,8 @@ mod tests {
         // is on the map, but the square it would need to turn in isn't. It can't turn, or fly,
         // so it stays exactly where it is. The same shape with engines is kept a turn's room from
         // the edge, as any ship is.
-        let hulk = Design::from_rows("HULK", Order::Hold, &["hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhchhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh"]);
-        let barge = Design::from_rows("BARGE", Order::Hold, &["hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhchhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh", "eeeeeeeeeeee"]);
+        let hulk = Design::from_rows("HULK", &["hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhchhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh"]);
+        let barge = Design::from_rows("BARGE", &["hhhhhhhhhhhh", "hhhhhhhhhhhh", "hhhhhchhhhhh", "hhhhhhhhhhhh", "hhhhhhhhhhhh", "eeeeeeeeeeee"]);
         let mut a = Arena::new();
         let h = a.spawn(0, 0, &hulk, 100, 20, 0, false);
         let b = a.spawn(0, 1, &barge, 300, 20, 0, false);
@@ -3413,7 +3419,7 @@ mod tests {
 
     #[test]
     fn a_ship_lives_until_its_last_core_goes() {
-        let d = Design::from_rows("TWIN", Order::Hold, &["hcch", "e..e"]);
+        let d = Design::from_rows("TWIN", &["hcch", "e..e"]);
         assert!(d.check().ok(), "{:?}", d.check());
         let mut a = Arena::new();
         a.add(0, 0, &d, 200, 180);
@@ -3431,8 +3437,8 @@ mod tests {
     fn a_stalemate_ends_early_as_a_draw() {
         // Two ships with no engines, out of each other's range, after a first hit: nobody can
         // fire and nothing gets shot off, so it ends 20 s later instead of at the 3-minute limit.
-        let turret = Design::from_rows("TURRET", Order::Hold, &["ggg", "hch"]);
-        let hulk = Design::from_rows("HULK", Order::Hold, &["hhh", "hch"]);
+        let turret = Design::from_rows("TURRET", &["ggg", "hch"]);
+        let hulk = Design::from_rows("HULK", &["hhh", "hch"]);
         let mut a = Arena::new();
         a.add(0, 0, &turret, 100, 180);
         a.add(1, 0, &hulk, 380, 180);
@@ -3447,7 +3453,7 @@ mod tests {
         assert!(a.disarmed(1) && !a.disarmed(0), "the hulk has no guns; the turret does");
 
         // Ships still shooting keep the fight going, even if every shot bounces off plate.
-        let slab = Design::from_rows("SLAB", Order::Hold, &["..h..", "ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
+        let slab = Design::from_rows("SLAB", &["..h..", "ppppp", "ppppp", "ppcpp", "ppppp", "ppppp"]);
         let lib = defaults();
         let mut a = Arena::new();
         a.add(1, 0, &slab, 300, 180);
@@ -3460,7 +3466,7 @@ mod tests {
 
     #[test]
     fn a_severed_piece_breaks_away() {
-        let stick = Design::from_rows("STICK", Order::Hold, &["h", "h", "h", "c"]);
+        let stick = Design::from_rows("STICK", &["h", "h", "h", "c"]);
         let mut a = Arena::new();
         a.add(0, 0, &stick, 200, 180);
         a.ships[0].hp[2] = 0;
@@ -3473,7 +3479,7 @@ mod tests {
 
     #[test]
     fn flak_spreads_over_several_targets() {
-        let battery = Design::from_rows("BATTERY", Order::Hold, &["ggg", "gcg", "ggg"]);
+        let battery = Design::from_rows("BATTERY", &["ggg", "gcg", "ggg"]);
         let lib = defaults();
         let mut a = Arena::new();
         a.add(0, 0, &battery, 240, 180);
@@ -3523,8 +3529,8 @@ mod tests {
         // Henry, watching the titan against five capitals: its guns fired one volley at one ship,
         // then swung all the way round to another. A cannon facing two equal hulks must keep
         // shooting the one it's aimed at, however much the first hits take off it.
-        let gun = Design::from_rows("GUN", Order::Hold, &["nnn", "nnn", "nnn", "hch"]);
-        let hulk = Design::from_rows("HULK", Order::Hold, &["hhhhh", "hhhhh", "hhchh", "hhhhh", "hhhhh"]);
+        let gun = Design::from_rows("GUN", &["nnn", "nnn", "nnn", "hch"]);
+        let hulk = Design::from_rows("HULK", &["hhhhh", "hhhhh", "hhchh", "hhhhh", "hhhhh"]);
         let mut a = Arena::new();
         a.add(0, 0, &gun, 240, 180);
         a.add(1, 1, &hulk, 180, 180);
@@ -3542,7 +3548,7 @@ mod tests {
     fn losing_hull_drains_power() {
         // Exactly powered: a cannon and an engine use 9; five hull and a core make 9. Shooting off
         // three hull pixels leaves 6 of 9, so the cannon reloads slower and the engine pushes less.
-        let boat = Design::from_rows("BOAT", Order::Hold, &["nnn", "nnn", "nnn", "hch", "hhh", ".e."]);
+        let boat = Design::from_rows("BOAT", &["nnn", "nnn", "nnn", "hch", "hhh", ".e."]);
         let mut a = Arena::new();
         a.add(0, 0, &boat, 240, 180);
         assert_eq!(a.ships[0].st.power_pct(), 100);
@@ -3566,8 +3572,8 @@ mod tests {
     /// `far` px down its line and `side` px off it. Gives the arena, where the lance is, and the
     /// frame's index. The frame flies and tries to fly as the test sets it.
     fn lance_and_frame(far: i32, side: i32) -> (Arena, (i32, i32), usize) {
-        let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
-        let frame = Design::from_rows("FRAME", Order::Hold, &[".h.", "hhh", "hch", "e.e"]);
+        let gun = Design::from_rows("GUN", &["hlh", "hch"]);
+        let frame = Design::from_rows("FRAME", &[".h.", "hhh", "hch", "e.e"]);
         let mut a = Arena::new();
         a.add(0, 0, &gun, 150, 120);
         let s = &a.ships[0];
@@ -3629,13 +3635,13 @@ mod tests {
         // either way. A gun on such a line fires. One on a line through its middle holds (the
         // ship would have flown clear), and so does one on a line it hasn't reached yet.
         let crossing = |rows: &[&str], side: i32| {
-            let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+            let gun = Design::from_rows("GUN", &["hlh", "hch"]);
             let mut a = Arena::new();
             a.add(0, 0, &gun, 150, 120);
             let s = &a.ships[0];
             let l = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance)).unwrap();
             let g = s.cell_xy(l);
-            a.add(1, 0, &Design::from_rows("WALL", Order::Hold, rows), g.0 + 40, g.1 + side);
+            a.add(1, 0, &Design::from_rows("WALL", rows), g.0 + 40, g.1 + side);
             ((a.ships[1].vx, a.ships[1].vy), a.ships[1].want) = ((0, 4), (0, 4));
             a.shot_meets(1, g, (1, 0), LANCE_SPEED, LANCE_LIFE - 1)
         };
@@ -3656,7 +3662,7 @@ mod tests {
         // pixel further out it isn't. The old check counted pixels up to the far side of whatever
         // had its middle in range, and against a big ship those shots were spent in flight.
         let reach = |centre: i32| {
-            let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+            let gun = Design::from_rows("GUN", &["hlh", "hch"]);
             let mut a = Arena::new();
             a.add(0, 0, &gun, 150, 120);
             let s = &a.ships[0];
@@ -3670,9 +3676,9 @@ mod tests {
         // A ship with a hollow nose: on the gun's line its two near cells are empty and its core
         // is the third. With the core one pixel past where the shot is spent, the nose is in
         // reach and nothing of it on the line is. Not fired at.
-        let hollow = Design::from_rows("HOLLOW", Order::Hold, &["h.h", "h.h", "hch"]);
+        let hollow = Design::from_rows("HOLLOW", &["h.h", "h.h", "hch"]);
         let core_at = |k: i32| {
-            let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+            let gun = Design::from_rows("GUN", &["hlh", "hch"]);
             let mut a = Arena::new();
             a.add(0, 0, &gun, 150, 120);
             let s = &a.ships[0];
@@ -3693,7 +3699,7 @@ mod tests {
         // A slab with its near edge on the last pixel the gun will fire at. It fires, and the
         // shot gets there: what the gun counts as in reach and how far the shot flies are one
         // number.
-        let gun = Design::from_rows("GUN", Order::Hold, &["hlh", "hch"]);
+        let gun = Design::from_rows("GUN", &["hlh", "hch"]);
         let mut a = Arena::new();
         a.add(0, 0, &gun, 150, 120);
         let l = (0..a.ships[0].hp.len()).find(|&c| a.ships[0].shape.cells[c] == Some(Part::Lance)).unwrap();
@@ -3712,7 +3718,7 @@ mod tests {
     fn a_ship_shows_the_speed_its_trying_to_fly_at() {
         // A lancer told to hunt a slab far off. A tick in, it's still gathering speed, and what
         // it's trying for is flat out. A hulk with no engines is trying for nothing.
-        let lancer = Design::from_rows("LANCER", Order::Hunt, &[".l.", "hlh", "hch", "e.e"]);
+        let lancer = Design::from_rows("LANCER", &[".l.", "hlh", "hch", "e.e"]);
         let mut a = Arena::new();
         a.add(0, 0, &lancer, 100, 180);
         a.add(1, 0, &slab('h'), 380, 180);
@@ -3734,7 +3740,7 @@ mod tests {
     fn a_lance_ship_leads_by_the_time_its_shot_really_takes() {
         // Where a lancer has to sit, up or down the map, to bear on a target 80 px east of it
         // that's drifting down the map at 2 px a tick.
-        let lancer = Design::from_rows("LANCER", Order::Hunt, &[".l.", "hlh", "hch", "e.e"]);
+        let lancer = Design::from_rows("LANCER", &[".l.", "hlh", "hch", "e.e"]);
         let mut a = Arena::new();
         a.add(0, 0, &lancer, 150, 180);
         a.add(1, 0, &slab('h'), 230, 180);
@@ -3783,7 +3789,7 @@ mod tests {
     /// A beam gun of three on a ship with no engines, so it stays where it's put and fires the way
     /// it was placed facing: 76 px of reach, and a cut of 12.
     fn beam_turret() -> Design {
-        Design::from_rows("TURRET", Order::Hold, &["hbh", "hbh", "hbh", "hch"])
+        Design::from_rows("TURRET", &["hbh", "hbh", "hbh", "hch"])
     }
 
     /// A 9x9 slab of one part round a core. It stays put.
@@ -3791,7 +3797,7 @@ mod tests {
         let row: String = std::iter::repeat(part).take(9).collect();
         let mid: String = (0..9).map(|x| if x == 4 { 'c' } else { part }).collect();
         let rows: Vec<&str> = (0..9).map(|y| if y == 4 { mid.as_str() } else { row.as_str() }).collect();
-        Design::from_rows("SLAB", Order::Hold, &rows)
+        Design::from_rows("SLAB", &rows)
     }
 
     /// Blue's beam turret, rested and ready, facing east: the arena, and where its muzzle is.
@@ -3877,7 +3883,7 @@ mod tests {
 
     #[test]
     fn a_beam_gun_shot_through_the_middle_is_two_shorter_guns() {
-        let d = Design::from_rows("LONG", Order::Hold, &["hb", "hb", "hb", "hb", "hb", "hc"]);
+        let d = Design::from_rows("LONG", &["hb", "hb", "hb", "hb", "hb", "hc"]);
         let mut a = Arena::new();
         a.add(0, 0, &d, 150, 120);
         a.tick = 5;
@@ -3897,7 +3903,7 @@ mod tests {
         // A fighter's frame parked on the line, told to hold: it sidesteps while the beam warms,
         // and the beam cuts where it was. (It has no guns: 50 px out, a fighter's flak would have
         // shot the muzzle off first.)
-        let fighter = Design::from_rows("FIGHTER", Order::Hold, &[".h.", "hhh", "hch", "e.e"]);
+        let fighter = Design::from_rows("FIGHTER", &[".h.", "hhh", "hch", "e.e"]);
         let (mut a, (mx, my)) = turret_ready();
         a.add(1, 0, &fighter, mx + 50, my);
         let full = a.ships[1].px_now();
@@ -3914,7 +3920,7 @@ mod tests {
         let wide: String = std::iter::repeat('h').take(25).collect();
         let mid: String = (0..25).map(|x| if x == 12 { 'c' } else { 'h' }).collect();
         let tail = format!("e{}e", ".".repeat(23));
-        let barge = Design::from_rows("BARGE", Order::Hold, &[wide.as_str(), wide.as_str(), mid.as_str(), wide.as_str(), tail.as_str()]);
+        let barge = Design::from_rows("BARGE", &[wide.as_str(), wide.as_str(), mid.as_str(), wide.as_str(), tail.as_str()]);
         let (mut a, (mx, my)) = turret_ready();
         a.add(1, 0, &barge, mx + 50, my);
         let full = a.ships[1].px_now();
@@ -3956,7 +3962,7 @@ mod tests {
         // A hull frame 24 px beyond a gun of three's reach, on its line. Parked there, it's out
         // of reach and the gun stays cold. Flying down the line at 3 px a tick, it will be well
         // inside the reach a second from now, and the gun starts to warm at once.
-        let frame = Design::from_rows("FRAME", Order::Hold, &[".h.", "hhh", "hch", "e.e"]);
+        let frame = Design::from_rows("FRAME", &[".h.", "hhh", "hch", "e.e"]);
         let warming_after_a_tick = |vx: i32| {
             let (mut a, (mx, my)) = turret_ready();
             a.add(1, 0, &frame, mx + beam_reach(3) + 24, my);
@@ -3990,7 +3996,7 @@ mod tests {
 
     /// A hull hulk with one shield pixel on its nose, and no engines or guns.
     fn egg() -> Design {
-        Design::from_rows("EGG", Order::Hold, &["hoh", "hhh", "hch"])
+        Design::from_rows("EGG", &["hoh", "hhh", "hch"])
     }
 
     /// Red's egg, where its shield pixel is, and which way out from the egg that is (-1: west).
@@ -4075,7 +4081,7 @@ mod tests {
     #[test]
     fn a_circle_covers_a_friend_inside_it() {
         // A one-pixel friend 6 px out from the shield pixel, shot at from beyond the circle.
-        let dot = Design::from_rows("DOT", Order::Hold, &["c"]);
+        let dot = Design::from_rows("DOT", &["c"]);
         let fired_at_the_dot = |charged: bool| {
             let (mut a, c, (sx, sy), out) = egg_alone();
             a.add(1, 1, &dot, sx + out * 6, sy);
@@ -4144,7 +4150,7 @@ mod tests {
     fn a_shot_that_starts_inside_a_pixel_hits_that_pixel() {
         // A pixel can grow round a shot in flight, a ship can arrive round one, and a gun can
         // fire from inside an enemy. The shot can't skip the pixel it's in: on plate, flak bounces.
-        let pod = Design::from_rows("POD", Order::Hold, &["ppp", "pgp", "pcp", "ppp"]);
+        let pod = Design::from_rows("POD", &["ppp", "pgp", "pcp", "ppp"]);
         let mut a = Arena::new();
         a.add(1, 0, &pod, 200, 180);
         a.tick = 5;
@@ -4166,7 +4172,7 @@ mod tests {
 
     /// A launcher on a stand: one missile pixel, no engines, on HOLD.
     fn launcher() -> Design {
-        Design::from_rows("LAUNCHER", Order::Hold, &["hmh", "hch"])
+        Design::from_rows("LAUNCHER", &["hmh", "hch"])
     }
 
     /// Blue's launcher at (100, 180), ready to fire, and where its missile pixel is.
@@ -4319,8 +4325,8 @@ mod tests {
     #[test]
     fn flak_shoots_a_missile_down_before_it_gets_there() {
         // A slab with flak along the side the missile comes from, against one with none.
-        let screened = Design::from_rows("SCREENED", Order::Hold, &["ghhhh", "ghhhh", "ghchh", "ghhhh", "ghhhh"]);
-        let bare = Design::from_rows("BARE", Order::Hold, &["hhhhh", "hhhhh", "hhchh", "hhhhh", "hhhhh"]);
+        let screened = Design::from_rows("SCREENED", &["ghhhh", "ghhhh", "ghchh", "ghhhh", "ghhhh"]);
+        let bare = Design::from_rows("BARE", &["hhhhh", "hhhhh", "hhchh", "hhhhh", "hhhhh"]);
         let run = |target: &Design| {
             let (mut a, at) = launcher_ready();
             a.add(1, 0, target, at.0 + 150, at.1);
@@ -4339,7 +4345,7 @@ mod tests {
     #[test]
     fn flak_sends_two_shots_at_a_missile_and_keeps_the_rest_for_the_next() {
         // Twenty flak guns with a missile coming: two shots go its way, not twenty.
-        let wall = Design::from_rows("WALL", Order::Hold, &["gggg", "gggg", "ggcg", "gggg", "gggg"]);
+        let wall = Design::from_rows("WALL", &["gggg", "gggg", "ggcg", "gggg", "gggg"]);
         let mut a = Arena::new();
         a.add(1, 0, &wall, 300, 180);
         for c in 0..a.ships[0].cool.len() {
@@ -4366,7 +4372,7 @@ mod tests {
     #[test]
     fn a_shield_stops_a_missile_for_one_charge_and_a_beam_cuts_one_down() {
         // Into a circle from outside: stopped at its edge for a charge, like any shot.
-        let egg = Design::from_rows("EGG", Order::Hold, &["hhh", "hoh", "hch"]);
+        let egg = Design::from_rows("EGG", &["hhh", "hoh", "hch"]);
         let (mut a, at) = launcher_ready();
         a.add(1, 0, &egg, at.0 + 120, at.1);
         let full = a.ships[1].px_now();
@@ -4396,29 +4402,27 @@ mod tests {
         assert!(launcher().stats().armed() && launcher().stats().flak == 0);
         assert_eq!((st.made, st.used), (12, 12), "an example ship should spend the power it makes");
         assert!(archer.check().ok());
-        // Its card says KITE: it holds off at two thirds of a missile's reach, from the target's edge.
-        assert_eq!(archer.flies(), Some(Style::Kite));
+        // Kiting, it holds off at two thirds of a missile's reach, from the target's edge.
         let mut a = Arena::new();
         a.add(0, 0, &archer, 100, 180);
         a.add(1, 0, &slab('p'), 100 + MISSILE_RANGE + 80, 180);
+        a.ships[0].style = Some(Style::Kite);
         for _ in 0..15 * 20 {
             a.step();
         }
         let gap = (a.ships[1].x - a.ships[0].x).abs() - a.ships[1].half();
         assert!((MISSILE_RANGE * 2 / 3 - 12..=MISSILE_RANGE * 2 / 3 + 12).contains(&gap), "it holds off at {gap} px");
         assert!(a.score[0].fired > 0, "it never launched from there");
-        // Left as drawn (it has the thrust for it) the same ship makes attack runs: it follows
-        // what its card says, whatever its guns are.
-        let mut runner = archer.clone();
-        runner.style = None;
-        assert_eq!(runner.flies(), Some(Style::Runs));
+        // As drawn (it has the thrust for it) the same ship starts on attack runs, whatever its
+        // guns are.
+        assert_eq!(archer.flies(), Some(Style::Runs));
     }
 
     // ----- The repeater -----
 
     /// A repeater gun three long on a stand, on HOLD.
     fn rake() -> Design {
-        Design::from_rows("RAKE", Order::Hold, &["hrh", "hrh", "hrh", "hch"])
+        Design::from_rows("RAKE", &["hrh", "hrh", "hrh", "hch"])
     }
 
     /// Blue's rake at (100, 180) facing east, its gun ready, and where its muzzle is.
@@ -4453,7 +4457,7 @@ mod tests {
         // lone core 50 px out, which the first shot to land kills with the next already on its
         // way. A hull slab stands behind it, its near edge 96 px out: past the 84 the gun reaches.
         let (mut a, at) = rake_ready(&rake());
-        a.add(1, 0, &Design::from_rows("DOT", Order::Hold, &["c"]), at.0 + 50, at.1);
+        a.add(1, 0, &Design::from_rows("DOT", &["c"]), at.0 + 50, at.1);
         a.add(1, 0, &slab('h'), at.0 + 100, at.1);
         let full = a.ships[2].px_now();
         for _ in 0..60 {
@@ -4463,11 +4467,11 @@ mod tests {
         assert_eq!(a.ships[2].px_now(), full, "a shot flew on past its gun's reach and hit the slab behind");
         // Three abreast are three guns, each on its own line: a target on one line is fired at
         // by that one alone, and slower.
-        let (mut a, _) = rake_ready(&Design::from_rows("ROW", Order::Hold, &["rrr", "hch"]));
+        let (mut a, _) = rake_ready(&Design::from_rows("ROW", &["rrr", "hch"]));
         let guns: Vec<(i32, i32)> = a.ships[0].repeat_guns().iter().map(|g| a.ships[0].cell_xy(g.0)).collect();
         assert_eq!(guns.len(), 3);
         let top = *guns.iter().min_by_key(|g| g.1).unwrap();
-        a.add(1, 0, &Design::from_rows("DOT", Order::Hold, &["c"]), top.0 + 50, top.1);
+        a.add(1, 0, &Design::from_rows("DOT", &["c"]), top.0 + 50, top.1);
         for _ in 0..8 {
             a.step();
         }
@@ -4496,7 +4500,7 @@ mod tests {
         // Red's egg, its shield toward the gun. One lance shot would cost it a charge and be
         // gone. The stream costs it all four inside two seconds and then every shot lands.
         let (mut a, at) = rake_ready(&rake());
-        a.add(1, 0, &Design::from_rows("EGG", Order::Hold, &["hoh", "hhh", "hhh", "hch"]), at.0 + 60, at.1);
+        a.add(1, 0, &Design::from_rows("EGG", &["hoh", "hhh", "hhh", "hch"]), at.0 + 60, at.1);
         let o = (0..a.ships[1].hp.len()).find(|&c| a.ships[1].shape.cells[c] == Some(Part::Shield)).unwrap();
         let full = a.ships[1].px_now();
         let mut emptied = None;
@@ -4544,7 +4548,7 @@ mod tests {
 
     /// A projector knob of twelve pixels on a neck, on a base with the power for it. It stays put.
     fn tower() -> Design {
-        Design::from_rows("TOWER", Order::Hold, &["..jj..", ".jjjj.", ".jjjj.", "..jj..", "..hh..", "hhhhhh", "hhhhhh", "hhchhh", "hhhhhh"])
+        Design::from_rows("TOWER", &["..jj..", ".jjjj.", ".jjjj.", "..jj..", "..hh..", "hhhhhh", "hhhhhh", "hhchhh", "hhhhhh"])
     }
 
     /// Red's tower at (300, 180) and a red slab `gap` px clear of its knob, above it. Team 0
@@ -4754,7 +4758,6 @@ mod tests {
         // A knob of twelve at each end: each reaches 30 px, where 24 in one lump would reach 40.
         let twin = Design::from_rows(
             "TWIN",
-            Order::Hold,
             &["..jj..", ".jjjj.", ".jjjj.", "..jj..", "..hh..", "hhhhhh", "hhhhhh", "hhhhhh", "hhchhh", "hhhhhh", "hhhhhh", "hhhhhh", "hhhhhh", "..hh..", "..jj..", ".jjjj.", ".jjjj.", "..jj.."],
         );
         assert!(twin.check().ok(), "{:?}", twin.check().problem());

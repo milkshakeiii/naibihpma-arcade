@@ -537,7 +537,7 @@ pub enum Order {
     Sab,
 }
 
-/// The orders in the order the yard shows them, three to a row.
+/// Every order there is.
 pub const ORDERS: [Order; 6] = [Order::Hunt, Order::Sab, Order::Guard, Order::Escort, Order::Harvest, Order::Hold];
 
 impl Order {
@@ -549,17 +549,6 @@ impl Order {
             Order::Harvest => "HARVEST",
             Order::Hold => "HOLD",
             Order::Sab => "SAB",
-        }
-    }
-    /// Three letters, for a card's order tag in a match.
-    pub fn blurb(self) -> &'static str {
-        match self {
-            Order::Hunt => "HUNT - GOES AFTER THE NEAREST ENEMY, WHEREVER IT IS.",
-            Order::Guard => "GUARD - IN A MATCH, WAITS IN THE RINGS ROUND WHAT BUILT IT AND FIGHTS WHAT COMES WITHIN 160 PX OF THERE. IN THE ARENA IT HUNTS.",
-            Order::Escort => "ESCORT - IN A MATCH, FORMS UP ON YOUR KING, GOES WHERE IT FLIES AND FIGHTS WHAT COMES NEAR IT. IN THE ARENA IT HUNTS.",
-            Order::Harvest => "HARVEST - MINES THE NEAREST ROCK AND HAULS THE PIXELS HOME. ITS GUNS STILL FIRE ON THE WAY.",
-            Order::Hold => "HOLD - STAYS EXACTLY WHERE IT WAS PLACED, TURNING ITS LANCES TO FACE ANY ENEMY IN RANGE.",
-            Order::Sab => "SAB - SABOTAGE: GOES AFTER THE NEAREST ENEMY MINER OR FACTORY, PAST WHATEVER GUARDS IT. WITH NONE LEFT IT HUNTS.",
         }
     }
     fn from_name(s: &str) -> Option<Order> {
@@ -603,9 +592,6 @@ pub enum Style {
 
 pub const STYLES: [Style; 3] = [Style::Runs, Style::Kite, Style::Orbit];
 
-/// The sizes of group a design can leave in on HUNT or SAB: so many gather before any sets off.
-pub const GROUPS: [u8; 4] = [1, 3, 6, 12];
-
 impl Style {
     pub fn name(self) -> &'static str {
         match self {
@@ -613,16 +599,6 @@ impl Style {
             Style::Kite => "KITE",
             Style::Orbit => "ORBIT",
         }
-    }
-    pub fn blurb(self) -> &'static str {
-        match self {
-            Style::Runs => "RUNS - DIVES STRAIGHT THROUGH ITS TARGET AND COMES ABOUT FOR ANOTHER PASS. A LANCE SHIP SLIDES ONTO THE TARGET'S ROW OR COLUMN FIRST.",
-            Style::Kite => "KITE - HOLDS AT THE RANGE OF ITS GUNS AND BACKS AWAY FROM ANYTHING THAT COMES CLOSER. IT WORKS ON WHAT IT CAN OUTRUN OR OUTREACH.",
-            Style::Orbit => "ORBIT - CIRCLES ITS TARGET AT THE RANGE OF ITS GUNS, FLAT OUT. FAST AND CLOSE, IT GETS ROUND QUICKER THAN A CANNON TURNS. A LANCE RARELY BEARS.",
-        }
-    }
-    fn from_name(s: &str) -> Option<Style> {
-        STYLES.iter().copied().find(|o| o.name() == s)
     }
     /// What a drawing flies as when nothing was chosen for it. None: it has no engines.
     pub fn of(f: Flight) -> Option<Style> {
@@ -671,6 +647,20 @@ pub struct Stats {
 }
 
 impl Stats {
+    /// The order a ship of this drawing starts on. It follows from the drawing and nobody sets
+    /// it: with engines and a scoop it mines, with engines and no scoop it fights, and with no
+    /// engines it holds where it is. (A design carried an order chosen in the yard until
+    /// 2026-11-14. Orders are now what a side's AI gives its cards, and what a person's stance
+    /// gives every ship: nothing a drawing has.)
+    pub fn order(&self) -> Order {
+        if self.thrust == 0 {
+            Order::Hold
+        } else if self.scoops > 0 {
+            Order::Harvest
+        } else {
+            Order::Hunt
+        }
+    }
     pub fn armed(&self) -> bool {
         self.flak + self.lance + self.cannon + self.beam + self.missile + self.repeater > 0
     }
@@ -901,7 +891,6 @@ pub fn buried_engines(engines: &[(i32, i32)], bbox: (i32, i32, i32, i32), filled
 #[derive(Clone, Debug, Hash)]
 pub struct Design {
     pub name: String,
-    pub order: Order,
     /// GRID x GRID, row-major, north up.
     pub cells: Vec<Option<Part>>,
     /// Grown from a seed on a rock (match only), rather than printed by a factory or the king.
@@ -909,10 +898,6 @@ pub struct Design {
     pub seeded: bool,
     /// What its factory pixels print, by deck slot, round and round (match only).
     pub build: Vec<usize>,
-    /// How it flies at what it's fighting, once chosen in the yard. None: as its drawing suggests.
-    pub style: Option<Style>,
-    /// How many of it gather before they leave on HUNT or SAB (match only): one of `GROUPS`.
-    pub group: u8,
 }
 
 /// Where a seeded design's seed core sits on the grid.
@@ -934,7 +919,7 @@ pub fn team_of(mut designs: Vec<Design>) -> Vec<Design> {
 
 impl Design {
     pub fn blank(name: &str) -> Design {
-        Design { name: name.into(), order: Order::Hunt, cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new(), style: None, group: 1 }
+        Design { name: name.into(), cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new() }
     }
 
     /// Nothing drawn yet: an empty slot.
@@ -943,9 +928,8 @@ impl Design {
     }
 
     /// A design from art rows, centred in the grid.
-    pub fn from_rows(name: &str, order: Order, rows: &[&str]) -> Design {
+    pub fn from_rows(name: &str, rows: &[&str]) -> Design {
         let mut d = Design::blank(name);
-        d.order = order;
         let h = rows.len() as i32;
         let w = rows.iter().map(|r| r.len()).max().unwrap_or(0) as i32;
         let (ox, oy) = ((GRID - w) / 2, (GRID - h) / 2);
@@ -1075,14 +1059,27 @@ impl Design {
         stats_of(&self.cells, self.cannon_blocks().0.len() as i32, longest(Part::Beam), longest(Part::Repeater))
     }
 
-    /// How it flies at what it's fighting: what was chosen for it, or else what its drawing
-    /// suggests. None: it has no engines, and stays put.
+    /// What its ships do, in a word or two, for a list. It follows from the drawing.
+    pub fn does(&self) -> &'static str {
+        let st = self.stats();
+        match st.order() {
+            Order::Harvest => "MINES",
+            Order::Hold => "STAYS PUT",
+            _ if st.armed() => "FIGHTS",
+            _ => "FLIES, NO GUNS",
+        }
+    }
+
+    /// How it flies at what it's fighting until its side has thought about it: what its
+    /// drawing suggests. None: it has no engines, and stays put. (A design carried a way of
+    /// flying chosen in the yard, and a group size, until 2026-11-14. Now ships choose.)
+    #[cfg(test)]
     pub fn flies(&self) -> Option<Style> {
         let st = self.stats();
         if st.thrust == 0 {
             None
         } else {
-            self.style.or(Style::of(st.flight))
+            Style::of(st.flight)
         }
     }
 
@@ -1235,37 +1232,48 @@ impl Design {
         Ok(true)
     }
 
-    /// One line for the save file: `NAME|ORDER|X,Y|row/row/...|KIND|BUILD|STYLE|GROUP`. The
-    /// drawing is trimmed to its box with the box's top-left on the grid and `.` for empty cells;
-    /// KIND is BUILT or SEEDED, and BUILD the build order as deck slots (round 5 lines stop after
-    /// the rows). STYLE and GROUP are left off a design that has neither chosen, so such a line is
-    /// what it always was.
+    /// One line for the save file: `NAME|X,Y|row/row/...|KIND|BUILD`. The drawing is trimmed to
+    /// its box with the box's top-left on the grid and `.` for empty cells; KIND is BUILT or
+    /// SEEDED, and BUILD the build order as deck slots. A design carries nothing else: what its
+    /// ships do follows from the drawing (`Design::order`). Lines saved before 2026-11-14 have
+    /// the order a design used to carry as their second field, and may end `|STYLE|GROUP`, the
+    /// way of flying and the group size it carried too: all three are read past.
     pub fn to_line(&self) -> String {
         let kind = if self.seeded { "SEEDED" } else { "BUILT" };
         let build: Vec<String> = self.build.iter().map(|b| b.to_string()).collect();
-        let flying = if self.style.is_none() && self.group <= 1 { String::new() } else { format!("|{}|{}", self.style.map_or("-", |s| s.name()), self.group) };
         let Some((x0, y0, x1, y1)) = self.used_box() else {
-            return format!("{}|{}|0,0|.|{kind}|{}{flying}", self.name, self.order.name(), build.join(","));
+            return format!("{}|0,0|.|{kind}|{}", self.name, build.join(","));
         };
         let rows: Vec<String> = (y0..=y1).map(|y| (x0..=x1).map(|x| self.get(x, y).map_or('.', |p| p.ch())).collect()).collect();
-        format!("{}|{}|{x0},{y0}|{}|{kind}|{}{flying}", self.name, self.order.name(), rows.join("/"), build.join(","))
+        format!("{}|{x0},{y0}|{}|{kind}|{}", self.name, rows.join("/"), build.join(","))
     }
 
-    /// Reads a save line. A round 2 or 3 line (the whole 41x41 grid, no position) is centred.
+    /// Reads a save line, today's or an older one. A round 2 or 3 line (the whole 41x41 grid,
+    /// no position) is centred.
     pub fn from_line(s: &str) -> Option<Design> {
-        let f: Vec<&str> = s.trim().split('|').collect();
-        let (name, order) = (*f.first()?, Order::from_name(f.get(1)?)?);
+        let mut f: Vec<&str> = s.trim().split('|').collect();
+        let name = *f.first()?;
+        // An older line has the design's order second: read past it. Without one, the line is
+        // today's, and has all five fields.
+        let old = f.get(1).is_some_and(|o| Order::from_name(o).is_some());
+        if old {
+            f.remove(1);
+        } else if f.len() != 5 {
+            return None;
+        }
+        // Now: NAME, then X,Y and the rows (or the rows alone), then KIND and BUILD, then on
+        // some older lines the way of flying and the group size.
         let (at, rows) = match f.len() {
-            4 | 6 | 8 => {
-                let (x, y) = f[2].split_once(',')?;
-                ((x.parse::<i32>().ok()?, y.parse::<i32>().ok()?), f[3])
+            3 | 5 | 7 => {
+                let (x, y) = f[1].split_once(',')?;
+                ((x.parse::<i32>().ok()?, y.parse::<i32>().ok()?), f[2])
             }
-            3 => {
-                let n = f[2].split('/').count() as i32;
+            2 => {
+                let n = f[1].split('/').count() as i32;
                 if n > GRID {
                     return None;
                 }
-                (((GRID - n) / 2, (GRID - n) / 2), f[2])
+                (((GRID - n) / 2, (GRID - n) / 2), f[1])
             }
             _ => return None,
         };
@@ -1275,19 +1283,14 @@ impl Design {
             return None;
         }
         let mut d = Design::blank(name);
-        d.order = order;
         for (y, r) in rows.split('/').enumerate() {
             for (x, c) in r.chars().enumerate() {
                 d.set(at.0 + x as i32, at.1 + y as i32, Part::from_ch(c));
             }
         }
-        if f.len() >= 6 {
-            d.seeded = f[4] == "SEEDED";
-            d.build = f[5].split(',').filter_map(|b| b.trim().parse().ok()).take(BUILD_MAX).collect();
-        }
-        if f.len() == 8 {
-            d.style = Style::from_name(f[6]);
-            d.group = f[7].parse().ok().filter(|g| GROUPS.contains(g)).unwrap_or(1);
+        if f.len() >= 5 {
+            d.seeded = f[3] == "SEEDED";
+            d.build = f[4].split(',').filter_map(|b| b.trim().parse().ok()).take(BUILD_MAX).collect();
         }
         Some(d)
     }
@@ -1372,16 +1375,15 @@ impl Stamp {
 /// The starting library. Slots are referred to by index in the test setups.
 pub fn defaults() -> Vec<Design> {
     vec![
-        Design::from_rows("FIGHTER", Order::Hunt, &["g.g", "hch", "e.e"]),
+        Design::from_rows("FIGHTER", &["g.g", "hch", "e.e"]),
         // A hull pixel ahead of the lance soaks the first hit (own shots pass through own pixels).
-        Design::from_rows("LANCER", Order::Hunt, &[".h.", ".l.", "hch", "e.e"]),
+        Design::from_rows("LANCER", &[".h.", ".l.", "hch", "e.e"]),
         // Flak and lance tucked inside plate (a ship's own shots pass through its own pixels);
         // only the engines are bare.
-        Design::from_rows("FRIGATE", Order::Hunt, &["...ppp...", "..pplpp..", ".pphhhpp.", ".pghchgp.", ".pphhhpp.", ".pghhhgp.", "..ppppp..", "..e.e.e.."]),
+        Design::from_rows("FRIGATE", &["...ppp...", "..pplpp..", ".pphhhpp.", ".pghchgp.", ".pphhhpp.", ".pghhhgp.", "..ppppp..", "..e.e.e.."]),
         // One cannon behind a plated prow; its flak sponsons are bolted on outside the plate.
         Design::from_rows(
             "DESTROYER",
-            Order::Hunt,
             &[
                 ".....ppp.....",
                 "....pphpp....",
@@ -1407,7 +1409,6 @@ pub fn defaults() -> Vec<Design> {
         // (fore, middle, aft) for +24: cheap insurance on a ship this size.
         Design::from_rows(
             "CAPITAL",
-            Order::Hunt,
             &[
                 ".........ppp.........",
                 "........pphpp........",
@@ -1448,7 +1449,7 @@ pub fn defaults() -> Vec<Design> {
                 "...e.e.e.e.e.e.e.e...",
             ],
         ),
-        Design::from_rows("GUNMINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]),
+        Design::from_rows("GUNMINER", &["s.s", "sgs", "hch", ".e."]),
         titan(),
     ]
 }
@@ -1501,7 +1502,6 @@ fn titan() -> Design {
 pub fn king() -> Design {
     Design::from_rows(
         "KING",
-        Order::Hold,
         &[
             "......ppppp......",
             "....pphhhhhpp....",
@@ -1527,14 +1527,13 @@ pub fn king() -> Design {
 /// A seed (match only): a core and an engine, unarmed. The king prints one for a seeded design;
 /// it flies to a rock and grows the design out of it.
 pub fn seed() -> Design {
-    Design::from_rows("SEED", Order::Hunt, &["c", "e"])
+    Design::from_rows("SEED", &["c", "e"])
 }
 
 /// A design drawn at an exact place in the grid, as the yard saves it. `build` makes it a seeded
 /// factory with that build order.
-fn drawn(name: &str, order: Order, at: (i32, i32), rows: &[&str], build: Option<&[usize]>) -> Design {
+fn drawn(name: &str, at: (i32, i32), rows: &[&str], build: Option<&[usize]>) -> Design {
     let mut d = Design::blank(name);
-    d.order = order;
     for (y, r) in rows.iter().enumerate() {
         for (x, c) in r.chars().enumerate() {
             d.set(at.0 + x as i32, at.1 + y as i32, Part::from_ch(c));
@@ -1554,22 +1553,22 @@ fn drawn(name: &str, order: Order, at: (i32, i32), rows: &[&str], build: Option<
 /// - NEEDLE: the smallest ship a beam fits, two beam pixels on a fighter's frame: 64 px.
 pub fn part_examples() -> Vec<Design> {
     vec![
-        drawn("BEAMER", Order::Hunt, (47, 44), &["..b..", ".hbh.", ".hbh.", "hhbhh", "hhbhh", "hhbhh", "hhbhh", "phbhp", "phbhp", "hhchh", "egege"], None),
-        drawn("WARDEN", Order::Hunt, (45, 45), &["....o....", "...hlh...", "..hhlhh..", ".hghlhgh.", "ohhhchhho", ".hghhhgh.", "..hhhhh..", ".eehhhee.", "....o...."], None),
-        drawn("NEEDLE", Order::Hunt, (48, 47), &[".b.", "hbh", "hch", "e.e"], None),
-        // Two launchers and a flak gun against other people's missiles. Its card says KITE, so it
-        // holds off at missile range: left as drawn it has the thrust to make attack runs.
-        Design { style: Some(Style::Kite), ..drawn("ARCHER", Order::Hunt, (47, 47), &[".m.m.", "hhghh", "hhchh", "e.e.e"], None) },
+        drawn("BEAMER", (47, 44), &["..b..", ".hbh.", ".hbh.", "hhbhh", "hhbhh", "hhbhh", "hhbhh", "phbhp", "phbhp", "hhchh", "egege"], None),
+        drawn("WARDEN", (45, 45), &["....o....", "...hlh...", "..hhlhh..", ".hghlhgh.", "ohhhchhho", ".hghhhgh.", "..hhhhh..", ".eehhhee.", "....o...."], None),
+        drawn("NEEDLE", (48, 47), &[".b.", "hbh", "hch", "e.e"], None),
+        // Two launchers and a flak gun against other people's missiles. (Its card said KITE
+        // until designs stopped carrying a way of flying: as drawn it has the thrust to make
+        // attack runs, and its side decides in the fight.)
+        drawn("ARCHER", (47, 47), &[".m.m.", "hhghh", "hhchh", "e.e.e"], None),
         // A ten-pixel repeater down the spine of a long ship: 140 px of reach, a shot every
         // quarter of a second.
-        drawn("RAKER", Order::Hunt, (47, 43), &["..r..", "..r..", "..r..", "..r..", ".hrh.", ".hrh.", ".hrh.", ".hrh.", "hhrhh", "hhrhh", "hhchh", "ee.ee"], None),
+        drawn("RAKER", (47, 43), &["..r..", "..r..", "..r..", "..r..", ".hrh.", ".hrh.", ".hrh.", ".hrh.", "hhrhh", "hhrhh", "hhchh", "ee.ee"], None),
         // A projector knob of 38 pixels on a thick neck, on the bow of a wide hull: it reaches
         // 60 px and stops 38 shots. Its base is five wide, so one shell's 3x3 hole can't cut it
         // off. It has no guns, so it stays beside the nearest friend that has (as any unarmed
         // ship on HUNT does), and its fourteen engines keep it up with the other big ships.
         drawn(
             "AEGIS",
-            Order::Hunt,
             (42, 43),
             &[
                 ".....jjjjj.....",
@@ -1602,15 +1601,14 @@ pub fn part_examples() -> Vec<Design> {
 pub fn starter_deck() -> Vec<Design> {
     vec![
         // Four flak round the nose: every pixel of power its hull makes is spent.
-        drawn("FIGHTER", Order::Guard, (48, 47), &[".g.", "ggg", "hch", "e.e"], None),
+        drawn("FIGHTER", (48, 47), &[".g.", "ggg", "hch", "e.e"], None),
         // Two lances in a column: the rear one fires through the front one. Hull either side
         // of it since 2026-11-11, when a lance went from 2 power to 3.
-        drawn("LANCER", Order::Guard, (48, 47), &[".l.", "hlh", "hch", "e.e"], None),
+        drawn("LANCER", (48, 47), &[".l.", "hlh", "hch", "e.e"], None),
         // Six flak and four lances down the spine, behind plate, with two more engines. Four
         // of its plates are hull now, to feed the lances.
         drawn(
             "FRIGATE",
-            Order::Guard,
             (45, 44),
             &[
                 "....p....",
@@ -1635,13 +1633,12 @@ pub fn starter_deck() -> Vec<Design> {
         // 2026-11-11: scoops use power and weigh 2, so it carries two hull pixels where it had
         // an engine, costs 9 px and flies at 30 px/s. Nobody has played drawings against each
         // other for it under these costs.
-        drawn("MINER", Order::Harvest, (48, 47), &[".g.", "sss", "hch", "e.e"], None),
+        drawn("MINER", (48, 47), &[".g.", "sss", "hch", "e.e"], None),
         // Twenty-eight factory pixels inside the plate, so it builds anything up to 280 px.
         // (Forty-two until a factory pixel went from 1 power to 2: the same size and price,
         // with a third of its factory turned to the hull the rest needs.)
         drawn(
             "OUTPOST",
-            Order::Hold,
             (43, 43),
             &[
                 ".....ppp.....",
@@ -1665,7 +1662,6 @@ pub fn starter_deck() -> Vec<Design> {
         // the rest of it is the hull that what's left needs.)
         drawn(
             "SHIPYARD",
-            Order::Hold,
             (36, 36),
             &[
                 "...ppppppppppppppppppppp...",
@@ -1701,7 +1697,6 @@ pub fn starter_deck() -> Vec<Design> {
         // Twenty-seven cannons behind plate, and a full row of engines across the stern.
         drawn(
             "CAPITAL",
-            Order::Guard,
             (33, 31),
             &[
                 "...............ppp...............",
@@ -1757,7 +1752,7 @@ pub fn retired_starters() -> Vec<(usize, Design)> {
     v.extend(round2_deck().into_iter().enumerate());
     // Henry's first miner (2026-11-10): five scoops and five flak on one engine. Replaced
     // the same day at Henry's request.
-    v.push((3, drawn("MINER", Order::Harvest, (48, 45), &[".g.", "ggg", "sss", "sgs", "hch", ".e."], None)));
+    v.push((3, drawn("MINER", (48, 45), &[".g.", "ggg", "sss", "sgs", "hch", ".e."], None)));
     v.extend(cheap_parts_deck());
     v
 }
@@ -1767,15 +1762,14 @@ pub fn retired_starters() -> Vec<(usize, Design)> {
 /// miner. Kept for saves that still hold them.
 fn cheap_parts_deck() -> Vec<(usize, Design)> {
     vec![
-        (1, drawn("LANCER", Order::Guard, (48, 47), &[".l.", ".l.", "hch", "e.e"], None)),
-        (2, drawn("FRIGATE", Order::Guard, (45, 44), &["....p....", "...php...", "..pplpp..", "ppghlhgpp", "phghchghp", "phhhlhhhp", "ppghlhgpp", "e.ppppp.e", "..e.e.e.."], None)),
-        (3, drawn("MINER", Order::Harvest, (48, 47), &[".g.", "sss", "ece", ".e."], None)),
-        (4, drawn("OUTPOST", Order::Hold, (43, 43), &[".....ppp.....", "...pphhhpp...", "..phhhghhhp..", ".phhfffffhhp.", ".phfffffffhp.", "phfffhhhfffhp", "pgfffhchfffgp", "phfffhhhfffhp", ".phfffffffhp.", ".phhfffffhhp.", "..phhhghhhp..", "...pphhhpp...", ".....ppp....."], Some(&[3, 3, 0, 0, 1, 2]))),
+        (1, drawn("LANCER", (48, 47), &[".l.", ".l.", "hch", "e.e"], None)),
+        (2, drawn("FRIGATE", (45, 44), &["....p....", "...php...", "..pplpp..", "ppghlhgpp", "phghchghp", "phhhlhhhp", "ppghlhgpp", "e.ppppp.e", "..e.e.e.."], None)),
+        (3, drawn("MINER", (48, 47), &[".g.", "sss", "ece", ".e."], None)),
+        (4, drawn("OUTPOST", (43, 43), &[".....ppp.....", "...pphhhpp...", "..phhhghhhp..", ".phhfffffhhp.", ".phfffffffhp.", "phfffhhhfffhp", "pgfffhchfffgp", "phfffhhhfffhp", ".phfffffffhp.", ".phhfffffhhp.", "..phhhghhhp..", "...pphhhpp...", ".....ppp....."], Some(&[3, 3, 0, 0, 1, 2]))),
         (
             5,
             drawn(
                 "SHIPYARD",
-                Order::Hold,
                 (36, 36),
                 &[
                     "...ppppppppppppppppppppp...",
@@ -1817,10 +1811,9 @@ fn cheap_parts_deck() -> Vec<(usize, Design)> {
 /// its cards.
 fn round2_deck() -> Vec<Design> {
     let d = defaults();
-    let guard = |d: &Design| Design { order: Order::Guard, ..d.clone() };
+    let guard = |d: &Design| d.clone();
     let mut outpost = Design::from_rows(
         "OUTPOST",
-        Order::Hold,
         &[
             ".....ppp.....",
             "...pphhhpp...",
@@ -1839,7 +1832,7 @@ fn round2_deck() -> Vec<Design> {
     );
     outpost.seeded = true;
     outpost.build = vec![3, 3, 0, 0, 1, 2];
-    let miner = Design::from_rows("MINER", Order::Harvest, &["s.s", "sgs", "hch", ".e."]);
+    let miner = Design::from_rows("MINER", &["s.s", "sgs", "hch", ".e."]);
     vec![guard(&d[0]), guard(&d[1]), guard(&d[2]), miner, outpost, round2_shipyard(), guard(&d[4])]
 }
 
@@ -1874,7 +1867,6 @@ fn round2_shipyard() -> Design {
         d.set(c + x, c + y, Some(Part::Flak));
     }
     d.set(c, c, Some(Part::Core));
-    d.order = Order::Hold;
     d.seeded = true;
     d.build = vec![3, 2, 2, 6];
     d
@@ -1886,7 +1878,6 @@ fn round2_shipyard() -> Design {
 pub fn retired_defaults() -> Vec<(usize, Design)> {
     let destroyer = Design::from_rows(
         "DESTROYER",
-        Order::Hunt,
         &[
             ".....ppp.....",
             "....pphpp....",
@@ -1929,42 +1920,56 @@ mod tests {
     }
 
     #[test]
-    fn a_designs_style_and_group_are_kept_in_its_line_and_old_lines_still_load() {
-        let mut d = defaults()[0].clone();
-        // With neither chosen, the line is what it was before there was anything to choose.
+    fn a_line_saved_with_an_order_a_way_of_flying_or_a_group_size_loads_without_them() {
+        let d = defaults()[0].clone();
+        // A line has five fields: name, place, rows, kind and build order.
         let plain = d.to_line();
-        assert_eq!(plain.split('|').count(), 6, "{plain}");
-        let back = Design::from_line(&plain).unwrap();
-        assert_eq!((back.style, back.group), (None, 1));
-        // Either one chosen, both are written, and come back.
-        for (style, group) in [(Some(Style::Orbit), 1), (None, 6), (Some(Style::Kite), 12), (Some(Style::Runs), 3)] {
-            (d.style, d.group) = (style, group);
-            let line = d.to_line();
-            assert_eq!(line.split('|').count(), 8, "{line}");
-            let back = Design::from_line(&line).unwrap();
-            assert_eq!((back.style, back.group, &back.cells, back.order), (style, group, &d.cells, d.order), "{line}");
+        assert_eq!(plain.split('|').count(), 5, "{plain}");
+        assert_eq!(Design::from_line(&plain).unwrap().to_line(), plain);
+        // Older lines had the design's order second, whichever it was, and the later of them
+        // ended with a way of flying and a group size. Each loads as the same drawing, and is
+        // saved again as today's line.
+        let (name, rest) = plain.split_once('|').unwrap();
+        for order in ["HUNT", "SAB", "GUARD", "ESCORT", "HARVEST", "HOLD"] {
+            for tail in ["", "|ORBIT|1", "|-|6", "|KITE|12", "|RUNS|3", "|WARP|5"] {
+                let old = format!("{name}|{order}|{rest}{tail}");
+                let back = Design::from_line(&old).unwrap_or_else(|| panic!("{old} didn't load"));
+                assert_eq!((&back.cells, back.to_line()), (&d.cells, plain.clone()), "{old}");
+            }
         }
-        // A group size that isn't one of the four is no group at all.
-        let odd = d.to_line().rsplit_once('|').unwrap().0.to_string() + "|5";
-        assert_eq!(Design::from_line(&odd).unwrap().group, 1);
-        assert_eq!(Design::from_line(&(plain.clone() + "|WARP|3")).unwrap().style, None);
-        // SAB is an order like the others.
-        d.order = Order::Sab;
-        assert_eq!(Design::from_line(&d.to_line()).unwrap().order, Order::Sab);
+        // The oldest stopped after the rows.
+        let (at, rows) = (plain.split('|').nth(1).unwrap(), plain.split('|').nth(2).unwrap());
+        assert_eq!(Design::from_line(&format!("{name}|HUNT|{at}|{rows}")).unwrap().cells, d.cells);
+        // Not a line: today's with fields missing, and a second field that's neither a place
+        // nor any order there was.
+        assert!(Design::from_line(&format!("{name}|{at}|{rows}")).is_none());
+        assert!(Design::from_line(&format!("{name}|WANDER|{rest}")).is_none());
     }
 
     #[test]
-    fn a_design_flies_as_chosen_or_else_as_its_drawing_suggests() {
+    fn what_a_drawings_ships_do_follows_from_the_drawing() {
+        // Engines and no scoop: it fights. Engines and a scoop: it mines, guns or no guns. No
+        // engines: it holds where it is.
+        let order = |rows: &[&str]| Design::from_rows("X", rows).stats().order();
+        assert_eq!(order(&[".g.", "hch", "e.e"]), Order::Hunt);
+        assert_eq!(order(&["hhh", "hch", "e.e"]), Order::Hunt);
+        assert_eq!(order(&["sss", "hch", "e.e"]), Order::Harvest);
+        assert_eq!(order(&["gsg", "hch", "e.e"]), Order::Harvest);
+        assert_eq!(order(&["ggg", "hch"]), Order::Hold);
+        assert_eq!(order(&["sss", "hch"]), Order::Hold);
+        // The starter deck's cards, and the words a list has for each.
+        let d = starter_deck();
+        assert_eq!(d[..5].iter().map(|d| d.stats().order()).collect::<Vec<_>>(), vec![Order::Hunt, Order::Hunt, Order::Hunt, Order::Harvest, Order::Hold]);
+        assert_eq!(d[..5].iter().map(|d| d.does()).collect::<Vec<_>>(), vec!["FIGHTS", "FIGHTS", "FIGHTS", "MINES", "STAYS PUT"]);
+        assert_eq!(Design::from_rows("X", &["hhh", "hch", "e.e"]).does(), "FLIES, NO GUNS");
+    }
+
+    #[test]
+    fn a_design_flies_as_its_drawing_suggests_until_its_side_decides() {
         let d = defaults();
-        let (mut fighter, mut capital) = (d[0].clone(), d[4].clone());
-        assert_eq!((fighter.flies(), capital.flies()), (Some(Style::Runs), Some(Style::Kite)));
-        fighter.style = Some(Style::Orbit);
-        capital.style = Some(Style::Runs);
-        assert_eq!((fighter.flies(), capital.flies()), (Some(Style::Orbit), Some(Style::Runs)));
-        // No engines, nothing to choose: whatever its line says, it stays put.
-        let mut post = Design::from_rows("POST", Order::Hold, &["ggg", "hch"]);
-        post.style = Some(Style::Orbit);
-        assert_eq!(post.flies(), None);
+        assert_eq!((d[0].flies(), d[4].flies()), (Some(Style::Runs), Some(Style::Kite)));
+        // No engines: it stays put.
+        assert_eq!(Design::from_rows("POST", &["ggg", "hch"]).flies(), None);
     }
 
     #[test]
@@ -1992,7 +1997,7 @@ mod tests {
         rows[20] = format!("{}hch{}", ".".repeat(19), ".".repeat(19));
         rows[21] = format!("{}e.e{}", ".".repeat(19), ".".repeat(19));
         let d = Design::from_line(&format!("OLD|HUNT|{}", rows.join("/"))).expect("parses");
-        assert_eq!(d.to_line(), Design::from_rows("OLD", Order::Hunt, &["g.g", "hch", "e.e"]).to_line());
+        assert_eq!(d.to_line(), Design::from_rows("OLD", &["g.g", "hch", "e.e"]).to_line());
         assert_eq!(d.get(GRID / 2, GRID / 2), Some(Part::Core));
     }
 
@@ -2013,7 +2018,7 @@ mod tests {
 
     #[test]
     fn fills_take_holes_and_patches_but_not_open_space() {
-        let mut d = Design::from_rows("T", Order::Hunt, &["ppppp", "p...p", "p.c.p", "p...p", "ppppp"]);
+        let mut d = Design::from_rows("T", &["ppppp", "p...p", "p.c.p", "p...p", "ppppp"]);
         let c = GRID / 2;
         // Outside the ring is open space.
         assert!(d.flood((0, 0), Some(Part::Hull)).is_err());
@@ -2029,7 +2034,7 @@ mod tests {
 
     #[test]
     fn stamps_copy_turn_and_paste_as_plain_pixels() {
-        let src = Design::from_rows("T", Order::Hunt, &["g.g", "hch", "e.e"]);
+        let src = Design::from_rows("T", &["g.g", "hch", "e.e"]);
         let st = src.as_stamp();
         assert_eq!((st.w, st.h), (3, 3));
         // Four quarter turns come back to the start; one turn puts the engines on the left.
@@ -2067,7 +2072,7 @@ mod tests {
 
     #[test]
     fn loose_pixels_are_flagged_and_extra_cores_cost_more_each() {
-        let mut d = Design::from_rows("T", Order::Hunt, &["g.g", "hch", "e.e"]);
+        let mut d = Design::from_rows("T", &["g.g", "hch", "e.e"]);
         assert!(d.check().ok());
         d.set(0, 0, Some(Part::Hull));
         assert_eq!(d.check().loose, vec![(0, 0)]);
@@ -2085,7 +2090,7 @@ mod tests {
 
     #[test]
     fn engines_need_a_straight_three_wide_way_out() {
-        let buried = |rows: &[&str]| Design::from_rows("T", Order::Hunt, rows).check().buried.len();
+        let buried = |rows: &[&str]| Design::from_rows("T", rows).check().buried.len();
         // Straight out the back, or out the side.
         assert_eq!(buried(&["hch", "e.e"]), 0);
         assert_eq!(buried(&["hhh", "ech", "hhh"]), 0);
@@ -2176,13 +2181,13 @@ mod tests {
         }
         // A cannon on a bare core: 4 made, 9 used. Its gun reloads 9/4 as slow and its engine
         // pushes 4/9 as hard.
-        let boat = Design::from_rows("BOAT", Order::Hunt, &["nnn", "nnn", "nnn", ".c.", ".e."]);
+        let boat = Design::from_rows("BOAT", &["nnn", "nnn", "nnn", ".c.", ".e."]);
         let st = boat.stats();
         assert_eq!((st.made, st.used, st.power_pct()), (4, 9, 44));
         assert_eq!(st.reload(45), 102);
         assert_eq!(st.thrust, 8 * 4 / 9);
         // Five pixels of hull bring it up to full power.
-        let fed = Design::from_rows("BOAT", Order::Hunt, &["nnn", "nnn", "nnn", "hch", "hhh", ".e."]);
+        let fed = Design::from_rows("BOAT", &["nnn", "nnn", "nnn", "hch", "hhh", ".e."]);
         assert_eq!(fed.stats().power_pct(), 100);
         assert_eq!(fed.stats().reload(45), 45);
     }
@@ -2265,13 +2270,13 @@ mod tests {
     #[test]
     fn beam_pixels_down_a_column_are_one_gun_and_a_gap_makes_two() {
         // Five in a column, with hull beside them to hold the ship together.
-        let d = Design::from_rows("LONG", Order::Hold, &["hb", "hb", "hb", "hb", "hb", "hc"]);
+        let d = Design::from_rows("LONG", &["hb", "hb", "hb", "hb", "hb", "hc"]);
         let st = d.stats();
         assert_eq!((st.beam, st.beam_len, st.beam_reach()), (5, 5, 100));
         assert_eq!(beam_cut(st.beam_len), 20);
         assert!(st.armed() && st.aims());
         // A row of them is five guns of one, side by side: only a column fires as one.
-        let wide = Design::from_rows("WIDE", Order::Hold, &["bbbbb", "hhchh"]);
+        let wide = Design::from_rows("WIDE", &["bbbbb", "hhchh"]);
         assert_eq!((wide.stats().beam, wide.stats().beam_len, wide.stats().beam_reach()), (5, 1, 52));
         // The guns of a grid: each unbroken run down a column, by its front cell.
         let cells = ["b.b", "b..", ".b.", "b.b", "b.b"];
@@ -2318,18 +2323,18 @@ mod tests {
 
     #[test]
     fn a_projector_pixel_needs_four_projector_neighbours_and_open_space_on_three_sides() {
-        let hemmed = |rows: &[&str]| Design::from_rows("T", Order::Hold, rows).check().hemmed.len();
+        let hemmed = |rows: &[&str]| Design::from_rows("T", rows).check().hemmed.len();
         // The smallest lump that passes: a 4x4 with its corners off, standing on a neck. Its
         // inner pixels look out through the outer ones: projector pixels aren't in the way.
         let knob = [".jj.", "jjjj", "jjjj", ".jj.", ".hh.", "hhhh", "hchh"];
         assert_eq!(hemmed(&knob), 0);
-        assert!(Design::from_rows("T", Order::Hold, &knob).check().ok());
+        assert!(Design::from_rows("T", &knob).check().ok());
         // Too thin: a wire has two neighbours a pixel at most, a square's corners three, and a
         // plus's arms one or two (its middle pixel has its four).
         assert_eq!(hemmed(&["jjjj", ".hh.", "hchh"]), 4);
         assert_eq!(hemmed(&["jjjj", "jjjj", "jjjj", "jjjj", ".hh.", "hchh"]), 4);
         assert_eq!(hemmed(&[".j.", "jjj", ".j.", ".h.", "hch"]), 4);
-        let thin = Design::from_rows("T", Order::Hold, &["jjjj", "jjjj", "jjjj", "jjjj", ".hh.", "hchh"]).check();
+        let thin = Design::from_rows("T", &["jjjj", "jjjj", "jjjj", "jjjj", ".hh.", "hchh"]).check();
         assert_eq!((thin.thin, thin.problem().unwrap().as_str()), (4, "4 PROJECTOR PX TOO THIN"));
         // A handle two pixels thick is a loop, and passes: a pixel looks out through its hole.
         assert_eq!(hemmed(&[".jjjjj.", "jjjjjjj", "jj...jj", "jj...jj", "jjjjjjj", ".jjjjj.", "..hhh..", "hhhhhhh", "hhhchhh"]), 0);
@@ -2338,17 +2343,17 @@ mod tests {
         assert_eq!(hemmed(&["h.jj.", "hjjjj", "hjjjj", "h.jj.", "hhhhh", "hhchh"]), 12);
         assert_eq!(hemmed(&["h.jj.h", "hjjjjh", "hjjjjh", "h.jj.h", "hhhhhh", "hhchhh"]), 12);
         // A design with one that fails can't fly, and says why.
-        let shut = Design::from_rows("T", Order::Hold, &["h.jj.", "hjjjj", "hjjjj", "h.jj.", "hhhhh", "hhchh"]);
+        let shut = Design::from_rows("T", &["h.jj.", "hjjjj", "hjjjj", "h.jj.", "hhhhh", "hhchh"]);
         assert!(!shut.check().ok());
         assert_eq!((shut.check().thin, shut.check().problem().unwrap().as_str()), (0, "12 PROJECTOR PX SHUT IN"));
         // Reach and what it holds come from how many pixels there are, nothing else.
         assert_eq!((proj_reach(12), proj_reach(25), proj_reach(37), proj_reach(81), proj_reach(225), proj_reach(900)), (30, 50, 60, 90, 150, 150));
-        assert_eq!(Design::from_rows("T", Order::Hold, &knob).stats().projector, 12);
+        assert_eq!(Design::from_rows("T", &knob).stats().projector, 12);
     }
 
     #[test]
     fn a_repeater_column_is_one_gun_and_a_longer_one_reaches_further_and_fires_faster() {
-        let st = |rows: &[&str]| Design::from_rows("T", Order::Hold, rows).stats();
+        let st = |rows: &[&str]| Design::from_rows("T", rows).stats();
         // Three in a column are one gun three long. Three abreast are three guns one long.
         assert_eq!((st(&["hrh", "hrh", "hrh", "hch"]).repeater, st(&["hrh", "hrh", "hrh", "hch"]).rep_len), (3, 3));
         assert_eq!((st(&["rrr", "hch"]).repeater, st(&["rrr", "hch"]).rep_len), (3, 1));

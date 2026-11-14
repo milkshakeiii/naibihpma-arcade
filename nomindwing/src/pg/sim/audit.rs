@@ -304,14 +304,14 @@ mod tests {
 
     /// A carrier: a built ship with factory pixels and engines, printing fighters as it flies.
     fn carrier() -> Design {
-        let mut d = Design::from_rows("CARRIER", Order::Hunt, &[".hhh.", "hfffh", "hfcfh", "hfffh", ".e.e."]);
+        let mut d = Design::from_rows("CARRIER", &[".hhh.", "hfffh", "hfcfh", "hfffh", ".e.e."]);
         d.build = vec![0];
         d
     }
 
     /// A small factory with no guns, so a seed planted beside an enemy one lives to grow.
     fn yard() -> Design {
-        let mut d = Design::from_rows("YARD", Order::Hold, &["hhhhhhh", "hfffffh", "hfhhhfh", "hfhchfh", "hfhhhfh", "hfffffh", "hhhhhhh"]);
+        let mut d = Design::from_rows("YARD", &["hhhhhhh", "hfffffh", "hfhhhfh", "hfhchfh", "hfhhhfh", "hfffffh", "hhhhhhh"]);
         d.seeded = true;
         d.build = vec![0];
         d

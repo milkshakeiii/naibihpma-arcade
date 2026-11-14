@@ -198,8 +198,7 @@ pub fn pg_sim(which: &str) {
     if which == "mine" {
         println!("your team, from proving_ground_designs.txt:");
         for (i, d) in lib.iter().enumerate().filter(|(_, d)| !d.is_empty()) {
-            let flying = d.flies().map_or(String::new(), |s| format!(", {}, groups of {}", s.name(), d.group.max(1)));
-            println!("  {} {}: {} px, {}{flying}", i + 1, d.name, d.stats().cost, d.order.name());
+            println!("  {} {}: {} px, {}", i + 1, d.name, d.stats().cost, d.does().to_lowercase());
         }
     }
     // One replay can be luck, so every matchup runs on SEEDS rolls of the dice. Seed 1 is the
@@ -213,6 +212,8 @@ pub fn pg_sim(which: &str) {
         let n = SEEDS as i32;
         for seed in 1..=SEEDS {
             let mut a = Arena::seeded(seed);
+            // As the window fights them: a planner on each side.
+            a.brain = [crate::pg::sim::Brain::ARCH; 2];
             for &(team, slot, x, y) in place {
                 a.add(team, slot, &lib[slot], x, y);
             }
@@ -309,10 +310,10 @@ pub fn pg_sim(which: &str) {
     }
 }
 
-/// The drilled brain against the card brain, headless. For each deck: what its designs learned
+/// The drilled brains and the arch-AI against the plain brain, headless. For each deck: what its designs learned
 /// of each other in their drills, then mixed fleets of them fought with each side on each brain.
 /// The fleets are the same whichever brain flies them, so a difference in a row is the brain's.
-pub fn brains(which: &str) {
+pub fn brains(which: &str, flight: bool) {
     use crate::pg::design::{defaults, starter_deck, Design};
     use crate::pg::sim::{Arena, Brain, Drills, Ways};
     use crate::pg::{fleet_side, fliers, parts_library};
@@ -325,17 +326,23 @@ pub fn brains(which: &str) {
         "mine" => vec![("YOUR TEAM", saved())],
         _ => vec![("STARTER DECK", starter_deck()), ("PARTS LIBRARY", parts_library()), ("OLD FLEET", defaults()), ("YOUR TEAM", saved())],
     };
-    // The brains tried against the card brain: each rule alone, then together.
-    let tried = [
-        Brain { targets: true, ways: Ways::Card },
-        Brain { targets: false, ways: Ways::Safe },
-        Brain { targets: false, ways: Ways::Bold },
-        Brain { targets: true, ways: Ways::Safe },
-        Brain { targets: true, ways: Ways::Bold },
-        Brain::ARCH,
-    ];
-    // Fights between a side on each of those and a card side, all decks together: won by it, by
-    // the card side, drawn; and pixels it lost and took.
+    // The brains tried against the plain brain: each drilled rule alone, then together, then the
+    // arch-AI. With `flight` (`--flight`), the arch-AI only, with no drills run, and a last
+    // column for a planner on both sides, as in a match.
+    let tried: Vec<Brain> = if flight {
+        vec![Brain::ARCH]
+    } else {
+        vec![
+            Brain { targets: true, ways: Ways::Drawn },
+            Brain { targets: false, ways: Ways::Safe },
+            Brain { targets: false, ways: Ways::Bold },
+            Brain { targets: true, ways: Ways::Safe },
+            Brain { targets: true, ways: Ways::Bold },
+            Brain::ARCH,
+        ]
+    };
+    // Fights between a side on each of those and a plain side, all decks together: won by it, by
+    // the plain side, drawn; and pixels it lost and took.
     let mut all = [[0i32; 5]; 6];
     for (title, lib) in &decks {
         // Everything that flies and fights, and the unarmed ships that fly with them.
@@ -346,10 +353,14 @@ pub fn brains(which: &str) {
         }
         let t0 = std::time::Instant::now();
         let pairs: Vec<(usize, usize)> = fleet.iter().flat_map(|&a| fleet.iter().map(move |&b| (a, b))).collect();
-        let table = std::sync::Arc::new(Drills::run(lib, &pairs));
-        println!("=== {title}: {} designs, drilled in {} ms ===", fleet.len(), t0.elapsed().as_millis());
-        println!("what each learned: how it flies at that enemy and its margin in thousandths (+ wins), safe/bold");
-        for &a in &fleet {
+        let table = std::sync::Arc::new(if flight { Drills::default() } else { Drills::run(lib, &pairs) });
+        if flight {
+            println!("=== {title}: {} designs ===", fleet.len());
+        } else {
+            println!("=== {title}: {} designs, drilled in {} ms ===", fleet.len(), t0.elapsed().as_millis());
+            println!("what each learned: how it flies at that enemy and its margin in thousandths (+ wins), safe/bold");
+        }
+        for &a in fleet.iter().filter(|_| !flight) {
             let row: Vec<String> = fleet
                 .iter()
                 .map(|&b| match table.get(a, b) {
@@ -367,17 +378,20 @@ pub fn brains(which: &str) {
             fights.push(("FIRST HALF V SECOND".into(), first.clone(), second.clone()));
             fights.push(("SECOND HALF V FIRST".into(), second, first));
         }
-        println!("fights, {SEEDS} seeds each, a brain on one side and the card brain on the other, then the sides swapped: its wins, its losses, draws (pixels it lost, pixels it took)");
-        let head: Vec<String> = std::iter::once("CARD V CARD".to_string()).chain(tried.iter().map(|b| b.name())).collect();
+        println!("fights, {SEEDS} seeds each, a brain on one side and the plain brain on the other, then the sides swapped: its wins, its losses, draws (pixels it lost, pixels it took)");
+        let head: Vec<String> = std::iter::once("PLAIN V PLAIN".to_string()).chain(tried.iter().map(|b| b.name())).chain(flight.then(|| "ARCH V ARCH (avg s; plain's)".to_string())).collect();
         println!("  {:20} {}", "", head.iter().map(|h| format!("{h:>26}")).collect::<String>());
         let mut deck = [[0i32; 5]; 6];
+        // With a planner on both sides: fights drawn, ticks they ran, ticks the plain ones ran,
+        // and how many fights.
+        let mut both = [0i32; 4];
         for (name, blue, red) in &fights {
             let budget = blue.iter().chain(red.iter()).map(|&s| lib[s].stats().cost).max().unwrap_or(1);
             let mut place = side(0, blue, budget);
             place.extend(side(1, red, budget));
             // One fight on every seed: blue wins, red wins, draws, pixels lost by each.
-            let run = |brain: [Brain; 2]| -> ([i32; 3], [i32; 2]) {
-                let (mut wins, mut px) = ([0i32; 3], [0i32; 2]);
+            let run = |brain: [Brain; 2]| -> ([i32; 3], [i32; 2], u32) {
+                let (mut wins, mut px, mut ticks) = ([0i32; 3], [0i32; 2], 0);
                 for seed in 1..=SEEDS {
                     let mut a = Arena::seeded(seed);
                     (a.brain, a.drills) = (brain, table.clone());
@@ -395,18 +409,19 @@ pub fn brains(which: &str) {
                     for t in 0..2 {
                         px[t] += a.score[t].px_lost;
                     }
+                    ticks += a.tick;
                 }
-                (wins, px)
+                (wins, px, ticks)
             };
-            let (w, p) = run([Brain::CARD; 2]);
+            let (w, p, plain_ticks) = run([Brain::PLAIN; 2]);
             let mut cells = vec![format!("{:2} {:2} {:2} ({:5} {:5})", w[0], w[1], w[2], p[0] / SEEDS as i32, p[1] / SEEDS as i32)];
             for (k, &brain) in tried.iter().enumerate() {
                 // As blue, then as red.
                 let mut got = [0i32; 5];
                 for me in 0..2 {
-                    let mut pair = [Brain::CARD; 2];
+                    let mut pair = [Brain::PLAIN; 2];
                     pair[me] = brain;
-                    let (w, p) = run(pair);
+                    let (w, p, _) = run(pair);
                     for (g, v) in got.iter_mut().zip([w[me], w[1 - me], w[2], p[me], p[1 - me]]) {
                         *g += v;
                     }
@@ -418,17 +433,29 @@ pub fn brains(which: &str) {
                 }
                 cells.push(format!("{:2} {:2} {:2} ({:5} {:5})", got[0], got[1], got[2], got[3] / (2 * SEEDS as i32), got[4] / (2 * SEEDS as i32)));
             }
+            if flight {
+                // A planner on each side: who won, and how long the fights ran beside the plain ones.
+                let (w, _, ticks) = run([Brain::ARCH; 2]);
+                cells.push(format!("{:2} {:2} {:2} ({:3} s; {:3} s)", w[0], w[1], w[2], ticks / 15 / SEEDS as u32, plain_ticks / 15 / SEEDS as u32));
+                both[0] += w[2];
+                both[1] += ticks as i32;
+                both[2] += plain_ticks as i32;
+                both[3] += SEEDS as i32;
+            }
             println!("  {:20} {}", name, cells.iter().map(|c| format!("{c:>26}")).collect::<String>());
         }
+        if flight {
+            println!("  a planner on both sides in this deck: {} of {} fights drawn; a fight ran {} s on average, and {} s with no planner", both[0], both[3], both[1] / 15 / both[3].max(1), both[2] / 15 / both[3].max(1));
+        }
         for (k, b) in tried.iter().enumerate() {
-            println!("  {:18} against card in this deck: won {:3}, lost {:3}, drew {:3}; lost {} px and took {}", b.name(), deck[k][0], deck[k][1], deck[k][2], deck[k][3], deck[k][4]);
+            println!("  {:18} against plain in this deck: won {:3}, lost {:3}, drew {:3}; lost {} px and took {}", b.name(), deck[k][0], deck[k][1], deck[k][2], deck[k][3], deck[k][4]);
         }
         // What the arch-AI's thinking costs a frame: the twin fight once, blue on the arch-AI, with
         // every tick timed. A frame is 66 ms.
         {
             let budget = fleet.iter().map(|&s| lib[s].stats().cost).max().unwrap_or(1);
             let mut a = Arena::seeded(1);
-            a.brain = [Brain::ARCH, Brain::CARD];
+            a.brain = [Brain::ARCH, Brain::PLAIN];
             for (team, slot, x, y) in side(0, &fleet, budget).into_iter().chain(side(1, &fleet, budget)) {
                 a.add(team, slot, &lib[slot], x, y);
             }
@@ -449,7 +476,7 @@ pub fn brains(which: &str) {
         }
     }
     for (k, b) in tried.iter().enumerate() {
-        println!("=== all decks, {:18} against card: won {:3}, lost {:3}, drew {:3}; lost {} px and took {} ===", b.name(), all[k][0], all[k][1], all[k][2], all[k][3], all[k][4]);
+        println!("=== all decks, {:18} against plain: won {:3}, lost {:3}, drew {:3}; lost {} px and took {} ===", b.name(), all[k][0], all[k][1], all[k][2], all[k][3], all[k][4]);
     }
 }
 
@@ -478,7 +505,7 @@ pub fn deck_sheet(file: Option<&str>) {
             i + 1,
             d.name,
             kind,
-            d.order.name(),
+            d.does(),
             st.count,
             st.cost,
             st.mass,
@@ -722,6 +749,44 @@ pub fn judge(n: u64, file: Option<&str>, only: Option<&str>, whatif: bool) {
 /// against the AI, and the AI against itself. For each: who won and how long the matches ran,
 /// and for each side how many factories it had planted and how much it had mined by 3:00, 5:00
 /// and 7:00 (medians; a match already over counts as it ended).
+/// What it costs to play a match forward from where it stands, as a planner would: every two
+/// minutes of two AI matches, how many ships there are, how long a copy of the match takes to
+/// make, and how long the copy takes to play 8 seconds on.
+pub fn plan_cost() {
+    use crate::pg::design::starter_deck;
+    use crate::pg::play::clock;
+    use crate::pg::sim::{Arena, Bot, Brain};
+    for seed in 1..=2 {
+        println!("seed {seed}: AI v AI, the starter deck, nobody planning in the match itself");
+        let mut next = 15 * 120;
+        let mut m = Arena::for_bots(seed, [starter_deck(), starter_deck()], [Bot::Ai; 2]);
+        m.brain = [Brain::PLAIN; 2];
+        while m.over.is_none() {
+            m.step();
+            let a = &m;
+            if a.tick >= next && a.over.is_none() {
+                next += 15 * 120;
+                let alive = |t: usize| a.ships.iter().filter(|s| s.alive && s.team == t).count();
+                let t0 = std::time::Instant::now();
+                for _ in 0..10 {
+                    std::hint::black_box(a.clone());
+                }
+                let copy = t0.elapsed().as_micros() / 10;
+                let t1 = std::time::Instant::now();
+                std::hint::black_box(a.played_forward(120));
+                let fwd = t1.elapsed().as_micros();
+                let t2 = std::time::Instant::now();
+                let awake = a.pocket_forward(120, false);
+                let pocket = t2.elapsed().as_micros();
+                let t3 = std::time::Instant::now();
+                a.pocket_forward(120, true);
+                let idle = t3.elapsed().as_micros();
+                println!("  {} ships {}+{} alive of {} ever | a copy {} us | a tick played forward: all {} us, the {} in a fight {} us, nobody {} us", clock(a.tick), alive(0), alive(1), a.ships.len(), copy, fwd / 120, awake, pocket / 120, idle / 120);
+            }
+        }
+    }
+}
+
 pub fn pace(n: u64) {
     use crate::pg::design::starter_deck;
     use crate::pg::play::clock;
@@ -786,6 +851,7 @@ pub fn pg_trace(blue: (usize, i32), red: (usize, i32), every: u32, until: u32) {
     use crate::pg::{block, reference_tests};
     let lib = defaults();
     let mut a = Arena::new();
+    a.brain = [crate::pg::sim::Brain::ARCH; 2];
     let place = if blue.0 == 99 {
         reference_tests()[red.0].place.clone()
     } else {
@@ -917,7 +983,7 @@ pub fn pg_screenshots(dir: &Path) {
     pg.draw(&mut fb);
     save(&fb, &pg, "13_yard_stamp.png");
     // Round 5: a cannon on a bare core, short of power, with the power gauge's hover.
-    pg.lib[5] = crate::pg::design::Design::from_rows("CANNONBOAT", crate::pg::design::Order::Hunt, &["nnn", "nnn", "nnn", ".c.", ".e."]);
+    pg.lib[5] = crate::pg::design::Design::from_rows("CANNONBOAT", &["nnn", "nnn", "nnn", ".c.", ".e."]);
     pg.select_slot(5);
     pg.ed.stamp = None;
     pg.mouse = (240, 100);
@@ -1071,8 +1137,6 @@ pub fn pg_screenshots(dir: &Path) {
         a.ships[k].store += 400;
         a.score[0].mined += 400;
         a.command(Cmd::Repeat { team: 0, slot: 0, at: None });
-        a.command(Cmd::Order { team: 0, slot: 0, order: crate::pg::design::Order::Escort });
-        a.command(Cmd::Order { team: 0, slot: 2, order: crate::pg::design::Order::Hunt });
         for _ in 0..15 * 75 {
             a.step();
         }
@@ -1330,8 +1394,7 @@ pub fn pg_screenshots(dir: &Path) {
         pg.draw(&mut fb);
         save(&fb, &pg, name);
     }
-    // Thirty fighters told to orbit, round a capital.
-    pg.lib[0].style = Some(crate::pg::design::Style::Orbit);
+    // Thirty fighters round a capital, flying as their side decides.
     pg.load_test(4);
     pg.running = true;
     for _ in 0..120 {
@@ -1340,7 +1403,6 @@ pub fn pg_screenshots(dir: &Path) {
     hover(&mut pg, 1);
     pg.draw(&mut fb);
     save(&fb, &pg, "47_fighters_orbit_a_capital.png");
-    pg.lib[0].style = None;
     pg.running = false;
     pg.screen = Screen::Yard;
     pg.select_slot(5);
@@ -1457,7 +1519,7 @@ pub fn pg_screenshots(dir: &Path) {
     }
     // A projector drawn where it can't work: thin at its corners, and walled in on one side.
     let kept = pp.lib[8].clone();
-    pp.lib[8] = crate::pg::design::Design::from_rows("SHUT IN", crate::pg::design::Order::Hunt, &["hjjjj.", "hjjjj.", "hjjjj.", "hjjjj.", "hhhhhh", "hhchhh", "hhhhhh", "e.ee.e"]);
+    pp.lib[8] = crate::pg::design::Design::from_rows("SHUT IN", &["hjjjj.", "hjjjj.", "hjjjj.", "hjjjj.", "hhhhhh", "hhchhh", "hhhhhh", "e.ee.e"]);
     pp.select_slot(8);
     pp.mouse = (300, 150);
     pp.draw(&mut fb);
@@ -1483,10 +1545,10 @@ pub fn pg_screenshots(dir: &Path) {
     hover_slot(&mut pp, 8);
     pp.draw(&mut fb);
     save(&fb, &pp, "64_aegis_covers_two_beamers.png");
-    // A mixed fleet against its twin, blue flown by the arch-AI and red by its cards.
+    // A mixed fleet against its twin, blue flown by the arch-AI and red flying as drawn.
     let mut pb = Pg::new(None, None);
     pb.help = false;
-    pb.brains = [crate::pg::sim::Brain::ARCH, crate::pg::sim::Brain::CARD];
+    pb.brains = [crate::pg::sim::Brain::ARCH, crate::pg::sim::Brain::PLAIN];
     pb.load_named(crate::pg::TWIN);
     pb.running = true;
     for _ in 0..15 * 5 {
