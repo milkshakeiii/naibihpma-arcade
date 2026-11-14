@@ -33,7 +33,7 @@ use std::time::Duration;
 /// different state would fall out of step at the first check. (3: a bot remembers one more
 /// thing. 4: the beam and the shield, in designs and in the state. 5: a team is nine slots.
 /// 6: the missile, and seeds sent into open space.)
-pub const PROTO: u32 = 7;
+pub const PROTO: u32 = 10;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.
@@ -254,6 +254,8 @@ pub struct Link {
     /// My commands by the turn they're for. Turns up to `sealed` are final.
     mine: BTreeMap<u32, Vec<Cmd>>,
     sealed: u32,
+    /// The king's keys as last sent. (Nothing sends them since 2026-11-13: see `steer`.)
+    #[allow(dead_code)]
     steer: (i32, i32),
     pub net: Option<Net>,
 }
@@ -275,9 +277,14 @@ impl Link {
     }
 
     /// Gives a command. It's applied `delay` ticks after the next tick, or on the first turn
-    /// not yet sealed if the dial has just been turned down.
+    /// not yet sealed if the dial has just been turned down. A turn holds `TURN_MAX` commands
+    /// at most, so the rest of a big batch (a hundred ships sent at once) goes into the turns
+    /// after it, a tick apart.
     pub fn give(&mut self, arena: &Arena, c: Cmd) {
-        let turn = (arena.tick + 1 + self.delay).max(self.sealed + 1);
+        let mut turn = (arena.tick + 1 + self.delay).max(self.sealed + 1);
+        while self.mine.get(&turn).is_some_and(|v| v.len() >= TURN_MAX) {
+            turn += 1;
+        }
         self.mine.entry(turn).or_default().push(c);
     }
 
@@ -290,7 +297,11 @@ impl Link {
         }).last()
     }
 
-    /// The king's keys as they are now. Only a change is a command.
+    /// The king's keys as they are now. Only a change is a command. Since 2026-11-13 a king is
+    /// selected and sent like a ship and the keys scroll the view, so the match screen doesn't
+    /// call this. It's kept, with its test, for a level where the king is flown by hand (Henry:
+    /// "we can think about direct flight as a special level in the campaign, perhaps").
+    #[allow(dead_code)]
     pub fn steer(&mut self, arena: &Arena, dx: i32, dy: i32) {
         if (dx, dy) != self.steer {
             self.steer = (dx, dy);
@@ -928,6 +939,13 @@ pub mod tests {
             Cmd::Repeat { team: 1, slot: 3, at: None },
             Cmd::Repeat { team: 0, slot: 3, at: Some(5) },
             Cmd::Cancel { team: 1, at: 2, slot: 0 },
+            Cmd::Send { team: 0, ship: 41, at: (1399, 0), pace: 9 },
+            Cmd::Send { team: 1, ship: 3, at: (12, 1049), pace: 0 },
+            Cmd::Home { team: 1, ship: 7 },
+            Cmd::Follow { team: 0, ship: 12, target: 40, pace: 6 },
+            Cmd::Stance { team: 1, attack: true },
+            Cmd::Stance { team: 0, attack: false },
+            Cmd::Rally { team: 1, ship: 22, at: (0, 1049) },
         ];
         for c in &cmds {
             assert_eq!(Cmd::from_wire(&c.to_wire()), Some(*c), "{}", c.to_wire());
@@ -949,7 +967,7 @@ pub mod tests {
         assert_eq!(back, msgs);
         // And nothing that isn't a message gets in: a side that isn't one, a slot off the deck, a
         // word too many, a number that isn't one, a turn with a broken command in it.
-        for bad in ["S 2 0 0", "P 0 64", "P 0 1 5", "O 0 1 9", "R 0", "C 0 1", "X 0 0", "S 0 a 0", "P -1 0", ""] {
+        for bad in ["S 2 0 0", "P 0 64", "P 0 1 5", "O 0 1 9", "R 0", "C 0 1", "X 0 0", "S 0 a 0", "P -1 0", "", "G 0 1 5 5", "G 0 -1 5 5 0", "G 0 1 5 5 256", "G 2 1 5 5 0", "H 0", "H 0 1 2", "H 0 -4", "F 0 1 2", "F 0 1 -2 0", "F 0 1 2 300"] {
             assert_eq!(Cmd::from_wire(bad), None, "{bad:?} was read as a command");
         }
         for bad in ["T 1", "T 1 0 S 0 0 0|nonsense", "H 1 xyz", "HELLO 1 2", "B now", "GET / HTTP/1.1"] {
@@ -1005,5 +1023,18 @@ pub mod tests {
             link[0].advance(&mut arena[0], 1);
             std::thread::sleep(Duration::from_millis(1));
         }
+    }
+    #[test]
+    fn a_big_batch_of_commands_spills_into_the_turns_after() {
+        // A hundred and fifty ships sent at once: no turn carries more than the most a turn may.
+        let arena = Arena::for_match(1, [starter_deck(), starter_deck()], [false, false]);
+        let mut link = Link::solo();
+        for ship in 0..150 {
+            link.give(&arena, Cmd::Home { team: 0, ship });
+        }
+        let sizes: Vec<(u32, usize)> = link.mine.iter().map(|(t, v)| (*t, v.len())).collect();
+        assert_eq!(sizes, vec![(1, TURN_MAX), (2, TURN_MAX), (3, 150 - 2 * TURN_MAX)]);
+        // In the order they were given.
+        assert_eq!(link.mine[&2][0], Cmd::Home { team: 0, ship: TURN_MAX });
     }
 }

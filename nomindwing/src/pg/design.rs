@@ -552,18 +552,6 @@ impl Order {
         }
     }
     /// Three letters, for a card's order tag in a match.
-    /// One letter for a match card's tag, no two orders alike: a card has one line now, and
-    /// colour alone shouldn't have to tell HUNT from HARVEST.
-    pub fn letter(self) -> &'static str {
-        match self {
-            Order::Hunt => "H",
-            Order::Guard => "G",
-            Order::Escort => "E",
-            Order::Harvest => "V",
-            Order::Hold => "L",
-            Order::Sab => "S",
-        }
-    }
     pub fn blurb(self) -> &'static str {
         match self {
             Order::Hunt => "HUNT - GOES AFTER THE NEAREST ENEMY, WHEREVER IT IS.",
@@ -573,15 +561,6 @@ impl Order {
             Order::Hold => "HOLD - STAYS EXACTLY WHERE IT WAS PLACED, TURNING ITS LANCES TO FACE ANY ENEMY IN RANGE.",
             Order::Sab => "SAB - SABOTAGE: GOES AFTER THE NEAREST ENEMY MINER OR FACTORY, PAST WHATEVER GUARDS IT. WITH NONE LEFT IT HUNTS.",
         }
-    }
-    /// The orders a design can be switched between in a match: the four a warship takes, and
-    /// first the one it was drawn with if that's another (a miner can be sent back to mining).
-    pub fn in_match(drawn: Order) -> Vec<Order> {
-        let mut v = vec![Order::Hunt, Order::Sab, Order::Guard, Order::Escort];
-        if !v.contains(&drawn) {
-            v.insert(0, drawn);
-        }
-        v
     }
     fn from_name(s: &str) -> Option<Order> {
         ORDERS.iter().copied().find(|o| o.name() == s)
@@ -1972,7 +1951,6 @@ mod tests {
         // SAB is an order like the others.
         d.order = Order::Sab;
         assert_eq!(Design::from_line(&d.to_line()).unwrap().order, Order::Sab);
-        assert!(Order::in_match(Order::Guard).contains(&Order::Sab));
     }
 
     #[test]
@@ -2318,16 +2296,6 @@ mod tests {
         assert_eq!((ex[0].stats().beam_len, ex[0].stats().beam_reach()), (9, 148));
         assert_eq!(ex[1].stats().shields, 4);
         assert_eq!((ex[2].stats().beam_len, ex[2].stats().count), (2, 9));
-    }
-
-    #[test]
-    fn no_two_orders_share_a_tag_letter() {
-        for (i, a) in ORDERS.iter().enumerate() {
-            assert_eq!(a.letter().len(), 1);
-            for b in &ORDERS[i + 1..] {
-                assert_ne!(a.letter(), b.letter(), "{} and {} would look alike on a card", a.name(), b.name());
-            }
-        }
     }
 
     #[test]

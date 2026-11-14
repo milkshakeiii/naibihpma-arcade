@@ -350,6 +350,28 @@ What they say: the numbers can make every ship count, but slower isn't longer. W
 | J4 | **Seen.** A dotted line shows each lump's reach. A covered ship wears a blue outline that thins by a quarter for each quarter of the pool spent. A lump has a pale middle. Hovering its ship shows PROJECTOR 32/38. | Can you tell at a glance what's covered and how much is left? Is the reach line too busy with several on screen? | |
 | J5 | **The AEGIS example has no guns,** so it stays beside the nearest friend that has (an old rule for any unarmed ship on HUNT), and it's drawn as fast as the RAKER. Small fast ships outrun it. | Nothing was added to flying. Whether ships should stay near a projector is ship behaviour, which is parked: one for the unit-AI talk. | |
 | J6 | **The parts team:** the RAKER has the NEEDLE's slot (the NEEDLE is still in the library), the AEGIS is slot 9, and there are nineteen fights. | | |
+| C1 | **Selecting.** A box dragged on the field takes what's yours inside it, and if any of that is neither a miner nor your king, only those. A click takes the ship under it, or your king. Ctrl+click: every ship of that design. Q: every warship. Esc: nobody. On the whole map (Tab) too. | Does it feel like the RTS control you had in mind? Is leaving miners and the king out of a box round a fleet right? | Played 2026-11-13. Not enough alone: Henry asked for a double click for a type on screen, a way to take a type across the whole map, and control groups (C8, C9). |
+| C2 | **Sending.** With ships selected, a right-click on the field, the whole map or the small map sends them there. They fly together at the pace of the slowest, fight what comes within 130 px on the way and what's within 160 px of the place once there, and stay. | Is going-and-fighting the right thing for a right-click to mean? Do you miss a plain move, or "attack that one"? | Henry: "We don't have to add attack orders but right-clicking a unit should probably effectively move the "go here and fight" order along with the unit." Added (C10). Waypoints with Shift "can maybe wait". |
+| C3 | **Let go.** X, or the LET GO button by the clock, sends the selected ships back to what their cards say. | Is "back to the card" what you'd expect, or should they stay where they are? | The key is G now (C12). Not otherwise ruled. |
+| C4 | **The king is selected and sent like a ship.** It flies there with no key held and stops when it arrives. WASD still flies it and takes over at once. | Keep WASD as well? Does a sent king feel better under lag, as you guessed? | Henry: "Very likely WASD should scroll the camera, not fly the king (We can think about direct flight as a special level in the campaign, perhaps)." Changed (C11). |
+| C5 | **The whole map is for selecting.** A click on it no longer moves the view. The small map still does. | | |
+| C6 | **The rules card has a FLEET line.** KING, ORDERS and SOLID were shortened to make room: the card was full to the pixel. | Is anything you'd miss gone from those three lines? | |
+| C7 | **On the wire:** one command for each ship sent or let go (version 8). A turn carries 64 commands, so the rest of a bigger batch follows a tick behind. | Nothing to judge alone. | |
+| C8 | **Control groups.** Ctrl+1 to 9 makes a group of what's selected; the number selects it; Shift+number adds what's selected to it. The number twice running takes the view to the group. | Do they behave as your hands expect? | |
+| C9 | **Double click, and Shift.** A second click on a ship straight after the first (or Ctrl+click) takes every ship of its type in view; on the whole map that is all of them. Shift+click adds a ship or takes it out; a Shift box adds. | Is "double click on the whole map" enough of an answer to "all of a type on the whole map"? | Henry, 2026-11-13: "it would be logical to add cntl-z, cntl-x etc to select all ships of that type." Added (K3). Not otherwise ruled. |
+| C10 | **A right-click on a ship sends them after it,** friend or enemy. The place they're sent to moves with the ship, and stays where it last was once it's gone. | | |
+| C11 | **WASD and the arrows scroll the view.** The king is only selected and sent. K, or a click on the note above the small map, takes the view to the king, and the view no longer follows it. | | |
+| C12 | **The keys that moved.** Cards are on Z X C V B N M (the first seven; the eighth and ninth are clicked), because 1 to 9 are the groups. Let go is G, not X. A card's order is changed by clicking its tag only. | Is the bottom row of letters right for the cards? | Henry: "Why not just make ships 8 and 9 , and .? The key to make the ship should go to the left of the icon, which won't be confusing once we get rid of the disposition letter on the right." Done (K1), and the tag is gone (K2). |
+| K1 | **A key on every card.** The nine cards are on Z X C V B N M , . and each card shows its key at its left end, before its icon. | | Keep. Henry, 2026-11-14, after playing: "Hotkeys seemed great otherwise." |
+| K2 | **One stance, and no order on a card.** A button by the clock (T): every ship you haven't sent guards where it was built, or attacks the nearest enemy. A match starts on GUARD. The cards' tags, and SAB and ESCORT, are gone from a person's match. | On ATTACK the ships already flying go at once, without gathering into their groups first. Right? | Keep. "I'm happy the disposition letters are gone and I think ATTACK/GUARD with LET GO is an improvement." At once is right, and the exception changes: "ATTACK should send everything unless it has mining equipment. miners should still mine." (K9) |
+| K3 | **Q, Ctrl+Q, and Ctrl with a card's key.** Q: your warships in view. Ctrl+Q: every one. Ctrl and a card's key: every ship of that card, anywhere. Shift adds. | "Warship" here is anything you can send that isn't a miner, so an unarmed shield ship is in. Right? | Keep, with the hotkeys. The shield-ship question is settled by K9: no scoop, so it's a warship. |
+| K4 | **Formations.** Ships sent together each have a spot: ranks across the way they came, flak in front, longer guns behind, then miners and the unarmed, the king last, types together. | Does it look like a sensible shape? Is the spacing right (6 px between hulls)? | Keep. "Formation looked sensible." |
+| K5 | **A sent ship owns its spot.** With nothing to fight it flies to its spot and stops, and nobody pushes it off or is pushed by it. Ships sent to one point each take the nearest clear spot by it. | A change to how friends keep apart. See the notes. | Played ("I think it played well"). Not ruled apart. |
+| K6 | **Rally points.** Select a factory (a click), right-click the map: its new ships make that place their home. A flag marks it. A right-click on the factory takes it away. | A king has none. Wanted? | Keep, and no more of them: "I don't think we need rally points for mobile factories." So none for a king or a factory that flies. |
+| K7 | **The keys page (F3),** for the match, the yard, the arena and the library, with a test that fails when a key is handled and not listed. | | Keep, with the hotkeys. |
+| K8 | **On the wire:** two new commands, the stance and a rally point (version 10). | Nothing to judge alone. | |
+| K9 | **The stance takes everything that flies unless it has mining equipment** (Henry's rule, 2026-11-14). A ship with a scoop mines, whatever it was drawn with. A flying design drawn to HOLD takes the stance now. | The HOLD half is my reading of "everything". Right? | |
+| K10 | **K selects your king. K again straight away takes the view to it,** as with a group's number. The note above the small map does the same. (Henry's tweak, 2026-11-14.) | | |
 
 **Henry's rulings on the plan (2026-11-10):**
 1. **The seed's price is its size, paid in full up front:** yes.
@@ -1470,6 +1492,210 @@ A faster shot buys a little accuracy against big ships and turns fighters-beat-l
   - The seeded card's hover text and the help card's SEEDS line still said "YOUR BANK" pays, and I asked before touching them. Henry: "Yes, reword them". The hover text now ends "IT DRAWS THE REST FROM ITS NETWORK AS IT GROWS", and the help card says a seed grows "FROM ITS NETWORK IN OPEN SPACE".
 - *Checks.* 239 tests pass. Screenshots 22 and 58 looked at: no button, the note back on its line, both bars fit in three and four lines. So were 25 (the help card, its SEEDS line still three lines) and 40 (a rock out of reach: "IT FITS. 80 PX TOO FAR TO LINK."). The rule-break list is 257 long: the button's entry went, and three came in (a plain click that sends a seed into space, a warning that doesn't say where the pixels come from, and one that talks about banks again). The 5 that touch this were run: 5 of 5 caught. No sim code changed, so the rest weren't run again.
 
+**Unit AI and the control scheme: the talk, and two brains tried (2026-11-13).** Henry: "Let's open the unit AI and player control scheme discussion". Nothing here is a rule of the game. What was built is an experiment in the arena, for Henry to watch. Not committed.
+
+*The talk, in order.*
+- I opened with where I thought the clunk was (every setting is about how a ship flies, and a match gives almost no say over where and when) and two systems for where and when: flags on the map, and wings that fight from the node that built them. Henry: "Decent proposal but I'm not ready to go with any of those yet. Maybe a bit creative but what do you come up with if you take Savage: The Battle for Newerth (an all-time favorite of mine) as inspiration?"
+- I took Savage to be about the commander: garrisons, squads from a factory's build order, orders to garrisons and never to ships, and a key to take a squad's helm. Henry said what it is for them: "It's the fact that the units are so smart all you have to give them is suggestions and they figure everything out themselves". So the garrison system isn't the point, and nothing of it is built.
+- I proposed that the smartness be measured, not written: before a match every design fights every enemy design headless, each way of flying, and the ships go by what that showed. Henry: "The matchup matrix seems like a pretty clever idea. I think I like it. It there any precedent you based that on and do you have any concerns or follow-up ideas?" The precedents I gave: Brood War bots that simulate a fight before taking it, fighting-game matchup charts, chess endgame tablebases. The concerns: timid armies, dithering at the edge of a fight, numbers (one lancer loses to a frigate and six beat it), mixed fleets, cost, and ships drawn to fool the drills.
+- Henry: "Once battle is joined, does anything look different in the micro scale unit ai?" My answer: mostly no, as proposed. I pitched "good squares" (each design learning where round each enemy it does its damage and takes it). Not built.
+- Henry: "Picking the micro behavior based on sims makes sense. I'm curious to try this. The other thing id be interested to try would be an arch-ai that controls all of your units at once and can micro them." Both built the same day, as below.
+
+*What was built.* Each side in the arena has a brain, on a button (B and V).
+- **CARD.** Today's: the nearest enemy, flown at as the card says. The recorded fights are byte for byte what they were.
+- **DRILLED.** Every pair of designs facing each other is drilled before the fight: equal cost a side (the dearer design's), each side flying each of RUNS, KITE and ORBIT against each of the other's, a minute at most, on two seeds. From the nine results a design keeps two ways to fly at that enemy: the *safe* one, whose worst result was best, and the *bold* one, best over all the enemy's ways together. And a margin: the enemy's share of pixels destroyed less its own share lost. Two rules can read the table. *Ways*: a ship flies at each enemy the way it learned. *Targets*: an enemy it beats seems nearer and one that beats it further (half as far at a wipe-out, half as far again the other way), and it goes for what seems nearest.
+- **ARCH.** One planner a side. At the first tick it plays the fight forward 8 s (on fresh dice, with the enemy flying on as it is) for each way each of its designs could fly, and keeps a change only if it came out better than the plan in hand. Every 2 s after that it does the same for one design, in turn. What it decides is a way of flying for each design. It chooses nothing for a single ship, and nothing about who to go for.
+- **A fight to watch them in:** A MIXED FLEET VS ITS TWIN, made from the team as it stands, the same fleet on both sides.
+- `--brains` runs it all headless.
+
+*What the drills did,* a brain on one side and CARD on the other, sides swapped, five mixed-fleet fights a deck, four decks (starter, parts, the old fleet, Henry's saved team), 12 seeds: 480 fights each.
+
+| Brain | Won | Lost | Drew |
+|---|---|---|---|
+| Targets from drills, flying by the card | 166 | 168 | 146 |
+| Flying the safe way | 156 | 171 | 153 |
+| Flying the bold way (the window's DRILLED) | 159 | 144 | 177 |
+| Targets, and the safe way | 145 | 180 | 155 |
+| Targets, and the bold way | 139 | 191 | 150 |
+
+So the drills made nobody better. The bold way alone is the only one not behind, and that by fifteen fights in 480. Both rules together are the worst.
+
+*What the arch-AI did,* the same fights, 120 a deck. The time is what its thinking cost on the twin fight: the first plan, then the longest single tick after it. A frame is 66 ms. (Henry's team's was timed with other runs going on the machine.)
+
+| Deck | Won | Lost | Drew | Px it lost | Px it took | Its thinking |
+|---|---|---|---|---|---|---|
+| Starter deck | 76 | 44 | 0 | 32233 | 48950 | 38 ships: 265 ms, then 77 ms at most |
+| Parts library | 69 | 16 | 35 | 33978 | 49074 | 58 ships: 504 ms, then 91 ms at most |
+| Henry's saved team | 74 | 2 | 44 | 10988 | 18467 | 26 ships: 113 ms, then 25 ms at most |
+
+Over those three: won 219, lost 62, drew 79 of 360. On the starter deck's twin fight it won 24 of 24, where card against card is 7 to 5.
+- *The old fleet* (six designs, the TITAN among them) has no arch-AI numbers. I stopped its run after twenty-five minutes with the first fight's row still not out: a three-minute draw between fleets of five thousand pixels, looked ahead from every two seconds, is too slow to wait for. The drilled brains' numbers above do include it.
+
+*What I make of it.*
+- **Why the drills don't carry.** What a design learns against one enemy design, alone with it in an open field at equal cost, doesn't describe a fight with four other designs in it. This is the "mixed fleets" concern from the talk, and it turned out to be the whole story. Targets and ways together are worst because a ship then holds its learned range from a target that's standing in the middle of the enemy.
+- **Who a ship goes for matters little as things are.** Guns fire by reflex at what's in reach, whatever the ship is flying at. So "lancers peel off for the frigate" changes where a ship flies, not much of what it shoots.
+- **Why the arch-AI does better.** It measures the fight in front of it, with everything in it.
+- **What I got wrong.** I told Henry I'd expect lancers never to orbit, because orbiting would lose its drills. In the first twin fight I looked at, the arch-AI had every lancer on ORBIT five seconds in. And I'd proposed the matchup table as the source of the smartness: by these numbers it isn't, and looking ahead is.
+
+*Limits, as built.*
+- The arch-AI chooses among three ways of flying for a whole design. That's all the "micro" it has.
+- It assumes the enemy flies on as it is. With an arch-AI on both sides, blue plans first and red answers.
+- Its thinking is paid in the tick it happens in, and at these sizes it overruns the frame: 77 ms at most on the starter deck's twin fight (38 ships) and 91 ms on the parts team's (58 ships), every two seconds. It would have to be spread over several ticks before it went near a match.
+- It's in the arena only. A match's map is a million rock pixels to copy for every look ahead, and nothing here has been tried there.
+- The drilled brains' constants (a minute, two seeds, the pull on distance) were set once and not tuned.
+
+*For Henry to judge, by watching:* does the arch-AI look smart, or does it only win? And what should it be given to decide next: who each group goes for, when to pull back, or moves for single ships.
+
+*Ruled, and asked (Henry, 2026-11-13, after I described what the arch-AI does and that it thinks every 2 s, not every tick).* "That's an interesting direction. I approve of removing per ship flight patterns and having them select their flight patterns intelligently. That part doesn't help with the decisions of what ship to send where, though. Did you address that at all?"
+- **The ruling:** the way a design flies stops being a setting on its card, and the ships choose it. This overrules S1 to S3 as settings (RUNS, KITE and ORBIT stay as the ways a ship can fly). Not built: the yard still has its style buttons, and the arch-AI is in the arena only.
+- **The answer to the question: no.** Nothing built decides what ship goes where. The arch-AI picks how each design flies in a fight it's already in. The one built thing that touched "which enemy" was the drilled targets rule, and it changed nothing. In the talk, where-and-when got proposals only (flags, wings from the tree, garrisons and squads, suggestions as weights), none taken and none built.
+
+*Checks.* 251 tests pass, 12 of them new. The card brain's recorded fights (the starter deck's 15, the old fleet's 22, the parts' 19) are byte for byte unchanged. The rule-break list is 280 long, 23 of them new; those and one older entry that the change touched were run: 24 of 24 caught. Not covered by a test: that a plan is played forward on fresh dice.
+
+**What ship goes where: a dispatcher, three tries (2026-11-13).** Henry: "Build the where to send prototype". Nothing here is a rule of the game, and none of it is in the window. Not committed.
+
+*The test bed.* The AI opponent in headless matches. Today it masses its warships on GUARD and sends them out as a wave when its fleet is a quarter bigger than the enemy's by pixels, or after a rest, and brings the wave home when it's down to two fifths or has been out four minutes; a raid turns everything out. A side with a dispatcher keeps its cards on GUARD and has those decisions made for it. Everything else the AI does (planting, printing, its king) is the same code on both sides.
+
+*What all three tries share.* A ship can be *sent* to a place, whatever its card says. It flies there at its group's pace, on the way it fights only what comes within 130 px of it, and there it fights what's within 160 px of the place. Let go, it goes home to its post.
+
+*Try 1: play out the fight off the map, against what stands at the place.* The group as it is, against the enemy ships within 200 px of the target as they are, 30 s on a field of its own. Sent if it came out 15% ahead, called home at 15% behind. It lost its first two matches against today's AI. The trace said why: for one fleet and one target the answer went from +421 to -463 inside ten seconds, depending on which enemy ships happened to be inside the 200 px at that instant, and groups were shot up on the way by a fleet the fight hadn't counted.
+
+*Try 2: the same, counting the enemy's whole fleet.* Fixed dice, two fights averaged, both sides drawn up in ranks, the group flying together, home only on two bad answers running. Steadier, and it never attacked. With even fleets an attack on a place that has guns of its own is a losing fight on paper every time. Against the boom it won 0 of 6, where today's AI won 3: a side that never goes out is out-grown.
+
+*Try 3: play the match itself forward.* Every 20 s: the whole match, copied, played forward a minute for each plan (everyone home; everyone to one of the enemy's two nearest places; everyone to its own hardest-pressed place), with the other side's AI playing on and fresh dice. It takes the plan that leaves it furthest ahead in pixels standing and banked, a king's fall counting for a hundred thousand. As first built it changed its plan 36 times in 80 thoughts in one match and lost its ships on the way there and back: the plans came out within noise of each other. So it now keeps to a plan for a minute once it has changed to it (only a raid at home is weighed against it in that time), and another plan has to beat the one in hand by 100 px.
+
+*Try 3 against today's AI, like for like:* the same seeds, each on both sides of the map, starter deck against starter deck. Won, lost, drew.
+
+| Against | Matches | Today's AI | With the dispatcher |
+|---|---|---|---|
+| Clock | 4 | 4, 0, 0 | 4, 0, 0 |
+| Planter | 4 | 4, 0, 0 | 3, 1, 0 |
+| Expander | 4 | 4, 0, 0 | 3, 1, 0 |
+| Summoner | 4 | 4, 0, 0 | 4, 0, 0 |
+| Saboteur | 4 | 4, 0, 0 | 4, 0, 0 |
+| The boom | 8 | 3, 5, 0 | 4, 4, 0 |
+| The rush | 8 | 6, 2, 0 | 8, 0, 0 |
+| Today's AI, head to head | 8 | 4, 4, 0 | 3, 5, 0 |
+
+Against the seven openings together: today's AI 29, 7, 0; with the dispatcher 30, 6, 0.
+
+*What it cost.* Over those 44 matches it thought 2213 times, changed its plan 323 times and played the match forward 5655 times, and they took 2248 s to play: the 8 against today's AI alone took 981 s for 1462 looks. Late in a match one look is about half a second. Today's AI plays a whole match in two or three.
+
+*What I make of it.*
+- **It isn't better than the rules of thumb.** Against the seven openings together it is level with them (30 of 36 against 29 of 36), and head to head it lost 5 of 8. The numbers above are the whole table: eight matches a row at most, so a row that differs by one match says little.
+- **Where it did help is the rush:** all eight won, where today's AI lost two. I haven't traced why. My guess is that it keeps everyone home while a king is at its door, where the wave rule can send them out past it.
+- **Why it's no better at the rest.** A choice that pays off minutes later can't be read a minute ahead: sending everyone or keeping everyone home come out within a few dozen pixels of each other, and the dice decide. What wins at this scale is massing and keeping to a decision, and the rules of thumb already do both.
+- **The contrast with the arena.** There the arch-AI chose how to fly for the next eight seconds, and the look-ahead told the choices apart clearly. Seconds ahead, playing forward works. Minutes ahead, as built, it doesn't.
+- **What I got wrong.** I told Henry that playing out the fight a group would find was the way to decide where it goes. Twice over it wasn't: the first two tries are that idea, and both were worse than pixel counts and timers.
+
+*Not tried:* more than one group (everyone goes to one place); looking further ahead than a minute; averaging several rolls of the dice; using the look-ahead only for the short calls (is this place of mine about to fall, is the fight I'm in lost); a plan put forward by a player's suggestion, to be weighed with the rest.
+
+*Checks.* 264 tests pass, 13 of them new. With no dispatcher the AI plays the same matches as the committed game, line for line (three matches compared), and the arena's recorded fights are byte for byte unchanged. The rule-break list is 303 long, 23 of them new; those and one older entry that the change touched were run: 24 of 24 caught. Not covered by a test: that a match played forward is played on fresh dice.
+
+**Select and send: regular RTS control (2026-11-13).** Rows C1 to C7 in the table above. Not committed, and nobody has played it.
+
+*How it was decided.*
+- After the dispatcher, Henry: "if we just implement the automatic flight patterns, how will the where-to-send decisions happen? I suppose we could always change this into a regular RTS style with automatic flight patterns, which would make it a lot like Homeworld (which is not bad)? What do you think we should do?"
+- I recommended a smaller step: one new command, send a card's ships to a place, with the deck as the control groups, keeping box selection as the fallback.
+- Henry: "Hm... I don't think players would like that. I think it would just feel like nerfed RTS controls. I think it would feel better to just be able to select groups of units and they go where you tell them to while flying intelligently on a micro-level." So: regular selection and orders. My half-step isn't built.
+- While it was being built, Henry: "assuming we're applying this to the king too, this actually solves the input lag when flying the king too I guess". I hadn't applied it to the king. It is now (C4).
+
+*As built.* The send order is the one made for the dispatcher (a ship goes to a place, fights what comes close on the way and what's round the place), now given by the player. What's new is on the match screen: the box, the click, the right-click, the LET GO button, and a king that flies to where it's sent.
+
+*My calls, for Henry to overrule.*
+- **A right-click means go and fight.** There is no plain move, no "attack that ship" (a right-click on an enemy sends them to where it is now), no patrol and no formations.
+- **A box round a fleet leaves out miners and the king.** A box with only miners in it, or only the king, takes those.
+- **No control groups and no Shift to add to a selection.** 1 to 9 print cards and Shift+number turns a card's order, so groups need keys of their own. Ctrl+click (a design) and Q (every warship) are what there is.
+- **The cards' orders stay,** for ships you haven't sent. A ship that's let go does as its card says, which for a card on GUARD is to go home.
+- **WASD stays** beside the sent king. Henry's guess was that sending replaces it; I've left both until they've tried it.
+- **The view still follows the king.** For a fight elsewhere it's the whole map (Tab) or a hold on the small map.
+- **A ship with no guns that's sent goes to the place.** For the dispatcher it used to stay beside an armed friend.
+- **The AI is unchanged.** It doesn't select; it has its waves.
+
+*Not built:* automatic flight in matches (approved on 2026-11-13: the yard's style buttons still decide how a design flies), control groups, Shift to add, attacking a chosen target, a plain move, a view that leaves the king.
+
+*Checks.* 271 tests pass, 7 of them new. With nobody selecting, the AI plays the same matches as the committed game, line for line (three matches compared), and the arena's recorded fights are byte for byte unchanged. Screenshots 25, 67 and 68 looked at: the rules card fits, the box draws, and nine ships show their corners, their cross and the LET GO button. The rule-break list is 334 long, 31 of them new; those and two older entries that the change touched were run: 33 of 33 caught. Two got past at first. One changed nothing a player could see (a right-click with nothing selected), and was dropped. The other showed that my test for a ship with no guns used the starter miner, which has one; the test now uses the AEGIS, and catches it. Not covered by a test: what's drawn (the corners, the cross, the box). I haven't played it in the window.
+
+**The rest of what an RTS has (2026-11-13, after Henry played select and send).** Rows C8 to C12, and verdicts on C1 to C4, in the table above. Not committed.
+
+Henry: "I give it a spin. There are several features I think have to go along with RTS controls because people already know how to play RTSs. Very likely WASD should scroll the camera, not fly the king (We can think about direct flight as a special level in the campaign, perhaps). Control groups should be a thing. Double click to select all units of a type on the screen. We might need a way to select all units of a type on the whole map? Probably even waypoints with shift although that can maybe wait. We don't have to add attack orders but right-clicking a unit should probably effectively move the "go here and fight" order along with the unit. I'm sure you know what I'm talking about... anything I'm forgetting?"
+
+*Built from that list:* the keys scroll the view (C11), control groups (C8), the double click (C9), and a right-click on a ship (C10). Waypoints with Shift are not built: Henry said they can wait.
+
+*What I said he'd forgotten, and what became of it.*
+- Shift to add to a selection: built (C9).
+- Jumping the view (a group's number twice, a key for the king): built (C8, C11).
+- Rally points for factories (select a factory, right-click, and its new ships gather there): not built. It's the one I'd do next, and it may replace the cards' orders.
+- Hold position, a plain move that ignores enemies, scrolling at the screen's edge, a readout of what's selected: not built.
+
+*My calls, for Henry to overrule.*
+- **The cards moved to Z X C V B N M,** under the hand that scrolls, because the numbers had to be the groups. The eighth and ninth cards have no key.
+- **Let go moved to G,** since X is a card now.
+- **Shift+number adds to a group.** It used to turn a card's order; that's by the card's tag only now.
+- **"All of a type on the whole map" is a double click on the whole map,** where everything is in view. There's no separate command for it.
+- **Ctrl+click is the double click,** as in other RTSs: in view, not across the map as I first built it.
+- **A ship sent after something follows it for good,** friend or enemy, until it's sent elsewhere or let go. A king sent after a thing doesn't stop when it reaches it.
+- **The view starts on your king and then stays where you put it.**
+- **The code that flew the king from the keys is kept,** unused, for the campaign level Henry mentioned.
+
+*Checks.* 275 tests pass, 4 of them new, and a dozen older ones rewritten for the keys that moved. With nobody selecting, the AI plays the same matches as the committed game, line for line, in the same time, and the arena's recorded fights are byte for byte unchanged. Screenshots 25 and 68 looked at. The rule-break list is 360 long; the 57 that touch the match's controls were run: 57 of 57 caught. One got past at first: with ships sent after one of their own number, nothing checked that the one they followed was told to stay where it is. The test checks that now. Not covered by a test: what's drawn. I haven't played it in the window.
+
+**Keys on the cards, one stance, formations, rally points and a keys page (2026-11-13, later).** Rows K1 to K8 in the table above, with Henry's words on C9 and C12. Not committed.
+
+Henry, with a screenshot of sent ships in a loose clump: "we probably also want a hotkey for all combat ships on the screen and all combat ships on the map (Q and cntrl-Q?). Why not just make ships 8 and 9 , and .? The key to make the ship should go to the left of the icon, which won't be confusing once we get rid of the disposition letter on the right. Then it would be logical to add cntl-z, cntl-x etc to select all ships of that type. it looks like we could make the target formation of the move order when there are no enemies around a little more sophisticated. they should put themselves into some sensible shape rather than a wiggly cluster. with dispositions going away, maybe we should retain just one global disposition toggle to make all your combat ships attack the nearest enemy, or guard their place of creation by default? this is for when you just want to press an "overwhelm them" button or a "stay back" button. yes we want rally points and automatic flight patterns both. is this all making sense?" And while I built it: "this might also be a good time to add the hotkey mappings page so we (I) don't forget/miss any extant hotkeys".
+
+*Built from that:* K1 to K7. Automatic flight in matches is not in this batch. It's the next round by itself: the yard's style buttons come off and the arch-AI's thinking is spread over several ticks.
+
+*How each works.*
+- **The stance (K2)** is one command, for every card that flies and fights: everything that flies, bar a miner and a design drawn to HOLD. GUARD is the old GUARD order and ATTACK the old HUNT. A person's side starts every such card on GUARD whatever it was drawn with. The AI's side is untouched: it orders its cards one by one, as it did.
+- **The formation (K4)** is worked out on the player's machine when the order is given, and each ship is sent to its own spot. The block faces the nearest of the eight compass points to the way the group will come (the middle of the map, if they're sent to where they are). Four lines, front to back: ships with only flak; ships with a longer gun (lance, beam, repeater, cannon, missile); miners and unarmed ships; a king. Each line splits into as few ranks as the width allows, evenly, and no rank is wider than the square root of three times the ships' widths squared. Ships of one type take the spots of their type in the order they already stand across the group, so they don't cross over. A group sent after a ship has no formation.
+- **A sent ship's spot (K5)** is in the match's rules, not the screen's. A ship that's been sent and has nothing to fight goes to the place it was sent to, or to the nearest point clear of what already stands there: factories, kings, and ships already at a post or on a spot that were built before it. It's the rule guards at their posts already had.
+- **A rally point (K6)** is the home of the ships a factory builds after it's set. Home is where a ship waits on GUARD, gathers for its group on ATTACK, and goes when it's let go, so one setting covers all three.
+- **The keys page (K7)** is a table for each screen in `src/pg/keys.rs`. The test reads the source of each screen's key handler, finds every key it names, and fails if the screen's table doesn't name it too.
+
+*Rules I changed that Henry had agreed to. Each is here on its own line.*
+- **"Sent out from guarding, they gather first and leave as a group" (the sub-orders round) doesn't hold for the stance.** On ATTACK the ships already flying go at once from wherever they are. Reason: it's the "overwhelm them" button, and gathering first would fly ships that are out on the map home again before they left. Ships built after that still wait for their group, and a card the AI tells HUNT still gathers.
+- **A design no longer starts a match on the order it was drawn with,** on a person's side: everything that flies and fights starts on GUARD. It follows from one stance. HARVEST and HOLD still count.
+- **SAB and ESCORT are gone from a person's match.** Henry's ruling ("with dispositions going away"). Escorting the king is now a right-click on the king with ships selected. Sabotage has no button: send ships at the miners.
+- **Q took every warship on the map (C1). Now it takes those in view,** and Ctrl+Q is the old Q. Henry's ask.
+- **Q's "warship" was a ship with guns. Now it's any ship you can send that isn't a miner.** My call, so a shield ship goes with the fleet it covers.
+- **"Friends keep a pixel or two apart" has a second exception** (the first was a guard at its post): a sent ship with nothing to fight isn't pushed, on its spot or on its way there. Reason: pushed, the last to arrive never got through the ranks already standing (the first run of the formation test left a fighter 21 px short of its spot for good), and a group sent to one point never settled, which is the wiggly clump in Henry's screenshot. Sent ships can now pass through each other on the way, as miners at a rock face do.
+- **One cross marked where selected ships were going. Now each ship's spot has a small cross,** and none once the ship stands on it.
+- **LET GO said "back to what their cards say". Now: unsent again,** which means what the stance says.
+- **The rules card:** FLEET lost "G LETS GO" and the control-group keys (the keys page has them, and the LET GO button shows while ships are selected), ORDERS became UNSENT, FACTORY gained the rally point, KING says "a card or its key", KEYS points at F3.
+- **The wire is version 10.**
+
+*My other calls, for Henry to overrule.*
+- The stance key is T and the button reads ALL: GUARD or ALL: ATTACK, lit while attacking.
+- Ctrl and a card's key takes that card's ships across the whole map, not just in view. A double click is the one for "in view".
+- A box takes factories only when there's no ship and no king in it.
+- A rally point moves only the ships built after it. The ones already out keep their home.
+- Six pixels between hulls in a formation: four kept the green corners of neighbours running into each other.
+- The keys page is F3, and it lists the mouse too.
+
+*Not built, and what's become of the list.*
+- A rally point for the king: a right-click on the map sends a king, so there's no gesture left for it.
+- Shift waypoints, hold position, a plain move that ignores enemies, scrolling at the screen's edge, a readout of what's selected.
+- The yard still has its ORDER, style and GROUP buttons. In a person's match, HUNT, SAB, ESCORT and GUARD on a drawing now all mean the same thing. They want clearing out with the style buttons, next round.
+- The where-to-send experiment's numbers further up this file are from before K5. Its ships are sent, so they'd move. I haven't re-run it.
+
+*Checks.* 285 tests pass: 11 new, one gone with the cards' tags. With nobody selecting, the AI plays the same three matches as the committed game, line for line, and the arena's recorded fights are byte for byte unchanged. One match of the where-to-send experiment plays through under K5 without a fault. Screenshots 25 and 69 to 74 looked at. The rule-break list is 428 long: 69 new, 19 mended where their lines had moved, one dropped with the cards' tags. The 88 new and mended ones were run and 86 were caught at once. Two got past. A sent ship pushed about like any other: once the hulls stood 6 px apart, nothing in my tests had to fly through a standing rank. A click on the keys page reaching what's under it: the test clicked where there was nothing to press. Each has a test now, and both are caught. Not covered by a test: how the formation looks in play, and anything about feel. I haven't played it in the window.
+
+**Henry's verdicts on the keys, the stance, formations and rally points, and two tweaks (2026-11-14).** Verdicts on K1 to K7 and rows K9 and K10 in the table above.
+
+Henry, after playing a match and winning it at 6:15 (one ATTACK, at 5:06): "I think it played well. I'm happy the disposition letters are gone and I think ATTACK/GUARD with LET GO is an improvement. Formation looked sensible. ATTACK should send everything unless it has mining equipment. miners should still mine. I don't think we need rally points for mobile factories. Only tweak I'd recommend is that I think K once should select your king and twice should jump the camera to it. Hotkeys seemed great otherwise. Commit and push, then we're ready for automatic flight. I think we can get rid of group size along with manual flight patterns. I think once we have the new automatic flight features, we can and should consider optimizing the set of patterns. One thing I think it might make sense to add is an evasive maneuvers pattern."
+
+*Changed from that.*
+- **The stance's exception is mining equipment (K9).** Before: a miner (a scoop and drawn to HARVEST) and any design drawn to HOLD sat it out. Now: anything with a scoop mines, whatever it was drawn with, and everything else that flies takes the stance. A flying design drawn to HOLD therefore guards and attacks with the rest. That last part is my reading of "everything", not something Henry said about HOLD.
+- **K selects the king, and K again within 0.4 s takes the view to it (K10).** One press used to take the view. The note above the small map does what the key does.
+- **No rally point for a king or a factory that flies.** Nothing to change: they had none.
+
+*For the automatic-flight round, from the same message.*
+- Group size goes with the manual flight patterns.
+- Once ships choose how they fly, look again at the set of patterns itself. Henry's first thought for a new one: evasive manoeuvres.
+
+*Checks.* 285 tests pass. The rule-break list is 435 long: 7 new for these two changes, and 6 mended. All 13 were run and all are caught.
+
 **Checks (2026-11-11, after N1):** 141 tests pass. 84 of 84 deliberate rule breaks are caught, twenty of them new. Among them: a command that skips the lag, a machine that plays on without the other's turn, each machine applying its own commands first, a check that compares nothing, a hash with the ships left out, a command counted whoever's name is on it, a turn let through out of order, the joiner's cards printing for blue, a network match that stops under a panel, a right-clicked card marking a job already queued, and the edge shoving a hulk. One was missed at first: the king's keys sent every frame change nothing in the match (the sim drops the repeats), only what crosses the wire, and no test had looked at the wire. One does now. The arena's 41 reference fights are exactly as last recorded.
 
 **What to build before the part phase: my answer.** The order is ruled (Henry, 2026-11-10): "Fixes and pace quickly first before Network spike works for me." The rest is mine.
@@ -1497,6 +1723,16 @@ A faster shot buys a little accuracy against big ships and turns fighters-beat-l
 - **The late game still floods.** Miners multiply and nothing makes the tenth worth less than the first. If matches past ten minutes feel like round 1 again, the fix is in the rules (rock that runs out sooner, or miners that get in each other's way), not in slower numbers.
 - **Too slow now.** Seven ships at 2:00 may be the big deal Henry asked for, or two minutes of waiting. The 2X and 4X buttons are the stopgap.
 - **Cut-off pixels.** With pixels scarce, what a cut-off outpost holds matters, and the only sign is a +N beside BANK. It caught the AI out; it may catch Henry out.
+
+---
+
+## Wishlist (Henry's, for later; none of it is a work order)
+
+- **A king that's upgraded twice.** Henry, 2026-11-14: "Once we eventually get to king design, I want to have people optionally design two upgrades to their king where you pay the price upfront and it grows into a bigger, more consequential mothership/king. (twice. so you draw your starter king and then two bigger versions)." So three drawings of a king: the starter and two bigger ones, each upgrade paid for in full before it grows.
+- **Campaign levels where you fly the king by hand:** the old WASD king. Henry, 2026-11-13: "We can think about direct flight as a special level in the campaign, perhaps." And 2026-11-14: "I'm thinking of having special manual-king-flying levels in the campaign. (our old WASD kings)". The code that flew the king from the keys is kept, unused, for this (`Cmd::Steer`, `Link::steer`).
+- **After automatic flight: a better set of flight patterns,** and perhaps an evasive-manoeuvres pattern (2026-11-14, above).
+- **A theme:** the game as a galaxy-wide sport played over a 64-bit link, the player climbing to Wingleader (2026-11-10, in the round 2 notes).
+- **A reactionless drive that works inside armour,** as something a campaign could offer (ROUNDS.md).
 
 ---
 

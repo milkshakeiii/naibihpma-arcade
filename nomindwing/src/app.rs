@@ -13,6 +13,8 @@ pub enum Key {
     Space,
     Esc,
     Help,
+    /// The keys page: every key the screen in front of you takes.
+    Keys,
     Back,
     Enter,
 }
@@ -35,6 +37,8 @@ pub trait App {
     fn hold(&mut self, _dirs: [bool; 4]) {}
     /// Whether Ctrl is held right now.
     fn ctrl(&mut self, _held: bool) {}
+    /// Whether Shift is held right now.
+    fn shift(&mut self, _held: bool) {}
     fn tick(&mut self);
     fn draw(&self, fb: &mut Framebuffer);
     fn palette(&self) -> &Pal;

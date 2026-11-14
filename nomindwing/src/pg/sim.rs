@@ -9,9 +9,15 @@ use super::design::*;
 use crate::geom::{cheb, dist2, Line};
 use crate::rng::Rng;
 
+mod arch;
 mod audit;
+mod dispatch;
+mod drill;
 mod eco;
 mod space;
+pub use arch::*;
+pub use dispatch::*;
+pub use drill::*;
 pub use eco::*;
 
 pub const AW: i32 = 480;
@@ -158,6 +164,8 @@ pub enum Doing {
     Muster,
     /// Getting off the line of an enemy beam that's warming.
     Dodge,
+    /// On its way to where its side's dispatcher sent it, or standing there.
+    Sent,
 }
 
 impl Doing {
@@ -179,6 +187,7 @@ impl Doing {
             Doing::Orbit => "ORBITING",
             Doing::Muster => "WAITING FOR ITS GROUP",
             Doing::Dodge => "DODGING A BEAM",
+            Doing::Sent => "SENT TO A PLACE",
         }
     }
 }
@@ -235,6 +244,9 @@ pub struct Ship {
     pub ring0: i32,
     /// It spent this tick waiting at its post, or on its way there.
     pub posted: bool,
+    /// It spent this tick standing on the spot it was sent to, or on its way there with nothing
+    /// to fight.
+    pub parked: bool,
     pub carry: i32,
     hauling: bool,
     tpx: Option<(i32, i32)>,
@@ -295,6 +307,19 @@ pub struct Ship {
     spin: i8,
     /// On HUNT or SAB in a match, still waiting at its post for the rest of its group.
     pub waiting: bool,
+    /// Where its side's dispatcher has sent it, whatever its card's order: it goes there, fights
+    /// what's round the place, and on the way fights what comes close. None: it does as its
+    /// card says.
+    pub sent: Option<(i32, i32)>,
+    /// The fastest it flies on its way to where it's sent, in quarter pixels a tick, so that a
+    /// group arrives together (0: as fast as it can).
+    pub pace: i32,
+    /// The thing it was sent after, if it was sent after a thing and not to a place: where it's
+    /// sent moves with the thing, and stays where the thing last was once that's gone.
+    pub chase: Option<usize>,
+    /// A factory's rally point: the home of every ship it builds from now on. None: they stay
+    /// round the factory.
+    pub rally: Option<(i32, i32)>,
 }
 
 impl Ship {
@@ -320,6 +345,32 @@ impl Ship {
         self.shape.cells.iter().zip(&self.hp).map(|(c, &h)| if h > 0 { *c } else { None }).collect()
     }
     /// Pixels still standing.
+    /// Whether side `team` can send this ship somewhere: a ship of its own, finished, with engines.
+    pub fn sendable(&self, team: usize) -> bool {
+        self.alive && self.team == team && self.role == Role::Ship && self.st.thrust > 0 && self.grow.is_none() && self.warp == 0 && self.maker.is_none()
+    }
+
+    /// Whether side `team` can select this and send it somewhere: a ship it can send, or its king.
+    pub fn commandable(&self, team: usize) -> bool {
+        self.sendable(team) || (self.alive && self.team == team && self.role == Role::King)
+    }
+
+    /// Whether side `team` can give this a rally point: a factory of its own that stands where
+    /// it is. (One that flies is sent like any ship.)
+    pub fn rallies(&self, team: usize) -> bool {
+        self.alive && self.team == team && self.role == Role::Ship && self.st.factory > 0 && self.st.thrust == 0 && self.warp == 0 && self.maker.is_none()
+    }
+
+    /// Whether side `team` can select this: what it can send, and what it can give a rally point.
+    pub fn selectable(&self, team: usize) -> bool {
+        self.commandable(team) || self.rallies(team)
+    }
+
+    /// A miner: a ship with a scoop whose card has it harvesting.
+    pub fn miner(&self) -> bool {
+        self.st.scoops > 0 && self.order == Order::Harvest
+    }
+
     pub fn px_now(&self) -> i32 {
         self.hp.iter().map(|&h| h as i32).sum()
     }
@@ -410,6 +461,7 @@ impl Ship {
             home: if self.order == Order::Hold { (x, y) } else { self.home },
             ring0: if self.order == Order::Hold { 0 } else { self.ring0 },
             posted: false,
+            parked: false,
             carry: 0,
             hauling: false,
             tpx: None,
@@ -545,6 +597,8 @@ pub struct Score {
 struct Snap {
     idx: usize,
     team: usize,
+    /// Which of its side's designs it is.
+    slot: usize,
     x: i32,
     y: i32,
     vx: i32,
@@ -570,6 +624,7 @@ struct Plan {
     goal: Option<(i32, i32)>,
 }
 
+#[derive(Clone)]
 pub struct Arena {
     pub tick: u32,
     pub ships: Vec<Ship>,
@@ -603,6 +658,19 @@ pub struct Arena {
     pub h: i32,
     /// A match's kings, factories, banks and networks; None in the proving ground.
     pub eco: Option<Eco>,
+    /// How each side's ships choose what to go for and how to fly at it.
+    pub brain: [Brain; 2],
+    /// What the designs learned of each other before the fight (see `drill`), by slot. Both
+    /// sides read the one table: a side's row is its own design, the column the enemy's.
+    pub drills: std::sync::Arc<Drills>,
+    /// What each side's arch-AI has decided: how each of its designs flies, by slot (None, or
+    /// past the end: as its card says).
+    pub plan: [Vec<Option<Style>>; 2],
+    /// Whose design each arch-AI last thought about, so each gets its turn.
+    arch_turn: [usize; 2],
+    /// This arena is a fight being played forward inside an arch-AI's plan, not the fight
+    /// itself: nobody in it plans.
+    rehearsal: bool,
 }
 
 /// FNV-1a: a hash that comes out the same on every machine and every run, which the standard
@@ -634,7 +702,7 @@ impl std::hash::Hasher for Fnv {
 impl std::hash::Hash for Arena {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // `warm` is worked out afresh from the ships at the start of every tick.
-        let Arena { tick, ships, shots, debris, sparks, cuts, skins: _, warm: _, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco } = self;
+        let Arena { tick, ships, shots, debris, sparks, cuts, skins: _, warm: _, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco, brain, drills, plan, arch_turn, rehearsal } = self;
         tick.hash(state);
         ships.hash(state);
         shots.hash(state);
@@ -657,6 +725,11 @@ impl std::hash::Hash for Arena {
         w.hash(state);
         h.hash(state);
         eco.hash(state);
+        brain.hash(state);
+        drills.hash(state);
+        plan.hash(state);
+        arch_turn.hash(state);
+        rehearsal.hash(state);
     }
 }
 
@@ -695,6 +768,11 @@ impl Arena {
             w,
             h,
             eco: None,
+            brain: [Brain::CARD; 2],
+            drills: Default::default(),
+            plan: Default::default(),
+            arch_turn: [0; 2],
+            rehearsal: false,
         }
     }
 
@@ -796,6 +874,7 @@ impl Arena {
             home: (x, y),
             ring0: 0,
             posted: false,
+            parked: false,
             carry: 0,
             hauling: false,
             tpx: None,
@@ -831,6 +910,10 @@ impl Arena {
             spin: 0,
             // Only a match has posts to gather at; in the arena everything is there at once.
             waiting: self.eco.is_some() && d.group > 1,
+            sent: None,
+            pace: 0,
+            chase: None,
+            rally: None,
         };
         let h = s.half();
         s.x = x.clamp(h, self.w - 1 - h); // spawn
@@ -877,17 +960,19 @@ impl Arena {
         for s in &mut self.ships {
             s.pose0 = (s.x, s.y, s.facing);
         }
+        self.chase_step();
         if self.eco.is_some() {
             self.eco_pre();
         }
         self.warm = self.warming();
+        self.arch_think();
         // Ships still arriving by hyperspace aren't there yet.
         let snap: Vec<Snap> = self
             .ships
             .iter()
             .enumerate()
             .filter(|(_, s)| s.alive && s.warp == 0)
-            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul), worker: s.role == Role::Ship && (s.st.scoops > 0 || s.st.factory > 0 || s.rooted) })
+            .map(|(idx, s)| Snap { idx, team: s.team, slot: s.slot, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul), worker: s.role == Role::Ship && (s.st.scoops > 0 || s.st.factory > 0 || s.rooted) })
             .collect();
         let n = self.ships.len();
         // How close each armed ship that can move is to its nearest enemy, before and after
@@ -992,8 +1077,28 @@ impl Arena {
         // Picked afresh every tick, a ship between two enemies about as far off as each other
         // turned from one to the other and back.
         let prey = self.ships[i].prey;
+        // A drilled ship judges by what its design learned: an enemy it beats seems nearer than
+        // it is, and one that beats it further. It goes for the one that seems nearest.
+        let ways = self.brain[team].ways;
+        let drilled = self.brain[team].targets.then(|| self.drills.clone());
+        let slot = self.ships[i].slot;
+        let seems = |e: &Snap| -> i32 {
+            let d = isqrt(dist2(e.x, e.y, x, y));
+            match drilled.as_ref().and_then(|t| t.get(slot, e.slot)) {
+                Some(k) => d * (1000 - k.margin(ways) * DRILL_PULL / 1000) / 1000,
+                None => d,
+            }
+        };
         let pick = |maxd: i32, from: (i32, i32), workers: bool| -> Option<Snap> {
             let pool = || snap.iter().filter(move |e| e.team != team && cheb(e.x, e.y, from.0, from.1) <= maxd && (!workers || e.worker));
+            if drilled.is_some() {
+                let near = pool().min_by_key(|e| seems(e)).copied()?;
+                let kept = prey.and_then(|j| pool().find(|e| e.idx == j).copied());
+                return Some(match kept {
+                    Some(k) if seems(&near) + KEEP > seems(&k) => k,
+                    _ => near,
+                });
+            }
             let near = pool().min_by_key(|e| dist2(e.x, e.y, x, y)).copied()?;
             let kept = prey.and_then(|j| pool().find(|e| e.idx == j).copied());
             Some(match kept {
@@ -1004,7 +1109,41 @@ impl Arena {
         let mut chosen = None;
         // A ship still waiting for the rest of its group guards where it was built.
         let waiting = self.ships[i].waiting && matches!(order, Order::Hunt | Order::Sab);
+        let sent = self.ships[i].sent.filter(|_| st.thrust > 0);
         let mut plan = match if waiting { Order::Guard } else { order } {
+            // Sent to a place, by its player or its side's dispatcher, whatever its order. Once
+            // it's there it fights what's round the place. On the way it fights only what comes
+            // close to it. A ship with no guns goes all the same, at its group's pace.
+            _ if sent.is_some() => {
+                let p = sent.unwrap();
+                let there = cheb(x, y, p.0, p.1) <= GUARD_RADIUS + 50;
+                let found = if !armed {
+                    None
+                } else if there {
+                    pick(GUARD_RADIUS, p, false)
+                } else {
+                    pick(SENT_NEAR, (x, y), false)
+                };
+                match found {
+                    Some(e) => {
+                        chosen = Some(e.idx);
+                        self.engage(i, &e, snap)
+                    }
+                    None => {
+                        // With nothing to fight it has a spot of its own, as a ship has at a
+                        // post: the place it was sent to, or the nearest point to that clear of
+                        // what already stands there. It flies there and stops. On the way it
+                        // keeps its group's pace.
+                        let spot = self.clear_post(i, p, snap);
+                        let mut plan = self.go(i, spot, Doing::Sent);
+                        let (pace, v) = (self.ships[i].pace, isqrt(plan.dv.0 * plan.dv.0 + plan.dv.1 * plan.dv.1));
+                        if pace > 0 && v > pace {
+                            plan.dv = (plan.dv.0 * pace / v, plan.dv.1 * pace / v);
+                        }
+                        plan
+                    }
+                }
+            }
             Order::Hunt | Order::Sab => {
                 if !armed {
                     self.with_group(i, snap)
@@ -1088,6 +1227,8 @@ impl Arena {
             plan = p;
         }
         self.ships[i].posted = posted;
+        let parked = plan.doing == Doing::Sent;
+        self.ships[i].parked = parked;
         // Friends keep a pixel or two apart instead of stacking into one sprite. A miner at work
         // takes no part in that, either way. After a rock pixel it goes to that pixel, whether its
         // own factory stands over it or a fleet is parked there (pushed off, it never gets its
@@ -1096,8 +1237,10 @@ impl Arena {
         // way to nothing, so their pushes added up to a wall that nothing of their own side
         // could cross, a full miner on the far side of it least of all. A ship at its post is
         // the other exception: it has a place of its own and holds it, and whatever flies by
-        // goes round. (Pushed off and pulled back, it never sat still.)
-        if st.thrust > 0 && !matches!(plan.doing, Doing::Mine | Doing::Haul) && !posted {
+        // goes round. (Pushed off and pulled back, it never sat still.) So is a ship sent to a
+        // spot, there or on its way with nothing to fight: pushed, the last to arrive never got
+        // through the ranks already standing, and a group sent to one point never settled.
+        if st.thrust > 0 && !matches!(plan.doing, Doing::Mine | Doing::Haul) && !posted && !parked {
             let h = self.ships[i].half();
             for f in snap.iter().filter(|f| f.team == team && f.idx != i && !f.working && cheb(f.x, f.y, x, y) < f.half + h + 2) {
                 let (ax, ay) = if (f.x, f.y) == (x, y) { (if i < f.idx { -4 } else { 4 }, 0) } else { toward(f.x, f.y, x, y, 4) };
@@ -1207,7 +1350,8 @@ impl Arena {
     }
 
     /// A waiting ship gives way to what can't move aside for it (a factory, a ship still being
-    /// printed, a king) and to ships already waiting that were built before it. Its place is
+    /// printed, a king) and to ships already waiting, at a post or on a spot they were sent to,
+    /// that were built before it. Its place is
     /// then the nearest point to its post that is clear of them all: of two as near, the one
     /// further from home. Where they stand doesn't change from tick to tick, so neither does that
     /// point: the ship flies there and stops.
@@ -1226,7 +1370,7 @@ impl Arena {
                 let o = &self.ships[f.idx];
                 let at = if o.st.thrust == 0 || o.grow.is_some() || o.role == Role::King {
                     (f.x, f.y)
-                } else if f.idx < i && o.posted {
+                } else if f.idx < i && (o.posted || o.parked) {
                     o.goal?
                 } else {
                     return None;
@@ -1331,9 +1475,17 @@ impl Arena {
         // What's left of the drawing decides whether it can fly at all, and how it flies when
         // nothing was chosen for it.
         let s = &self.ships[i];
+        // A drilled ship flies at this enemy the way that did best against it.
+        let ways = self.brain[s.team].ways;
+        let learned = match ways {
+            Ways::Card => None,
+            // Its side's arch-AI has decided how this design flies.
+            Ways::Plan => self.plan[s.team].get(s.slot).copied().flatten(),
+            _ => self.drills.get(s.slot, self.ships[e.idx].slot).and_then(|k| k.style(ways)),
+        };
         let style = match s.st.flight {
             Flight::Still => None,
-            f => s.style.or(Style::of(f)),
+            f => learned.or(s.style).or(Style::of(f)),
         };
         match style {
             Some(Style::Runs) => self.attack_run(i, e),
@@ -3587,7 +3739,7 @@ mod tests {
         a.add(0, 0, &lancer, 150, 180);
         a.add(1, 0, &slab('h'), 230, 180);
         let line = |a: &Arena, vx: i32, dist: i32| {
-            let e = Snap { idx: 1, team: 1, x: 230, y: 180, vx, vy: 8, half: 4, full: 81, working: false, worker: false };
+            let e = Snap { idx: 1, team: 1, slot: 0, x: 230, y: 180, vx, vy: 8, half: 4, full: 81, working: false, worker: false };
             a.lance_line(0, &e, (0, 0), 1, dist) - 180
         };
         // Holding its distance, the shot takes 80 / 4 = 20 ticks, and the target is 40 px on.

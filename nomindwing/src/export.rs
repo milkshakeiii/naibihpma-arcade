@@ -309,6 +309,150 @@ pub fn pg_sim(which: &str) {
     }
 }
 
+/// The drilled brain against the card brain, headless. For each deck: what its designs learned
+/// of each other in their drills, then mixed fleets of them fought with each side on each brain.
+/// The fleets are the same whichever brain flies them, so a difference in a row is the brain's.
+pub fn brains(which: &str) {
+    use crate::pg::design::{defaults, starter_deck, Design};
+    use crate::pg::sim::{Arena, Brain, Drills, Ways};
+    use crate::pg::{fleet_side, fliers, parts_library};
+    const SEEDS: u64 = 12;
+    let saved = || crate::pg::Pg::new(Some(std::path::PathBuf::from("proving_ground_designs.txt")), None).lib;
+    let decks: Vec<(&str, Vec<Design>)> = match which {
+        "starter" => vec![("STARTER DECK", starter_deck())],
+        "parts" => vec![("PARTS LIBRARY", parts_library())],
+        "old" => vec![("OLD FLEET", defaults())],
+        "mine" => vec![("YOUR TEAM", saved())],
+        _ => vec![("STARTER DECK", starter_deck()), ("PARTS LIBRARY", parts_library()), ("OLD FLEET", defaults()), ("YOUR TEAM", saved())],
+    };
+    // The brains tried against the card brain: each rule alone, then together.
+    let tried = [
+        Brain { targets: true, ways: Ways::Card },
+        Brain { targets: false, ways: Ways::Safe },
+        Brain { targets: false, ways: Ways::Bold },
+        Brain { targets: true, ways: Ways::Safe },
+        Brain { targets: true, ways: Ways::Bold },
+        Brain::ARCH,
+    ];
+    // Fights between a side on each of those and a card side, all decks together: won by it, by
+    // the card side, drawn; and pixels it lost and took.
+    let mut all = [[0i32; 5]; 6];
+    for (title, lib) in &decks {
+        // Everything that flies and fights, and the unarmed ships that fly with them.
+        let fleet = fliers(lib);
+        if fleet.len() < 2 {
+            println!("=== {title}: under two designs that fly and fight ===");
+            continue;
+        }
+        let t0 = std::time::Instant::now();
+        let pairs: Vec<(usize, usize)> = fleet.iter().flat_map(|&a| fleet.iter().map(move |&b| (a, b))).collect();
+        let table = std::sync::Arc::new(Drills::run(lib, &pairs));
+        println!("=== {title}: {} designs, drilled in {} ms ===", fleet.len(), t0.elapsed().as_millis());
+        println!("what each learned: how it flies at that enemy and its margin in thousandths (+ wins), safe/bold");
+        for &a in &fleet {
+            let row: Vec<String> = fleet
+                .iter()
+                .map(|&b| match table.get(a, b) {
+                    Some(d) => format!("{} {}{:+}/{}{:+}", lib[b].name, d.safe.map_or("-", |s| s.name()), d.safe_margin, d.bold.map_or("-", |s| s.name()), d.bold_margin),
+                    None => format!("{} ?", lib[b].name),
+                })
+                .collect();
+            println!("  {:9} v  {}", lib[a].name, row.join(" | "));
+        }
+        let side = |team: usize, designs: &[usize], budget: i32| fleet_side(lib, team, designs, budget);
+        let (evens, odds): (Vec<usize>, Vec<usize>) = (fleet.iter().copied().step_by(2).collect(), fleet.iter().copied().skip(1).step_by(2).collect());
+        let (first, second) = (fleet[..fleet.len() / 2].to_vec(), fleet[fleet.len() / 2..].to_vec());
+        let mut fights: Vec<(String, Vec<usize>, Vec<usize>)> = vec![("ALL V ALL".into(), fleet.clone(), fleet.clone()), ("EVENS V ODDS".into(), evens.clone(), odds.clone()), ("ODDS V EVENS".into(), odds, evens)];
+        if fleet.len() >= 4 {
+            fights.push(("FIRST HALF V SECOND".into(), first.clone(), second.clone()));
+            fights.push(("SECOND HALF V FIRST".into(), second, first));
+        }
+        println!("fights, {SEEDS} seeds each, a brain on one side and the card brain on the other, then the sides swapped: its wins, its losses, draws (pixels it lost, pixels it took)");
+        let head: Vec<String> = std::iter::once("CARD V CARD".to_string()).chain(tried.iter().map(|b| b.name())).collect();
+        println!("  {:20} {}", "", head.iter().map(|h| format!("{h:>26}")).collect::<String>());
+        let mut deck = [[0i32; 5]; 6];
+        for (name, blue, red) in &fights {
+            let budget = blue.iter().chain(red.iter()).map(|&s| lib[s].stats().cost).max().unwrap_or(1);
+            let mut place = side(0, blue, budget);
+            place.extend(side(1, red, budget));
+            // One fight on every seed: blue wins, red wins, draws, pixels lost by each.
+            let run = |brain: [Brain; 2]| -> ([i32; 3], [i32; 2]) {
+                let (mut wins, mut px) = ([0i32; 3], [0i32; 2]);
+                for seed in 1..=SEEDS {
+                    let mut a = Arena::seeded(seed);
+                    (a.brain, a.drills) = (brain, table.clone());
+                    for &(team, slot, x, y) in &place {
+                        a.add(team, slot, &lib[slot], x, y);
+                    }
+                    while a.over.is_none() {
+                        a.step();
+                    }
+                    wins[match a.over.unwrap() {
+                        Some(0) => 0,
+                        Some(_) => 1,
+                        None => 2,
+                    }] += 1;
+                    for t in 0..2 {
+                        px[t] += a.score[t].px_lost;
+                    }
+                }
+                (wins, px)
+            };
+            let (w, p) = run([Brain::CARD; 2]);
+            let mut cells = vec![format!("{:2} {:2} {:2} ({:5} {:5})", w[0], w[1], w[2], p[0] / SEEDS as i32, p[1] / SEEDS as i32)];
+            for (k, &brain) in tried.iter().enumerate() {
+                // As blue, then as red.
+                let mut got = [0i32; 5];
+                for me in 0..2 {
+                    let mut pair = [Brain::CARD; 2];
+                    pair[me] = brain;
+                    let (w, p) = run(pair);
+                    for (g, v) in got.iter_mut().zip([w[me], w[1 - me], w[2], p[me], p[1 - me]]) {
+                        *g += v;
+                    }
+                }
+                for tally in [&mut deck, &mut all] {
+                    for (t, g) in tally[k].iter_mut().zip(got) {
+                        *t += g;
+                    }
+                }
+                cells.push(format!("{:2} {:2} {:2} ({:5} {:5})", got[0], got[1], got[2], got[3] / (2 * SEEDS as i32), got[4] / (2 * SEEDS as i32)));
+            }
+            println!("  {:20} {}", name, cells.iter().map(|c| format!("{c:>26}")).collect::<String>());
+        }
+        for (k, b) in tried.iter().enumerate() {
+            println!("  {:18} against card in this deck: won {:3}, lost {:3}, drew {:3}; lost {} px and took {}", b.name(), deck[k][0], deck[k][1], deck[k][2], deck[k][3], deck[k][4]);
+        }
+        // What the arch-AI's thinking costs a frame: the twin fight once, blue on the arch-AI, with
+        // every tick timed. A frame is 66 ms.
+        {
+            let budget = fleet.iter().map(|&s| lib[s].stats().cost).max().unwrap_or(1);
+            let mut a = Arena::seeded(1);
+            a.brain = [Brain::ARCH, Brain::CARD];
+            for (team, slot, x, y) in side(0, &fleet, budget).into_iter().chain(side(1, &fleet, budget)) {
+                a.add(team, slot, &lib[slot], x, y);
+            }
+            let ships = a.ships.len();
+            let (mut first, mut longest, mut total) = (0u128, 0u128, 0u128);
+            while a.over.is_none() {
+                let t = std::time::Instant::now();
+                a.step();
+                let us = t.elapsed().as_micros();
+                if a.tick == 1 {
+                    first = us;
+                } else {
+                    longest = longest.max(us);
+                }
+                total += us;
+            }
+            println!("  the arch-AI's thinking, on the twin fight ({ships} ships, {} ticks): its first plan took {} ms, its longest tick after that {} ms, a tick on average {}.{:02} ms", a.tick, first / 1000, longest / 1000, total / a.tick as u128 / 1000, total / a.tick as u128 % 1000 / 10);
+        }
+    }
+    for (k, b) in tried.iter().enumerate() {
+        println!("=== all decks, {:18} against card: won {:3}, lost {:3}, drew {:3}; lost {} px and took {} ===", b.name(), all[k][0], all[k][1], all[k][2], all[k][3], all[k][4]);
+    }
+}
+
 /// Plays `n` AI-vs-AI matches with the starter deck on seeds 1..=n and prints how each went,
 /// with a line every two minutes of the first.
 /// A deck for the headless runs: the designs in a save file (as the yard writes them), or the
@@ -391,10 +535,20 @@ pub struct Played {
 }
 
 /// Plays one match with nobody watching.
-pub fn play_match(seed: u64, decks: [Vec<crate::pg::design::Design>; 2], bots: [crate::pg::sim::Bot; 2], mut each_tick: impl FnMut(&crate::pg::sim::Arena)) -> Played {
+pub fn play_match(seed: u64, decks: [Vec<crate::pg::design::Design>; 2], bots: [crate::pg::sim::Bot; 2], each_tick: impl FnMut(&crate::pg::sim::Arena)) -> Played {
+    play_match_with(seed, decks, bots, [false; 2], each_tick)
+}
+
+/// The same, saying which sides' AIs send their warships by playing the match forward (`sends`).
+pub fn play_match_with(seed: u64, decks: [Vec<crate::pg::design::Design>; 2], bots: [crate::pg::sim::Bot; 2], sends: [bool; 2], mut each_tick: impl FnMut(&crate::pg::sim::Arena)) -> Played {
     use crate::pg::sim::{Arena, Role};
     let n = [decks[0].len(), decks[1].len()];
     let mut a = Arena::for_bots(seed, decks, bots);
+    for t in 0..2 {
+        if sends[t] {
+            a.send_by_looking(t);
+        }
+    }
     let mut first = [vec![None; n[0]], vec![None; n[1]]];
     let (mut at2, mut at4) = ([0; 2], [0; 2]);
     let mut planted = [Vec::new(), Vec::new()];
@@ -429,14 +583,15 @@ pub fn play_match(seed: u64, decks: [Vec<crate::pg::design::Design>; 2], bots: [
 }
 
 /// Bot against bot, seeds 1 to `n`, each side with the deck in its file (or the starter deck).
-pub fn match_sim(n: u64, blue: Option<&str>, red: Option<&str>, bots: [crate::pg::sim::Bot; 2]) {
+pub fn match_sim(n: u64, blue: Option<&str>, red: Option<&str>, bots: [crate::pg::sim::Bot; 2], sends: [bool; 2]) {
     use crate::pg::play::{clock, state_line};
     let (mut wins, mut ticks) = ([0u32; 3], Vec::new());
-    println!("BLUE {:?} against RED {:?}", bots[0], bots[1]);
+    let how = |t: usize| if sends[t] { " (sending by playing the match forward)" } else { "" };
+    println!("BLUE {:?}{} against RED {:?}{}", bots[0], how(0), bots[1], how(1));
     for seed in 1..=n {
         let t0 = std::time::Instant::now();
         let mut next = 15 * 120;
-        let m = play_match(seed, [deck_from(blue), deck_from(red)], bots, |a| {
+        let m = play_match_with(seed, [deck_from(blue), deck_from(red)], bots, sends, |a| {
             if seed == 1 && a.tick >= next && a.over.is_none() {
                 next += 15 * 120;
                 println!("    {} {}", clock(a.tick), state_line(a));
@@ -464,6 +619,9 @@ pub fn match_sim(n: u64, blue: Option<&str>, red: Option<&str>, bots: [crate::pg
             println!("      {} made {}", ["BLUE", "RED"][t], made.join(", "));
             let planted: Vec<String> = m.planted[t].iter().map(|&k| clock(k)).collect();
             println!("      {} had {} ships at 2:00, {} at 4:00; changed orders {} times; planted at {}", ["BLUE", "RED"][t], m.at2[t], m.at4[t], e.tally[t].orders, planted.join(" "));
+            if let Some(d) = &e.dispatch[t] {
+                println!("      {} thought {} times, changed its plan {} times, and played the match forward {} times", ["BLUE", "RED"][t], d.thoughts, d.switches, d.looked);
+            }
         }
         // The loser's last stretch with next to nothing standing: how long its king lasted.
         if let Some(l) = m.winner.map(|w| 1 - w) {
@@ -481,10 +639,10 @@ pub fn match_sim(n: u64, blue: Option<&str>, red: Option<&str>, bots: [crate::pg
 /// `n` matches on each side of the map, both sides with the deck in `file` (or the starter
 /// deck). One line per opening: how many the AI won, lost and drew, how long the matches ran,
 /// and when the AI was first beaten down to a slowed king.
-pub fn judge(n: u64, file: Option<&str>, only: Option<&str>) {
+pub fn judge(n: u64, file: Option<&str>, only: Option<&str>, whatif: bool) {
     use crate::pg::play::clock;
     use crate::pg::sim::Bot;
-    println!("{}", file.unwrap_or("STARTER DECK"));
+    println!("{}{}", file.unwrap_or("STARTER DECK"), if whatif { ": THE AI SENDS ITS WARSHIPS BY PLAYING THE MATCH FORWARD (against Ai: today's)" } else { "" });
     for other in [Bot::Clock, Bot::Planter, Bot::Expander, Bot::Summoner, Bot::Boomer, Bot::Rusher, Bot::Saboteur, Bot::Ai] {
         if only.is_some_and(|names| !names.split(',').any(|w| Bot::from_name(w) == Some(other))) {
             continue;
@@ -495,11 +653,15 @@ pub fn judge(n: u64, file: Option<&str>, only: Option<&str>) {
         let mut lasted: Vec<u32> = Vec::new();
         // When the AI's king was first slowed, in the matches where it ever was.
         let mut down: Vec<u32> = Vec::new();
+        // The dispatcher's doings over these matches, and how long they took to play.
+        let (mut thoughts, mut switches, mut looked, t0) = (0, 0, 0, std::time::Instant::now());
         for seed in 1..=n {
             for side in 0..2 {
                 let bots = if side == 0 { [Bot::Ai, other] } else { [other, Bot::Ai] };
+                let mut sends = [false; 2];
+                sends[side] = whatif;
                 let mut slowed = None;
-                let m = play_match(seed, [deck_from(file), deck_from(file)], bots, |a| {
+                let m = play_match_with(seed, [deck_from(file), deck_from(file)], bots, sends, |a| {
                     if slowed.is_none() && a.king_slowed(side) {
                         slowed = Some(a.tick);
                     }
@@ -517,6 +679,9 @@ pub fn judge(n: u64, file: Option<&str>, only: Option<&str>) {
                     lasted.push((m.ticks - at) / 15);
                 }
                 let e = m.arena.eco.as_ref().unwrap();
+                if let Some(d) = &e.dispatch[side] {
+                    (thoughts, switches, looked) = (thoughts + d.thoughts, switches + d.switches, looked + d.looked);
+                }
                 printed[0] += e.tally[side].printed + e.tally[side].summoned;
                 printed[1] += e.tally[1 - side].printed + e.tally[1 - side].summoned;
             }
@@ -547,6 +712,9 @@ pub fn judge(n: u64, file: Option<&str>, only: Option<&str>) {
                 }
             }
         );
+        if whatif {
+            println!("             it thought {thoughts} times, changed its plan {switches} times, played the match forward {looked} times; these {games} matches took {} s to play", t0.elapsed().as_secs());
+        }
     }
 }
 
@@ -795,7 +963,6 @@ pub fn pg_screenshots(dir: &Path) {
     // Look at something: the camera centred on a point, the pointer on a ship.
     let look = |pg: &mut Pg, (x, y): (i32, i32), hover: Option<(i32, i32)>| {
         let p = pg.play.as_mut().unwrap();
-        p.follow = false;
         p.cam = ((x - 152).clamp(0, crate::pg::sim::MW - 304), (y - 150).clamp(0, crate::pg::sim::MH - 300));
         let cam = p.cam;
         pg.mouse = hover.map_or((350, 290), |(hx, hy)| (hx - cam.0, hy - cam.1));
@@ -929,12 +1096,8 @@ pub fn pg_screenshots(dir: &Path) {
     }
     pg.draw(&mut fb);
     save(&fb, &pg, "32_match_escort.png");
-    {
-        // Looking away: the view held on the home rocks while the king flies on.
-        let p = pg.play.as_mut().unwrap();
-        p.follow = false;
-        pg.mouse = (350, 230);
-    }
+    // Looking away: the view held on the home rocks while the king flies on.
+    pg.mouse = (350, 230);
     pg.draw(&mut fb);
     save(&fb, &pg, "33_match_looking_away.png");
     // Miners at work: scoops filling, and a spark where one has just taken a bite.
@@ -948,7 +1111,6 @@ pub fn pg_screenshots(dir: &Path) {
             p.arena.step();
         }
         if let Some(s) = p.arena.ships.iter().filter(|s| s.alive && s.team == 0 && s.carry >= 4).max_by_key(|s| s.carry) {
-            p.follow = false;
             p.cam = ((s.x - 152).clamp(0, crate::pg::sim::MW - 304), (s.y - 150).clamp(0, crate::pg::sim::MH - 300));
             pg.mouse = (s.x - p.cam.0, s.y - p.cam.1);
         }
@@ -969,7 +1131,6 @@ pub fn pg_screenshots(dir: &Path) {
             p.arena.step();
         }
         let k = &p.arena.ships[p.arena.eco.as_ref().unwrap().king[1]];
-        p.follow = false;
         p.cam = ((k.x - 152).clamp(0, crate::pg::sim::MW - 304), (k.y - 150).clamp(0, crate::pg::sim::MH - 300));
         pg.mouse = (k.x - p.cam.0, k.y - p.cam.1);
     }
@@ -1014,7 +1175,6 @@ pub fn pg_screenshots(dir: &Path) {
         let a = &p.arena;
         if let Some(g) = a.ships.iter().filter(|s| s.alive && s.team == 0 && s.posted && s.name == "FRIGATE").last().or(a.ships.iter().filter(|s| s.alive && s.team == 0 && s.posted).last()) {
             let (hx, hy, gx, gy) = (g.home.0, g.home.1, g.x, g.y);
-            p.follow = false;
             p.cam = ((hx - 152).clamp(0, crate::pg::sim::MW - 304), (hy - 150).clamp(0, crate::pg::sim::MH - 300));
             pg.mouse = (gx - p.cam.0, gy - p.cam.1);
         }
@@ -1045,7 +1205,6 @@ pub fn pg_screenshots(dir: &Path) {
         let chained = nearest(a, &|l| l.king && !l.to.contains(&king)).or_else(|| nearest(a, &|l| l.king && l.at != home)).unwrap();
         let far = nearest(a, &|l| l.gap.is_some()).unwrap();
         p.planting = Some(4);
-        p.follow = false;
         p.cam = (((chained.0 + home.0) / 2 - 152).clamp(0, crate::pg::sim::MW - 304), ((chained.1 + home.1) / 2 - 150).clamp(0, crate::pg::sim::MH - 300));
         pg.mouse = (chained.0 - p.cam.0, chained.1 - p.cam.1);
         pg.draw(&mut fb);
@@ -1324,8 +1483,91 @@ pub fn pg_screenshots(dir: &Path) {
     hover_slot(&mut pp, 8);
     pp.draw(&mut fb);
     save(&fb, &pp, "64_aegis_covers_two_beamers.png");
+    // A mixed fleet against its twin, blue flown by the arch-AI and red by its cards.
+    let mut pb = Pg::new(None, None);
+    pb.help = false;
+    pb.brains = [crate::pg::sim::Brain::ARCH, crate::pg::sim::Brain::CARD];
+    pb.load_named(crate::pg::TWIN);
+    pb.running = true;
+    for _ in 0..15 * 5 {
+        pb.tick();
+    }
+    hover_slot(&mut pb, 1);
+    pb.draw(&mut fb);
+    save(&fb, &pb, "66_arena_arch_ai_flies_a_mixed_fleet.png");
+    // Selecting and sending in a match: a box dragged round ships by the king, then the same
+    // ships sent across the field.
+    {
+        use crate::app::{App, Ev, Key};
+        let mut ps = Pg::new(None, None);
+        ps.start_match(true, 3);
+        ps.help = false;
+        let d = crate::pg::design::starter_deck();
+        {
+            let a = &mut ps.play.as_mut().unwrap().arena;
+            for (slot, x, y) in [(0, 60, 820), (0, 75, 812), (0, 62, 838), (0, 80, 830), (1, 100, 800), (1, 112, 815), (1, 104, 832), (2, 60, 870), (2, 95, 866)] {
+                a.spawn(0, slot, &d[slot], x, y, 1, false);
+            }
+        }
+        ps.event(Ev::Move(40, 30));
+        ps.event(Ev::Press { x: 40, y: 30, right: false });
+        ps.event(Ev::Move(128, 136));
+        ps.draw(&mut fb);
+        save(&fb, &ps, "67_match_a_box_dragged_round_ships.png");
+        ps.event(Ev::Release { x: 128, y: 136, right: false });
+        ps.event(Ev::Press { x: 250, y: 60, right: true });
+        ps.event(Ev::Release { x: 250, y: 60, right: true });
+        for _ in 0..40 {
+            ps.tick();
+        }
+        ps.event(Ev::Move(150, 200));
+        ps.draw(&mut fb);
+        save(&fb, &ps, "68_match_ships_selected_and_sent.png");
+        // The same ships arrived, each on its own spot: fighters in front, long guns behind.
+        for _ in 0..260 {
+            ps.tick();
+        }
+        ps.draw(&mut fb);
+        save(&fb, &ps, "69_match_ships_in_formation.png");
+        // A factory selected, with the flag where its new ships gather; and the stance turned
+        // to ATTACK.
+        let post = ps.play.as_mut().unwrap().arena.spawn(0, 4, &d[4], 60, 960, 1, false);
+        ps.event(Ev::Key(Key::Esc));
+        ps.play.as_mut().unwrap().picked = vec![post];
+        ps.event(Ev::Press { x: 170, y: 250, right: true });
+        ps.event(Ev::Release { x: 170, y: 250, right: true });
+        ps.event(Ev::Key(Key::Letter('T')));
+        for _ in 0..3 {
+            ps.tick();
+        }
+        ps.event(Ev::Move(BTN_STANCE_AT.0, BTN_STANCE_AT.1));
+        ps.draw(&mut fb);
+        save(&fb, &ps, "70_match_rally_point_and_all_attack.png");
+        // The keys page, for each screen.
+        ps.event(Ev::Key(Key::Keys));
+        ps.draw(&mut fb);
+        save(&fb, &ps, "71_keys_the_match.png");
+        let mut pk = Pg::new(None, None);
+        pk.help = false;
+        pk.event(Ev::Key(Key::Keys));
+        pk.draw(&mut fb);
+        save(&fb, &pk, "72_keys_the_arena.png");
+        pk.event(Ev::Key(Key::Keys));
+        pk.event(Ev::Key(Key::Enter));
+        pk.event(Ev::Key(Key::Keys));
+        pk.draw(&mut fb);
+        save(&fb, &pk, "73_keys_the_yard.png");
+        pk.event(Ev::Key(Key::Keys));
+        pk.event(Ev::Key(Key::Letter('L')));
+        pk.event(Ev::Key(Key::Keys));
+        pk.draw(&mut fb);
+        save(&fb, &pk, "74_keys_the_library.png");
+    }
     println!("exported proving-ground screenshots to {}", dir.display());
 }
+
+/// A point on the match's stance button, for the screenshot that points at it.
+const BTN_STANCE_AT: (i32, i32) = (60, 6);
 
 #[cfg(test)]
 mod tests {

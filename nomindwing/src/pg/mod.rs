@@ -4,6 +4,7 @@
 
 pub mod design;
 mod icons;
+mod keys;
 pub mod library;
 pub mod link;
 pub mod play;
@@ -55,6 +56,48 @@ pub fn block(team: usize, slot: usize, n: i32, cx: i32, cy: i32, gap: i32) -> Ve
         .collect()
 }
 
+/// The ready-made fight that's made from the team as it stands: every design that flies and
+/// fights, against the same again. With the same fleet on both sides, what's left to tell them
+/// apart is how they're flown.
+pub const TWIN: &str = "A MIXED FLEET VS ITS TWIN";
+
+/// The designs of a team that go in a fleet: everything that flies and fights, and the unarmed
+/// ships that fly with them (a projector ship).
+pub fn fliers(lib: &[Design]) -> Vec<usize> {
+    (0..lib.len())
+        .filter(|&s| {
+            let c = Card::of(&lib[s]);
+            c.warship() || (c.ok && !c.seeded && c.st.thrust > 0 && c.st.projector > 0)
+        })
+        .collect()
+}
+
+/// One side's fleet: each design in a block of its own, two blocks abreast, with as many of
+/// each as `budget` pixels buys (one at least, six at most).
+pub fn fleet_side(lib: &[Design], team: usize, designs: &[usize], budget: i32) -> Vec<(usize, usize, i32, i32)> {
+    let rows = (designs.len() as i32 + 1) / 2;
+    let mut out = Vec::new();
+    for (k, &s) in designs.iter().enumerate() {
+        let n = (budget / lib[s].stats().cost.max(1)).clamp(1, 6);
+        let sh = lib[s].shape();
+        let (col, row) = (k as i32 % 2, k as i32 / 2);
+        let cx = if team == 0 { 150 - col * 64 } else { 330 + col * 64 };
+        let cy = 180 + (2 * row - (rows - 1)) * 32;
+        out.extend(block(team, s, n, cx, cy, sh.w.max(sh.h) + 4));
+    }
+    out
+}
+
+/// The twin fight for a team: its fleet on each side, with as many of each design as the
+/// dearest one's cost buys.
+pub fn twin_fleet(lib: &[Design]) -> Vec<(usize, usize, i32, i32)> {
+    let fleet = fliers(lib);
+    let budget = fleet.iter().map(|&s| lib[s].stats().cost).max().unwrap_or(1);
+    let mut place = fleet_side(lib, 0, &fleet, budget);
+    place.extend(fleet_side(lib, 1, &fleet, budget));
+    place
+}
+
 impl Test {
     /// What the test is, from the names of the designs in its slots: "6 FIGHTERS VS 1 FRIGATE".
     /// It stays true when a design is redrawn, renamed or swapped for another.
@@ -95,6 +138,7 @@ pub fn tests() -> Vec<Test> {
         vs("12 LANCERS VS 1 OUTPOST", block(0, 1, 12, 150, 180, 10), block(1, 4, 1, 330, 180, 0)),
         vs("4 FRIGATES VS 1 OUTPOST", block(0, 2, 4, 150, 180, 16), block(1, 4, 1, 330, 180, 0)),
         vs("1 CAPITAL VS 1 SHIPYARD", block(0, 6, 1, 130, 180, 0), block(1, 5, 1, 350, 180, 0)),
+        Test { name: TWIN, place: Vec::new() },
         Test { name: "OPEN FIELD", place: Vec::new() },
     ]
 }
@@ -114,6 +158,7 @@ pub fn reference_tests() -> Vec<Test> {
         vs("4 FIGHTERS VS 4 GUNMINERS", block(0, 0, 4, 120, 180, 12), block(1, 5, 4, 330, 180, 14)),
         vs("1 TITAN VS 5 CAPITALS", block(0, 6, 1, 110, 180, 0), block(1, 4, 5, 380, 180, 44)),
         vs("1 TITAN VS 40 LANCERS", block(0, 6, 1, 110, 180, 0), block(1, 1, 40, 350, 180, 9)),
+        Test { name: TWIN, place: Vec::new() },
         Test { name: "OPEN FIELD", place: Vec::new() },
     ]
 }
@@ -163,6 +208,7 @@ pub fn part_tests() -> Vec<Test> {
         vs("2 BEAMERS + 1 AEGIS VS 6 FIGHTERS", [block(0, 0, 2, 110, 180, 30), block(0, 8, 1, 70, 180, 0)].concat(), block(1, 3, 6, 330, 180, 10)),
         vs("2 ARCHERS VS 1 OUTPOST + 1 AEGIS", block(0, 7, 2, 90, 180, 30), [block(1, 6, 1, 330, 180, 0), block(1, 8, 1, 370, 180, 0)].concat()),
         vs("2 RAKERS VS 2 BEAMERS + 1 AEGIS", block(0, 2, 2, 110, 180, 30), [block(1, 0, 2, 330, 180, 30), block(1, 8, 1, 370, 180, 0)].concat()),
+        Test { name: TWIN, place: Vec::new() },
         Test { name: "OPEN FIELD", place: Vec::new() },
     ]
 }
@@ -187,6 +233,39 @@ fn help_body() -> Vec<(&'static str, String)> {
     ]
 }
 
+/// What a side's brain button says when pointed at.
+fn brain_tip(team: usize, b: Brain) -> String {
+    let key = ["B", "V"][team];
+    let now = match (b.targets, b.ways) {
+        (false, Ways::Card) => "CARD: EACH SHIP GOES FOR THE NEAREST ENEMY AND FLIES AT IT AS ITS CARD SAYS.".to_string(),
+        (targets, ways) => {
+            let t = if targets { " A SHIP GOES FOR WHAT ITS DRILLS SAY IT BEATS, NOT JUST THE NEAREST." } else { "" };
+            let w = match ways {
+                Ways::Card => "",
+                Ways::Safe => " IT FLIES AT EACH ENEMY THE WAY WHOSE WORST DRILL WAS BEST.",
+                Ways::Bold => " IT FLIES AT EACH ENEMY THE WAY THAT DID BEST IN ITS DRILLS.",
+                Ways::Plan => "",
+            };
+            if ways == Ways::Plan {
+                format!("ARCH: ONE PLANNER FOR THE SIDE. IT PLAYS THE FIGHT FORWARD {} S FOR EACH WAY EACH DESIGN COULD FLY AND KEEPS WHAT CAME OUT BEST, AND THINKS AGAIN EVERY {} S.", ARCH_AHEAD / 15, ARCH_EVERY / 15)
+            } else {
+                format!("DRILLED: BEFORE THE FIGHT EVERY DESIGN FIGHTS EVERY ENEMY DESIGN, EACH WAY IT CAN FLY.{t}{w}")
+            }
+        }
+    };
+    format!("[{key}] HOW {}'S SHIPS CHOOSE. {now} CLICK FOR THE NEXT; THE FIGHT STARTS AGAIN.", team_name(team))
+}
+
+/// The inspector's line for what a ship learned in its drills about the enemy it's after.
+fn learned_line(foe: &str, k: Drill, b: Brain) -> String {
+    let way = match k.style(b.ways) {
+        Some(s) => format!("{}, ", s.name()),
+        None => String::new(),
+    };
+    let m = k.margin(b.ways) / 10;
+    format!("DRILLS V {foe}: {way}{}", if m > 0 { format!("WON BY {m}%") } else if m < 0 { format!("LOST BY {}%", -m) } else { "EVEN".to_string() })
+}
+
 /// A notice over the arena, wrapped to fit inside the field with room for its panel.
 fn notice_lines(s: &str) -> Vec<String> {
     wrap(s, ((FIELD.w - 8 - 12) / 6) as usize)
@@ -201,6 +280,8 @@ const BTN_SPEED: Rect = Rect::new(352, 165, 44, 15);
 const BTN_TEST: Rect = Rect::new(306, 181, 90, 15);
 const BTN_EMPTY: Rect = Rect::new(306, 197, 44, 15);
 const BTN_YARD: Rect = Rect::new(352, 197, 44, 15);
+/// Each side's brain, on the field's top edge under the fight's name.
+const BTN_BRAIN: [Rect; 2] = [Rect::new(2, 13, 88, 11), Rect::new(92, 13, 88, 11)];
 /// The minimap: the whole arena at exactly 1/6 scale.
 const MINI_SCALE: i32 = 6;
 const MINI: Rect = Rect::new(310, 213, AW / MINI_SCALE + 2, AH / MINI_SCALE + 2);
@@ -352,6 +433,14 @@ pub struct Pg {
     naming: bool,
     pub arena: Arena,
     pub setup: Vec<Placement>,
+    /// How each side's ships choose what to go for and how to fly at it, in the arena.
+    pub brains: [Brain; 2],
+    /// Frames still to draw before the window stops to run the drills a fight needs (0: none
+    /// are owed).
+    drill_wait: u8,
+    /// What pairs of drawings learned of each other, by their saved lines, so a pair is only
+    /// drilled once however often its fight is replayed.
+    drill_cache: std::collections::HashMap<(String, String), (Drill, Drill)>,
     pub test: Option<usize>,
     tests: Vec<Test>,
     pub running: bool,
@@ -364,8 +453,14 @@ pub struct Pg {
     latch: [bool; 4],
     /// Ctrl is held: in a match, a seed goes to open space.
     pub ctrl: bool,
+    /// Shift is held: in a match, a click or a box adds to what's selected.
+    pub shift: bool,
+    /// Frames drawn so far: what a double click and a key pressed twice are timed by.
+    pub frames: u32,
     map_drag: bool,
     pub help: bool,
+    /// The keys page is up (F3): every key this screen takes.
+    pub keys: bool,
     confirm_quit: bool,
     crt: bool,
     quit: bool,
@@ -450,6 +545,9 @@ impl Pg {
             naming: false,
             arena: Arena::new(),
             setup: Vec::new(),
+            brains: [Brain::CARD; 2],
+            drill_wait: 0,
+            drill_cache: Default::default(),
             test: None,
             tests,
             running: false,
@@ -460,8 +558,11 @@ impl Pg {
             held: [false; 4],
             latch: [false; 4],
             ctrl: false,
+            shift: false,
+            frames: 0,
             map_drag: false,
             help: true,
+            keys: false,
             confirm_quit: false,
             crt: true,
             quit: false,
@@ -502,8 +603,21 @@ impl Pg {
 
     pub fn load_test(&mut self, t: usize) {
         self.test = Some(t);
-        self.setup = self.tests[t].place.iter().map(|&(team, slot, x, y)| Placement { team, slot, x, y }).collect();
+        // The twin fight is made from the team as it stands now.
+        let place = if self.tests[t].name == TWIN { twin_fleet(&self.lib) } else { self.tests[t].place.clone() };
+        self.setup = place.iter().map(|&(team, slot, x, y)| Placement { team, slot, x, y }).collect();
         self.reset();
+    }
+
+    /// Loads the ready-made fight of that name, if there is one.
+    pub fn load_named(&mut self, name: &str) -> bool {
+        match self.tests.iter().position(|t| t.name == name) {
+            Some(t) => {
+                self.load_test(t);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Rebuilds the arena from the setup with the current designs. The same setup always replays
@@ -523,6 +637,78 @@ impl Pg {
         self.running = false;
         self.logged_run = false;
         self.logged_over = false;
+        // A side that goes by its drills needs them run on the designs it faces. Ones already
+        // run on these drawings are to hand; otherwise the window says so for a frame, then
+        // stops to run them.
+        self.arena.brain = self.brains;
+        self.drill_wait = 0;
+        if self.brains.iter().any(|b| b.targets || matches!(b.ways, Ways::Safe | Ways::Bold)) {
+            if self.drill_pairs().iter().all(|&k| self.drill_cache.contains_key(&self.drill_key(k))) {
+                self.learn();
+            } else {
+                self.drill_wait = 2;
+                self.say("RUNNING DRILLS...");
+            }
+        }
+    }
+
+    /// The pairs of designs that face each other in the setup, lower slot first.
+    fn drill_pairs(&self) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        for a in self.setup.iter().filter(|p| p.team == 0) {
+            for b in self.setup.iter().filter(|p| p.team == 1) {
+                let k = (a.slot.min(b.slot), a.slot.max(b.slot));
+                if !out.contains(&k) {
+                    out.push(k);
+                }
+            }
+        }
+        out
+    }
+
+    fn drill_key(&self, (a, b): (usize, usize)) -> (String, String) {
+        (self.lib[a].to_line(), self.lib[b].to_line())
+    }
+
+    /// Gives the arena what the designs facing each other learned in their drills, running any
+    /// that haven't been run on these drawings yet.
+    fn learn(&mut self) {
+        let (mut table, mut ran, t0) = (Drills::default(), 0, std::time::Instant::now());
+        for (a, b) in self.drill_pairs() {
+            let (da, db) = (&self.lib[a], &self.lib[b]);
+            if !da.check().ok() || !db.check().ok() || !(da.stats().armed() || db.stats().armed()) {
+                continue;
+            }
+            let key = self.drill_key((a, b));
+            let (x, y) = match self.drill_cache.get(&key) {
+                Some(&v) => v,
+                None => {
+                    ran += 1;
+                    let v = Drills::pair(da, db);
+                    self.drill_cache.insert(key, v);
+                    v
+                }
+            };
+            table.set(a, b, x);
+            if a != b {
+                table.set(b, a, y);
+            }
+        }
+        self.arena.drills = std::sync::Arc::new(table);
+        if ran > 0 {
+            let ms = t0.elapsed().as_millis();
+            let line = format!("{ran} {} DRILLED IN {}.{} S", if ran == 1 { "PAIR" } else { "PAIRS" }, ms / 1000, ms % 1000 / 100);
+            self.log(&format!("DRILLS {line}"));
+            self.say(&line);
+        }
+    }
+
+    /// The next brain for a side. The fight starts again, so what's watched is one brain's fight
+    /// from the first tick.
+    fn next_brain(&mut self, team: usize) {
+        let k = BRAINS.iter().position(|b| *b == self.brains[team]).map_or(0, |k| (k + 1) % BRAINS.len());
+        self.brains[team] = BRAINS[k];
+        self.reset();
     }
 
     fn test_name(&self) -> String {
@@ -546,7 +732,8 @@ impl Pg {
                 }
                 counts.iter().map(|(s, n)| format!("{n} {}", self.lib[*s].name)).collect::<Vec<_>>().join(", ")
             };
-            let line = format!("RUN {}: BLUE {} | RED {}", self.test_name(), side(0), side(1));
+            let brains = if self.brains == [Brain::CARD; 2] { String::new() } else { format!(" | BRAINS {} V {}", self.brains[0].name(), self.brains[1].name()) };
+            let line = format!("RUN {}: BLUE {} | RED {}{brains}", self.test_name(), side(0), side(1));
             self.log(&line);
             let mut slots: Vec<usize> = self.setup.iter().map(|p| p.slot).collect();
             slots.sort();
@@ -571,8 +758,14 @@ impl Pg {
             }
             return;
         }
+        // Any key puts the keys page away, and the rules. From the rules, F3 goes on to the keys.
+        if self.keys {
+            self.keys = false;
+            return;
+        }
         if self.help {
             self.help = false;
+            self.keys = k == Key::Keys;
             return;
         }
         if self.confirm_quit {
@@ -585,6 +778,7 @@ impl Pg {
         if library::open(self) {
             match k {
                 Key::Help => self.help = true,
+                Key::Keys => self.keys = true,
                 k => self.key_library(k),
             }
             return;
@@ -596,6 +790,7 @@ impl Pg {
             (Screen::Match, Key::Esc) if self.cancel_planting() => {}
             (_, Key::Esc) => self.confirm_quit = true,
             (_, Key::Help) => self.help = true,
+            (_, Key::Keys) => self.keys = true,
             (Screen::Match, k) => self.key_match(k),
             (Screen::Arena, Key::Tab) | (_, Key::Enter) => self.switch_screen(),
             (Screen::Yard, k) => self.key_yard(k),
@@ -605,6 +800,8 @@ impl Pg {
             (Screen::Arena, Key::Letter('F')) => self.cycle_speed(),
             (Screen::Arena, Key::Letter('N')) => self.next_test(),
             (Screen::Arena, Key::Letter('T')) => self.team = 1 - self.team,
+            (Screen::Arena, Key::Letter('B')) => self.next_brain(0),
+            (Screen::Arena, Key::Letter('V')) => self.next_brain(1),
             _ => {}
         }
     }
@@ -671,8 +868,14 @@ impl Pg {
     }
 
     fn press(&mut self, x: i32, y: i32, right: bool) {
+        if self.keys {
+            self.keys = false;
+            return;
+        }
         if self.help {
+            // A click puts the rules away. On their KEYS button it goes on to the keys page.
             self.help = false;
+            self.keys = !right && keys::BTN_KEYS.contains(x, y);
             return;
         }
         if self.confirm_quit {
@@ -705,6 +908,12 @@ impl Pg {
     }
 
     fn press_arena(&mut self, x: i32, y: i32, right: bool) {
+        if let Some(t) = (0..2).find(|&t| BTN_BRAIN[t].contains(x, y)) {
+            if !right {
+                self.next_brain(t);
+            }
+            return;
+        }
         if FIELD.contains(x, y) {
             if self.arena.tick > 0 {
                 self.say("PRESS R TO RESET, THEN PLACE");
@@ -765,6 +974,7 @@ impl Pg {
     // ----- Tick -----
 
     fn step(&mut self) {
+        self.frames += 1;
         if let Some((_, t)) = self.notice.as_mut() {
             *t = t.saturating_sub(1);
             if *t == 0 {
@@ -774,7 +984,8 @@ impl Pg {
         // Scroll the view with WASD or the arrows; a tap between ticks still counts.
         let dirs: Vec<bool> = (0..4).map(|k| self.held[k] || self.latch[k]).collect();
         self.latch = self.held;
-        if self.screen == Screen::Arena && !self.help && !self.confirm_quit {
+        let panel = self.help || self.keys;
+        if self.screen == Screen::Arena && !panel && !self.confirm_quit {
             let dx = (dirs[3] as i32 - dirs[2] as i32) * CAM_STEP;
             let dy = (dirs[1] as i32 - dirs[0] as i32) * CAM_STEP;
             if dx != 0 || dy != 0 {
@@ -782,22 +993,30 @@ impl Pg {
             }
         }
         if library::open(self) {
-            if !self.help && !self.confirm_quit {
+            if !panel && !self.confirm_quit {
                 self.nav_library(&dirs);
             }
-        } else if self.screen == Screen::Yard && !self.help && !self.confirm_quit && !self.naming && !self.menu {
+        } else if self.screen == Screen::Yard && !panel && !self.confirm_quit && !self.naming && !self.menu {
             self.scroll_yard(&dirs);
         }
         self.step_lobby();
         // A match against the AI stops while a panel is open over it. One against another
         // machine can't: their clock is running, so it plays on underneath with the king's keys
         // let go.
-        let free = !self.help && !self.confirm_quit;
+        let free = !panel && !self.confirm_quit;
         let net = self.play.as_ref().is_some_and(|p| p.link.net.is_some());
         if self.screen == Screen::Match && (free || net) {
             self.step_match(if free { &dirs } else { &[false; 4] });
         }
-        if self.screen != Screen::Arena || !self.running || self.help || self.confirm_quit {
+        // Drills owed: the notice has had its frame, so run them now. The fight waits.
+        if self.screen == Screen::Arena && self.drill_wait > 0 {
+            self.drill_wait -= 1;
+            if self.drill_wait == 0 {
+                self.learn();
+            }
+            return;
+        }
+        if self.screen != Screen::Arena || !self.running || panel || self.confirm_quit {
             return;
         }
         for _ in 0..self.speed {
@@ -859,7 +1078,9 @@ impl Pg {
                 fb.text(l, r.x + 6, r.y + 4 + 9 * i as i32, GOLD, None, 1);
             }
         }
-        if self.help && self.screen == Screen::Match {
+        if self.keys {
+            self.draw_keys(fb);
+        } else if self.help && self.screen == Screen::Match {
             self.draw_match_help(fb);
         } else if self.help {
             self.draw_help(fb);
@@ -894,7 +1115,8 @@ impl Pg {
         }
         scene::drift(fb, f, a, self.cam);
         let (wx, wy) = self.to_world(m.0, m.1);
-        let hovered = if f.contains(m.0, m.1) { a.ship_at(wx, wy) } else { None };
+        let on_brain = (0..2).find(|&t| BTN_BRAIN[t].contains(m.0, m.1));
+        let hovered = if f.contains(m.0, m.1) && on_brain.is_none() { a.ship_at(wx, wy) } else { None };
         if let Some(i) = hovered {
             let s = &a.ships[i];
             if let Some(t) = s.target.filter(|&t| a.ships[t].alive) {
@@ -915,7 +1137,7 @@ impl Pg {
         }
         scene::fire(fb, f, a, self.cam);
         // Where a click would place the selected design.
-        if a.tick == 0 && hovered.is_none() && f.contains(m.0, m.1) && !self.help {
+        if a.tick == 0 && hovered.is_none() && on_brain.is_none() && f.contains(m.0, m.1) && !self.help {
             let sh = self.lib[self.slot].shape();
             draw_shape(fb, f, &sh, m.0, m.1, if self.team == 0 { 1 } else { 3 }, self.team, &|_| true, true);
         }
@@ -923,9 +1145,14 @@ impl Pg {
         let t = a.tick / 15;
         let clock = format!("{}:{:02}", t / 60, t % 60);
         fb.text(&clock, f.w - 4 - Framebuffer::text_width(&clock, 1), 3, TEXT_DIM, Some(OUTLINE), 1);
+        for t in 0..2 {
+            ui::button(fb, BTN_BRAIN[t], &format!("{} {}", team_name(t), self.brains[t].short()), on_brain == Some(t), self.brains[t] != Brain::CARD);
+        }
 
         // Inspector.
-        let bar: Option<Vec<String>> = if let Some(i) = hovered {
+        let bar: Option<Vec<String>> = if let Some(t) = on_brain {
+            Some(wrap(&brain_tip(t, self.brains[t]), 49))
+        } else if let Some(i) = hovered {
             let s = &a.ships[i];
             let mut parts = vec![format!("{} PX/S", s.speed_px_s()), format!("{}/{} PX", s.px_now(), s.px_full())];
             if s.st.power_pct() < 100 {
@@ -943,7 +1170,20 @@ impl Pg {
             if s.carry > 0 {
                 parts.push(format!("CARRYING {}", s.carry));
             }
-            Some(vec![format!("{} {} - {} - {}", team_name(s.team), s.name, s.order.name(), s.doing.name()), parts.join("  ")])
+            let mut lines = vec![format!("{} {} - {} - {}", team_name(s.team), s.name, s.order.name(), s.doing.name()), parts.join("  ")];
+            // What a ship that goes by its drills learned about the one it's after.
+            let foe = s.target.filter(|&t| a.ships[t].alive && a.ships[t].team != s.team);
+            if a.brain[s.team].ways == Ways::Plan {
+                // What its side's arch-AI has decided for its design.
+                if let Some(style) = a.plan[s.team].get(s.slot).copied().flatten() {
+                    lines.push(format!("ARCH: EVERY {} FLIES {}", s.name, style.name()));
+                }
+            } else if let (Some(t), true) = (foe, a.brain[s.team] != Brain::CARD) {
+                if let Some(k) = a.drills.get(s.slot, a.ships[t].slot) {
+                    lines.push(learned_line(&a.ships[t].name, k, a.brain[s.team]));
+                }
+            }
+            Some(lines)
         } else if a.tick == 0 && f.contains(m.0, m.1) {
             Some(vec![format!("CLICK PLACES A {} {}. RIGHT-CLICK REMOVES.", team_name(self.team), self.lib[self.slot].name), "SPACE RUNS THE FIGHT. WASD SCROLLS.".into()])
         } else {
@@ -1101,6 +1341,7 @@ impl Pg {
         ui::panel(fb, r);
         fb.text("PROVING GROUND", r.x + 10, r.y + 8, ACCENT, Some(OUTLINE), 2);
         fb.text("ROUND 5", r.x + r.w - 52, r.y + 12, GOLD, None, 1);
+        ui::button(fb, keys::BTN_KEYS, "F3: KEYS", keys::BTN_KEYS.contains(self.mouse.0, self.mouse.1), false);
         let mut y = r.y + 34;
         for (head, text) in help_body() {
             fb.text(head, r.x + 10, y, GOLD, None, 1);
@@ -1161,13 +1402,13 @@ impl App for Pg {
                     self.release_yard(x, y);
                 }
                 if self.screen == Screen::Match {
-                    self.release_match();
+                    self.release_match(x, y);
                 }
             }
             Ev::Wheel(n) => {
                 if library::open(self) {
                     self.wheel_library(n);
-                } else if self.screen == Screen::Yard && !self.help && !self.confirm_quit {
+                } else if self.screen == Screen::Yard && !self.help && !self.keys && !self.confirm_quit {
                     self.wheel_yard(n);
                 }
             }
@@ -1175,6 +1416,9 @@ impl App for Pg {
     }
     fn ctrl(&mut self, held: bool) {
         self.ctrl = held;
+    }
+    fn shift(&mut self, held: bool) {
+        self.shift = held;
     }
     fn hold(&mut self, dirs: [bool; 4]) {
         self.held = dirs;
@@ -1284,6 +1528,85 @@ mod tests {
     }
 
     #[test]
+    fn the_twin_fight_is_the_teams_fleet_on_both_sides_as_the_team_stands() {
+        // The parts team: everything flies and fights but the outpost (slot 6), and the AEGIS
+        // (slot 8), with no guns, flies with them.
+        let lib = parts_library();
+        assert_eq!(fliers(&lib), vec![0, 1, 2, 3, 4, 5, 7, 8]);
+        let mut pg = Pg::parts();
+        assert!(pg.load_named(TWIN) && !pg.load_named("NO SUCH FIGHT"));
+        let count = |pg: &Pg, team: usize, slot: usize| pg.setup.iter().filter(|p| p.team == team && p.slot == slot).count();
+        for s in 0..lib.len() {
+            // As many of each as the dearest flier's cost buys: one at least, six at most.
+            let dearest = fliers(&lib).iter().map(|&f| lib[f].stats().cost).max().unwrap();
+            let want = if s == 6 { 0 } else { (dearest / lib[s].stats().cost).clamp(1, 6) as usize };
+            assert_eq!((count(&pg, 0, s), count(&pg, 1, s)), (want, want), "{}", lib[s].name);
+        }
+        // Red stands where blue does, the other way round: the arena is 480 across.
+        let mut blue: Vec<(usize, i32, i32)> = pg.setup.iter().filter(|p| p.team == 0).map(|p| (p.slot, AW - p.x, p.y)).collect();
+        let mut red: Vec<(usize, i32, i32)> = pg.setup.iter().filter(|p| p.team == 1).map(|p| (p.slot, p.x, p.y)).collect();
+        blue.sort();
+        red.sort();
+        assert_eq!(blue, red);
+        // Every ship is placed, on the map.
+        assert_eq!(pg.arena.ships.len(), pg.setup.len());
+        // It's made from the team as it stands: with the frigate gone from the team, it's gone
+        // from the fight.
+        pg.lib[5] = Design::blank("");
+        pg.load_named(TWIN);
+        assert_eq!((count(&pg, 0, 5), count(&pg, 1, 5)), (0, 0));
+        assert!(count(&pg, 0, 0) > 0);
+    }
+
+    #[test]
+    fn a_sides_brain_button_steps_through_the_brains_and_the_drills_they_need_get_run() {
+        let mut pg = Pg::new(None, None);
+        pg.help = false;
+        // 6 FIGHTERS VS 1 FRIGATE: slots 0 and 2.
+        pg.load_test(0);
+        assert_eq!((pg.brains, pg.arena.brain), ([Brain::CARD; 2], [Brain::CARD; 2]));
+        // Each side's key takes its brain to the next, and a click on its button does the same.
+        pg.key(Key::Letter('B'));
+        pg.key(Key::Letter('V'));
+        assert_eq!((pg.brains, pg.arena.brain), ([BRAINS[1]; 2], [BRAINS[1]; 2]));
+        let r = BTN_BRAIN[0];
+        pg.event(Ev::Press { x: r.x + 3, y: r.y + 3, right: false });
+        assert_eq!(pg.brains, [BRAINS[2], BRAINS[1]]);
+        assert!(pg.setup.len() == 7, "a click on the button places nothing");
+        // A brain that goes by its drills: the fight is put back, the notice gets its frame,
+        // and then the drills are run. The fight doesn't start before they are.
+        pg.brains = [Brain { targets: true, ways: Ways::Bold }, Brain::CARD];
+        pg.reset();
+        pg.key(Key::Space);
+        assert!(pg.arena.drills.get(0, 2).is_none() && pg.notice.as_ref().is_some_and(|n| n.0.contains("DRILLS")));
+        pg.tick();
+        assert!(pg.arena.drills.get(0, 2).is_none() && pg.arena.tick == 0);
+        pg.tick();
+        assert!(pg.arena.drills.get(0, 2).is_some() && pg.arena.drills.get(2, 0).is_some() && pg.arena.tick == 0);
+        pg.tick();
+        assert_eq!(pg.arena.tick, 1);
+        // Replayed, the same drawings' drills are to hand at once.
+        pg.key(Key::Letter('R'));
+        assert!(pg.arena.drills.get(0, 2).is_some() && pg.arena.tick == 0);
+        // The arch-AI needs no drills.
+        pg.brains = [Brain::ARCH, Brain::CARD];
+        pg.reset();
+        assert!(pg.arena.drills.get(0, 2).is_none() && pg.arena.brain[0] == Brain::ARCH);
+        // Every label fits its button, every tip fits the bar, and so does what a ship learned
+        // about an enemy with the longest name there is.
+        for t in 0..2 {
+            for b in BRAINS {
+                let label = format!("{} {}", team_name(t), b.short());
+                assert!(Framebuffer::text_width(&label, 1) + 4 <= BTN_BRAIN[t].w, "{label}");
+                assert!(wrap(&brain_tip(t, b), 49).len() <= 7, "{}", brain_tip(t, b));
+            }
+        }
+        let k = Drill { safe: Some(Style::Orbit), safe_margin: -1000, bold: Some(Style::Orbit), bold_margin: -1000 };
+        assert!(learned_line("WWWWWWWWWW", k, Brain { targets: true, ways: Ways::Bold }).len() <= 49);
+        assert!(BTN_BRAIN[1].x + BTN_BRAIN[1].w <= FIELD.w && BTN_BRAIN[0].x + BTN_BRAIN[0].w <= BTN_BRAIN[1].x);
+    }
+
+    #[test]
     fn every_problem_message_fits_where_it_is_shown() {
         // Worst cases: every cell of the grid loose or buried, and the longest name a design can have.
         let n = (GRID * GRID) as usize;
@@ -1323,7 +1646,7 @@ mod tests {
         assert!(pg.help, "F1 did nothing in a match");
         // And Esc cancels planting before it offers to quit.
         pg.help = false;
-        pg.key(Key::Num(5));
+        pg.key(Key::Letter('B'));
         assert!(pg.play.as_ref().unwrap().planting.is_some());
         pg.key(Key::Esc);
         assert!(pg.play.as_ref().unwrap().planting.is_none() && !pg.confirm_quit);

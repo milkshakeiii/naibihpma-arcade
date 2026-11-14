@@ -66,19 +66,26 @@ fn main() {
         let n = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(4);
         // --bots BLUE,RED picks who plays: ai (the default), clock, planter, expander, summoner,
         // boomer, rusher, saboteur.
+        // `whatif` is the AI with its warships sent by playing the match forward (see `sim/dispatch`).
         let mut bots = [pg::sim::Bot::Ai; 2];
+        let mut sends = [false; 2];
         if let Some(Some(names)) = arg("--bots") {
             for (k, name) in names.split(',').take(2).enumerate() {
-                bots[k] = pg::sim::Bot::from_name(name).unwrap_or_else(|| panic!("no bot called {name}"));
+                if name.eq_ignore_ascii_case("whatif") {
+                    sends[k] = true;
+                } else {
+                    bots[k] = pg::sim::Bot::from_name(name).unwrap_or_else(|| panic!("no bot called {name}"));
+                }
             }
         }
-        export::match_sim(n, arg("--blue").flatten().as_deref(), arg("--red").flatten().as_deref(), bots);
+        export::match_sim(n, arg("--blue").flatten().as_deref(), arg("--red").flatten().as_deref(), bots, sends);
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--judge") {
         // --judge N --cards FILE: both sides play the deck in FILE, not the starter deck.
         // --only rusher,boomer: just those openings.
-        export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5), arg("--cards").flatten().as_deref(), arg("--only").flatten().as_deref());
+        // --whatif: the AI being judged sends its warships by playing the match forward.
+        export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5), arg("--cards").flatten().as_deref(), arg("--only").flatten().as_deref(), args.iter().any(|a| a == "--whatif"));
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--pace") {
@@ -90,6 +97,12 @@ fn main() {
         // `--pg-sim parts`: the beam and shield examples (see `--parts`).
         // `--pg-sim mine`: your own saved team, with the orders and styles your cards carry.
         export::pg_sim(which.as_deref().unwrap_or(""));
+        return;
+    }
+    if let Some(which) = arg("--brains") {
+        // `--brains`: the drilled brain against the card brain, over every deck. Or one of
+        // `starter`, `parts`, `old`, `mine`.
+        export::brains(which.as_deref().unwrap_or(""));
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--trace") {
@@ -190,6 +203,10 @@ fn polls() -> Vec<Poll> {
         p(&[VK_PAUSE], Key::Letter('P')),
         p(&[VK_ESCAPE], Key::Esc),
         p(&[VK_F1], Key::Help),
+        p(&[VK_F3], Key::Keys),
+        // The two keys after M on the bottom row: a match's eighth and ninth cards.
+        p(&[VK_OEM_COMMA], Key::Letter(',')),
+        p(&[VK_OEM_PERIOD], Key::Letter('.')),
         p(&[VK_BACK], Key::Back),
         p(&[VK_RETURN], Key::Enter),
     ]);
@@ -300,6 +317,8 @@ fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
 
             // 250 Hz input: key edges apply immediately, held movement is latched for the tick.
             if GetForegroundWindow() == hwnd {
+                game.ctrl(key_down(VK_CONTROL));
+                game.shift(key_down(VK_SHIFT));
                 for p in polls.iter_mut() {
                     let down = p.vks.iter().any(|&vk| key_down(vk));
                     if down && !p.held {
@@ -316,7 +335,6 @@ fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
                 }
                 let any = |vks: &[i32]| vks.iter().any(|&vk| key_down(vk));
                 game.hold([any(&['W' as i32, VK_UP]), any(&['S' as i32, VK_DOWN]), any(&['A' as i32, VK_LEFT]), any(&['D' as i32, VK_RIGHT])]);
-                game.ctrl(key_down(VK_CONTROL));
                 let f2 = key_down(VK_F2);
                 if f2 && !e_f2 {
                     game.toggle_crt();
@@ -348,6 +366,7 @@ fn run_window(game: &mut dyn App, windowed: bool, title: &str) {
             } else {
                 game.hold([false; 4]);
                 game.ctrl(false);
+                game.shift(false);
                 if let Ok(mut t) = TYPED.lock() {
                     t.clear();
                 }
