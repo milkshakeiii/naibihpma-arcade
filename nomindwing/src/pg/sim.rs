@@ -11,13 +11,13 @@ use crate::rng::Rng;
 
 mod arch;
 mod audit;
+mod brain;
 mod dispatch;
-mod drill;
 mod eco;
 mod space;
 pub use arch::*;
+pub use brain::*;
 pub use dispatch::*;
-pub use drill::*;
 pub use eco::*;
 
 pub const AW: i32 = 480;
@@ -295,8 +295,7 @@ pub struct Ship {
     /// planted for good; a seeded design with engines stops being planted the moment it flies.
     /// Anything planted is solid to every enemy ship (see `sim/space.rs`).
     pub rooted: bool,
-    /// A way of flying forced on this ship, whatever its side has planned: only a drill and a
-    /// test set it. None: as its side has planned, or else as its drawing (what's left of it)
+    /// A way of flying forced on this ship, whatever its side has planned: only a test sets it. None: as its side has planned, or else as its drawing (what's left of it)
     /// suggests.
     pub style: Option<Style>,
     /// The enemy it's after. It keeps it until that one is gone, or out of what it may go for, or
@@ -594,8 +593,6 @@ pub struct Score {
 struct Snap {
     idx: usize,
     team: usize,
-    /// Which of its side's designs it is.
-    slot: usize,
     x: i32,
     y: i32,
     vx: i32,
@@ -657,9 +654,6 @@ pub struct Arena {
     pub eco: Option<Eco>,
     /// How each side's ships choose what to go for and how to fly at it.
     pub brain: [Brain; 2],
-    /// What the designs learned of each other before the fight (see `drill`), by slot. Both
-    /// sides read the one table: a side's row is its own design, the column the enemy's.
-    pub drills: std::sync::Arc<Drills>,
     /// What each side's arch-AI has decided: how each of its designs flies, by slot (None, or
     /// past the end: as its drawing suggests).
     pub plan: [Vec<Option<Style>>; 2],
@@ -703,7 +697,7 @@ impl std::hash::Hasher for Fnv {
 impl std::hash::Hash for Arena {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // `warm` is worked out afresh from the ships at the start of every tick.
-        let Arena { tick, ships, shots, debris, sparks, cuts, skins: _, warm: _, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco, brain, drills, plan, arch_turn, arch: _, arch_next, rehearsal } = self;
+        let Arena { tick, ships, shots, debris, sparks, cuts, skins: _, warm: _, rock, rock_px, stars: _, rng, score, over, stalemate, started, last_loss, last_push, w, h, eco, brain, plan, arch_turn, arch: _, arch_next, rehearsal } = self;
         tick.hash(state);
         ships.hash(state);
         shots.hash(state);
@@ -727,7 +721,6 @@ impl std::hash::Hash for Arena {
         h.hash(state);
         eco.hash(state);
         brain.hash(state);
-        drills.hash(state);
         plan.hash(state);
         // A think in hand follows from the rest: it isn't hashed, only when the next is due.
         arch_turn.hash(state);
@@ -772,7 +765,6 @@ impl Arena {
             h,
             eco: None,
             brain: [Brain::PLAIN; 2],
-            drills: Default::default(),
             plan: Default::default(),
             arch_turn: [0; 2],
             arch: Default::default(),
@@ -972,7 +964,7 @@ impl Arena {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.alive && s.warp == 0)
-            .map(|(idx, s)| Snap { idx, team: s.team, slot: s.slot, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul), worker: s.role == Role::Ship && (s.st.scoops > 0 || s.st.factory > 0 || s.rooted) })
+            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul), worker: s.role == Role::Ship && (s.st.scoops > 0 || s.st.factory > 0 || s.rooted) })
             .collect();
         let n = self.ships.len();
         // How close each armed ship that can move is to its nearest enemy, before and after
@@ -1079,28 +1071,8 @@ impl Arena {
         // Picked afresh every tick, a ship between two enemies about as far off as each other
         // turned from one to the other and back.
         let prey = self.ships[i].prey;
-        // A drilled ship judges by what its design learned: an enemy it beats seems nearer than
-        // it is, and one that beats it further. It goes for the one that seems nearest.
-        let ways = self.brain[team].ways;
-        let drilled = self.brain[team].targets.then(|| self.drills.clone());
-        let slot = self.ships[i].slot;
-        let seems = |e: &Snap| -> i32 {
-            let d = isqrt(dist2(e.x, e.y, x, y));
-            match drilled.as_ref().and_then(|t| t.get(slot, e.slot)) {
-                Some(k) => d * (1000 - k.margin(ways) * DRILL_PULL / 1000) / 1000,
-                None => d,
-            }
-        };
         let pick = |maxd: i32, from: (i32, i32), workers: bool| -> Option<Snap> {
             let pool = || snap.iter().filter(move |e| e.team != team && cheb(e.x, e.y, from.0, from.1) <= maxd && (!workers || e.worker));
-            if drilled.is_some() {
-                let near = pool().min_by_key(|e| seems(e)).copied()?;
-                let kept = prey.and_then(|j| pool().find(|e| e.idx == j).copied());
-                return Some(match kept {
-                    Some(k) if seems(&near) + KEEP > seems(&k) => k,
-                    _ => near,
-                });
-            }
             let near = pool().min_by_key(|e| dist2(e.x, e.y, x, y)).copied()?;
             let kept = prey.and_then(|j| pool().find(|e| e.idx == j).copied());
             Some(match kept {
@@ -1475,17 +1447,14 @@ impl Arena {
         // What's left of the drawing decides whether it can fly at all, and how it flies when
         // nothing was chosen for it.
         let s = &self.ships[i];
-        // A drilled ship flies at this enemy the way that did best against it.
-        let ways = self.brain[s.team].ways;
-        let learned = match ways {
+        let learned = match self.brain[s.team].ways {
             Ways::Drawn => None,
-            // Its side's arch-AI has decided how this design flies.
+            // Its side's planner has decided how this design flies.
             Ways::Plan => self.plan[s.team].get(s.slot).copied().flatten(),
-            _ => self.drills.get(s.slot, self.ships[e.idx].slot).and_then(|k| k.style(ways)),
         };
         let style = match s.st.flight {
             Flight::Still => None,
-            // A way forced on the ship (by a drill, or a test) comes first; then what its side
+            // A way forced on the ship (by a test) comes first; then what its side
             // has decided; then what its drawing suggests.
             f => s.style.or(learned).or(Style::of(f)),
         };
@@ -3745,7 +3714,7 @@ mod tests {
         a.add(0, 0, &lancer, 150, 180);
         a.add(1, 0, &slab('h'), 230, 180);
         let line = |a: &Arena, vx: i32, dist: i32| {
-            let e = Snap { idx: 1, team: 1, slot: 0, x: 230, y: 180, vx, vy: 8, half: 4, full: 81, working: false, worker: false };
+            let e = Snap { idx: 1, team: 1, x: 230, y: 180, vx, vy: 8, half: 4, full: 81, working: false, worker: false };
             a.lance_line(0, &e, (0, 0), 1, dist) - 180
         };
         // Holding its distance, the shot takes 80 / 4 = 20 ticks, and the target is 40 px on.

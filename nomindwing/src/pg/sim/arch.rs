@@ -25,6 +25,29 @@ pub const ARCH_STEPS: (i32, i32) = (2, 40);
 /// With no fight on, how often it looks for one.
 pub const ARCH_IDLE: u32 = 8;
 
+/// Time spent in the planner, both sides, in nanoseconds. Only `--frame-cost` reads it: the
+/// planner itself never does, so it changes nothing in a match.
+pub static ARCH_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How one think came out: the side and the design, the ways it played forward in the order
+/// tried (the way the design flew at the time first) and what each scored, the way it kept, and
+/// how many ships were in the fight.
+#[derive(Clone, Debug)]
+pub struct Choice {
+    pub team: usize,
+    pub slot: usize,
+    pub ways: Vec<Option<Style>>,
+    pub scores: Vec<i32>,
+    pub kept: Option<Style>,
+    pub ships: usize,
+}
+
+thread_local! {
+    /// How every think on this thread came out, while it's on (Some). Only `--ways` turns it on
+    /// and reads it: the planner itself never does, so it changes nothing in a match.
+    pub static ARCH_CHOICES: std::cell::RefCell<Option<Vec<Choice>>> = const { std::cell::RefCell::new(None) };
+}
+
 /// What a side's planner has decided for a design, for the bar under a ship of it.
 pub fn chosen_line(name: &str, way: Style) -> String {
     let how = match way {
@@ -100,6 +123,7 @@ impl Arena {
         if self.rehearsal {
             return;
         }
+        let clock = std::time::Instant::now();
         for team in 0..2 {
             if self.brain[team].ways != Ways::Plan {
                 continue;
@@ -113,6 +137,11 @@ impl Arena {
             }
             if let Some(t) = think.as_mut() {
                 if let Some(way) = t.advance(team) {
+                    ARCH_CHOICES.with(|c| {
+                        if let Some(v) = c.borrow_mut().as_mut() {
+                            v.push(Choice { team, slot: t.slot, ways: t.ways.clone(), scores: t.scores.clone(), kept: way, ships: t.base.ships.len() });
+                        }
+                    });
                     if self.plan[team].len() <= t.slot {
                         self.plan[team].resize(t.slot + 1, None);
                     }
@@ -123,6 +152,7 @@ impl Arena {
             }
             self.arch[team] = think;
         }
+        ARCH_NANOS.fetch_add(clock.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Which ships are in a fight: each one that's there and has an enemy within `ARCH_WAKE`.
@@ -175,7 +205,7 @@ impl Arena {
         }
         a.tick = self.tick;
         a.started = [a.alive(0) > 0, a.alive(1) > 0];
-        (a.brain, a.plan, a.drills) = (self.brain, self.plan.clone(), self.drills.clone());
+        (a.brain, a.plan) = (self.brain, self.plan.clone());
         a.rehearsal = true;
         a
     }

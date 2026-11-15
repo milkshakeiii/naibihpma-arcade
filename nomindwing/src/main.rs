@@ -88,8 +88,40 @@ fn main() {
         export::judge(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5), arg("--cards").flatten().as_deref(), arg("--only").flatten().as_deref(), args.iter().any(|a| a == "--whatif"));
         return;
     }
+    if let Some(i) = args.iter().position(|a| a == "--match-trace") {
+        // --match-trace BLUE RED SEED FROM TO: one match between two ready-made teams, every
+        // five seconds from FROM to TO seconds. --off N and --old TEAM as for --teams.
+        let at = |k: usize| args.get(i + k).cloned().unwrap_or_default();
+        export::match_trace(&at(1), &at(2), at(3).parse().unwrap_or(1), at(4).parse().unwrap_or(0), at(5).parse().unwrap_or(600), arg("--off").flatten().and_then(|s| s.parse().ok()).unwrap_or(0), arg("--old").flatten().as_deref());
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--teams") {
+        // --teams N: every ready-made team against every other, N seeds a pairing, each team on
+        // each side. --only swarm,siege: just those teams. --minutes: a line a minute for each.
+        // --off N: the AI's rules with those bits switched off (RULE_MINERS and the rest).
+        // --old swarm: those teams play with every rule of 2026-11-15 off, as they did before.
+        export::teams(
+            args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(2),
+            arg("--only").flatten().as_deref(),
+            args.iter().any(|a| a == "--minutes"),
+            arg("--off").flatten().and_then(|s| s.parse().ok()).unwrap_or(0),
+            arg("--old").flatten().as_deref(),
+        );
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--ways") {
+        // --ways N: which ways of flying the planner keeps, design by design, in matches between
+        // the ready-made teams (N seeds a pairing) and in the team fights.
+        export::ways(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(1));
+        return;
+    }
     if args.iter().any(|a| a == "--plan-cost") {
         export::plan_cost();
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--frame-cost") {
+        // --frame-cost N: what a frame of a match costs, part by part, over N seeds a deck.
+        export::frame_cost(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(3));
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--pace") {
@@ -103,16 +135,10 @@ fn main() {
         export::pg_sim(which.as_deref().unwrap_or(""));
         return;
     }
-    if let Some(which) = arg("--brains") {
-        // `--brains`: the drilled brain against the card brain, over every deck. Or one of
-        // `starter`, `parts`, `old`, `mine`.
-        export::brains(which.as_deref().unwrap_or(""), false);
-        return;
-    }
     if let Some(which) = arg("--flight") {
         // `--flight [starter|parts|old|mine]`: ships that choose how they fly against ships
         // that fly as drawn, and against each other.
-        export::brains(which.as_deref().unwrap_or(""), true);
+        export::flight(which.as_deref().unwrap_or(""));
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--trace") {
@@ -135,6 +161,7 @@ fn main() {
         // the parts do. Nothing is loaded or saved, so your own designs are untouched.
         let mut pg = pg::Pg::parts();
         run_window(&mut pg, windowed, "NO MIND WING - BEAM AND SHIELD EXAMPLES, NOTHING SAVED [400x300 64-COLOR VGA | 15 FPS]");
+
     } else {
         log_crashes("proving_ground.log");
         let mut pg = pg::Pg::new(Some(PathBuf::from("proving_ground_designs.txt")), Some(PathBuf::from("proving_ground.log")));

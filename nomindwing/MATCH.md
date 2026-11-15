@@ -1794,6 +1794,276 @@ Henry: "What role are the dispositions in the building screen playing now? I'd l
 
 *Checks.* 291 tests pass. The AI plays the same three matches as before the change, line for line, which is the check that a drawing's role comes out as its old setting did. The rule-break list is 451 long: 12 new, 3 mended, and 4 dropped with the drawn orders they broke. The 15 new and mended were run and 13 were caught at once. Two got past: an armed miner counted among the AI's warships (nothing checked how the AI sorts the starter miner, which has a gun), and a ship placed in a match taking its drawing's order, not its side's (the test set the order by hand). The tests check both now, and both are caught. Screenshots of the yard looked at. I haven't played it in the window.
 
+**What a frame costs (2026-11-14, after the orders).** Henry: "The test suite isn't a concern because we can always speed that up. The real constraint is realtime play with people having different computer specs. For fairness we need a deterministic planner that always finishes in a tick (worst case scenario we would need to stretch the ticks out I assume- and probably show some sort of warning on the screen. Same type of thing we'll need for network issues, I guess)." And, on how fine the planner's choices should be: "it doesn't make sense for a group of fighters flying together to each make their own decision, but it very much makes sense for one frigate fighting a fighter to make its own decision vs. a frigate fighting a capital ship." Nothing in the game is changed. `--frame-cost` is new, and the planner now keeps a clock that only the tool reads.
+
+*How it was measured.* The window's own match with the AI on both sides: three seeds on the starter deck and three with Henry's saved team against it. Every tick: the match's tick (and the planners' share of it), then the screen drawn with the view on the biggest fight and the pointer in the middle of the field. Once a second: the whole map drawn, and the picture scaled up with scanlines at 3x, 4x and 7x (a 1080p, 1440p and 4K screen) and copied out. The copy goes to a bitmap in memory, so the desktop's compositing isn't in it. The machine is an i9-13900KF, one of the fastest desktop processors for one thread, on a 1080p screen (3x). A frame is 66.67 ms.
+
+| match | over at | most alive | most in a fight | tick, max | planners, max | worst frame at 4x |
+|---|---|---|---|---|---|---|
+| starter, seed 1 | 20:16 | 159 | 136 | 5.43 | 3.01 | 7.2 (158 alive, 123 in a fight) |
+| starter, seed 2 | 23:20 | 115 | 94 | 3.61 | 2.54 | 4.8 |
+| starter, seed 3 | 12:33 | 94 | 61 | 3.61 | 3.06 | 4.8 |
+| Henry's team, seed 1 | 14:31 | 102 | 45 | 3.80 | 3.05 | 5.1 |
+| Henry's team, seed 2 | 10:13 | 56 | 36 | 2.81 | 2.46 | 4.0 |
+| Henry's team, seed 3 | 6:37 | 44 | 26 | 2.65 | 2.53 | 4.0 |
+
+All six together, 78,791 ticks, in ms:
+
+| | median | 99% | 99.9% | max |
+|---|---|---|---|---|
+| the match's tick | 1.11 | 2.94 | 3.56 | 5.43 |
+| of it, the planners (both sides) | 0.72 | 1.87 | 2.35 | 3.06 |
+| of it, the rest | 0.20 | 1.94 | 2.35 | 4.54 |
+| drawing, the view on the fight | 0.23 | 0.40 | 0.56 | 0.89 |
+| drawing, the whole map | 2.08 | 2.55 | 3.19 | 3.76 |
+| scaling up, 3x | 0.28 | 0.42 | 0.66 | 0.79 |
+| copying out, 3x | 0.31 | 0.46 | 0.69 | 1.62 |
+| scaling up, 4x | 0.49 | 0.71 | 1.03 | 1.43 |
+| copying out, 4x | 0.48 | 0.73 | 1.07 | 1.36 |
+| scaling up, 7x | 1.41 | 1.82 | 2.26 | 4.94 |
+| copying out, 7x | 1.65 | 2.26 | 2.84 | 3.90 |
+| a whole frame, 3x | 1.94 | 3.86 | 4.47 | 6.79 |
+| a whole frame, 4x | 2.32 | 4.23 | 4.85 | 7.16 |
+| a whole frame, 7x | 4.41 | 6.32 | 6.94 | 9.25 |
+
+*What it shows.*
+- **On this machine the worst frame used 7 to 9 ms of 66.7.** It came in the biggest fight seen (158 ships alive, 123 of them in a fight), and the match itself was most of it: 4.5 ms of simulation besides the planners.
+- **The planners are the biggest share of a usual tick** (0.72 of 1.11 ms), and about 3 ms at most for both sides. Their worst ticks come in fights of 15 to 30 ships, not the biggest ones: a small fight is played forward 40 ticks a tick, and that costs more than the share's rule (ships squared plus 200) expects.
+- **Drawing is cheap,** except the whole map, which costs about 2 ms whatever is on it, nine times the usual view.
+- **How much the planner could have depends on the slowest machine we aim at,** and that's Henry's to pick. A machine with a third of this one's speed for one thread would have taken about 22 ms for the worst frame. Keeping a quarter of the frame spare (50 ms used at most), that leaves room for about three times today's planning at its worst. One with a fifth of the speed would leave room for very little more.
+- **Everything above runs on one thread.** The match's tick is one thread's work, but a think is not: it plays a copy of the fight forward, and nothing in it reads the match. It could run on another processor core, with its choice landing at a tick fixed in advance, the same on every machine, and the match waiting at that tick if the think isn't done (the warning Henry describes). Then the planner would cost the match's own thread almost nothing, and its budget would grow with the cores a machine has rather than its speed for one thread. Not built, and not measured.
+
+**Teams with a strategy each, for the AI work to stand on (2026-11-14).** Henry: "Perhaps before we work on multithreading and adaptive+granular decision grouping, we'd better build a more realistic harness. I think it's warranted to have a handful of teams with realistic strategies to test this on. Our current teams and build orders are still placeholder-like. Why don't you take inventory for me of the current starter teams and AI build orders, and then propose a basic set of new ones to use going forward. You can set them up in the arena too and I can test them out in matches. After that, we'll pick back up the AI work." And on why: "The illusion we're going for is that the ships are intelligent."
+
+*The inventory, before this.*
+- **Teams.** Three ready-made ones in the library. The STARTER DECK (Henry's drawings: fighter 9 px, lancer 9, frigate 55, miner 9, outpost 121 seeded, shipyard 693 seeded, capital 687) is the only team any AI has played. NEW PARTS (beamer, warden, raker, fighter, lancer, frigate, outpost, archer, aegis) has no miner, and its outpost's build order names the starter deck's slots, so in this team it builds fighter, fighter, beamer, beamer, warden, raker and never a miner: a sandbox, not something a match can be played with. REF FLEET (the proving ground's seven old warships) has no factory and carries spare hull.
+- **Build orders on the cards.** The starter outpost builds miner, miner, fighter, fighter, lancer, frigate (100 px a round, 95 s). The starter shipyard builds miner, frigate, frigate, capital (806 px, 182 s).
+- **The AI** plays the starter deck by one set of rules (*The AI*, above): two outposts, then shipyards up to six factories; one more miner than it has factories; its king prints the counter to your fleet once the next factory is paid for with 120 px over; it masses on GUARD and sends a wave at 100 px when it has the edge or has rested long enough. The factories' build lists do most of its printing.
+- **The seven scripted openings** the AI is measured against (`--judge`): clock, planter, expander, summoner, boomer, rusher, saboteur. They play the same deck, and send everything on HUNT (or SAB) as it's built.
+- **What was placeholder about it:** one deck and one way to play it; sizes that jump from 55 px to 663 with nothing between; flak, lances and cannons only (the newer parts only in the sandbox teams); and an AI that can't rush, boom or time an attack on purpose: it has rules, not a strategy.
+
+*What's built.* Five teams, each drawn for a strategy that RTS players would recognise, and each with that strategy for the AI to play it by. The starter deck stays as it was and stays the AI's default. Every card spends all its power (a test checks it). Seven drawings are new and mine; the rest are the starter deck's cards (with build orders pointing at each team's own slots) and the part examples.
+
+| team | strategy | cards (new drawings in capitals) | factories, in order | miners | king prints | first wave |
+|---|---|---|---|---|---|---|
+| SWARM | rush | fighter, lancer, miner, NEST, outpost | nests at 0:00, 1:40, 3:20, then outposts | 1 a factory, +1 | fighters and lancers, saving nothing | 2:30 with 54 px, whatever the enemy has; again whenever it has 54 px |
+| LANCE LINE | timing attack | fighter, CORVETTE, CRUISER, miner, outpost, DOCK | two outposts, a dock, then outposts | 2 a factory, +1 | corvettes | 7:00 with 400 px, whatever the enemy has |
+| BIG GUNS | boom into big ships | fighter, frigate, miner, outpost, shipyard, BATTLESHIP, capital | four outposts, a shipyard, then outposts | 2 a factory, +1 | frigates and fighters, for home | 12:00 with 900 px and the edge |
+| RAIDERS | harassment | WASP, archer, raker, miner, outpost | outposts, up to five | 1 a factory, +1 | wasps, archers, rakers | wasps on SAB from the first; the rest 5:00 with 150 px and the edge |
+| SIEGE | turtle | beamer, warden, aegis, miner, outpost, shipyard, LANCET | two outposts, a shipyard, then outposts | 2 a factory, +1 | wardens and beamers | 9:00 with 700 px and the edge |
+
+The new drawings:
+- **NEST** (41 px, seeded): twelve factory pixels round the core and a flak gun on each side, no plate. Builds up to 120 px, a fighter in 20 s.
+- **WASP** (12 px): a three-pixel repeater (84 px of reach, two shots a second) at 45 px/s, the fastest thing a drawing can make.
+- **CORVETTE** (24 px): three lances in a column behind a plated nose, two flak, 26 px/s.
+- **CRUISER** (124 px): seventeen lances in five columns down a plated hull, four flak, 15 px/s.
+- **BATTLESHIP** (188 px): five cannons, six lances, ten flak, plated, 15 px/s. The step between the frigate and the capital.
+- **DOCK** (269 px, seeded): 72 factory pixels in two rings and a cross inside a thin plate. Builds up to 720 px.
+- **LANCET** (180 px): two fourteen-pixel beams that reach 208 px and cut 56 each, plated, 11 px/s.
+
+How a strategy works (`Strategy` in `src/pg/sim/eco.rs`, the teams in `src/pg/teams.rs`): it replaces the AI's rules for what to plant, how many miners to keep, what the king prints and when a wave goes. Everything the AI does about raids stays as it was (turning out, arming first, where it plants and where its king stands). The scripted openings don't take one. An AI with no strategy plays exactly as before: three AI matches and every test came out the same.
+
+In the window: the match menu has THE AI PLAYS, a button that goes round the six teams, with a line on how that one plays, and YOU PLAY over your two buttons. In the library the five are on the teams shelf after the starter deck, to load into your nine slots for a match or the arena; the new drawings are on a TEAMS shelf of ships. `--teams N` plays every team against every other, AI on both sides, on every core at once. `--deck` now names every gun and why a card isn't legal.
+
+*My calls, for Henry:*
+- The starter deck stays the AI's default; the five are options in the menu.
+- The strategies are the AI's (as orders are, O1): a person who loads SWARM plays it however they like.
+- The menu's new button has no key. The menu has never taken keys; adding a keyboard to it is a change of its own.
+- The wire is version 13 (the AI's strategy is part of the match, though no network match has one).
+- The numbers in the strategies (times, wave sizes, miners) are my first guesses. None was tuned on the results below.
+
+*What the round robin shows* (`--teams 4`: 120 matches, every team against every other, four seeds with each team on each side, AI on both sides; 244 s on 32 cores). Wins, losses and draws of the team on the left against the team on top:
+
+| | STARTER DECK | SWARM | LANCE LINE | BIG GUNS | RAIDERS | SIEGE | all |
+|---|---|---|---|---|---|---|---|
+| STARTER DECK | - | 0-8-0 | 8-0-0 | 7-1-0 | 4-4-0 | 7-1-0 | 26-14-0 |
+| SWARM | 8-0-0 | - | 8-0-0 | 8-0-0 | 8-0-0 | 8-0-0 | 40-0-0 |
+| LANCE LINE | 0-8-0 | 0-8-0 | - | 0-8-0 | 0-8-0 | 1-7-0 | 1-39-0 |
+| BIG GUNS | 1-7-0 | 0-8-0 | 8-0-0 | - | 6-2-0 | 7-1-0 | 22-18-0 |
+| RAIDERS | 4-4-0 | 0-8-0 | 8-0-0 | 2-6-0 | - | 8-0-0 | 22-18-0 |
+| SIEGE | 1-7-0 | 0-8-0 | 7-1-0 | 1-7-0 | 0-8-0 | - | 9-31-0 |
+
+Median length of the matches between two teams:
+
+| | STARTER DECK | SWARM | LANCE LINE | BIG GUNS | RAIDERS | SIEGE |
+|---|---|---|---|---|---|---|
+| STARTER DECK | - | 8:16 | 12:13 | 19:46 | 18:45 | 13:59 |
+| SWARM | 8:16 | - | 3:53 | 3:43 | 4:35 | 4:25 |
+| LANCE LINE | 12:13 | 3:53 | - | 15:14 | 9:51 | 15:29 |
+| BIG GUNS | 19:46 | 3:43 | 15:14 | - | 18:19 | 15:10 |
+| RAIDERS | 18:45 | 4:35 | 9:51 | 18:19 | - | 12:14 |
+| SIEGE | 13:59 | 4:25 | 15:29 | 15:10 | 12:14 | - |
+
+Each team over its 40 matches (medians):
+
+| team | length | ships first fight | first wave | no wave at all | factories planted | most ships of its own | biggest fight in its matches |
+|---|---|---|---|---|---|---|---|
+| STARTER DECK | 13:59 | 3:18 | 2:14 | 0 of 40 | 3 | 48 | 46 |
+| SWARM | 4:25 | 2:55 | 2:30 | 0 of 40 | 3 | 25 | 26 |
+| LANCE LINE | 12:13 | 3:26 | 7:00 | 21 of 40 | 2 | 22 | 36 |
+| BIG GUNS | 15:14 | 3:46 | 12:00 | 15 of 40 | 7 | 109 | 121 |
+| RAIDERS | 12:14 | 1:29 | 5:00 | 8 of 40 | 5 | 55 | 38 |
+| SIEGE | 13:30 | 3:18 | 9:22 | 23 of 40 | 3 | 22 | 45 |
+
+The most ships in one fight at once, over all 120 matches: median 36, 90% 144, most 210.
+
+*What it means, as I read it (nothing changed for it):*
+- **Every strategy does what it says.** The rush goes at 2:30 every time. The timed ones go at their time when they're still standing and not under attack: LANCE LINE at 7:00 and SIEGE from 9:14, BIG GUNS at 12:00. RAIDERS' wasps are on SAB from the first.
+- **The 2:30 rush beat everything, 40 of 40,** the AI as it plays the starter deck included. It isn't the cheap NEST: with outposts in its place (a measurement, put back after) SWARM still won 20 of 20 at two seeds. At 2:30 a king that has spent its bank on fighters and lancers has about 150 px of them, and every other plan has spent its bank on a factory and miners. The AI's raid rules don't hold it. This is what Henry found by hand on 2026-11-11 (*The AI's defence*), now as a team.
+- **Early waves beat waiting ones generally.** The AI as it always played sends its first wave at about 2:15 and beat the three teams that wait for 7:00 or later in 22 of 24. LANCE LINE and SIEGE never got their wave out in about half their matches: they were dead, or fighting at home, first.
+- **The fights are a good spread for the AI work.** Small ones in the rushes, 120 to 210 ships at once when BIG GUNS is in it. That's the range the planner has to be cheap enough for.
+- What a person makes of the rush, and of the rest, is for Henry to find by playing.
+
+*Checks.* 294 tests pass, the two new ones among them: every team is legal, spends its power, builds only from its own slots, can mine, and opens on its starting bank; and every strategy plays a match against the AI to the end, replays it exactly from the same seed, keeps its raiders on SAB, and sends no wave before its time. The AI with no strategy plays the last commit's three AI matches line for line.
+
+**The teams' fights in the arena (2026-11-14, later).** Henry: "can you make a new set of arena fights for me to check out all the new teams too before I play them in matches". Not committed, and nobody has watched them.
+
+*What's built.* First as a window of its own; then, after Henry asked why he still saw only 11 fights, in the arena itself, as he laid it out: "Let's just have fight 0 be an empty fight with the Yard team in the slots, and the other fights are the preset ones that don't affect the yard (but do show their ships in the slots). And let's make whichever team is blue show their whole team, not just the ships that are in that fight." So the arena's fights are: an open field with your team, then twenty-four team fights. A team fight carries two ready-made teams (`Test.ships`, `Sides`), and each side's ships come from its own team's slots (`Pg::side`); your team (`Pg.lib`) is never touched, and going to the yard and back lands on the first fight. The list beside the field shows blue's whole team. The starter deck's eleven old fights are gone from the window (`Pg::starter_fights` keeps them for the screenshots and the checks). For each team in turn: its army against the starter deck's, then fights for its new drawings. Then every two of the five armies. An army is about 700 px of the team's warships in its strategy's shape (README, *The teams' fights*). `--pg-sim teams` fights them all headless.
+
+*My calls, for Henry:* while your clicks place for red (T), the list shows red's team, so a red ship can be placed from it; blue's shows otherwise. The showcase fights have the new team on blue so its whole team is listed: 5 LANCERS VS 1 NEST is SWARM against SWARM, 2 CRUISERS VS 1 DOCK is LANCE LINE against LANCE LINE, 2 LANCETS VS 40 FIGHTERS is SIEGE against SWARM, 1 LANCET VS 1 BATTLESHIP is SIEGE against BIG GUNS, and the rest of them are against the starter deck.
+
+**The DRILLED brain taken out (2026-11-14).** Henry: "do these fights use the lookahead flight pattern planner now and can we remove the DRILLED brain?" They do: every arena fight starts both sides on the planner (ARCH), as a match does. The drilled brain and its drills are gone (`sim/drill.rs`, the arena's drill cache and its RUNNING DRILLS wait, the `--brains` tool, and the drilled targeting in `think`). The arena's brain buttons go between ARCH and PLAIN; `--flight` still sets the planner against the plain brain. `sim/brain.rs` holds what's left: the two brains. Nothing in a match changes: no match used it.
+
+*What they come to* (`--pg-sim teams`, 12 seeds each, both sides planning as in a match; px lost are averages; as the fights stand in the arena, each side with its own team's slots):
+
+| fight | blue won | red won | drawn | average length | blue lost | red lost |
+|---|---|---|---|---|---|---|
+| SWARM VS STARTER DECK | 12 | 0 | 0 | 0:24 | 541 px | 711 px |
+| 5 LANCERS VS 1 NEST | 12 | 0 | 0 | 0:08 | 0 | 41 |
+| LANCE LINE VS STARTER DECK | 5 | 7 | 0 | 1:15 | 674 | 579 |
+| 6 CORVETTES VS 16 LANCERS | 2 | 10 | 0 | 1:18 | 140 | 105 |
+| 1 CRUISER VS 2 FRIGATES | 3 | 8 | 1 | 0:55 | 104 | 67 |
+| 2 CRUISERS VS 1 DOCK | 12 | 0 | 0 | 0:10 | 0 | 269 |
+| BIG GUNS VS STARTER DECK | 4 | 8 | 0 | 0:58 | 675 | 578 |
+| 1 BATTLESHIP VS 21 LANCERS | 0 | 12 | 0 | 0:13 | 188 | 56 |
+| RAIDERS VS STARTER DECK | 2 | 9 | 1 | 1:40 | 682 | 404 |
+| 8 WASPS VS 10 MINERS | 12 | 0 | 0 | 0:12 | 11 | 90 |
+| 8 WASPS VS 10 FIGHTERS | 1 | 11 | 0 | 0:27 | 92 | 59 |
+| SIEGE VS STARTER DECK | 0 | 12 | 0 | 0:28 | 685 | 154 |
+| 1 LANCET VS 1 BATTLESHIP | 6 | 6 | 0 | 0:40 | 127 | 124 |
+| 2 LANCETS VS 40 FIGHTERS | 0 | 12 | 0 | 0:14 | 360 | 31 |
+| SWARM VS LANCE LINE | 12 | 0 | 0 | 0:19 | 438 | 714 |
+| SWARM VS BIG GUNS | 12 | 0 | 0 | 0:22 | 463 | 705 |
+| SWARM VS RAIDERS | 12 | 0 | 0 | 0:23 | 424 | 702 |
+| SWARM VS SIEGE | 12 | 0 | 0 | 0:13 | 115 | 685 |
+| LANCE LINE VS BIG GUNS | 11 | 1 | 0 | 0:47 | 483 | 688 |
+| LANCE LINE VS RAIDERS | 1 | 10 | 1 | 1:24 | 688 | 510 |
+| LANCE LINE VS SIEGE | 12 | 0 | 0 | 0:31 | 153 | 685 |
+| BIG GUNS VS RAIDERS | 4 | 5 | 3 | 2:05 | 544 | 639 |
+| BIG GUNS VS SIEGE | 12 | 0 | 0 | 0:55 | 290 | 685 |
+| RAIDERS VS SIEGE | 12 | 0 | 0 | 0:25 | 156 | 685 |
+
+**Six rows moved when each side got its own team's slots**, with the same ships in the same places: only the slot numbers changed. A side's planner thinks about its designs in slot order, so which goes first changes what's chosen. BIG GUNS VS STARTER DECK moved most, from 0-12 to 4-8 (a 0:38 average to 0:58); the other five moved by a few seconds and a few dozen pixels. That's a sensitivity in the planner for the AI work, not anything about the teams.
+
+No stalemates. BIG GUNS VS RAIDERS is the one the window shows as a draw on time (3:00): the raiders' missiles and repeaters against a fleet whose flak downs over a thousand missiles across the twelve.
+
+*What it shows, as I read it (nothing changed for it):*
+- **At equal cost, many small ships beat everything.** The swarm's 79 fighters and lancers beat every other army 12 of 12, and lost least to the siege army (115 px of 711). Two lancets didn't kill one of forty fighters (each beam is dodged). A battleship loses to 21 lancers. This is the round robin's 40-0 seen up close, and it's Henry's standing problem that large ships are worse per pixel (*Large ships, and the projector as a structure*, above).
+- **The siege army loses every fight it's in,** and takes 115 to 290 px of the other side's 700 with it (290 from BIG GUNS, whose big ships can't get off a beam's line). Small ships dodge its beams, and its one aegis covers little.
+- **The counter triangle shows where it should:** wasps take miners apart (90 px for 11) and lose to flak fighters; lancers beat the battleship; the lancet and the battleship are even.
+- What the fights look like is for Henry to say.
+
+**Which way the planner flies (2026-11-15).** Henry: "does the planner have a strong tendency to pick any particular flight pattern?" Not overall. `--ways 2` counted every choice in matches between every pair of ready-made teams (two seeds a pairing, each team on each side) and in the 24 team fights (12 seeds each). Nothing in the game changed for it: the planner notes each choice only when the tool asks.
+
+| | choices | attack runs / kite / orbit kept | every way scored the same (all 0) | changed the way it was flying | time in a fight: runs / kite / orbit |
+|---|---|---|---|---|---|
+| in matches | 52,872 | 30 / 38 / 31 % | 18 % (7 %) | 42 % | 29 / 33 / 36 % |
+| in the team fights | 37,639 | 27 / 36 / 35 % | 14 % (1 %) | 45 % | 44 / 31 / 23 % |
+
+- Some designs lean one way: in matches the wasp kites 64% of the time, the warden makes attack runs 47%, the lancer kites 43-48%.
+- It changes a design's way in more than four choices in ten. That looks like churn: each way gets one play-forward of 8 s on one roll of the dice. Whether replaying a choice on fresh dice keeps the same way is the check for the planner work.
+- In big, short fights it barely gets to choose: SWARM's fighters spent 77% of their time in the team fights on attack runs (as they're drawn) though its choices kept attack runs only 28% of the time. The fight is mostly over before the planner has been round its designs.
+- A piece broken off a king is planned for as a design of its own (the king's slot).
+
+**Beating SWARM (2026-11-15).** Henry, after playing SWARM: "Its opening was powerful, although it didn't capitalize on its advantage to secure a stronger economy. If we need the AI to be able to beat swarm (which I think we probably do), you could look at my game vs. swarm just now for inspiration. Propose your plan before implementing it." To the plan below: "Yes, start". Not committed.
+
+*Henry's game (seed 1983, won at 12:53), from the log:* an outpost at 0:03, miners repeating from 0:06, Henry's outposts printing three miners a round, and a factory planted the moment the bank held 121, all match. Henry mined 324 px by 3:00 and 1,146 by 5:00, where SWARM mined 135 and 369 and the AI teams 126 to 243 by 3:00. Henry replanted as fast as outposts fell (6 planted by 5:00 with 2 standing, 15 in all), sent about 400 single ships round their own quarter between 3:00 and 6:00 (I read them as their king; not confirmed), and didn't attack until 8:28, with 1,167 px standing to SWARM's 522. SWARM stopped at 6 factories ("most 6") and banked 224, 437 and 713 from 10:00 to 12:00 with nothing to spend them on.
+
+*The AI against SWARM, before:* SWARM won all 40 matches. Under its raid the AI put its whole bank into guns and planted nothing (the starter deck sat on one or two factories for ten minutes), BIG GUNS's king stood by its one factory and died 15 s after it, and the starter deck's own first wave left at 2:21, just before SWARM's arrived.
+
+*The plan:* five general rules for every team, each built behind its own switch, measured over the whole round robin and against the scripted openings, then switched off one at a time and kept only if it helps. The yardstick is the SWARM Henry played: `--teams N --old SWARM` has SWARM play with every new rule off. Four seeds a pairing turned out to be too few. A rule that looked like noise at four seeds was worth nine matches in 80 at eight, so the deciding numbers are from eight.
+
+**The AI teams against the SWARM Henry played** (eight seeds, each team on each side: 16 matches each, 80 in all; each cell is that team's wins and losses against SWARM):
+
+| AI rules | STARTER | LANCE LINE | BIG GUNS | RAIDERS | SIEGE | AI's wins of 80 |
+|---|---|---|---|---|---|---|
+| before | 1-15 | 0-16 | 0-16 | 0-16 | 0-16 | 1 |
+| all six (B1 to B3, and rules 2 to 4 below) | 6-10 | 1-15 | 4-12 | 13-3 | 1-15 | 25 |
+| all six, rule 2 off | 5-11 | 0-16 | 6-10 | 12-4 | 1-15 | 24 |
+| all six, rule 3 off | 5-11 | 0-16 | 2-14 | 13-3 | 2-14 | 22 |
+| all six, rule 4 off | 5-11 | 1-15 | 4-12 | 13-3 | 1-15 | 24 |
+| all six, B3 off | 4-12 | 0-16 | 2-14 | 9-7 | 1-15 | 16 |
+| **kept: B1, B2, B3** | **7-9** | **0-16** | **2-14** | **14-2** | **2-14** | **25** |
+| kept, B1 off | 2-14 | 0-16 | 0-16 | 0-16 | 0-16 | 2 |
+| kept, B2 off | 8-8 | 0-16 | 3-13 | 13-3 | 2-14 | 26 |
+| kept, B3 off | 4-12 | 0-16 | 1-15 | 9-7 | 1-15 | 15 |
+| kept, after the escape fix (S1, below) | 8-8 | 0-16 | 4-12 | 8-8 | 1-15 | 21 |
+
+| row | what | verdict |
+|---|---|---|
+| B1 | **Miners while there's rock for them** (`RULE_MINERS`). A miner earns its price back in about a minute, so the AI's king keeps printing them while the rock within 200 px of its factories and king holds 60 px for each miner it has, up to 30 of its own (what its factories print besides doesn't count against it). This replaces "one more miner than it has factories" and the teams' own miner counts. A strategy can keep its miners lean for its opening instead (`lean`, a time): SWARM does till 2:30, so its rush is the one Henry played. | |
+| B2 | **Money nothing is spending plants another factory** (`RULE_SPEND`). A bank that has held the cheapest factory's price, plus what the AI keeps, for 30 s plants one past the most its strategy or its rules would have, up to 14. This is SWARM capitalizing on its lead: new against new it plants up to 14 factories and its late bank stays at 0 to about 400, where with rule 1 alone it piled up to 1,000 or 2,000. It changes nothing in the table above, and may cost BIG GUNS: over all its matches in those runs, BIG GUNS went 23-57 with it and 28-52 without. | |
+| B3 | **It plants as soon as the bank holds the price** (`RULE_SPARE`): it no longer keeps 40 px back for the new factory to print with. Henry planted at 121, the outpost's price, all match. | |
+
+*Henry played it (2026-11-15):* two matches with BIG GUNS's deck against SWARM, both lost. "I played big guns against swarm and lost twice, so I take that as a sign that the AI is improved." The rows weren't judged one by one. From the log (a match ends when a king dies):
+- Seed 30458, lost at 15:20. Henry mined more than SWARM until 14:00 (9,273 to 8,982), but SWARM printed nearly twice the ships (502 to 277 by then) and at 14:00 had 235 ships to Henry's 62. It reached B2's limit of 14 factories at 11:00, and from then on its bank piled up again: 429 at 11:00, 1,907 at 13:00, 4,483 at the end.
+- Seed 30459, lost at 7:58 while ahead on the board: 1,403 px standing to 1,011, 2,034 mined to 1,269, six factories each. SWARM got to Henry's king.
+
+**Tried and taken out (each measured as above, none worth more than three matches in 80):**
+- **2. Plant through a raid.** While saving for its next factory the king prints no guns (miners only), unless the raid outweighs what it has at home; and under any raid it plants nowhere the raiders are. Worth one match. It went back to the agreed rules of 2026-11-12 (guns first while the enemy's fleet has the edge; it plants away from raiders only when they outweigh it).
+- **3. The king defends.** First as a weight rule: go after the nearest raider that the king and its ships near it outweigh. That got kings cut down (the starter deck's to 61 px of 218 by 4:00; BIG GUNS's died at 4:04), because SWARM's lancers cut plate whatever the pixels say. Then as a physical rule: go only after raiders whose guns bounce off plate (flak and repeaters), and only while nothing that cuts plate is within 100 px of the raider or the king. Worth three matches. The king's post beside its factory (2026-11-12) is back as it was.
+- **4. Hold the wave** while raided, or while enemy warships worth half its fleet are on its half of the map. Worth one match.
+- **Save for the factory before extra miners** (only the miners it can't do without while it saves): worse. SWARM won 40 of 40, because miners frozen at four to six never fill the bank.
+
+**The whole round robin, new against new** (eight seeds; SWARM plays with the new rules too, so it's stronger than the one Henry played):
+
+Before:
+
+| | STARTER | SWARM | LANCE LINE | BIG GUNS | RAIDERS | SIEGE | ALL |
+|---|---|---|---|---|---|---|---|
+| STARTER DECK | - | 1-15 | 16-0 | 14-2 | 9-7 | 14-2 | 54-26 |
+| SWARM | 15-1 | - | 16-0 | 16-0 | 16-0 | 16-0 | 79-1 |
+| LANCE LINE | 0-16 | 0-16 | - | 1-15 | 0-16 | 1-15 | 2-78 |
+| BIG GUNS | 2-14 | 0-16 | 15-1 | - | 12-4 | 13-3 | 42-38 |
+| RAIDERS | 7-9 | 0-16 | 16-0 | 4-12 | - | 16-0 | 43-37 |
+| SIEGE | 2-14 | 0-16 | 15-1 | 3-13 | 0-16 | - | 20-60 |
+
+With B1 to B3, and the escape fix (S1):
+
+| | STARTER | SWARM | LANCE LINE | BIG GUNS | RAIDERS | SIEGE | ALL |
+|---|---|---|---|---|---|---|---|
+| STARTER DECK | - | 4-12 | 14-2 | 16-0 | 3-13 | 4-12 | 41-39 |
+| SWARM | 12-4 | - | 16-0 | 16-0 | 9-7 | 16-0 | 69-11 |
+| LANCE LINE | 2-14 | 0-16 | - | 7-9 | 0-16 | 5-11 | 14-66 |
+| BIG GUNS | 0-16 | 0-16 | 9-7 | - | 2-14 | 12-4 | 23-57 |
+| RAIDERS | 13-3 | 7-9 | 16-0 | 14-2 | - | 16-0 | 66-14 |
+| SIEGE | 12-4 | 0-16 | 11-5 | 4-12 | 0-16 | - | 27-53 |
+
+(Before the escape fix the totals were 44-36, 69-11, 16-64, 21-59, 67-13 and 23-57.)
+
+Each team over its matches (medians), before and after: length 12:31 / 14:53 (STARTER), 4:29 / 8:51 (SWARM), 11:39 / 13:02 (LANCE LINE), 15:46 / 14:21 (BIG GUNS), 12:08 / 11:39 (RAIDERS), 12:32 / 14:26 (SIEGE); most ships 46 / 86, 26 / 79, 22 / 49, 109 / 96, 62 / 129, 28 / 53. BIG GUNS sends no wave in 55 of 80 matches (31 before). The biggest fight in a match: median 38 / 104 ships, 90% 143 / 210, most 236 / 357.
+
+**The AI against the scripted openings** (`--judge 5`, the starter deck, ten matches each), before / after (with the escape fix): CLOCK 9-1 / 10-0, PLANTER 9-1 / 10-0, EXPANDER 9-1 / 10-0, SUMMONER 10-0 / 10-0, BOOMER 4-6 / 9-1, RUSHER 4-6 / 6-4, SABOTEUR 10-0 / 10-0, itself 5-5 / 5-5 (median 20:16 / 19:42).
+
+**What a frame costs now** (`--frame-cost 3`, both measured the same night). Cubase was running on the machine, so every number is about two and a half times last time's. Read them against each other, not against the table above.
+
+| ms | before: median | 99.9% | max | after: median | 99.9% | max |
+|---|---|---|---|---|---|---|
+| the match's tick | 1.90 | 6.41 | 15.81 | 2.56 | 12.28 | 34.84 |
+| of it, the planners | 1.23 | 4.10 | 14.95 | 1.42 | 8.79 | 30.65 |
+| a whole frame at 4x | 3.91 | 8.57 | 17.95 | 4.61 | 14.46 | 37.12 |
+
+The worst frame (37 ms of 66.7) came in a 35-minute AI match on the starter deck with 147 ships alive, 24 of them in a fight, and was nearly all planner. It's the leak noted on 2026-11-14 (40 ticks played forward a tick for a mid-sized fight). There are more ships now, so the planner budget and threads matter sooner.
+
+*What a match against SWARM looks like now* (`--match-trace "STARTER DECK" SWARM 2 140 260 --old SWARM`, a line every five seconds). At 3:00 SWARM's wave (18 ships, 162 px) comes in against the starter deck's 7 warships (109 px). Most of it never reaches the AI's base: it hangs about 400 px out, picking off miners at outlying rocks (17 miners at 3:35, 7 at 4:05). The AI's fleet goes out to meet it and is lost piecemeal. The AI's second factory went down at 3:10 this time. Its king went out twice and came back whole, before rule 3 was taken out. Those two (miners mining far from their stations, and a fleet that meets a wave piecemeal) are where I'd look next. Neither is built, and neither is a rule to patch without talking it through.
+
+**S1. A small ship caught under a bigger one gets out at its full 2 px a tick** (`shift`, in `sim/space.rs`). The audit of a whole AI match caught it once B3 was in: enemy miners heaped on a rock face, a damaged frigate flying slowly up the face over them (0.75 px a tick), and miners left inside its hull for 34 ticks, where the rule allows 10. A ship inside a bigger enemy heads for the nearest clear pixel at up to 2 px a tick, but it stopped on that pixel when it was only 1 px away. Here that pixel was straight ahead of the frigate, so the frigate caught it again every tick. Now it goes a pixel past the edge when that pixel is clear too. It's a change to the sim, so the recorded fights moved, re-recorded the same night (12 seeds each):
+- the starter deck's reference fights: 9 of 15 rows moved, 2 of them in who won (1 CAPITAL VS 40 LANCERS 0-12 to 1-11, 12 FRIGATES VS 1 CAPITAL 6-6 to 7-5), the rest by seconds and pixels;
+- the part examples' fights: 16 of 19 rows moved, 7 of them in who won or drew, by up to three matches (1 BEAMER VS 1 FRIGATE 4-5-3 to 7-4-1; 2 RAKERS VS 1 WARDEN 4-2-6 to 2-1-9);
+- the team fights: 22 of 24 rows moved, 9 of them in who won or drew, by a match or two (BIG GUNS VS STARTER DECK 4-8 to 3-9, 6 CORVETTES VS 16 LANCERS 2-10 to 1-11, BIG GUNS VS SIEGE 12-0 to 10-2, BIG GUNS VS RAIDERS 4-5-3 to 4-4-4).
+
+*Tools:* `--teams N --minutes` (a line a minute for each match), `--off N` (switch the rules off by bit: 1 B1, 2 B2, 4 B3), `--old TEAMS` (those teams play as before), `--match-trace` and `--ways`. All 293 tests pass.
+
 **Checks (2026-11-11, after N1):** 141 tests pass. 84 of 84 deliberate rule breaks are caught, twenty of them new. Among them: a command that skips the lag, a machine that plays on without the other's turn, each machine applying its own commands first, a check that compares nothing, a hash with the ships left out, a command counted whoever's name is on it, a turn let through out of order, the joiner's cards printing for blue, a network match that stops under a panel, a right-clicked card marking a job already queued, and the edge shoving a hulk. One was missed at first: the king's keys sent every frame change nothing in the match (the sim drops the repeats), only what crosses the wire, and no test had looked at the wire. One does now. The arena's 41 reference fights are exactly as last recorded.
 
 **What to build before the part phase: my answer.** The order is ruled (Henry, 2026-11-10): "Fixes and pace quickly first before Network spike works for me." The rest is mine.
@@ -1831,6 +2101,17 @@ Henry: "What role are the dispositions in the building screen playing now? I'd l
 - **After automatic flight: a better set of flight patterns,** and perhaps an evasive-manoeuvres pattern (2026-11-14, above).
 - **A theme:** the game as a galaxy-wide sport played over a 64-bit link, the player climbing to Wingleader (2026-11-10, in the round 2 notes).
 - **A reactionless drive that works inside armour,** as something a campaign could offer (ROUNDS.md).
+- **Part ideas (Henry, 2026-11-15, "some parts brainstorming"):** ideas for parts, not a work order. My notes in brackets are only what each meets in today's rules.
+  - **An energy-ball gun:** it launches a 2x2 energy ball that moves slowly and brings shields down in one or two hits. (Today a shield stops four shots and is full again 3 s after the last.)
+  - **A phase-blade gun:** it launches an L-shaped phase blade that moves slowly and destroys armour. (Today plate shrugs off any hit no stronger than it, and a lance uses up two of its punch on a plate pixel.)
+  - **A projectile-speed upgrader:** you put it next to weapons and it speeds up their projectiles.
+  - **An armour-penetration upgrade** for weapons.
+  - **A blast-radius upgrade** for weapons, "works even on weapons that aren't splashy already!"
+  - **A second level of armour** with a higher level of penetration needed to get through it. (Today there's one: plate.)
+  - **Engines that increase turn speed**, "if that isn't already on there". (It partly is: a ship takes 2 x its weight / its thrust ticks to turn a quarter, so engines already turn it faster, by adding thrust. A part for turning alone would be new.)
+  - **A fast-tracking turret** with fast-moving anti-fighter projectiles: very effective against fighters, but large, and it needs lots of hull.
+  - **Engines that must be even more exposed** but are a little more powerful than today's. (Today each engine needs a 3-wide way straight out of the ship for its exhaust.)
+  - (The earlier list, of 2026-11-11, is in "The parts talk opens": logistics parts for miners and for speed, diagonal guns, stasis fields, rotation engines, rapid-fire guns, more turrets, a weapons charger, parts that need clearance, a sweeping weapon, more range and tracking play.)
 
 ---
 

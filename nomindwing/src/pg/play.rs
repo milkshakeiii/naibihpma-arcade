@@ -1,6 +1,6 @@
 //! The match screen: have your king print your deck, plant seeds on rocks, select your ships and
-//! send them, and watch your factories grow and print. The AI plays the other
-//! side with the starter deck, or a person on another machine plays it with their own (`link`).
+//! send them, and watch your factories grow and print. The AI plays the other side with one of the
+//! ready-made teams (`teams`), or a person on another machine plays it with their own (`link`).
 //! Whichever side this machine plays is `me`: nothing here may take it for blue.
 
 use super::design::*;
@@ -55,8 +55,12 @@ const FORM_GAP: i32 = 6;
 const BTN_LAG: Rect = Rect::new(258, 1, 44, 11);
 const OVER: Rect = Rect::new(52, 100, 200, 88);
 const OVER_BTNS: [Rect; 2] = [Rect::new(66, 162, 80, 16), Rect::new(158, 162, 80, 16)];
-const MENU: Rect = Rect::new(80, 72, 240, 164);
-const MENU_BTNS: [Rect; 5] = [Rect::new(92, 160, 70, 18), Rect::new(166, 160, 76, 18), Rect::new(246, 160, 62, 18), Rect::new(92, 206, 106, 18), Rect::new(202, 206, 106, 18)];
+const MENU: Rect = Rect::new(80, 30, 240, 214);
+/// Which ready-made team the AI plays: a click goes on to the next.
+const BTN_AI: Rect = Rect::new(166, 106, 142, 16);
+const AI_Y: i32 = 110;
+const ABOUT_Y: i32 = 126;
+const MENU_BTNS: [Rect; 5] = [Rect::new(92, 172, 70, 18), Rect::new(166, 172, 76, 18), Rect::new(246, 172, 62, 18), Rect::new(92, 218, 106, 18), Rect::new(202, 218, 106, 18)];
 /// Finding the other machine: the panel, the address being typed, and its buttons.
 const LOBBY: Rect = Rect::new(60, 86, 280, 128);
 const LOBBY_FIELD: Rect = Rect::new(120, 140, 160, 13);
@@ -150,11 +154,14 @@ pub struct Play {
 impl Pg {
     // ----- Starting and leaving -----
 
-    /// Starts a match with your team as your deck, or the starter deck. The AI always
-    /// plays the starter deck.
+    /// Starts a match with your team as your deck, or the starter deck. The AI plays the
+    /// ready-made team picked in the menu, by that team's strategy.
     pub fn start_match(&mut self, starter: bool, seed: u64) {
         let mine = if starter { starter_deck() } else { self.lib.clone() };
-        let arena = Arena::for_match(seed, [mine, starter_deck()], [false, true]);
+        let teams = super::teams::ready_teams();
+        let ai = &teams[self.ai_team % teams.len()];
+        let mut arena = Arena::for_match(seed, [mine, ai.designs.clone()], [false, true]);
+        arena.eco.as_mut().unwrap().strategy[1] = ai.strategy;
         let mut p = Play { arena, link: Link::solo(), cam: (0, 0), tactical: false, planting: None, picked: Vec::new(), box_from: None, groups: Default::default(), last_click: None, last_group: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
         p.look_at_king();
         self.play = Some(p);
@@ -163,7 +170,7 @@ impl Pg {
         // The rules first: Toy 1's were hard to work out from play alone.
         self.help = true;
         let deck = if starter { "STARTER DECK" } else { "YOUR DECK" };
-        self.log(&format!("MATCH START round 2, seed {seed}, {deck}"));
+        self.log(&format!("MATCH START round 2, seed {seed}, {deck}, AI PLAYS {}", ai.name));
         if !starter {
             for d in self.lib.clone() {
                 self.log(&format!("  DESIGN {}", d.to_line()));
@@ -806,7 +813,9 @@ impl Pg {
     }
 
     pub(super) fn press_menu(&mut self, x: i32, y: i32) {
-        if MENU_BTNS[0].contains(x, y) {
+        if BTN_AI.contains(x, y) {
+            self.ai_team = (self.ai_team + 1) % super::teams::ready_teams().len();
+        } else if MENU_BTNS[0].contains(x, y) {
             let seed = crate::game::utc_stamp().bytes().fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) % 100_000 + 2;
             self.start_match(false, seed);
         } else if MENU_BTNS[1].contains(x, y) {
@@ -835,6 +844,16 @@ impl Pg {
         for (i, l) in wrap(&body, 37).iter().enumerate() {
             fb.text(l, r.x + 10, r.y + 28 + i as i32 * 9, TEXT, None, 1);
         }
+        // Who the AI plays, and how.
+        let teams = super::teams::ready_teams();
+        let ai = &teams[self.ai_team % teams.len()];
+        fb.text("THE AI PLAYS", r.x + 10, AI_Y, TEXT, None, 1);
+        ui::button(fb, BTN_AI, ai.name, BTN_AI.contains(self.mouse.0, self.mouse.1), false);
+        for (i, l) in wrap(ai.about, 37).iter().enumerate() {
+            fb.text(l, r.x + 10, ABOUT_Y + i as i32 * 9, TEXT_DIM, None, 1);
+        }
+        // And what you play.
+        fb.text("YOU PLAY", r.x + 10, MENU_BTNS[0].y - 11, TEXT, None, 1);
         fb.text("OR AGAINST A PERSON, EACH WITH THEIR", r.x + 10, MENU_BTNS[3].y - 22, TEXT, None, 1);
         fb.text("OWN DECK, ON THIS MACHINE OR ANOTHER:", r.x + 10, MENU_BTNS[3].y - 13, TEXT, None, 1);
         let m = self.mouse;
@@ -2132,6 +2151,42 @@ mod tests {
     }
 
     #[test]
+    fn the_menu_picks_the_team_the_ai_plays() {
+        use crate::app::{App, Ev};
+        let click = |pg: &mut Pg, r: Rect| {
+            let (x, y) = (r.x + r.w / 2, r.y + r.h / 2);
+            pg.event(Ev::Press { x, y, right: false });
+        };
+        let lines = |d: &[Design]| d.iter().map(|d| d.to_line()).collect::<Vec<_>>();
+        let teams = super::super::teams::ready_teams();
+        let mut pg = Pg::new(None, None);
+        pg.help = false;
+        pg.screen = Screen::Yard;
+        // The starter deck to begin with, as the AI always played it; each click the next team,
+        // and round again.
+        pg.menu = true;
+        assert_eq!(pg.ai_team, 0);
+        for k in 1..=teams.len() {
+            click(&mut pg, BTN_AI);
+            assert!(pg.menu, "a click on the AI's team closed the menu");
+            assert_eq!(pg.ai_team, k % teams.len());
+        }
+        // A match against the third: its deck and its strategy, on red only.
+        click(&mut pg, BTN_AI);
+        click(&mut pg, BTN_AI);
+        click(&mut pg, MENU_BTNS[1]);
+        let e = pg.play.as_ref().unwrap().arena.eco.as_ref().unwrap();
+        assert_eq!((lines(&e.deck[0]), lines(&e.deck[1])), (lines(&starter_deck()), lines(&teams[2].designs)));
+        assert_eq!(e.strategy, [None, teams[2].strategy]);
+        // AGAIN plays the same team.
+        pg.help = false;
+        let p = pg.play.as_mut().unwrap();
+        p.arena.over = Some(Some(0));
+        click(&mut pg, OVER_BTNS[0]);
+        assert_eq!(pg.play.as_ref().unwrap().arena.eco.as_ref().unwrap().strategy[1], teams[2].strategy);
+    }
+
+    #[test]
     fn finding_the_other_machine_is_keys_and_buttons_too() {
         use crate::app::{App, Ev};
         let click = |pg: &mut Pg, r: Rect| {
@@ -2181,12 +2236,18 @@ mod tests {
         pg.event(Ev::Key(Key::Esc));
         assert!(pg.lobby.is_none());
         // The panels' pieces sit inside them.
-        for (panel, parts) in [(MENU, &MENU_BTNS[..]), (LOBBY, &LOBBY_BTNS[..]), (LOBBY, &[LOBBY_FIELD][..])] {
+        for (panel, parts) in [(MENU, &MENU_BTNS[..]), (MENU, &[BTN_AI][..]), (LOBBY, &LOBBY_BTNS[..]), (LOBBY, &[LOBBY_FIELD][..])] {
             for r in parts {
                 assert!(r.x >= panel.x + 6 && r.y >= panel.y && r.x + r.w <= panel.x + panel.w - 6 && r.y + r.h <= panel.y + panel.h - 6, "{r:?} is outside {panel:?}");
             }
         }
         assert!(BTN_LAG.x + BTN_LAG.w <= FIELD.w && BTN_LAG.y + BTN_LAG.h <= 13, "the lag dial runs into the notes under it");
+        // Each ready-made team's note fits between the AI's button and the line over yours.
+        for t in super::super::teams::ready_teams() {
+            assert!(ABOUT_Y + wrap(t.about, 37).len() as i32 * 9 <= MENU_BTNS[0].y - 12, "{}'s note runs into YOU PLAY", t.name);
+            assert!(Framebuffer::text_width(t.name, 1) <= BTN_AI.w - 6, "{} is too wide for its button", t.name);
+        }
+        assert!(BTN_AI.y >= MENU.y + 28 + 4 * 9, "the AI's button sits on the menu's words");
     }
 
     #[test]

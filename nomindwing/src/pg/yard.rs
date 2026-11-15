@@ -912,7 +912,7 @@ impl Pg {
         let on_row = |y: i32| (COL_X..396).contains(&m.0) && (y - 1..y + 9).contains(&m.1);
         let parts = self.ed.cat.parts();
         if (0..self.lib.len()).any(|i| at(tab_rect(i))) {
-            return format!("YOUR {} DESIGNS. THE ARENA'S TESTS USE THESE SLOTS, SO EDITING ONE CHANGES THE TESTS TOO. A RED NAME CAN'T FLY YET. RIGHT-CLICK ONE TO PICK THE WHOLE DESIGN UP AS A STAMP.", self.lib.len());
+            return format!("YOUR {} DESIGNS. THE ARENA'S FIRST FIGHT HAS THESE IN ITS SLOTS; ITS READY-MADE FIGHTS BRING TEAMS OF THEIR OWN. A RED NAME CAN'T FLY YET. RIGHT-CLICK ONE TO PICK THE WHOLE DESIGN UP AS A STAMP.", self.lib.len());
         }
         if let Some(i) = (0..CATS.len()).find(|&i| at(cat_rect(i))) {
             let c = CATS[i];
@@ -952,7 +952,7 @@ impl Pg {
             return "BUILT: A FACTORY OR YOUR KING PRINTS IT. SEEDED: YOUR KING PRINTS A SEED THAT GROWS IT OUT OF A ROCK, PIXEL BY PIXEL FROM ITS CORE; THE ROCK MUST HOLD AS MANY PIXELS AS THE SHIP. ITS SEED CORE STAYS AT THE CENTRE.".into();
         }
         if at(BTN_MATCH) {
-            return "PLAY A MATCH AGAINST THE AI WITH YOUR TEAM AS YOUR DECK, OR WITH THE STARTER DECK.".into();
+            return "PLAY A MATCH AGAINST THE AI WITH YOUR TEAM AS YOUR DECK, OR WITH THE STARTER DECK. YOU PICK THE TEAM THE AI PLAYS.".into();
         }
         if at(BTN_TO_ARENA) {
             return "[ENTER] THE ARENA, TO WATCH YOUR DESIGNS FIGHT.".into();

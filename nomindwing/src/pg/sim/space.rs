@@ -146,10 +146,10 @@ impl Arena {
     /// and nothing skips across a wall thinner than its step.
     ///
     /// A ship already inside a bigger enemy (the bigger ship flew onto it) takes the move if it
-    /// clears the hull, or else heads for the nearest clear spot in any of 8 directions, up to
-    /// 2 px a tick, never by way of anything planted. Only something that can move itself does
-    /// that: a factory, or a hulk with no engines left, stays exactly where it is while the bigger
-    /// ship passes over.
+    /// clears the hull, or else heads for the nearest clear spot in any of 8 directions at 2 px a
+    /// tick (a pixel past it when that's clear too), never by way of anything planted. Only
+    /// something that can move itself does that: a factory, or a hulk with no engines left, stays
+    /// exactly where it is while the bigger ship passes over.
     pub(super) fn shift(&mut self, i: usize, cx: i32, cy: i32) -> (i32, i32) {
         let (ox, oy, h) = (self.ships[i].x, self.ships[i].y, self.ships[i].half());
         let (mut fx, mut fy) = (ox, oy);
@@ -199,7 +199,14 @@ impl Arena {
                         }
                     }
                 }
-                (fx, fy) = exit.map_or((ox, oy), |(k, (dx, dy))| (ox + dx * k.min(2), oy + dy * k.min(2)));
+                // It gets out at its 2 px a tick: one pixel past the edge too when that's clear, or a
+                // bigger ship flying its way at under 2 px a tick catches it at the edge every tick
+                // (enemy miners heaped on a rock face under a slow frigate, 2026-11-15).
+                let clear = |px: i32, py: i32| px >= h && py >= h && px <= self.w - 1 - h && py <= self.h - 1 - h && !self.blocked(i, px, py) && !self.in_planted(i, px, py);
+                (fx, fy) = exit.map_or((ox, oy), |(k, (dx, dy))| {
+                    let go = if k == 1 && clear(ox + dx * 2, oy + dy * 2) { 2 } else { k.min(2) };
+                    (ox + dx * go, oy + dy * go)
+                });
             }
             // On its way out it may cross the bigger ship's pixels, but it stops short of anything
             // planted.

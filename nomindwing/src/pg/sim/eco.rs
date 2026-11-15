@@ -56,6 +56,25 @@ const ALARM_CLEAR: i32 = 60;
 const RUSH_CLOSE: i32 = 40;
 /// The clear pixels the AI's king leaves between itself and the factory it posts itself beside.
 const STRONGPOINT_GAP: i32 = 4;
+/// The AI's rules of 2026-11-15, after Henry's match against SWARM, each with a bit of `Eco.off`
+/// that switches it off for measuring (`--teams --off`, `--old`). In play neither is ever off.
+/// (Three more were tried and measured with these, and made no difference: see MATCH.md.)
+pub const RULE_MINERS: u32 = 1;
+/// The AI keeps printing miners while the rock its stations can reach holds this many pixels for
+/// each miner it has, up to `MINERS_MOST` miners. A rock counts if its edge is within
+/// `MINE_REACH` of one of its nodes.
+const MINER_ROCK: i32 = 60;
+const MINERS_MOST: usize = 30;
+const MINE_REACH: i32 = 200;
+/// Money nothing is spending plants another factory: a bank that has held the cheapest
+/// factory's price and what the AI keeps besides for `PILE_TICKS` plants one past the most its
+/// strategy (or its rules) would have, up to `PILE_MOST` in all.
+pub const RULE_SPEND: u32 = 2;
+/// The AI plants as soon as its bank holds the factory's price, keeping nothing back for the new
+/// factory to print with (Henry planted at 121, the outpost's price, all through his match).
+pub const RULE_SPARE: u32 = 4;
+const PILE_TICKS: u32 = 15 * 30;
+const PILE_MOST: usize = 14;
 /// Accumulators count in 60ths of a pixel per tick: a factory pixel adds 1 a tick, so it prints a
 /// pixel every 4 s.
 const UNIT: i32 = PRINT_TICKS;
@@ -240,6 +259,38 @@ impl Bot {
     }
 }
 
+/// A strategy for the AI to play a team by: what it plants and when, how many miners it keeps,
+/// what its king prints, when it first attacks and with how much, and which cards raid. Slots are
+/// the team's own. An AI with no strategy plays as it always has, the way the starter deck suits it.
+/// Whatever the strategy, the AI still answers raids as it always does (`bot_think`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Strategy {
+    /// The factories it plants in turn, each with the earliest second it may be planted at. Past
+    /// the end of the list it plants the last one again.
+    pub plant: &'static [(usize, u32)],
+    /// The most factories it has at once, seeds on their way counted.
+    pub most: usize,
+    /// Till this second it keeps its miners lean, one for each factory it has and one more, so
+    /// its opening gets everything else. After that it keeps printing them while there's rock
+    /// for them (`RULE_MINERS`).
+    pub lean: u32,
+    /// What its king prints in turn once it has its miners. Empty: what counters the enemy's
+    /// fleet, as the AI always has.
+    pub prints: &'static [usize],
+    /// What it keeps in the bank past what the next factory needs before its king prints guns.
+    pub keep: i32,
+    /// Its first wave goes no earlier than this second, and a wave needs this many pixels of
+    /// warships.
+    pub first: u32,
+    pub wave: i32,
+    /// A bold side sends a wave as soon as it has the pixels, whatever the enemy has. A careful
+    /// one also waits for the edge, as the AI always has.
+    pub bold: bool,
+    /// Cards that raid: they go for miners and factories (SAB) as soon as they're built, whatever
+    /// the waves are doing.
+    pub raid: &'static [usize],
+}
+
 /// What a bot remembers between thoughts.
 #[derive(Clone, Debug, Default, Hash)]
 struct Mind {
@@ -259,6 +310,8 @@ struct Mind {
     alarm: bool,
     /// The rushing opening's king has been hurt enough, and gone home.
     gone_home: bool,
+    /// Since when its bank has held more than it's spending (0: it hasn't), for `RULE_SPEND`.
+    rich_since: u32,
 }
 
 /// What a warship is to the counter triangle: small with flak, small with a lance or cannon, or
@@ -323,6 +376,8 @@ pub struct Tally {
     pub bank_peak: i32,
     /// Times a design's standing order was changed.
     pub orders: i32,
+    /// The tick the AI first sent a wave out (0: never). A raid turning its fleet out isn't one.
+    pub first_wave: u32,
 }
 
 /// A rock as generated: its middle and its pixels (some may since have been eaten or mined).
@@ -373,6 +428,8 @@ pub struct Eco {
     inbox: Vec<Cmd>,
     pub log: Vec<(u32, Cmd)>,
     pub bot: [Bot; 2],
+    /// The strategy each side's AI plays its team by (none: the AI as it always was).
+    pub strategy: [Option<Strategy>; 2],
     mind: [Mind; 2],
     /// Network id per ship (usize::MAX: not a node).
     pub net: Vec<usize>,
@@ -393,6 +450,9 @@ pub struct Eco {
     /// For a side whose AI sends its warships by playing the match forward (see `dispatch`):
     /// what its dispatcher remembers. None: the AI sends them by its rules of thumb, in waves.
     pub dispatch: [Option<Dispatch>; 2],
+    /// Each side's AI rules switched off, for measuring: a bit for each (`RULE_MINERS` and the
+    /// rest). Always 0 in play.
+    pub off: [u32; 2],
 }
 
 impl Card {
@@ -472,6 +532,7 @@ impl Arena {
             inbox: Vec::new(),
             log: Vec::new(),
             bot,
+            strategy: [None, None],
             mind: [Mind::default(), Mind::default()],
             net: Vec::new(),
             split_at: [0; 2],
@@ -482,6 +543,7 @@ impl Arena {
             made: [0; 2],
             turn: 0,
             dispatch: [None, None],
+            off: [0; 2],
         });
         a
     }
@@ -1668,10 +1730,27 @@ impl Arena {
 
     // ----- The bots -----
 
+    /// Rock pixels left in the rocks a side's miners can work from its stations: every rock whose
+    /// edge is within `MINE_REACH` of one of its nodes, its king among them.
+    pub fn rock_in_reach(&self, t: usize) -> i32 {
+        let nodes: Vec<(i32, i32)> = (0..self.ships.len()).filter(|&j| self.ships[j].team == t && self.is_node(j)).map(|j| (self.ships[j].x, self.ships[j].y)).collect();
+        let mut sum = 0;
+        for r in &self.eco().rocks {
+            let left = self.rock_left(r);
+            let far = MINE_REACH + isqrt(left / 3) + 4;
+            if left > 0 && nodes.iter().any(|&(x, y)| dist2(x, y, r.cx, r.cy) <= far * far) {
+                sum += left;
+            }
+        }
+        sum
+    }
+
     /// A bot's thought, once a second. Everything it does is a command, the same ones a person
     /// gives: steer, print, plant, change a design's standing order.
     fn bot_think(&mut self, t: usize) {
         let bot = self.eco().bot[t];
+        // Only the AI plays by a strategy; the scripted openings are the yardstick, and stay put.
+        let strategy = self.eco().strategy[t].filter(|_| bot == Bot::Ai);
         let k = self.eco().king[t];
         if !self.ships[k].alive {
             return;
@@ -1741,13 +1820,19 @@ impl Arena {
         let sends = self.eco().dispatch[t].is_some();
         if bot == Bot::Ai && !sends {
             let rest = tick - mind.rested;
+            // The edge it waits for, unless its strategy is a bold one.
+            let edge = army * 4 >= enemy_army * 5 || (rest > 15 * 120 && army * 5 >= enemy_army * 4) || rest > 15 * 240;
+            let go = match strategy {
+                Some(p) => tick >= p.first * 15 && army >= p.wave && (p.bold || edge),
+                None => army >= WAVE_MIN && edge,
+            };
             if mind.wave {
                 // The wave is spent, or has been out long enough: home, and mass again.
                 if army * 5 < mind.wave_worth * 2 || tick - mind.wave_from > WAVE_TICKS {
                     mind.wave = false;
                     mind.rested = tick;
                 }
-            } else if army >= WAVE_MIN && (army * 4 >= enemy_army * 5 || (rest > 15 * 120 && army * 5 >= enemy_army * 4) || rest > 15 * 240) {
+            } else if go {
                 // The slow designs leave first and the fast ones wait, so the wave reaches the
                 // enemy king's side of the map together.
                 let (ek, mk) = (&self.ships[self.eco().king[1 - t]], &self.ships[k]);
@@ -1758,13 +1843,17 @@ impl Arena {
                 mind.wave = true;
                 mind.wave_from = tick;
                 mind.wave_worth = army;
+                if self.eco().tally[t].first_wave == 0 {
+                    self.eco_mut().tally[t].first_wave = tick;
+                }
             }
         }
         // (Its ships that fly without guns, a shield ship say, take the same orders as its
         // warships: they go with the fleet.)
         for s in (0..cards.len()).filter(|&s| cards[s].stanced()) {
             let out = bot != Bot::Ai || turned_out || (mind.wave && mind.release.get(s).is_some_and(|&r| tick >= r));
-            let want = if sends { Order::Guard } else if bot == Bot::Saboteur { Order::Sab } else if out { Order::Hunt } else { Order::Guard };
+            let raids = bot == Bot::Saboteur || strategy.is_some_and(|p| p.raid.contains(&s));
+            let want = if sends { Order::Guard } else if raids { Order::Sab } else if out { Order::Hunt } else { Order::Guard };
             if self.eco().orders[t][s] != want {
                 self.command(Cmd::Order { team: t, slot: s, order: want });
             }
@@ -1778,10 +1867,22 @@ impl Arena {
         facts.sort_by_key(|&s| cards[s].cost);
         let (small, big) = (facts.first().copied(), facts.last().copied());
         let n = factories + seeds;
+        // Money nothing is spending: the bank has held the cheapest factory's price, and what it
+        // keeps besides, for a while. That plants another, whatever the most it would have.
+        let keep = strategy.map_or(120, |p| p.keep);
+        let rich = bot == Bot::Ai && self.eco().off[t] & RULE_SPEND == 0 && small.is_some_and(|s| left >= cards[s].price() + keep + 40);
+        mind.rich_since = if !rich { 0 } else if mind.rich_since == 0 { tick.max(1) } else { mind.rich_since };
+        let piled = rich && tick - mind.rich_since >= PILE_TICKS && n < PILE_MOST;
         let pick = match bot {
             Bot::Planter | Bot::Boomer => small,
             Bot::Summoner | Bot::Rusher => small.filter(|_| n == 0),
             Bot::Clock => (if n >= 2 { big } else { small }).filter(|_| seeds == 0 && n < (1 + (tick / (15 * 75)) as usize).min(9)),
+            _ if strategy.is_some() => {
+                // Its strategy's next factory, once that one's time has come.
+                let p = strategy.unwrap();
+                let (slot, at) = p.plant[n.min(p.plant.len() - 1)];
+                Some(slot).filter(|&s| cards.get(s).is_some_and(|c| c.factory()) && (n < p.most || piled) && tick >= at * 15)
+            }
             _ => {
                 // Two small ones, then big ones: six in all. A big one it has waited four minutes
                 // for gives way to a small one. And it doesn't let itself be out-built: while the
@@ -1789,7 +1890,7 @@ impl Arena {
                 // pay for them, past six if need be.
                 let waited = tick - mind.last_plant > 15 * 240;
                 let behind = theirs > n;
-                (if n < 2 || waited || behind { small } else { big }).filter(|_| n < 6 || (behind && n < 14))
+                (if n < 2 || waited || behind { small } else { big }).filter(|_| n < 6 || (behind && n < 14) || piled)
             }
         };
         // It keeps something back for the new factory to print with. The scripted openings
@@ -1797,6 +1898,7 @@ impl Arena {
         // that saves more while it's being raided has less to answer the raid with.
         let spare = match bot {
             Bot::Expander | Bot::Saboteur if alarm => 150,
+            Bot::Ai if self.eco().off[t] & RULE_SPARE == 0 => 0,
             Bot::Ai | Bot::Expander | Bot::Saboteur => 40,
             _ => 0,
         };
@@ -1831,19 +1933,35 @@ impl Arena {
         // The king's own printing, one thing at a time.
         if self.eco().queue[t].is_empty() {
             let cheapest = |f: fn(&Card) -> bool| (0..cards.len()).filter(|&s| f(&cards[s])).min_by_key(|&s| cards[s].cost);
-            let short_of_miners = miners < factories.max(1) + 1;
+            // A miner earns its price back in about a minute of mining, so the AI keeps printing
+            // them while there's rock for them within reach of its stations: unless its strategy
+            // keeps them lean for its opening, or the rule's off.
+            let lean = strategy.is_some_and(|p| tick < p.lean * 15) || self.eco().off[t] & RULE_MINERS != 0;
+            let short_of_miners = if bot == Bot::Ai && !lean { miners < MINERS_MOST && miners as i32 * MINER_ROCK < self.rock_in_reach(t) } else { miners < factories.max(1) + 1 };
             let print = match bot {
                 // Against a raid that outweighs what it has, guns before anything: something
                 // small, right now.
                 Bot::Ai if outgunned => Self::counter(&cards, faced, left.min(100)),
-                // Miners: one more than it has factories, whatever the factories add.
+                // Miners: while there's rock for them (or, for the scripted openings, one more
+                // than it has factories), whatever the factories add.
                 Bot::Ai | Bot::Expander | Bot::Saboteur if short_of_miners && cheapest(Card::miner).is_some() => cheapest(Card::miner),
                 // Then guns: against any other raid, something small right now. While the
                 // enemy's fleet has the edge, guns come before what it's saving for. Otherwise
                 // only with more in the bank than the next factory needs.
                 Bot::Ai if alarm => Self::counter(&cards, faced, left.min(100)),
+                // A strategy that names what its king prints has it print those, in turn.
+                Bot::Ai if strategy.is_some_and(|p| !p.prints.is_empty()) => {
+                    let p = strategy.unwrap();
+                    let next = p.prints[mind.turn % p.prints.len()];
+                    if left >= saving + keep && cards.get(next).is_some_and(|c| c.ok && !c.seeded) {
+                        mind.turn += 1;
+                        Some(next)
+                    } else {
+                        None
+                    }
+                }
                 Bot::Ai if outarmed => Self::counter(&cards, faced, (left - saving).max(0)),
-                Bot::Ai if left >= saving + 120 => Self::counter(&cards, faced, left - saving),
+                Bot::Ai if left >= saving + keep => Self::counter(&cards, faced, left - saving),
                 Bot::Summoner => {
                     // Every warship but its dearest, in turn, without a pause.
                     let mut w = warships.clone();
@@ -3562,7 +3680,8 @@ mod tests {
                     }
                 } else if let Some((t0, far, node, at, bumped)) = out[i].take() {
                     let o = &a.ships[node];
-                    if s.alive && o.alive && (o.x, o.y) == at && !bumped {
+                    // (A miner whose engines were shot off on the way can't make the trip at all.)
+                    if s.alive && o.alive && (o.x, o.y) == at && !bumped && s.st.vmax > 0 {
                         trips += 1;
                         worst = worst.max((a.tick - t0) as i32 - far * 4 / s.st.vmax);
                     }
@@ -3885,9 +4004,9 @@ mod tests {
 
     #[test]
     fn a_raid_changes_where_the_ai_plants_only_when_it_outweighs_the_ai() {
-        // The AI's bank covers an outpost and the 40 px it always keeps, not the 150 px it
-        // used to keep back under a raid. An enemy fighter is parked in reach of its home
-        // rocks. Where its seed is sent within a second, if anywhere.
+        // The AI's bank covers an outpost and 45 px more, short of the 150 px it used to keep
+        // back under a raid. An enemy fighter is parked in reach of its home rocks. Where its
+        // seed is sent within a second, if anywhere.
         let seed = |raid: bool, fighters: i32, factory: bool| {
             let mut a = ai_alone();
             let k = a.eco.as_ref().unwrap().king[0];
@@ -3972,12 +4091,97 @@ mod tests {
     }
 
     #[test]
+    fn the_ai_prints_miners_while_there_is_rock_in_reach_for_them() {
+        // The AI's outpost is planted and its bank is full. What its king prints first, with so
+        // many miners of its own already: a miner while the rock its stations reach holds
+        // `MINER_ROCK` pixels for each one more, and not once it doesn't.
+        let first = |miners: i32| {
+            let mut a = ai_alone();
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let f = friend(&mut a, OUTPOST, kx + 80, ky - 60);
+            (a.ships[f].rooted, a.ships[f].node) = (true, true);
+            for n in 0..miners {
+                friend(&mut a, MINER, kx - 60 + 6 * (n % 20), ky + 40 + 6 * (n / 20));
+            }
+            a.ships[k].store = 2000;
+            a.score[0].mined += 2000 - START_BANK;
+            let room = a.rock_in_reach(0) / MINER_ROCK;
+            think(&mut a);
+            (first_ship_printed(&a), room)
+        };
+        let (printed, room) = first(3);
+        assert!(room > 3, "only {room} miners' worth of rock in reach of the AI's home");
+        // Three is more than the one for each factory and one more it kept until 2026-11-15.
+        assert_eq!(printed, Some(MINER), "with rock for {room} miners and three working, the AI printed no miner");
+        let (printed, _) = first(room as i32 + 1);
+        assert_ne!(printed, Some(MINER), "with its rock's worth of miners, the AI printed another");
+        // Switched off, it keeps the old count.
+        let mut a = ai_alone();
+        a.eco.as_mut().unwrap().off[0] = RULE_MINERS;
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        for n in 0..3 {
+            friend(&mut a, MINER, kx - 60 + 6 * n, ky + 40);
+        }
+        a.ships[k].store = 0;
+        think(&mut a);
+        assert_ne!(first_ship_printed(&a), Some(MINER));
+    }
+
+    #[test]
+    fn money_nothing_is_spending_plants_another_factory() {
+        // A strategy that wants one factory, with three planted and a bank that keeps filling:
+        // after `PILE_TICKS` of that it plants a fourth, and with the rule off it doesn't.
+        let planted = |off: u32| {
+            let mut a = ai_alone();
+            a.eco.as_mut().unwrap().off[0] = off | RULE_MINERS;
+            a.eco.as_mut().unwrap().strategy[0] = Some(Strategy { plant: &[(OUTPOST, 0)], most: 1, lean: 0, prints: &[], keep: 0, first: 9999, wave: 9999, bold: false, raid: &[] });
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let f = friend(&mut a, OUTPOST, kx + 80, ky - 60);
+            (a.ships[f].rooted, a.ships[f].node) = (true, true);
+            for n in 0..2 {
+                friend(&mut a, MINER, kx - 40 + 20 * n, ky + 50);
+            }
+            for _ in 0..PILE_TICKS + 30 {
+                let gift = (1000 - a.bank(k)).max(0);
+                a.ships[k].store += gift;
+                a.score[0].mined += gift;
+                a.step();
+            }
+            first_seed_sent_to(&a).is_some()
+        };
+        assert!(planted(0), "a full bank for {} s planted nothing past the one factory it wants", PILE_TICKS / 15);
+        assert!(!planted(RULE_SPEND), "with the rule off, it planted past the one factory it wants");
+    }
+
+    #[test]
+    fn the_ai_plants_as_soon_as_its_bank_holds_the_price() {
+        // A bank of an outpost's price and not a pixel more, nobody near: whether the AI sends
+        // its seed within a second. With `RULE_SPARE` off it waits for 40 px more, as it did
+        // until 2026-11-15.
+        let sent = |off: u32| {
+            let mut a = ai_alone();
+            a.eco.as_mut().unwrap().off[0] = off;
+            let k = a.eco.as_ref().unwrap().king[0];
+            a.ships[k].store = a.eco.as_ref().unwrap().cards[0][OUTPOST].cost;
+            think(&mut a);
+            first_seed_sent_to(&a).is_some()
+        };
+        assert!(sent(0), "with the outpost's price in the bank, the AI didn't plant");
+        assert!(!sent(RULE_SPARE), "with the rule off, the AI planted with nothing to spare");
+    }
+
+    #[test]
     fn the_ai_arms_while_the_enemys_fleet_has_the_edge() {
         // The AI has an outpost and its two miners, and a bank too small for the factory it's
         // saving for. The enemy has so many fighters parked at its own home, raiding nobody.
         // What the AI's king is printing a second later.
         let printing = |fighters: i32| {
             let mut a = ai_alone();
+            // Its miners as they were before 2026-11-15, so it's guns it's choosing between.
+            a.eco.as_mut().unwrap().off[0] = RULE_MINERS;
             let k = a.eco.as_ref().unwrap().king[0];
             let (kx, ky) = (a.ships[k].x, a.ships[k].y);
             let f = friend(&mut a, OUTPOST, kx + 80, ky - 60);

@@ -29,6 +29,8 @@ pub enum Shelf {
     Mine,
     Parts,
     Starter,
+    /// From one of the ready-made teams with a strategy (`teams`).
+    Teams,
     Reference,
 }
 
@@ -38,6 +40,7 @@ impl Shelf {
             Shelf::Mine => "ONE OF YOURS",
             Shelf::Parts => "A PART EXAMPLE",
             Shelf::Starter => "FROM THE STARTER DECK",
+            Shelf::Teams => "FROM A READY-MADE TEAM",
             Shelf::Reference => "FROM THE REFERENCE FLEET",
         }
     }
@@ -46,6 +49,7 @@ impl Shelf {
             Shelf::Mine => "YOURS",
             Shelf::Parts => "PARTS",
             Shelf::Starter => "START",
+            Shelf::Teams => "TEAMS",
             Shelf::Reference => "REF",
         }
     }
@@ -134,15 +138,24 @@ pub struct Library {
 
 impl Library {
     pub fn load(path: Option<PathBuf>) -> Library {
-        let ready_teams = vec![
-            Team { name: "STARTER DECK".into(), designs: team_of(starter_deck()) },
-            Team { name: "NEW PARTS".into(), designs: team_of(parts_library()) },
-            Team { name: "REF FLEET".into(), designs: team_of(defaults()) },
-        ];
+        // The starter deck and the teams with a strategy first, then the part examples and the
+        // old reference fleet, which no AI plays.
+        let strategy = crate::pg::teams::ready_teams();
+        let mut ready_teams: Vec<Team> = strategy.iter().map(|t| Team { name: t.name.into(), designs: team_of(t.designs.clone()) }).collect();
+        ready_teams.push(Team { name: "NEW PARTS".into(), designs: team_of(parts_library()) });
+        ready_teams.push(Team { name: "REF FLEET".into(), designs: team_of(defaults()) });
         let mut ready_ships: Vec<(Shelf, Design)> = Vec::new();
-        for (shelf, designs) in [(Shelf::Parts, part_examples()), (Shelf::Starter, starter_deck()), (Shelf::Reference, defaults())] {
+        // A team's own copy of a card that's on a shelf already, with only its build order
+        // changed, isn't a drawing of its own.
+        let drawing = |d: &Design| {
+            let mut d = d.clone();
+            d.build.clear();
+            d.to_line()
+        };
+        let teams_ships: Vec<Design> = strategy.into_iter().skip(1).flat_map(|t| t.designs).collect();
+        for (shelf, designs) in [(Shelf::Parts, part_examples()), (Shelf::Starter, starter_deck()), (Shelf::Teams, teams_ships), (Shelf::Reference, defaults())] {
             for d in designs {
-                if !ready_ships.iter().any(|(_, o)| o.to_line() == d.to_line()) {
+                if !ready_ships.iter().any(|(_, o)| o.to_line() == d.to_line() || (shelf == Shelf::Teams && drawing(o) == drawing(&d))) {
                     ready_ships.push((shelf, d));
                 }
             }
@@ -991,9 +1004,11 @@ mod tests {
         let mine = lines(&pg.lib);
         key(&mut pg, Key::Letter('L'));
         key(&mut pg, Key::Tab);
-        assert_eq!((pg.library.teams.len(), pg.library.team_count()), (0, 3));
-        // The second ready-made team is the new parts' examples.
-        key(&mut pg, Key::Letter('S'));
+        assert_eq!((pg.library.teams.len(), pg.library.team_count()), (0, crate::pg::teams::ready_teams().len() + 2));
+        // After the starter deck and the teams with a strategy come the new parts' examples.
+        for _ in 0..crate::pg::teams::ready_teams().len() {
+            key(&mut pg, Key::Letter('S'));
+        }
         let parts = pg.library.team(at(&pg)).unwrap().1.clone();
         assert_eq!(parts.name, "NEW PARTS");
         key(&mut pg, Key::Enter);
@@ -1331,13 +1346,8 @@ mod tests {
         room(BTN_COPY, "COPY");
         room(BTN_PASTE, "PASTE");
         room(BTN_DEL, "DELETE");
-        for shelf in [Shelf::Mine, Shelf::Parts, Shelf::Starter, Shelf::Reference] {
+        for shelf in [Shelf::Mine, Shelf::Parts, Shelf::Starter, Shelf::Teams, Shelf::Reference] {
             assert!(Framebuffer::text_width(shelf.from(), 1) <= PREVIEW.w, "{}", shelf.from());
-        }
-        for o in ORDERS {
-            for st in STYLES {
-                assert!(Framebuffer::text_width(&format!("{}, {}, IN 12S", o.name(), st.name()), 1) <= PREVIEW.w);
-            }
         }
         // The panel holds everything, the nine slot boxes too, and the rows keep clear of the tip.
         for r in [BTN_TAKE, BTN_KEEP, BTN_NAME, BTN_COPY, BTN_PASTE, BTN_DEL, BTN_CLOSE, PREVIEW, TIP, LIST, BTN_UP, BTN_DOWN, slot_rect(8), TAB_BTNS[1]] {

@@ -186,10 +186,12 @@ pub fn pg_sim(which: &str) {
     use crate::pg::design::{defaults, starter_deck};
     use crate::pg::sim::Arena;
     use crate::pg::{block, part_tests, parts_library, reference_tests, tests};
-    let (old, parts) = (which == "old", which == "parts");
+    let (old, parts) = (which == "old", which == "parts" || which == "teams");
     let (lib, fights) = match which {
         "old" => (defaults(), reference_tests()),
         "parts" => (parts_library(), part_tests()),
+        // The ready-made teams' fights, each with its own ships (`--team-fights`).
+        "teams" => (Vec::new(), crate::pg::teams::team_fights()),
         // Your own team as the window has it, read from its save (nothing is written): the
         // fights the window shows, with the orders and styles your cards carry.
         "mine" => (crate::pg::Pg::new(Some(std::path::PathBuf::from("proving_ground_designs.txt")), None).lib, tests()),
@@ -204,7 +206,7 @@ pub fn pg_sim(which: &str) {
     // One replay can be luck, so every matchup runs on SEEDS rolls of the dice. Seed 1 is the
     // fight the window shows.
     const SEEDS: u64 = 12;
-    let report = |name: &str, place: &[(usize, usize, i32, i32)]| {
+    let report = |name: &str, lib: [&[crate::pg::design::Design]; 2], place: &[(usize, usize, i32, i32)]| {
         let (mut wins, mut secs, mut lost, mut px, mut window) = ([0; 3], 0, [0; 2], [0; 2], String::new());
         let (mut placed, mut stale, mut splits, mut stopped, mut downed) = ([0; 2], 0, [0; 2], [0; 2], [0; 2]);
         // Shots fired and shots that hit something, each side, over all the seeds.
@@ -215,7 +217,7 @@ pub fn pg_sim(which: &str) {
             // As the window fights them: a planner on each side.
             a.brain = [crate::pg::sim::Brain::ARCH; 2];
             for &(team, slot, x, y) in place {
-                a.add(team, slot, &lib[slot], x, y);
+                a.add(team, slot, &lib[team][slot], x, y);
             }
             while a.over.is_none() {
                 a.step();
@@ -272,7 +274,9 @@ pub fn pg_sim(which: &str) {
     println!("wins out of {SEEDS} seeds; losses are averages (ships lost can top ships placed when they split); splits are totals; \"window\" is the fight the window replays");
     println!("--- ready-made tests ---");
     for t in fights.iter().filter(|t| !t.place.is_empty()) {
-        report(t.name, &t.place);
+        // A team fight's sides each have their own team's slots.
+        let sides = t.ships.as_ref().map_or([&lib[..], &lib[..]], |s| [&s.teams[0][..], &s.teams[1][..]]);
+        report(t.name, sides, &t.place);
     }
     // Every pair of warships at (roughly) the same budget: the swarm question. Cost is pixels plus
     // extra cores. The old fleet's five at 600 px; the starter deck's four at what its dearest
@@ -293,7 +297,7 @@ pub fn pg_sim(which: &str) {
             let mut place = block(0, a, count(a), 130, 180, gap(a));
             place.extend(block(1, b, count(b), 350, 180, gap(b)));
             let name = format!("{} {} VS {} {}", count(a), lib[a].name, count(b), lib[b].name);
-            report(&name, &place);
+            report(&name, [&lib, &lib], &place);
         }
     }
     if !old {
@@ -306,16 +310,16 @@ pub fn pg_sim(which: &str) {
         let n = (titan / lib[b].stats().cost).max(1);
         let mut place = block(0, 6, 1, 110, 180, 0);
         place.extend(block(1, b, n, 360, 180, gap(b)));
-        report(&format!("1 TITAN VS {n} {}", lib[b].name), &place);
+        report(&format!("1 TITAN VS {n} {}", lib[b].name), [&lib, &lib], &place);
     }
 }
 
-/// The drilled brains and the arch-AI against the plain brain, headless. For each deck: what its designs learned
-/// of each other in their drills, then mixed fleets of them fought with each side on each brain.
-/// The fleets are the same whichever brain flies them, so a difference in a row is the brain's.
-pub fn brains(which: &str, flight: bool) {
+/// The planner (ARCH) against the plain brain, headless: for each deck, mixed fleets of its designs
+/// fought with a planner on one side, then on both. The fleets are the same whichever brain flies
+/// them, so a difference in a row is the brain's.
+pub fn flight(which: &str) {
     use crate::pg::design::{defaults, starter_deck, Design};
-    use crate::pg::sim::{Arena, Brain, Drills, Ways};
+    use crate::pg::sim::{Arena, Brain};
     use crate::pg::{fleet_side, fliers, parts_library};
     const SEEDS: u64 = 12;
     let saved = || crate::pg::Pg::new(Some(std::path::PathBuf::from("proving_ground_designs.txt")), None).lib;
@@ -326,21 +330,10 @@ pub fn brains(which: &str, flight: bool) {
         "mine" => vec![("YOUR TEAM", saved())],
         _ => vec![("STARTER DECK", starter_deck()), ("PARTS LIBRARY", parts_library()), ("OLD FLEET", defaults()), ("YOUR TEAM", saved())],
     };
-    // The brains tried against the plain brain: each drilled rule alone, then together, then the
-    // arch-AI. With `flight` (`--flight`), the arch-AI only, with no drills run, and a last
-    // column for a planner on both sides, as in a match.
-    let tried: Vec<Brain> = if flight {
-        vec![Brain::ARCH]
-    } else {
-        vec![
-            Brain { targets: true, ways: Ways::Drawn },
-            Brain { targets: false, ways: Ways::Safe },
-            Brain { targets: false, ways: Ways::Bold },
-            Brain { targets: true, ways: Ways::Safe },
-            Brain { targets: true, ways: Ways::Bold },
-            Brain::ARCH,
-        ]
-    };
+    // The planner against the plain brain, and a last column for a planner on both sides, as in a
+    // match. (The drilled brains were tried here too until they were taken out, 2026-11-14.)
+    let tried: Vec<Brain> = vec![Brain::ARCH];
+    let flight = true;
     // Fights between a side on each of those and a plain side, all decks together: won by it, by
     // the plain side, drawn; and pixels it lost and took.
     let mut all = [[0i32; 5]; 6];
@@ -351,25 +344,7 @@ pub fn brains(which: &str, flight: bool) {
             println!("=== {title}: under two designs that fly and fight ===");
             continue;
         }
-        let t0 = std::time::Instant::now();
-        let pairs: Vec<(usize, usize)> = fleet.iter().flat_map(|&a| fleet.iter().map(move |&b| (a, b))).collect();
-        let table = std::sync::Arc::new(if flight { Drills::default() } else { Drills::run(lib, &pairs) });
-        if flight {
-            println!("=== {title}: {} designs ===", fleet.len());
-        } else {
-            println!("=== {title}: {} designs, drilled in {} ms ===", fleet.len(), t0.elapsed().as_millis());
-            println!("what each learned: how it flies at that enemy and its margin in thousandths (+ wins), safe/bold");
-        }
-        for &a in fleet.iter().filter(|_| !flight) {
-            let row: Vec<String> = fleet
-                .iter()
-                .map(|&b| match table.get(a, b) {
-                    Some(d) => format!("{} {}{:+}/{}{:+}", lib[b].name, d.safe.map_or("-", |s| s.name()), d.safe_margin, d.bold.map_or("-", |s| s.name()), d.bold_margin),
-                    None => format!("{} ?", lib[b].name),
-                })
-                .collect();
-            println!("  {:9} v  {}", lib[a].name, row.join(" | "));
-        }
+        println!("=== {title}: {} designs ===", fleet.len());
         let side = |team: usize, designs: &[usize], budget: i32| fleet_side(lib, team, designs, budget);
         let (evens, odds): (Vec<usize>, Vec<usize>) = (fleet.iter().copied().step_by(2).collect(), fleet.iter().copied().skip(1).step_by(2).collect());
         let (first, second) = (fleet[..fleet.len() / 2].to_vec(), fleet[fleet.len() / 2..].to_vec());
@@ -394,7 +369,7 @@ pub fn brains(which: &str, flight: bool) {
                 let (mut wins, mut px, mut ticks) = ([0i32; 3], [0i32; 2], 0);
                 for seed in 1..=SEEDS {
                     let mut a = Arena::seeded(seed);
-                    (a.brain, a.drills) = (brain, table.clone());
+                    a.brain = brain;
                     for &(team, slot, x, y) in &place {
                         a.add(team, slot, &lib[slot], x, y);
                     }
@@ -501,7 +476,7 @@ pub fn deck_sheet(file: Option<&str>) {
         let c = d.check();
         let kind = if d.seeded { "SEEDED" } else { "BUILT" };
         println!(
-            "{} {:9} {:6} {:7} {:4} px, cost {:4}, mass {:4}, power {}/{} ({}%), thrust {} speed {} px/s turn {}, flak {} lance {} cannon {} beam {} (longest {}, {} px) shields {} scoops {} cores {}, factory {} (builds to {} px){}",
+            "{} {:9} {:6} {:7} {:4} px, cost {:4}, mass {:4}, power {}/{} ({}%), thrust {} speed {} px/s turn {}, flak {} lance {} cannon {} beam {} (longest {}, {} px) missile {} repeater {} (longest {}, {} px) shields {} projector {} ({} px) scoops {} cores {}, factory {} (builds to {} px){}",
             i + 1,
             d.name,
             kind,
@@ -521,12 +496,18 @@ pub fn deck_sheet(file: Option<&str>) {
             st.beam,
             st.beam_len,
             st.beam_reach(),
+            st.missile,
+            st.repeater,
+            st.rep_len,
+            crate::pg::design::repeat_reach(st.rep_len),
             st.shields,
+            st.projector,
+            crate::pg::design::proj_reach(st.projector),
             st.scoops,
             st.cores,
             st.factory,
             st.max_build(),
-            if c.ok() { "" } else { "  ** NOT LEGAL **" }
+            c.problem().map_or(String::new(), |p| format!("  ** NOT LEGAL: {p} **"))
         );
         if !d.build.is_empty() {
             let names: Vec<String> = d
@@ -662,6 +643,465 @@ pub fn match_sim(n: u64, blue: Option<&str>, red: Option<&str>, bots: [crate::pg
     println!("blue {} red {} draw {} | {} to {}, median {}", wins[0], wins[1], wins[2], clock(ticks[0]), clock(ticks[ticks.len() - 1]), clock(ticks[ticks.len() / 2]));
 }
 
+/// Every ready-made team against every other, the AI playing both by their strategies: `seeds`
+/// seeds a pairing, with each team on each side of the map. The matches run side by side on every
+/// core (each is deterministic, so that changes nothing in them). Prints who beat whom, and for
+/// each team how its matches went: how long, when its first wave went, what it planted, how big
+/// its side got and how big the fights got. `only` names teams to play (commas between); the
+/// rest are left out. With `minutes`, each match also has a line a minute: each side's
+/// factories, miners, warship pixels, king pixels, bank and pixels mined.
+/// One match between two ready-made teams, every five seconds from `from` to `to` seconds: for
+/// each side, its warships (how many, their pixels, where their middle is), its king (where, how
+/// whole, hunting or not), its factories, its miners, and the enemy warships within 300 px of its
+/// king. `old` names a team that plays with every rule of 2026-11-15 off.
+pub fn match_trace(blue: &str, red: &str, seed: u64, from: u32, to: u32, off: u32, old: Option<&str>) {
+    use crate::pg::play::clock;
+    use crate::pg::sim::{Arena, Role, Ship};
+    use crate::pg::teams::ready_teams;
+    let teams = ready_teams();
+    let find = |n: &str| teams.iter().position(|t| t.name.eq_ignore_ascii_case(n)).unwrap_or_else(|| panic!("no team called {n}"));
+    let (i, j) = (find(blue), find(red));
+    let mut a = Arena::for_match(seed, [teams[i].designs.clone(), teams[j].designs.clone()], [true, true]);
+    let was = |n: usize| old.is_some_and(|o| o.split(',').any(|w| w.trim().eq_ignore_ascii_case(teams[n].name)));
+    {
+        let e = a.eco.as_mut().unwrap();
+        e.strategy = [teams[i].strategy, teams[j].strategy];
+        e.off = [i, j].map(|n| if was(n) { u32::MAX } else { off });
+    }
+    println!("{} (blue) v {} (red), seed {seed}", teams[i].name, teams[j].name);
+    while a.over.is_none() && a.tick <= to * 15 {
+        a.step();
+        if a.tick % 75 != 0 || a.tick < from * 15 {
+            continue;
+        }
+        let e = a.eco.as_ref().unwrap();
+        let mut line = clock(a.tick);
+        for t in 0..2 {
+            let war: Vec<&Ship> = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && s.st.scoops == 0).collect();
+            let px: i32 = war.iter().map(|s| s.px_now()).sum();
+            let n = war.len().max(1) as i32;
+            let (cx, cy) = (war.iter().map(|s| s.x).sum::<i32>() / n, war.iter().map(|s| s.y).sum::<i32>() / n);
+            let k = &a.ships[e.king[t]];
+            let near = a.ships.iter().filter(|s| s.alive && s.team != t && s.role == Role::Ship && !s.rooted && s.st.armed() && s.st.scoops == 0 && crate::geom::cheb(s.x, s.y, k.x, k.y) <= 300).map(|s| s.px_now()).sum::<i32>();
+            let fact: Vec<String> = a.ships.iter().filter(|s| s.alive && s.team == t && s.rooted && s.st.factory > 0).map(|s| format!("{}", s.px_now())).collect();
+            let miners = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.st.scoops > 0).count();
+            line += &format!(" | {} war {:2} ships {:3} px at {:4},{:4} | king {:3} px at {:4},{:4}{} | fact [{}] miners {:2} bank {:3} | enemy near king {:3}", ["B", "R"][t], war.len(), px, cx, cy, k.px_now() * k.alive as i32, k.x, k.y, if k.sent.is_some() { " SENT" } else { "" }, fact.join(" "), miners, a.bank(e.king[t]), near);
+        }
+        println!("{line}");
+    }
+    println!("over: {:?} at {}", a.over, clock(a.tick));
+}
+
+pub fn teams(seeds: u64, only: Option<&str>, minutes: bool, off: u32, old: Option<&str>) {
+    use crate::pg::play::clock;
+    use crate::pg::sim::{Arena, Role};
+    use crate::pg::teams::ready_teams;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let all = ready_teams();
+    let picked: Vec<usize> = (0..all.len()).filter(|&i| only.map_or(true, |o| o.split(',').any(|n| n.trim().eq_ignore_ascii_case(all[i].name)))).collect();
+    assert!(picked.len() >= 2, "pick two teams or more");
+    // One match: blue team, red team, seed.
+    let jobs: Vec<(usize, usize, u64)> = picked.iter().flat_map(|&i| picked.iter().filter(move |&&j| j != i).flat_map(move |&j| (1..=seeds).map(move |s| (i, j, s)))).collect();
+    struct Row {
+        teams: [usize; 2],
+        winner: Option<usize>,
+        ticks: u32,
+        wave: [u32; 2],
+        planted: [i32; 2],
+        /// The most ships a side had at once, its king and factories left out.
+        ships: [usize; 2],
+        /// The most ships in a fight at once, both sides.
+        fight: usize,
+        /// When ships of the two sides first fought.
+        contact: u32,
+        seed: u64,
+        /// Pixels of warships a side had at 5:00 and at 10:00 (0 if the match was over), and the
+        /// most it had at once.
+        army: [[i32; 3]; 2],
+        /// When a side first lost a factory (0: never).
+        lost: [u32; 2],
+        /// A line a minute, with `minutes`.
+        lines: Vec<String>,
+    }
+    let next = AtomicUsize::new(0);
+    let rows = std::sync::Mutex::new(Vec::new());
+    let started = std::time::Instant::now();
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|scope| {
+        for _ in 0..cores {
+            scope.spawn(|| loop {
+                let k = next.fetch_add(1, Ordering::Relaxed);
+                let Some(&(i, j, seed)) = jobs.get(k) else { break };
+                let teams = ready_teams();
+                let mut a = Arena::for_match(seed, [teams[i].designs.clone(), teams[j].designs.clone()], [true, true]);
+                a.eco.as_mut().unwrap().strategy = [teams[i].strategy, teams[j].strategy];
+                // A team named in `old` plays with every rule of 2026-11-15 off: as it played before.
+                let was = |n: usize| old.is_some_and(|o| o.split(',').any(|w| w.trim().eq_ignore_ascii_case(teams[n].name)));
+                a.eco.as_mut().unwrap().off = [i, j].map(|n| if was(n) { u32::MAX } else { off });
+                let (mut ships, mut fight, mut contact) = ([0usize; 2], 0usize, 0u32);
+                let (mut army, mut lost) = ([[0i32; 3]; 2], [0u32; 2]);
+                let factories = |a: &Arena, t: usize| a.ships.iter().filter(|s| s.alive && s.team == t && s.rooted && s.st.factory > 0).count();
+                let mut had = [0usize; 2];
+                let mut lines = Vec::new();
+                while a.over.is_none() {
+                    a.step();
+                    if minutes && a.tick % (15 * 60) == 0 {
+                        let e = a.eco.as_ref().unwrap();
+                        let side = |t: usize| {
+                            let mine = |s: &&crate::pg::sim::Ship| s.alive && s.team == t;
+                            let miners = a.ships.iter().filter(|s| mine(s) && s.role == Role::Ship && s.grow.is_none() && s.st.scoops > 0).count();
+                            let war: i32 = a.ships.iter().filter(|s| mine(s) && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && s.st.scoops == 0).map(|s| s.px_now()).sum();
+                            format!("{} fact {:2} miners {:3} war px {:4} king {:3} bank {:4} mined {:5} rock {:5}", ["BLUE", "RED"][t], factories(&a, t), miners, war, a.ships[e.king[t]].px_now() * a.ships[e.king[t]].alive as i32, a.bank(e.king[t]), a.score[t].mined, a.rock_in_reach(t))
+                        };
+                        lines.push(format!("{} | {} | {}", clock(a.tick), side(0), side(1)));
+                    }
+                    if a.tick % 15 == 0 {
+                        for t in 0..2 {
+                            let px: i32 = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && s.st.scoops == 0).map(|s| s.px_now()).sum();
+                            army[t][2] = army[t][2].max(px);
+                            if a.tick == 15 * 300 {
+                                army[t][0] = px;
+                            }
+                            if a.tick == 15 * 600 {
+                                army[t][1] = px;
+                            }
+                            let f = factories(&a, t);
+                            if f < had[t] && lost[t] == 0 {
+                                lost[t] = a.tick;
+                            }
+                            had[t] = f;
+                        }
+                        for t in 0..2 {
+                            let n = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && !s.rooted && s.grow.is_none()).count();
+                            ships[t] = ships[t].max(n);
+                        }
+                        let n = a.in_a_fight().iter().filter(|&&b| b).count();
+                        if n > 0 && contact == 0 {
+                            contact = a.tick;
+                        }
+                        fight = fight.max(n);
+                    }
+                }
+                let e = a.eco.as_ref().unwrap();
+                let row = Row { teams: [i, j], winner: a.over.unwrap(), ticks: a.tick, wave: [e.tally[0].first_wave, e.tally[1].first_wave], planted: [e.tally[0].planted, e.tally[1].planted], ships, fight, contact, seed, army, lost, lines };
+                rows.lock().unwrap().push(row);
+            });
+        }
+    });
+    let rows = rows.into_inner().unwrap();
+    println!("{} matches, {} seeds a pairing and each team on each side, in {:.0} s on {cores} cores{}", rows.len(), seeds, started.elapsed().as_secs_f64(), if off > 0 { format!(", AI rules off: {off}") } else { String::new() } + &old.map_or(String::new(), |o| format!(", playing as before: {o}")));
+    let med = |mut v: Vec<u32>| -> u32 {
+        v.sort();
+        if v.is_empty() {
+            0
+        } else {
+            v[v.len() / 2]
+        }
+    };
+    let w = 12;
+    // Who beat whom: the row team's wins, losses and draws against the column team.
+    println!();
+    println!("WINS-LOSSES-DRAWS of the team on the left against the team on top:");
+    print!("{:w$}", "");
+    for &j in &picked {
+        print!(" {:>w$}", all[j].name);
+    }
+    println!(" {:>w$}", "ALL");
+    for &i in &picked {
+        print!("{:w$}", all[i].name);
+        let mut total = [0; 3];
+        for &j in &picked {
+            if i == j {
+                print!(" {:>w$}", "-");
+                continue;
+            }
+            let mut wld = [0; 3];
+            for r in rows.iter().filter(|r| (r.teams == [i, j]) || (r.teams == [j, i])) {
+                let me = if r.teams[0] == i { 0 } else { 1 };
+                wld[match r.winner {
+                    Some(t) if t == me => 0,
+                    Some(_) => 1,
+                    None => 2,
+                }] += 1;
+            }
+            for k in 0..3 {
+                total[k] += wld[k];
+            }
+            print!(" {:>w$}", format!("{}-{}-{}", wld[0], wld[1], wld[2]));
+        }
+        println!(" {:>w$}", format!("{}-{}-{}", total[0], total[1], total[2]));
+    }
+    // How long each pairing's matches ran.
+    println!();
+    println!("MEDIAN LENGTH of the matches between the two:");
+    print!("{:w$}", "");
+    for &j in &picked {
+        print!(" {:>w$}", all[j].name);
+    }
+    println!();
+    for &i in &picked {
+        print!("{:w$}", all[i].name);
+        for &j in &picked {
+            let v: Vec<u32> = rows.iter().filter(|r| i != j && (r.teams == [i, j] || r.teams == [j, i])).map(|r| r.ticks).collect();
+            print!(" {:>w$}", if v.is_empty() { "-".to_string() } else { clock(med(v)) });
+        }
+        println!();
+    }
+    // Each team over all its matches.
+    println!();
+    println!("EACH TEAM over all its matches (medians; a wave that never went counts as never):");
+    println!("{:w$} {:>8} {:>8} {:>11} {:>9} {:>9} {:>9} {:>10}", "", "length", "contact", "first wave", "no wave", "planted", "ships", "big fight");
+    for &i in &picked {
+        let mine: Vec<(&Row, usize)> = rows.iter().filter_map(|r| r.teams.iter().position(|&t| t == i).map(|side| (r, side))).collect();
+        let waves: Vec<u32> = mine.iter().map(|(r, s)| r.wave[*s]).filter(|&t| t > 0).collect();
+        let never = mine.iter().filter(|(r, s)| r.wave[*s] == 0).count();
+        println!(
+            "{:w$} {:>8} {:>8} {:>11} {:>9} {:>9} {:>9} {:>10}",
+            all[i].name,
+            clock(med(mine.iter().map(|(r, _)| r.ticks).collect())),
+            clock(med(mine.iter().map(|(r, _)| r.contact).collect())),
+            if waves.is_empty() { "-".to_string() } else { clock(med(waves)) },
+            format!("{never} of {}", mine.len()),
+            med(mine.iter().map(|(r, s)| r.planted[*s].max(0) as u32).collect()),
+            med(mine.iter().map(|(r, s)| r.ships[*s] as u32).collect()),
+            med(mine.iter().map(|(r, _)| r.fight as u32).collect()),
+        );
+    }
+    // Every match, for looking into one.
+    println!();
+    println!("EVERY MATCH: blue v red, seed, who won and when; then each side's first wave, factories planted, first factory lost, warship pixels at 5:00 and 10:00 and at most, and most ships:");
+    let mut order: Vec<&Row> = rows.iter().collect();
+    order.sort_by_key(|r| (r.teams, r.seed));
+    let at = |t: u32| if t == 0 { "-".to_string() } else { clock(t) };
+    for r in order {
+        let who = match r.winner {
+            Some(t) => all[r.teams[t]].name,
+            None => "DRAW",
+        };
+        let side = |t: usize| format!("wave {:>5} planted {} lost {:>5} army {}/{}/{} ships {}", at(r.wave[t]), r.planted[t], at(r.lost[t]), r.army[t][0], r.army[t][1], r.army[t][2], r.ships[t]);
+        println!("  {} v {} {}: {} at {} | {} | {}", all[r.teams[0]].name, all[r.teams[1]].name, r.seed, who, clock(r.ticks), side(0), side(1));
+        for l in &r.lines {
+            println!("      {l}");
+        }
+    }
+    let fights: Vec<u32> = rows.iter().map(|r| r.fight as u32).collect();
+    let mut sorted = fights.clone();
+    sorted.sort();
+    println!();
+    println!("The most ships in a fight at once, over every match: median {}, 90% {}, most {}", med(fights), sorted[sorted.len() * 9 / 10], sorted[sorted.len() - 1]);
+}
+
+/// Which ways of flying the planner keeps, headless. First in matches: every ready-made team
+/// against every other, `seeds` seeds a pairing, each team on each side of the map. Then in the
+/// arena's team fights, twelve seeds each. For each design: how many thinks it had, the way each
+/// kept, how many of them every way scored the same in (nothing told the ways apart, so the
+/// design flew on as it was), how many changed its way, and of the seconds its ships spent in a
+/// fight, how many in each way.
+pub fn ways(seeds: u64) {
+    use crate::pg::design::{Design, Flight, Style};
+    use crate::pg::sim::{Arena, Brain, Choice, Role, ARCH_CHOICES};
+    use crate::pg::teams::{ready_teams, team_fights};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let wi = |w: Style| match w {
+        Style::Runs => 0,
+        Style::Kite => 1,
+        Style::Orbit => 2,
+    };
+    #[derive(Default, Clone)]
+    struct Tally {
+        thinks: u32,
+        kept: [u32; 3],
+        tied: u32,
+        zero: u32,
+        switched: u32,
+        secs: [u32; 3],
+    }
+    // One run: each side's team name and designs, how its thinks came out, and the seconds its
+    // ships spent in a fight in each way (side, slot, way).
+    struct Run {
+        match_: bool,
+        names: [&'static str; 2],
+        teams: [Vec<Design>; 2],
+        choices: Vec<Choice>,
+        secs: Vec<(usize, usize, Style)>,
+    }
+    let all = ready_teams();
+    let fights: Vec<crate::pg::Test> = team_fights().into_iter().filter(|t| t.ships.is_some() && !t.place.is_empty()).collect();
+    const FIGHT_SEEDS: u64 = 12;
+    // A job: a match (blue team, red team, seed) or a fight (which, seed).
+    let mut jobs: Vec<(bool, usize, usize, u64)> = Vec::new();
+    for i in 0..all.len() {
+        for j in (0..all.len()).filter(|&j| j != i) {
+            for seed in 1..=seeds {
+                jobs.push((true, i, j, seed));
+            }
+        }
+    }
+    for k in 0..fights.len() {
+        for seed in 1..=FIGHT_SEEDS {
+            jobs.push((false, k, 0, seed));
+        }
+    }
+    let next = AtomicUsize::new(0);
+    let runs = std::sync::Mutex::new(Vec::new());
+    let started = std::time::Instant::now();
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|scope| {
+        for _ in 0..cores {
+            scope.spawn(|| loop {
+                let k = next.fetch_add(1, Ordering::Relaxed);
+                let Some(&(is_match, i, j, seed)) = jobs.get(k) else { break };
+                let (names, teams, mut a) = if is_match {
+                    let teams = ready_teams();
+                    let mut a = Arena::for_match(seed, [teams[i].designs.clone(), teams[j].designs.clone()], [true, true]);
+                    a.eco.as_mut().unwrap().strategy = [teams[i].strategy, teams[j].strategy];
+                    ([teams[i].name, teams[j].name], [teams[i].designs.clone(), teams[j].designs.clone()], a)
+                } else {
+                    let t = &fights[i];
+                    let sides = t.ships.as_ref().unwrap();
+                    let mut a = Arena::seeded(seed);
+                    a.brain = [Brain::ARCH; 2];
+                    for &(team, slot, x, y) in &t.place {
+                        a.add(team, slot, &sides.teams[team][slot], x, y);
+                    }
+                    (sides.names, sides.teams.clone(), a)
+                };
+                ARCH_CHOICES.with(|c| *c.borrow_mut() = Some(Vec::new()));
+                let mut secs = Vec::new();
+                while a.over.is_none() {
+                    a.step();
+                    if a.tick % 15 == 0 {
+                        let awake = a.in_a_fight();
+                        for (n, s) in a.ships.iter().enumerate() {
+                            // A ship that chooses how it flies, as the planner counts them.
+                            let chooses = awake[n] && s.alive && s.role == Role::Ship && s.grow.is_none() && s.maker.is_none() && s.st.armed() && s.st.flight != Flight::Still && !s.miner();
+                            if chooses {
+                                if let Some(w) = a.plan[s.team].get(s.slot).copied().flatten().or(Style::of(s.st.flight)) {
+                                    secs.push((s.team, s.slot, w));
+                                }
+                            }
+                        }
+                    }
+                }
+                let choices = ARCH_CHOICES.with(|c| c.borrow_mut().take().unwrap_or_default());
+                runs.lock().unwrap().push(Run { match_: is_match, names, teams, choices, secs });
+            });
+        }
+    });
+    let runs = runs.into_inner().unwrap();
+    println!("{} runs in {:.0} s on {cores} cores", runs.len(), started.elapsed().as_secs_f64());
+    for in_matches in [true, false] {
+        // How many ships were in the fight, for thinks where every way scored the same and the rest.
+        let mut pockets: [Vec<usize>; 2] = [Vec::new(), Vec::new()];
+        // By team name, then slot: the design's name, how it flies as drawn, and its tally.
+        let mut table: Vec<(&'static str, Vec<(String, Option<Style>, Tally)>)> = Vec::new();
+        for r in runs.iter().filter(|r| r.match_ == in_matches) {
+            for side in 0..2 {
+                let at = match table.iter().position(|(n, _)| *n == r.names[side]) {
+                    Some(p) => p,
+                    None => {
+                        table.push((r.names[side], r.teams[side].iter().map(|d| (d.name.to_string(), Style::of(d.stats().flight), Tally::default())).collect()));
+                        table.len() - 1
+                    }
+                };
+                let rows = &mut table[at].1;
+                // A piece broken off a king is a ship of the king's slot, and has its own row.
+                let top = r.choices.iter().filter(|c| c.team == side).map(|c| c.slot).chain(r.secs.iter().filter(|s| s.0 == side).map(|s| s.1)).max();
+                if let Some(top) = top.filter(|&t| t >= rows.len()) {
+                    let n = rows.len();
+                    rows.extend((n..=top).map(|k| (if k == crate::pg::sim::KING_SLOT { "KING PIECE".to_string() } else { format!("SLOT {k}") }, Some(Style::Runs), Tally::default())));
+                }
+                for c in r.choices.iter().filter(|c| c.team == side) {
+                    if c.scores.iter().all(|&v| v == c.scores[0]) {
+                        pockets[0].push(c.ships);
+                    } else {
+                        pockets[1].push(c.ships);
+                    }
+                    let drawn = rows[c.slot].1;
+                    let t = &mut rows[c.slot].2;
+                    t.thinks += 1;
+                    if let Some(w) = c.kept.or(drawn) {
+                        t.kept[wi(w)] += 1;
+                    }
+                    if c.scores.iter().all(|&v| v == c.scores[0]) {
+                        t.tied += 1;
+                        if c.scores[0] == 0 {
+                            t.zero += 1;
+                        }
+                    }
+                    if c.kept.or(drawn) != c.ways[0].or(drawn) {
+                        t.switched += 1;
+                    }
+                }
+                for &(_, slot, w) in r.secs.iter().filter(|s| s.0 == side) {
+                    rows[slot].2.secs[wi(w)] += 1;
+                }
+            }
+        }
+        println!();
+        if in_matches {
+            println!("=== IN MATCHES: every ready-made team against every other, {seeds} seed(s) a pairing, each team on each side ===");
+        } else {
+            println!("=== IN THE TEAM FIGHTS: the arena's {} team fights, {FIGHT_SEEDS} seeds each ===", fights.len());
+        }
+        println!("thinks: how many; kept: the way each think kept (runs/kite/orbit, %); tied: every way scored the same (of those, all 0); changed: kept a way it wasn't flying; time: seconds in a fight in each way (%)");
+        let pct = |v: [u32; 3]| {
+            let n = v.iter().sum::<u32>().max(1);
+            format!("{:3}/{:3}/{:3}", v[0] * 100 / n, v[1] * 100 / n, v[2] * 100 / n)
+        };
+        let mut total = Tally::default();
+        let mut by_drawn = [[0u32; 3]; 3];
+        let mut time_by_drawn = [[0u32; 3]; 3];
+        for (team, rows) in &table {
+            println!("{team}");
+            for (name, drawn, t) in rows.iter().filter(|r| r.2.thinks > 0 || r.2.secs.iter().sum::<u32>() > 0) {
+                let d = drawn.map_or("-", |w| ["runs", "kite", "orbit"][wi(w)]);
+                println!(
+                    "  {:12} drawn {:5} thinks {:5}  kept {}  tied {:3}% ({:3}% all 0)  changed {:3}%  time {} of {} s",
+                    name,
+                    d,
+                    t.thinks,
+                    pct(t.kept),
+                    t.tied * 100 / t.thinks.max(1),
+                    t.zero * 100 / t.thinks.max(1),
+                    t.switched * 100 / t.thinks.max(1),
+                    pct(t.secs),
+                    t.secs.iter().sum::<u32>()
+                );
+                total.thinks += t.thinks;
+                total.tied += t.tied;
+                total.zero += t.zero;
+                total.switched += t.switched;
+                for k in 0..3 {
+                    total.kept[k] += t.kept[k];
+                    total.secs[k] += t.secs[k];
+                    if let Some(w) = drawn {
+                        by_drawn[wi(*w)][k] += t.kept[k];
+                        time_by_drawn[wi(*w)][k] += t.secs[k];
+                    }
+                }
+            }
+        }
+        println!(
+            "ALL DESIGNS      thinks {:5}  kept {}  tied {:3}% ({:3}% all 0)  changed {:3}%  time {}",
+            total.thinks,
+            pct(total.kept),
+            total.tied * 100 / total.thinks.max(1),
+            total.zero * 100 / total.thinks.max(1),
+            total.switched * 100 / total.thinks.max(1),
+            pct(total.secs)
+        );
+        for p in &mut pockets {
+            p.sort();
+        }
+        let mid = |p: &Vec<usize>| p.get(p.len() / 2).copied().unwrap_or(0);
+        println!("  ships in the fight, median: {} where every way scored the same, {} where they differed", mid(&pockets[0]), mid(&pockets[1]));
+        for (k, d) in ["runs", "kite"].iter().enumerate() {
+            println!("  drawn to {d:5}: kept {} over {} thinks; time {}", pct(by_drawn[k]), by_drawn[k].iter().sum::<u32>(), pct(time_by_drawn[k]));
+        }
+    }
+}
+
 /// The AI against each scripted opening (or just those named in `only`, with commas between),
 /// `n` matches on each side of the map, both sides with the deck in `file` (or the starter
 /// deck). One line per opening: how many the AI won, lost and drew, how long the matches ran,
@@ -784,6 +1224,168 @@ pub fn plan_cost() {
                 println!("  {} ships {}+{} alive of {} ever | a copy {} us | a tick played forward: all {} us, the {} in a fight {} us, nobody {} us", clock(a.tick), alive(0), alive(1), a.ships.len(), copy, fwd / 120, awake, pocket / 120, idle / 120);
             }
         }
+    }
+}
+
+/// What a frame of a match costs in the window, part by part: the match's tick, and the
+/// planners' share of it; drawing the screen with the view on the biggest fight; drawing the
+/// whole map; scaling the picture up, with scanlines, at 3x, 4x and 7x (1080p, 1440p and 4K
+/// screens); and copying it out. AI against AI on both sides of the window's own match, `seeds`
+/// seeds on the starter deck and then your saved team against it. The copy goes to a bitmap in
+/// memory, not to a window, so the desktop's own compositing isn't in it.
+pub fn frame_cost(seeds: u64) {
+    use crate::app::App;
+    use crate::pg::play::clock;
+    use crate::pg::sim::{Bot, ARCH_NANOS, MH, MW};
+    use std::sync::atomic::Ordering::Relaxed;
+    use std::time::Instant;
+    use winapi::um::wingdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, SelectObject, SetStretchBltMode, StretchDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, COLORONCOLOR, DIB_RGB_COLORS, SRCCOPY,
+    };
+    use winapi::um::winuser::{GetDC, ReleaseDC};
+    const SCALES: [usize; 3] = [3, 4, 7];
+    let saved = crate::pg::Pg::new(Some(std::path::PathBuf::from("proving_ground_designs.txt")), None).lib;
+    let (screen, mem, bmp) = unsafe {
+        let screen = GetDC(std::ptr::null_mut());
+        let mem = CreateCompatibleDC(screen);
+        let bmp = CreateCompatibleBitmap(screen, 400 * 7, 300 * 7);
+        SelectObject(mem, bmp as _);
+        SetStretchBltMode(mem, COLORONCOLOR as i32);
+        (screen, mem, bmp)
+    };
+    let mut bmi: BITMAPINFO = unsafe { std::mem::zeroed() };
+    bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    let ms = |t: Instant| t.elapsed().as_nanos() as f64 / 1e6;
+    let pct = |v: &[f64], p: f64| {
+        let mut v = v.to_vec();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v[((v.len() - 1) as f64 * p).round() as usize]
+    };
+    let spread = |v: &[f64]| format!("{:>6.2} {:>6.2} {:>6.2} {:>6.2}", pct(v, 0.5), pct(v, 0.99), pct(v, 0.999), pct(v, 1.0));
+    let mut fb = Framebuffer::new();
+    let mut scaled = [Vec::new(), Vec::new(), Vec::new()];
+    // Every match's ticks together: tick, planners, the rest, drawing, ships alive, in a fight.
+    let mut all: Vec<[f64; 6]> = Vec::new();
+    let (mut all_map, mut all_up, mut all_out) = (Vec::new(), [Vec::new(), Vec::new(), Vec::new()], [Vec::new(), Vec::new(), Vec::new()]);
+    for (deck, starter) in [("STARTER DECK", true), ("YOUR TEAM", false)] {
+        for seed in 1..=seeds {
+            let mut pg = crate::pg::Pg::new(None, None);
+            pg.lib = saved.clone();
+            pg.start_match(starter, seed);
+            pg.help = false;
+            pg.play.as_mut().unwrap().arena.eco.as_mut().unwrap().bot[0] = Bot::Ai;
+            pg.mouse = (152, 150);
+            let mut rows: Vec<[f64; 6]> = Vec::new();
+            let (mut map, mut up, mut out) = (Vec::new(), [Vec::new(), Vec::new(), Vec::new()], [Vec::new(), Vec::new(), Vec::new()]);
+            let mut in_fight = 0;
+            let wall = Instant::now();
+            while pg.play.as_ref().unwrap().arena.over.is_none() {
+                let tick = pg.play.as_ref().unwrap().arena.tick;
+                if tick % 15 == 0 {
+                    // The view on the biggest fight: the ship in a fight with the most others
+                    // in a fight near it.
+                    let a = &pg.play.as_ref().unwrap().arena;
+                    let awake = a.in_a_fight();
+                    let inn: Vec<usize> = (0..a.ships.len()).filter(|&i| awake[i]).collect();
+                    in_fight = inn.len();
+                    let near = |i: usize| inn.iter().filter(|&&j| (a.ships[i].x - a.ships[j].x).abs().max((a.ships[i].y - a.ships[j].y).abs()) <= 150).count();
+                    if let Some(&c) = inn.iter().max_by_key(|&&i| (near(i), std::cmp::Reverse(i))) {
+                        let (x, y) = (a.ships[c].x, a.ships[c].y);
+                        pg.play.as_mut().unwrap().cam = ((x - 152).clamp(0, MW - 304), (y - 150).clamp(0, MH - 300));
+                    }
+                }
+                ARCH_NANOS.store(0, Relaxed);
+                let t = Instant::now();
+                pg.tick();
+                let whole = ms(t);
+                let plan = ARCH_NANOS.load(Relaxed) as f64 / 1e6;
+                let t = Instant::now();
+                pg.draw(&mut fb);
+                let draw = ms(t);
+                let alive = pg.play.as_ref().unwrap().arena.ships.iter().filter(|s| s.alive).count();
+                rows.push([whole, plan, whole - plan, draw, alive as f64, in_fight as f64]);
+                if tick % 15 == 0 {
+                    pg.play.as_mut().unwrap().tactical = true;
+                    let t = Instant::now();
+                    pg.draw(&mut fb);
+                    map.push(ms(t));
+                    pg.play.as_mut().unwrap().tactical = false;
+                    let pal = *pg.palette();
+                    for (k, &n) in SCALES.iter().enumerate() {
+                        let t = Instant::now();
+                        let (dw, dh) = fb.present(&mut scaled[k], n, &pal, true);
+                        up[k].push(ms(t));
+                        bmi.bmiHeader.biWidth = dw as i32;
+                        bmi.bmiHeader.biHeight = -(dh as i32);
+                        let t = Instant::now();
+                        unsafe {
+                            StretchDIBits(mem, 0, 0, dw as i32, dh as i32, 0, 0, dw as i32, dh as i32, scaled[k].as_ptr() as *const _, &bmi, DIB_RGB_COLORS, SRCCOPY);
+                        }
+                        out[k].push(ms(t));
+                    }
+                }
+            }
+            let a = &pg.play.as_ref().unwrap().arena;
+            let col = |k: usize| rows.iter().map(|r| r[k]).collect::<Vec<f64>>();
+            println!(
+                "=== {deck}, seed {seed}: over at {}, {} ticks, {:.0} s to measure | most ships alive {}, most in a fight {} ===",
+                clock(a.tick),
+                rows.len(),
+                wall.elapsed().as_secs_f64(),
+                col(4).iter().cloned().fold(0.0, f64::max),
+                col(5).iter().cloned().fold(0.0, f64::max)
+            );
+            println!("  ms a tick:              median    99%  99.9%    max");
+            println!("  match tick, all        {}", spread(&col(0)));
+            println!("    of it, the planners  {}", spread(&col(1)));
+            println!("    the rest             {}", spread(&col(2)));
+            println!("  drawing, at the fight  {}", spread(&col(3)));
+            println!("  drawing, whole map     {}", spread(&map));
+            for (k, &n) in SCALES.iter().enumerate() {
+                println!("  scaling up {n}x          {}", spread(&up[k]));
+                println!("  copying out {n}x         {}", spread(&out[k]));
+            }
+            // The worst frames at 4x: the tick, drawing at the fight, and the usual scaling and copy.
+            let fixed = pct(&up[1], 0.5) + pct(&out[1], 0.5);
+            let mut worst: Vec<usize> = (0..rows.len()).collect();
+            worst.sort_by(|&i, &j| (rows[j][0] + rows[j][3]).partial_cmp(&(rows[i][0] + rows[i][3])).unwrap());
+            for &i in worst.iter().take(3) {
+                let r = rows[i];
+                println!("  a worst frame at 4x: {:.1} ms at {} (tick {:.1}, planners {:.1}, drawing {:.1}) with {} alive, {} in a fight", r[0] + r[3] + fixed, clock(i as u32 + 1), r[0], r[1], r[3], r[4], r[5]);
+            }
+            all.extend(rows);
+            all_map.extend(map);
+            for k in 0..3 {
+                all_up[k].extend(up[k].iter().cloned());
+                all_out[k].extend(out[k].iter().cloned());
+            }
+        }
+    }
+    let col = |k: usize| all.iter().map(|r| r[k]).collect::<Vec<f64>>();
+    println!("=== ALL MATCHES: {} ticks ===", all.len());
+    println!("  ms a tick:              median    99%  99.9%    max");
+    println!("  match tick, all        {}", spread(&col(0)));
+    println!("    of it, the planners  {}", spread(&col(1)));
+    println!("    the rest             {}", spread(&col(2)));
+    println!("  drawing, at the fight  {}", spread(&col(3)));
+    println!("  drawing, whole map     {}", spread(&all_map));
+    for (k, &n) in SCALES.iter().enumerate() {
+        println!("  scaling up {n}x          {}", spread(&all_up[k]));
+        println!("  copying out {n}x         {}", spread(&all_out[k]));
+    }
+    let frame: Vec<f64> = all.iter().map(|r| r[0] + r[3]).collect();
+    for (k, &n) in SCALES.iter().enumerate() {
+        let fixed = pct(&all_up[k], 0.5) + pct(&all_out[k], 0.5);
+        let f: Vec<f64> = frame.iter().map(|x| x + fixed).collect();
+        println!("  a whole frame at {n}x    {}  (of 66.67)", spread(&f));
+    }
+    unsafe {
+        DeleteObject(bmp as _);
+        DeleteDC(mem);
+        ReleaseDC(std::ptr::null_mut(), screen);
     }
 }
 
@@ -1319,7 +1921,7 @@ pub fn pg_screenshots(dir: &Path) {
     pg.screen = Screen::Yard;
     pg.play = None;
     pg.menu = true;
-    pg.mouse = (255, 215);
+    pg.mouse = (255, 225);
     pg.draw(&mut fb);
     save(&fb, &pg, "43_menu_host_or_join.png");
     pg.join(None);
@@ -1378,12 +1980,16 @@ pub fn pg_screenshots(dir: &Path) {
     pg.mouse = (6 + 33 + 16, 228 + 8);
     pg.draw(&mut fb);
     save(&fb, &pg, "38_yard_tab_next_part.png");
-    // The game as it starts: the starter deck as your seven designs, and the fights made for it.
+    // The game as it starts: the starter deck as your team, on an open field.
     let mut pg = Pg::new(None, None);
     pg.help = false;
     pg.mouse = (150, 240);
     pg.draw(&mut fb);
     save(&fb, &pg, "26_start_arena.png");
+    // The fights the window had for the starter deck's slots until 2026-11-14.
+    let mut pg = Pg::starter_fights();
+    pg.help = false;
+    pg.mouse = (150, 240);
     for (t, ticks, name) in [(6, 150, "27_lancers_raid_outpost.png"), (8, 420, "28_capital_at_shipyard.png")] {
         pg.load_test(t);
         pg.running = true;
@@ -1546,7 +2152,7 @@ pub fn pg_screenshots(dir: &Path) {
     pp.draw(&mut fb);
     save(&fb, &pp, "64_aegis_covers_two_beamers.png");
     // A mixed fleet against its twin, blue flown by the arch-AI and red flying as drawn.
-    let mut pb = Pg::new(None, None);
+    let mut pb = Pg::starter_fights();
     pb.help = false;
     pb.brains = [crate::pg::sim::Brain::ARCH, crate::pg::sim::Brain::PLAIN];
     pb.load_named(crate::pg::TWIN);
@@ -1624,6 +2230,24 @@ pub fn pg_screenshots(dir: &Path) {
         pk.event(Ev::Key(Key::Keys));
         pk.draw(&mut fb);
         save(&fb, &pk, "74_keys_the_library.png");
+    }
+    // The teams' fights, after your own: two armies as they start and once they've met, and the
+    // biggest of them a while in.
+    {
+        let mut pt = Pg::new(None, None);
+        pt.help = false;
+        pt.load_named("SWARM VS STARTER DECK");
+        pt.draw(&mut fb);
+        save(&fb, &pt, "75_team_fights_swarm_v_starter.png");
+        for (name, ticks, file) in [("SWARM VS STARTER DECK", 150, "76_team_fight_swarm_meets_starter.png"), ("BIG GUNS VS SIEGE", 300, "77_team_fight_big_guns_v_siege.png"), ("RAIDERS VS STARTER DECK", 200, "78_team_fight_raiders_v_starter.png")] {
+            pt.load_named(name);
+            pt.running = true;
+            for _ in 0..ticks {
+                pt.tick();
+            }
+            pt.draw(&mut fb);
+            save(&fb, &pt, file);
+        }
     }
     println!("exported proving-ground screenshots to {}", dir.display());
 }

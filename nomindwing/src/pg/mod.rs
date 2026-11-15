@@ -10,6 +10,7 @@ pub mod link;
 pub mod play;
 mod scene;
 pub mod sim;
+pub mod teams;
 mod yard;
 
 use self::design::*;
@@ -37,6 +38,17 @@ pub enum Screen {
 pub struct Test {
     pub name: &'static str,
     pub place: Vec<(usize, usize, i32, i32)>,
+    /// A fight between two ready-made teams: each side's slots are its own team's, and the
+    /// arena shows them while the fight is loaded. Your own team, in the yard, is never touched.
+    /// None: the fight is fought with your team on both sides.
+    pub ships: Option<Sides>,
+}
+
+/// The two teams of a ready-made fight, blue's and red's, nine slots each, with their names.
+#[derive(Clone)]
+pub struct Sides {
+    pub names: [&'static str; 2],
+    pub teams: [Vec<Design>; 2],
 }
 
 /// `n` ships of one design in a block centred on (cx, cy), `gap` px apart, up to 9 to a column.
@@ -100,8 +112,17 @@ pub fn twin_fleet(lib: &[Design]) -> Vec<(usize, usize, i32, i32)> {
 
 impl Test {
     /// What the test is, from the names of the designs in its slots: "6 FIGHTERS VS 1 FRIGATE".
-    /// It stays true when a design is redrawn, renamed or swapped for another.
+    /// It stays true when a design is redrawn, renamed or swapped for another. A fight that
+    /// brings its own ships goes by its name, which may be the two teams in it.
     pub fn title(&self, lib: &[Design]) -> String {
+        if self.ships.is_some() {
+            return self.name.into();
+        }
+        self.counted([lib, lib])
+    }
+
+    /// The test's name from what it places, with each side's slots: "6 FIGHTERS VS 1 FRIGATE".
+    pub fn counted(&self, lib: [&[Design]; 2]) -> String {
         if self.place.is_empty() {
             return self.name.into();
         }
@@ -113,14 +134,14 @@ impl Test {
                     None => counts.push((slot, 1)),
                 }
             }
-            counts.iter().map(|&(s, n)| format!("{n} {}{}", lib[s].name, if n > 1 { "S" } else { "" })).collect::<Vec<_>>().join(" + ")
+            counts.iter().map(|&(s, n)| format!("{n} {}{}", lib[t][s].name, if n > 1 { "S" } else { "" })).collect::<Vec<_>>().join(" + ")
         };
         format!("{} VS {}", side(0), side(1))
     }
 }
 
 fn vs(name: &'static str, blue: Vec<(usize, usize, i32, i32)>, red: Vec<(usize, usize, i32, i32)>) -> Test {
-    Test { name, place: blue.into_iter().chain(red).collect() }
+    Test { name, place: blue.into_iter().chain(red).collect(), ships: None }
 }
 
 /// The arena's ready-made fights, for the starting library (the starter deck). Slots: 0 fighter,
@@ -138,9 +159,22 @@ pub fn tests() -> Vec<Test> {
         vs("12 LANCERS VS 1 OUTPOST", block(0, 1, 12, 150, 180, 10), block(1, 4, 1, 330, 180, 0)),
         vs("4 FRIGATES VS 1 OUTPOST", block(0, 2, 4, 150, 180, 16), block(1, 4, 1, 330, 180, 0)),
         vs("1 CAPITAL VS 1 SHIPYARD", block(0, 6, 1, 130, 180, 0), block(1, 5, 1, 350, 180, 0)),
-        Test { name: TWIN, place: Vec::new() },
-        Test { name: "OPEN FIELD", place: Vec::new() },
+        Test { name: TWIN, place: Vec::new(), ships: None },
+        Test { name: "OPEN FIELD", place: Vec::new(), ships: None },
     ]
+}
+
+/// The name of the arena's first fight: an open field, with your team in the slots.
+pub const YOUR_TEAM: &str = "YOUR TEAM, OPEN FIELD";
+
+/// The arena's fights in the window: first an open field with your team in the slots, to set up
+/// fights of your own; then the ready-made teams' fights (`teams::team_fights`), which bring their
+/// own teams and leave yours as it is. (Until 2026-11-14 the window had `tests()`, made for the
+/// starter deck's slots. Henry: "I don't think the old set of fights is useful for much.")
+pub fn arena_fights() -> Vec<Test> {
+    let mut v = vec![Test { name: YOUR_TEAM, place: Vec::new(), ships: None }];
+    v.extend(teams::team_fights());
+    v
 }
 
 /// The fights the proving ground's rounds were judged on, for the reference fleet (`defaults()`).
@@ -158,8 +192,8 @@ pub fn reference_tests() -> Vec<Test> {
         vs("4 FIGHTERS VS 4 GUNMINERS", block(0, 0, 4, 120, 180, 12), block(1, 5, 4, 330, 180, 14)),
         vs("1 TITAN VS 5 CAPITALS", block(0, 6, 1, 110, 180, 0), block(1, 4, 5, 380, 180, 44)),
         vs("1 TITAN VS 40 LANCERS", block(0, 6, 1, 110, 180, 0), block(1, 1, 40, 350, 180, 9)),
-        Test { name: TWIN, place: Vec::new() },
-        Test { name: "OPEN FIELD", place: Vec::new() },
+        Test { name: TWIN, place: Vec::new(), ships: None },
+        Test { name: "OPEN FIELD", place: Vec::new(), ships: None },
     ]
 }
 
@@ -208,8 +242,8 @@ pub fn part_tests() -> Vec<Test> {
         vs("2 BEAMERS + 1 AEGIS VS 6 FIGHTERS", [block(0, 0, 2, 110, 180, 30), block(0, 8, 1, 70, 180, 0)].concat(), block(1, 3, 6, 330, 180, 10)),
         vs("2 ARCHERS VS 1 OUTPOST + 1 AEGIS", block(0, 7, 2, 90, 180, 30), [block(1, 6, 1, 330, 180, 0), block(1, 8, 1, 370, 180, 0)].concat()),
         vs("2 RAKERS VS 2 BEAMERS + 1 AEGIS", block(0, 2, 2, 110, 180, 30), [block(1, 0, 2, 330, 180, 30), block(1, 8, 1, 370, 180, 0)].concat()),
-        Test { name: TWIN, place: Vec::new() },
-        Test { name: "OPEN FIELD", place: Vec::new() },
+        Test { name: TWIN, place: Vec::new(), ships: None },
+        Test { name: "OPEN FIELD", place: Vec::new(), ships: None },
     ]
 }
 
@@ -236,35 +270,13 @@ fn help_body() -> Vec<(&'static str, String)> {
 /// What a side's brain button says when pointed at.
 fn brain_tip(team: usize, b: Brain) -> String {
     let key = ["B", "V"][team];
-    let now = match (b.targets, b.ways) {
-        (false, Ways::Drawn) => "PLAIN: NO PLANNER. EACH SHIP GOES FOR THE NEAREST ENEMY AND FLIES AT IT AS ITS DRAWING SUGGESTS.".to_string(),
-        (targets, ways) => {
-            let t = if targets { " A SHIP GOES FOR WHAT ITS DRILLS SAY IT BEATS, NOT JUST THE NEAREST." } else { "" };
-            let w = match ways {
-                Ways::Drawn => "",
-                Ways::Safe => " IT FLIES AT EACH ENEMY THE WAY WHOSE WORST DRILL WAS BEST.",
-                Ways::Bold => " IT FLIES AT EACH ENEMY THE WAY THAT DID BEST IN ITS DRILLS.",
-                Ways::Plan => "",
-            };
-            if ways == Ways::Plan {
-format!("ARCH: ONE PLANNER FOR THE SIDE. WHILE THERE'S A FIGHT IT TAKES ONE DESIGN AT A TIME, PLAYS THE FIGHT FORWARD {} S FOR EACH WAY THAT DESIGN COULD FLY, AND KEEPS WHAT CAME OUT BEST.", ARCH_AHEAD / 15)
-            } else {
-                format!("DRILLED: BEFORE THE FIGHT EVERY DESIGN FIGHTS EVERY ENEMY DESIGN, EACH WAY IT CAN FLY.{t}{w}")
-            }
-        }
+    let now = match b.ways {
+        Ways::Drawn => "PLAIN: NO PLANNER. EACH SHIP GOES FOR THE NEAREST ENEMY AND FLIES AT IT AS ITS DRAWING SUGGESTS.".to_string(),
+        Ways::Plan => format!("ARCH: ONE PLANNER FOR THE SIDE. WHILE THERE'S A FIGHT IT TAKES ONE DESIGN AT A TIME, PLAYS THE FIGHT FORWARD {} S FOR EACH WAY THAT DESIGN COULD FLY, AND KEEPS WHAT CAME OUT BEST.", ARCH_AHEAD / 15),
     };
     format!("[{key}] HOW {}'S SHIPS CHOOSE. {now} CLICK FOR THE NEXT; THE FIGHT STARTS AGAIN.", team_name(team))
 }
 
-/// The inspector's line for what a ship learned in its drills about the enemy it's after.
-fn learned_line(foe: &str, k: Drill, b: Brain) -> String {
-    let way = match k.style(b.ways) {
-        Some(s) => format!("{}, ", s.name()),
-        None => String::new(),
-    };
-    let m = k.margin(b.ways) / 10;
-    format!("DRILLS V {foe}: {way}{}", if m > 0 { format!("WON BY {m}%") } else if m < 0 { format!("LOST BY {}%", -m) } else { "EVEN".to_string() })
-}
 
 /// A notice over the arena, wrapped to fit inside the field with room for its panel.
 fn notice_lines(s: &str) -> Vec<String> {
@@ -435,14 +447,10 @@ pub struct Pg {
     pub setup: Vec<Placement>,
     /// How each side's ships choose what to go for and how to fly at it, in the arena.
     pub brains: [Brain; 2],
-    /// Frames still to draw before the window stops to run the drills a fight needs (0: none
-    /// are owed).
-    drill_wait: u8,
-    /// What pairs of drawings learned of each other, by their saved lines, so a pair is only
-    /// drilled once however often its fight is replayed.
-    drill_cache: std::collections::HashMap<(String, String), (Drill, Drill)>,
     pub test: Option<usize>,
     tests: Vec<Test>,
+    /// The two teams of the ready-made fight that's loaded (None: your team, on both sides).
+    pub sides: Option<Sides>,
     pub running: bool,
     pub speed: u32,
     pub team: usize,
@@ -472,6 +480,8 @@ pub struct Pg {
     notice: Option<(String, u32)>,
     /// The "play a match" panel over the yard.
     pub menu: bool,
+    /// The ready-made team the AI plays in a match (`teams::ready_teams`), picked in the menu.
+    pub ai_team: usize,
     /// Finding another machine to play against, before the match.
     pub lobby: Option<link::Lobby>,
     pub play: Option<Play>,
@@ -485,7 +495,13 @@ impl Pg {
     /// The game as it starts: the starter deck in your first seven slots (so there's a working match
     /// deck to redraw from the first minute), unless a save says otherwise.
     pub fn new(save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
-        Pg::with(starter_deck(), tests(), save_path, log_path)
+        Pg::with(starter_deck(), arena_fights(), save_path, log_path)
+    }
+
+    /// The starter deck with the fights that were made for its slots (`tests()`), which the
+    /// window had until 2026-11-14. For the screenshots and the checks that still use them.
+    pub fn starter_fights() -> Pg {
+        Pg::with(starter_deck(), tests(), None, None)
     }
 
     /// The proving ground as its rounds left it: the reference fleet and the fights it was judged
@@ -499,6 +515,7 @@ impl Pg {
     pub fn parts() -> Pg {
         Pg::with(parts_library(), part_tests(), None, None)
     }
+
 
     fn with(lib: Vec<Design>, tests: Vec<Test>, save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
         // A team is nine slots: what it starts with, and empty ones after. A save from when a
@@ -546,10 +563,9 @@ impl Pg {
             arena: Arena::new(),
             setup: Vec::new(),
             brains: [Brain::ARCH; 2],
-            drill_wait: 0,
-            drill_cache: Default::default(),
             test: None,
             tests,
+            sides: None,
             running: false,
             speed: 1,
             team: 0,
@@ -573,6 +589,7 @@ impl Pg {
             logged_over: false,
             notice: None,
             menu: false,
+            ai_team: 0,
             lobby: None,
             play: None,
             library,
@@ -601,8 +618,19 @@ impl Pg {
         self.notice = Some((s.to_string(), 30));
     }
 
+    /// The slots a side's ships in the arena come from: your team, or in a ready-made team fight
+    /// that side's team.
+    pub fn side(&self, team: usize) -> &[Design] {
+        match &self.sides {
+            Some(s) => &s.teams[team],
+            None => &self.lib,
+        }
+    }
+
     pub fn load_test(&mut self, t: usize) {
         self.test = Some(t);
+        // A ready-made team fight brings its two teams; any other is fought with yours.
+        self.sides = self.tests[t].ships.clone();
         // The twin fight is made from the team as it stands now.
         let place = if self.tests[t].name == TWIN { twin_fleet(&self.lib) } else { self.tests[t].place.clone() };
         self.setup = place.iter().map(|&(team, slot, x, y)| Placement { team, slot, x, y }).collect();
@@ -626,81 +654,23 @@ impl Pg {
         self.arena = Arena::new();
         let mut refused = None;
         for p in &self.setup {
-            if !self.arena.add(p.team, p.slot, &self.lib[p.slot], p.x, p.y) {
-                refused = Some(p.slot);
+            let d = match &self.sides {
+                Some(s) => &s.teams[p.team][p.slot],
+                None => &self.lib[p.slot],
+            };
+            if !self.arena.add(p.team, p.slot, d, p.x, p.y) {
+                refused = Some((p.team, p.slot));
             }
         }
-        if let Some(s) = refused {
-            let why = self.lib[s].check().problem().unwrap_or_default();
-            self.say(&format!("{} CAN'T FLY: {why}", self.lib[s].name));
+        if let Some((t, s)) = refused {
+            let why = self.side(t)[s].check().problem().unwrap_or_default();
+            let line = format!("{} CAN'T FLY: {why}", self.side(t)[s].name);
+            self.say(&line);
         }
         self.running = false;
         self.logged_run = false;
         self.logged_over = false;
-        // A side that goes by its drills needs them run on the designs it faces. Ones already
-        // run on these drawings are to hand; otherwise the window says so for a frame, then
-        // stops to run them.
         self.arena.brain = self.brains;
-        self.drill_wait = 0;
-        if self.brains.iter().any(|b| b.targets || matches!(b.ways, Ways::Safe | Ways::Bold)) {
-            if self.drill_pairs().iter().all(|&k| self.drill_cache.contains_key(&self.drill_key(k))) {
-                self.learn();
-            } else {
-                self.drill_wait = 2;
-                self.say("RUNNING DRILLS...");
-            }
-        }
-    }
-
-    /// The pairs of designs that face each other in the setup, lower slot first.
-    fn drill_pairs(&self) -> Vec<(usize, usize)> {
-        let mut out = Vec::new();
-        for a in self.setup.iter().filter(|p| p.team == 0) {
-            for b in self.setup.iter().filter(|p| p.team == 1) {
-                let k = (a.slot.min(b.slot), a.slot.max(b.slot));
-                if !out.contains(&k) {
-                    out.push(k);
-                }
-            }
-        }
-        out
-    }
-
-    fn drill_key(&self, (a, b): (usize, usize)) -> (String, String) {
-        (self.lib[a].to_line(), self.lib[b].to_line())
-    }
-
-    /// Gives the arena what the designs facing each other learned in their drills, running any
-    /// that haven't been run on these drawings yet.
-    fn learn(&mut self) {
-        let (mut table, mut ran, t0) = (Drills::default(), 0, std::time::Instant::now());
-        for (a, b) in self.drill_pairs() {
-            let (da, db) = (&self.lib[a], &self.lib[b]);
-            if !da.check().ok() || !db.check().ok() || !(da.stats().armed() || db.stats().armed()) {
-                continue;
-            }
-            let key = self.drill_key((a, b));
-            let (x, y) = match self.drill_cache.get(&key) {
-                Some(&v) => v,
-                None => {
-                    ran += 1;
-                    let v = Drills::pair(da, db);
-                    self.drill_cache.insert(key, v);
-                    v
-                }
-            };
-            table.set(a, b, x);
-            if a != b {
-                table.set(b, a, y);
-            }
-        }
-        self.arena.drills = std::sync::Arc::new(table);
-        if ran > 0 {
-            let ms = t0.elapsed().as_millis();
-            let line = format!("{ran} {} DRILLED IN {}.{} S", if ran == 1 { "PAIR" } else { "PAIRS" }, ms / 1000, ms % 1000 / 100);
-            self.log(&format!("DRILLS {line}"));
-            self.say(&line);
-        }
     }
 
     /// The next brain for a side. The fight starts again, so what's watched is one brain's fight
@@ -730,16 +700,20 @@ impl Pg {
                         None => counts.push((p.slot, 1)),
                     }
                 }
-                counts.iter().map(|(s, n)| format!("{n} {}", self.lib[*s].name)).collect::<Vec<_>>().join(", ")
+                counts.iter().map(|(s, n)| format!("{n} {}", self.side(t)[*s].name)).collect::<Vec<_>>().join(", ")
             };
             let brains = if self.brains == [Brain::ARCH; 2] { String::new() } else { format!(" | BRAINS {} V {}", self.brains[0].name(), self.brains[1].name()) };
             let line = format!("RUN {}: BLUE {} | RED {}{brains}", self.test_name(), side(0), side(1));
             self.log(&line);
-            let mut slots: Vec<usize> = self.setup.iter().map(|p| p.slot).collect();
+            let mut slots: Vec<(usize, usize)> = self.setup.iter().map(|p| (p.team, p.slot)).collect();
             slots.sort();
             slots.dedup();
-            for s in slots {
-                let line = format!("  DESIGN {}", self.lib[s].to_line());
+            // In a fight with your team on both sides, each design once.
+            if self.sides.is_none() {
+                slots.retain(|&(t, s)| t == 0 || !self.setup.iter().any(|p| p.team == 0 && p.slot == s));
+            }
+            for (t, s) in slots {
+                let line = format!("  DESIGN {}", self.side(t)[s].to_line());
                 self.log(&line);
             }
         }
@@ -829,8 +803,13 @@ impl Pg {
                     let line = format!("EDITED {}", self.lib[self.slot].to_line());
                     self.log(&line);
                 }
-                // The arena replays with the new designs.
-                self.reset();
+                // The arena replays with the new designs: in the fight with your team, if a
+                // ready-made team fight was up (it has nothing of yours in it).
+                if self.sides.is_some() {
+                    self.load_test(0);
+                } else {
+                    self.reset();
+                }
                 Screen::Arena
             }
             Screen::Arena => {
@@ -934,8 +913,8 @@ impl Pg {
                 }
                 return;
             }
-            if let Some(why) = self.lib[self.slot].check().problem() {
-                let s = format!("{} CAN'T FLY: {why}", self.lib[self.slot].name);
+            if let Some(why) = self.side(self.team)[self.slot].check().problem() {
+                let s = format!("{} CAN'T FLY: {why}", self.side(self.team)[self.slot].name);
                 self.say(&s);
                 return;
             }
@@ -952,7 +931,7 @@ impl Pg {
             self.cam_from_map(x, y);
         } else if let Some(t) = (0..2).find(|&t| BTN_TEAM[t].contains(x, y)) {
             self.team = t;
-        } else if let Some(i) = (0..self.lib.len()).find(|&i| roster_rect(i).contains(x, y)) {
+        } else if let Some(i) = (0..SLOTS).find(|&i| roster_rect(i).contains(x, y)) {
             self.slot = i;
         } else if BTN_RUN.contains(x, y) {
             self.set_running(!self.running);
@@ -1007,14 +986,6 @@ impl Pg {
         let net = self.play.as_ref().is_some_and(|p| p.link.net.is_some());
         if self.screen == Screen::Match && (free || net) {
             self.step_match(if free { &dirs } else { &[false; 4] });
-        }
-        // Drills owed: the notice has had its frame, so run them now. The fight waits.
-        if self.screen == Screen::Arena && self.drill_wait > 0 {
-            self.drill_wait -= 1;
-            if self.drill_wait == 0 {
-                self.learn();
-            }
-            return;
         }
         if self.screen != Screen::Arena || !self.running || panel || self.confirm_quit {
             return;
@@ -1138,7 +1109,7 @@ impl Pg {
         scene::fire(fb, f, a, self.cam);
         // Where a click would place the selected design.
         if a.tick == 0 && hovered.is_none() && on_brain.is_none() && f.contains(m.0, m.1) && !self.help {
-            let sh = self.lib[self.slot].shape();
+            let sh = self.side(self.team)[self.slot].shape();
             draw_shape(fb, f, &sh, m.0, m.1, if self.team == 0 { 1 } else { 3 }, self.team, &|_| true, true);
         }
         fb.text(&self.test_name(), 4, 3, TEXT_DIM, Some(OUTLINE), 1);
@@ -1171,21 +1142,15 @@ impl Pg {
                 parts.push(format!("CARRYING {}", s.carry));
             }
             let mut lines = vec![format!("{} {} - {}", team_name(s.team), s.name, s.doing.name()), parts.join("  ")];
-            // What a ship that goes by its drills learned about the one it's after.
-            let foe = s.target.filter(|&t| a.ships[t].alive && a.ships[t].team != s.team);
+            // What its side's planner has decided for its design.
             if a.brain[s.team].ways == Ways::Plan {
-                // What its side's arch-AI has decided for its design.
                 if let Some(style) = a.plan[s.team].get(s.slot).copied().flatten() {
                     lines.push(chosen_line(&s.name, style));
-                }
-            } else if let (Some(t), true) = (foe, a.brain[s.team] != Brain::PLAIN) {
-                if let Some(k) = a.drills.get(s.slot, a.ships[t].slot) {
-                    lines.push(learned_line(&a.ships[t].name, k, a.brain[s.team]));
                 }
             }
             Some(lines)
         } else if a.tick == 0 && f.contains(m.0, m.1) {
-            Some(vec![format!("CLICK PLACES A {} {}. RIGHT-CLICK REMOVES.", team_name(self.team), self.lib[self.slot].name), "SPACE RUNS THE FIGHT. WASD SCROLLS.".into()])
+            Some(vec![format!("CLICK PLACES A {} {}. RIGHT-CLICK REMOVES.", team_name(self.team), self.side(self.team)[self.slot].name), "SPACE RUNS THE FIGHT. WASD SCROLLS.".into()])
         } else {
             None
         };
@@ -1228,7 +1193,8 @@ impl Pg {
                 ui::button(fb, r, team_name(t), r.contains(m.0, m.1), false);
             }
         }
-        for (i, d) in self.lib.iter().enumerate() {
+        // The roster is the team your clicks place for: yours, or that side's in a team fight.
+        for (i, d) in self.side(self.team).iter().enumerate() {
             let r = roster_rect(i);
             let sel = i == self.slot;
             let hover = r.contains(m.0, m.1);
@@ -1275,12 +1241,13 @@ impl Pg {
 
         // Button tips go in the inspector's place when nothing in the field is hovered.
         if !f.contains(m.0, m.1) {
-            let row = (0..self.lib.len()).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|i| {
-                let d = &self.lib[i];
-                if d.is_empty() {
-                    format!("[{}] AN EMPTY SLOT. DRAW A SHIP IN IT IN THE YARD, OR TAKE ONE FROM THE LIBRARY THERE.", i + 1)
-                } else {
-                    format!("[{}] {}: {} PX. {}. YOUR CLICKS PLACE IT. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.", i + 1, d.name, d.stats().cost, d.does())
+            let row = (0..SLOTS).find(|&i| roster_rect(i).contains(m.0, m.1)).map(|i| {
+                let d = &self.side(self.team)[i];
+                match (&self.sides, d.is_empty()) {
+                    (Some(s), true) => format!("[{}] AN EMPTY SLOT OF {}'S.", i + 1, s.names[self.team]),
+                    (Some(s), false) => format!("[{}] {}: {} PX. {}. {}'S, FOR THIS FIGHT: YOUR CLICKS PLACE IT. YOUR OWN TEAM IS IN THE YARD AND IN THE FIRST FIGHT.", i + 1, d.name, d.stats().cost, d.does(), s.names[self.team]),
+                    (None, true) => format!("[{}] AN EMPTY SLOT. DRAW A SHIP IN IT IN THE YARD, OR TAKE ONE FROM THE LIBRARY THERE.", i + 1),
+                    (None, false) => format!("[{}] {}: {} PX. {}. YOUR CLICKS PLACE IT. EDIT IT IN THE YARD. A RED NAME CAN'T FLY YET.", i + 1, d.name, d.stats().cost, d.does()),
                 }
             });
             let tip = if BTN_RUN.contains(m.0, m.1) {
@@ -1298,7 +1265,7 @@ impl Pg {
             } else if MINI.contains(m.0, m.1) {
                 Some("THE WHOLE ARENA AT 1/6 SCALE. CLICK OR DRAG TO MOVE THE VIEW, OR SCROLL WITH WASD OR THE ARROWS.")
             } else if (0..2).any(|t| BTN_TEAM[t].contains(m.0, m.1)) {
-                Some("[T] WHICH TEAM YOUR CLICKS PLACE.")
+                Some("[T] WHICH SIDE YOUR CLICKS PLACE FOR. THE LIST BELOW IS THAT SIDE'S TEAM.")
             } else if (306..400).contains(&m.0) && m.1 >= 276 {
                 Some("SHIPS LEFT / PLACED, AND PIXELS LOST, FOR EACH TEAM.")
             } else {
@@ -1559,10 +1526,10 @@ mod tests {
     }
 
     #[test]
-    fn a_sides_brain_button_steps_through_the_brains_and_the_drills_they_need_get_run() {
-        let mut pg = Pg::new(None, None);
+    fn a_sides_brain_button_steps_through_the_brains() {
+        let mut pg = Pg::starter_fights();
         pg.help = false;
-        // 6 FIGHTERS VS 1 FRIGATE: slots 0 and 2.
+        // 6 FIGHTERS VS 1 FRIGATE: slots 0 and 2, with one team on both sides.
         pg.load_test(0);
         // Both sides start with a planner, as a match's sides do.
         assert_eq!((pg.brains, pg.arena.brain), ([Brain::ARCH; 2], [Brain::ARCH; 2]));
@@ -1572,29 +1539,17 @@ mod tests {
         assert_eq!((pg.brains, pg.arena.brain), ([BRAINS[1]; 2], [BRAINS[1]; 2]));
         let r = BTN_BRAIN[0];
         pg.event(Ev::Press { x: r.x + 3, y: r.y + 3, right: false });
-        assert_eq!(pg.brains, [BRAINS[2], BRAINS[1]]);
+        assert_eq!(pg.brains, [BRAINS[0], BRAINS[1]]);
         assert!(pg.setup.len() == 7, "a click on the button places nothing");
-        // A brain that goes by its drills: the fight is put back, the notice gets its frame,
-        // and then the drills are run. The fight doesn't start before they are.
-        pg.brains = [Brain { targets: true, ways: Ways::Bold }, Brain::PLAIN];
-        pg.reset();
+        // Two brains, and round again: the planner and the plain one.
+        assert_eq!(BRAINS, [Brain::ARCH, Brain::PLAIN]);
+        // A new brain starts the fight again, from the first tick.
         pg.key(Key::Space);
-        assert!(pg.arena.drills.get(0, 2).is_none() && pg.notice.as_ref().is_some_and(|n| n.0.contains("DRILLS")));
         pg.tick();
-        assert!(pg.arena.drills.get(0, 2).is_none() && pg.arena.tick == 0);
-        pg.tick();
-        assert!(pg.arena.drills.get(0, 2).is_some() && pg.arena.drills.get(2, 0).is_some() && pg.arena.tick == 0);
-        pg.tick();
-        assert_eq!(pg.arena.tick, 1);
-        // Replayed, the same drawings' drills are to hand at once.
-        pg.key(Key::Letter('R'));
-        assert!(pg.arena.drills.get(0, 2).is_some() && pg.arena.tick == 0);
-        // The arch-AI needs no drills.
-        pg.brains = [Brain::ARCH, Brain::PLAIN];
-        pg.reset();
-        assert!(pg.arena.drills.get(0, 2).is_none() && pg.arena.brain[0] == Brain::ARCH);
-        // Every label fits its button, every tip fits the bar, and so does what a ship learned
-        // about an enemy with the longest name there is.
+        assert!(pg.arena.tick > 0);
+        pg.key(Key::Letter('B'));
+        assert_eq!((pg.arena.tick, pg.arena.brain[0]), (0, Brain::PLAIN));
+        // Every label fits its button, and every tip fits the bar.
         for t in 0..2 {
             for b in BRAINS {
                 let label = format!("{} {}", team_name(t), b.short());
@@ -1602,8 +1557,6 @@ mod tests {
                 assert!(wrap(&brain_tip(t, b), 49).len() <= 7, "{}", brain_tip(t, b));
             }
         }
-        let k = Drill { safe: Some(Style::Orbit), safe_margin: -1000, bold: Some(Style::Orbit), bold_margin: -1000 };
-        assert!(learned_line("WWWWWWWWWW", k, Brain { targets: true, ways: Ways::Bold }).len() <= 49);
         assert!(BTN_BRAIN[1].x + BTN_BRAIN[1].w <= FIELD.w && BTN_BRAIN[0].x + BTN_BRAIN[0].w <= BTN_BRAIN[1].x);
     }
 

@@ -593,13 +593,6 @@ pub enum Style {
 pub const STYLES: [Style; 3] = [Style::Runs, Style::Kite, Style::Orbit];
 
 impl Style {
-    pub fn name(self) -> &'static str {
-        match self {
-            Style::Runs => "RUNS",
-            Style::Kite => "KITE",
-            Style::Orbit => "ORBIT",
-        }
-    }
     /// What a drawing flies as when nothing was chosen for it. None: it has no engines.
     pub fn of(f: Flight) -> Option<Style> {
         match f {
@@ -1532,7 +1525,7 @@ pub fn seed() -> Design {
 
 /// A design drawn at an exact place in the grid, as the yard saves it. `build` makes it a seeded
 /// factory with that build order.
-fn drawn(name: &str, at: (i32, i32), rows: &[&str], build: Option<&[usize]>) -> Design {
+pub(super) fn drawn(name: &str, at: (i32, i32), rows: &[&str], build: Option<&[usize]>) -> Design {
     let mut d = Design::blank(name);
     for (y, r) in rows.iter().enumerate() {
         for (x, c) in r.chars().enumerate() {
