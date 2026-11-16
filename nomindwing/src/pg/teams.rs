@@ -41,59 +41,77 @@ pub fn nest(build: &[usize]) -> Design {
     drawn("NEST", (46, 46), &[".hhghh.", ".hhfhh.", "hhfffhh", "gffcffg", "hhfffhh", ".hhfhh.", ".hhghh."], Some(build))
 }
 
-/// Three lances in a column behind a plated nose, two flak guns and four engines.
+/// Three lances in a column behind a nose of heavy plate (a domino two tall, 2026-11-15; it was
+/// plate), plate cheeks, four flak and four engines.
 pub fn corvette() -> Design {
-    drawn("CORVETTE", (47, 46), &["..p..", ".plp.", "hhlhh", "hhchh", "ghlhg", "eehee"], None)
-}
-
-/// A battle-line ship: seventeen lances in five columns down a plated hull, so a broadside isn't
-/// needed: it points at what it's fighting and every column fires.
-pub fn cruiser() -> Design {
     drawn(
-        "CRUISER",
-        (43, 42),
+        "CORVETTE",
+        (47, 45),
         &[
-            "......p......",
-            ".....plp.....",
-            "....phlhp....",
-            "...phhlhhp...",
-            "..phlhlhlhp..",
-            "..phlhlhlhp..",
-            ".phlhhlhhlhp.",
-            ".phlhhlhhlhp.",
-            "gphlhhhhhlhpg",
-            ".phhhhchhhhp.",
-            "gphhhhhhhhhpg",
-            ".phhhhhhhhhp.",
-            ".ppppphppppp.",
-            "..eeeeeeeee..",
+            "..a..",
+            ".pap.",
+            "hhlhh",
+            "ghlhg",
+            "hhchh",
+            "ghlhg",
+            "eehee",
         ],
         None,
     )
 }
 
-/// The step between a frigate and a capital: five cannons, six lances in the prow and on the
-/// flanks, ten flak, and engines all across the stern so it keeps up with a frigate.
+/// A battle-line ship: twelve lances in five columns down a plated hull, so a broadside isn't
+/// needed: it points at what it's fighting and every column fires. Since 2026-11-15 a cap of
+/// heavy plate on its prow, where enemy lances land when it faces them, and a tracker amidships
+/// in place of five of its seventeen lances, with eleven engines so it keeps a frigate's speed.
+pub fn cruiser() -> Design {
+    drawn(
+        "CRUISER",
+        (43, 42),
+        &[
+            "....aaaaa....",
+            "....aaaaa....",
+            "....phlhp....",
+            "...phhlhhp...",
+            "..phlhlhlhp..",
+            "..phlhlhlhp..",
+            ".phlhhhhhlhp.",
+            ".phlhhhhhlhp.",
+            "gphhhhchhhhpg",
+            ".phhhttthhhp.",
+            "gphhhttthhhpg",
+            ".phhhttthhhp.",
+            ".phhhhhhhhhp.",
+            ".eeeeeeeeeee.",
+        ],
+        None,
+    )
+}
+
+/// The step between a frigate and a capital, at a frigate's speed. Since 2026-11-15: three
+/// cannons and a tracker (two of its five cannons swapped for one, for the same power), a cap of
+/// heavy plate on its prow, eight lances, twelve flak, and two cores, apart, so a lance down its
+/// middle leaves both halves flying.
 pub fn battleship() -> Design {
     drawn(
         "BATTLESHIP",
         (41, 41),
         &[
-            "........p........",
-            ".......plp.......",
-            "......phlhp......",
+            "......aaaaa......",
+            "......aaaaa......",
             ".....phhlhhp.....",
-            "....pnnnlnnnp....",
-            "...ppnnngnnnpp...",
-            "..phhnnnhnnnhhp..",
+            "....pphhlhhpp....",
+            "....pgltttlgp....",
+            "....pgltttlgp....",
+            "..phhhhttthhhhp..",
             ".gplhhhhphhhhlpg.",
             ".phnnnhhghhnnnhp.",
             ".phnnnhhghhnnnhp.",
-            "gphnnnhhchhnnnhpg",
-            ".phhhhhnnnhhhhhp.",
+            "gphnnnhhhhhnnnhpg",
+            ".phhchhnnnhhchhp.",
             ".phhhhhnnnhhhhhp.",
             "gphhhhhnnnhhhhhpg",
-            ".phhhhhhghhhhhhp.",
+            ".phhhhhh.hhhhhhp.",
             ".eeeeeeeeeeeeeee.",
         ],
         None,
@@ -132,7 +150,9 @@ pub fn dock(build: &[usize]) -> Design {
 }
 
 /// A siege ship: two fourteen-pixel beams down its length reach 208 px, further than any other
-/// gun, and cut 56 pixels each. Slow, and plated all round.
+/// gun, and cut 56 pixels each. Slow, and plated all round: since 2026-11-15 its sides and stern
+/// are heavy plate (in dominoes), which costs it no speed, as it was already as slow as a ship
+/// flies, only some turning.
 pub fn lancet() -> Design {
     drawn(
         "LANCET",
@@ -142,23 +162,29 @@ pub fn lancet() -> Design {
             "..pbp...pbp..",
             "..hbh...hbh..",
             ".phbhp.phbhp.",
-            ".phbhhphhbhp.",
-            ".phbhhhhhbhp.",
-            "gphbhhhhhbhpg",
-            ".phbhhhhhbhp.",
-            ".phbhhhhhbhp.",
-            ".phbhhhhhbhp.",
-            "gphbhhchhbhpg",
-            ".phbhhhhhbhp.",
-            ".phbhhhhhbhp.",
-            ".phbhhhhhbhp.",
-            "gphhhhhhhhhpg",
-            ".phhhhhhhhhp.",
-            "..pppphpppp..",
+            ".ahbhhphhbha.",
+            ".ahbhhhhhbha.",
+            "gahbhhhhhbhag",
+            ".ahbhhhhhbha.",
+            ".ahbhhhhhbha.",
+            ".ahbhhhhhbha.",
+            "gahbhhchhbhag",
+            ".ahbhhhhhbha.",
+            ".ahbhhhhhbha.",
+            ".ahbhhhhhbha.",
+            "gahhhhhhhhhag",
+            ".ahhhhhhhhha.",
+            "..aaaahaaaa..",
             "..eeeeeeeee..",
         ],
         None,
     )
+}
+
+/// SIEGE's escort against small ships (2026-11-15): a tracker behind a cap of plate, with plate
+/// down its flanks, two flak and five engines. Plate turns flak and trackers, whatever pierces 1.
+pub fn sentinel() -> Design {
+    drawn("SENTINEL", (45, 46), &["...ppp...", "..ptttp..", ".hhttthh.", "phhttthhp", "pghhchhgp", "phhhhhhhp", "e.e.e.e.e"], None)
 }
 
 /// Every ready-made team with a strategy, the starter deck first. The match menu offers them in
@@ -169,11 +195,12 @@ pub fn ready_teams() -> Vec<Ready> {
     let (fighter, lancer, frigate, miner, outpost, shipyard, capital) = (card(0), card(1), card(2), card(3), card(4), card(5), card(6));
     vec![
         Ready { name: "STARTER DECK", about: "TWO OUTPOSTS, THEN SHIPYARDS. IT PRINTS WHAT BEATS YOUR FLEET AND ATTACKS WHEN IT HAS THE EDGE.", designs: s.clone(), strategy: None },
-        // A rush. Slots: 0 fighter, 1 lancer, 2 miner, 3 nest, 4 outpost.
+        // A rush. Slots: 0 fighter, 1 lancer, 2 miner, 3 nest, 4 outpost, 5 AP lancer (2026-11-15:
+        // its outposts, planted from 5:30 for the boom, print them, so it can crack heavy plate).
         Ready {
             name: "SWARM",
-            about: "A RUSH: CHEAP NESTS AND A KING PRINTING FIGHTERS AND LANCERS, AN ATTACK AT 2:30. THEN IT BOOMS.",
-            designs: vec![fighter.clone(), lancer, miner.clone(), nest(&[2, 0, 1, 0, 1]), builds(outpost.clone(), &[2, 2, 0, 1, 0, 1])],
+            about: "A RUSH: NESTS AND A KING PRINTING FIGHTERS AND LANCERS, AN ATTACK AT 2:30. THEN A BOOM, WITH AP LANCERS.",
+            designs: vec![fighter.clone(), lancer, miner.clone(), nest(&[2, 0, 1, 0, 1]), builds(outpost.clone(), &[2, 2, 0, 1, 5, 0, 1, 5]), example("AP LANCER")],
             strategy: Some(Strategy { plant: &[(3, 0), (3, 100), (3, 200), (4, 330)], most: 6, lean: 150, prints: &[0, 1], keep: 0, first: 150, wave: 54, bold: true, raid: &[] }),
         },
         // A timing attack. Slots: 0 fighter, 1 corvette, 2 cruiser, 3 miner, 4 outpost, 5 dock.
@@ -198,12 +225,13 @@ pub fn ready_teams() -> Vec<Ready> {
             designs: vec![wasp(), example("ARCHER"), example("RAKER"), miner.clone(), builds(outpost.clone(), &[3, 3, 0, 1, 0, 2])],
             strategy: Some(Strategy { plant: &[(4, 0)], most: 5, lean: 0, prints: &[0, 0, 1, 2], keep: 40, first: 300, wave: 150, bold: false, raid: &[0] }),
         },
-        // A turtle. Slots: 0 beamer, 1 warden, 2 aegis, 3 miner, 4 outpost, 5 shipyard, 6 lancet.
+        // A turtle. Slots: 0 beamer, 1 warden, 2 aegis, 3 miner, 4 outpost, 5 shipyard, 6 lancet,
+        // 7 sentinel (2026-11-15: its outposts and its king make them, against small ships).
         Ready {
             name: "SIEGE",
-            about: "A TURTLE. BEAMERS AND WARDENS HOLD HOME, THEN LANCETS THAT OUTRANGE EVERYTHING PUSH SLOWLY.",
-            designs: vec![example("BEAMER"), example("WARDEN"), example("AEGIS"), miner, builds(outpost, &[3, 3, 1, 0]), builds(shipyard, &[3, 6, 2, 1, 0]), lancet()],
-            strategy: Some(Strategy { plant: &[(4, 0), (4, 0), (5, 0), (4, 0)], most: 5, lean: 0, prints: &[1, 0], keep: 120, first: 540, wave: 700, bold: false, raid: &[] }),
+            about: "A TURTLE. BEAMERS, WARDENS AND SENTINELS HOLD HOME, THEN LANCETS THAT OUTRANGE EVERYTHING PUSH SLOWLY.",
+            designs: vec![example("BEAMER"), example("WARDEN"), example("AEGIS"), miner, builds(outpost, &[3, 3, 7, 1, 0]), builds(shipyard, &[3, 6, 2, 1, 0]), lancet(), sentinel()],
+            strategy: Some(Strategy { plant: &[(4, 0), (4, 0), (5, 0), (4, 0)], most: 5, lean: 0, prints: &[1, 7, 0], keep: 120, first: 540, wave: 700, bold: false, raid: &[] }),
         },
     ]
 }
@@ -218,7 +246,7 @@ fn army(team: &str) -> Vec<(&'static str, i32)> {
         "LANCE LINE" => vec![("FIGHTER", 6), ("CORVETTE", 12), ("CRUISER", 3)],
         "BIG GUNS" => vec![("FIGHTER", 6), ("FRIGATE", 5), ("BATTLESHIP", 2)],
         "RAIDERS" => vec![("WASP", 16), ("ARCHER", 13), ("RAKER", 9)],
-        "SIEGE" => vec![("LANCET", 2), ("BEAMER", 3), ("WARDEN", 1), ("AEGIS", 1)],
+        "SIEGE" => vec![("LANCET", 2), ("BEAMER", 3), ("WARDEN", 1), ("SENTINEL", 1), ("AEGIS", 1)],
         _ => panic!("no army for {team}"),
     }
 }
@@ -319,17 +347,19 @@ pub fn team_fights() -> Vec<Test> {
         armies(swarm, start, "SWARM VS STARTER DECK"),
         fight("5 LANCERS VS 1 NEST", (swarm, &[("LANCER", 5)]), (swarm, &[("NEST", 1)])),
         armies(line, start, "LANCE LINE VS STARTER DECK"),
-        fight("6 CORVETTES VS 16 LANCERS", (line, &[("CORVETTE", 6)]), (start, &[("LANCER", 16)])),
+        fight("5 CORVETTES VS 16 LANCERS", (line, &[("CORVETTE", 5)]), (start, &[("LANCER", 16)])),
         fight("1 CRUISER VS 2 FRIGATES", (line, &[("CRUISER", 1)]), (start, &[("FRIGATE", 2)])),
         fight("2 CRUISERS VS 1 DOCK", (line, &[("CRUISER", 2)]), (line, &[("DOCK", 1)])),
         armies(guns, start, "BIG GUNS VS STARTER DECK"),
-        fight("1 BATTLESHIP VS 21 LANCERS", (guns, &[("BATTLESHIP", 1)]), (start, &[("LANCER", 21)])),
+        fight("1 BATTLESHIP VS 23 LANCERS", (guns, &[("BATTLESHIP", 1)]), (start, &[("LANCER", 23)])),
         armies(raid, start, "RAIDERS VS STARTER DECK"),
         fight("8 WASPS VS 10 MINERS", (raid, &[("WASP", 8)]), (start, &[("MINER", 10)])),
         fight("8 WASPS VS 10 FIGHTERS", (raid, &[("WASP", 8)]), (start, &[("FIGHTER", 10)])),
         armies(siege, start, "SIEGE VS STARTER DECK"),
         fight("1 LANCET VS 1 BATTLESHIP", (siege, &[("LANCET", 1)]), (guns, &[("BATTLESHIP", 1)])),
         fight("2 LANCETS VS 40 FIGHTERS", (siege, &[("LANCET", 2)]), (swarm, &[("FIGHTER", 40)])),
+        fight("2 SENTINELS VS 10 FIGHTERS", (siege, &[("SENTINEL", 2)]), (swarm, &[("FIGHTER", 10)])),
+        fight("2 SENTINELS VS 10 LANCERS", (siege, &[("SENTINEL", 2)]), (swarm, &[("LANCER", 10)])),
     ];
     fights.extend(new_part_fights());
     for (a, b, name) in [
@@ -459,7 +489,7 @@ mod fight_tests {
         }
         // Every new drawing is in a fight, and every team's army; and blue is each new team in
         // a fight of its own, so its whole team is seen.
-        for name in ["WASP", "NEST", "CORVETTE", "CRUISER", "BATTLESHIP", "DOCK", "LANCET", "PICKET", "BULWARK", "AP LANCER", "IRONLANCER", "BASTION"] {
+        for name in ["WASP", "NEST", "CORVETTE", "CRUISER", "BATTLESHIP", "DOCK", "LANCET", "SENTINEL", "PICKET", "BULWARK", "AP LANCER", "IRONLANCER", "BASTION"] {
             assert!(fights.iter().any(|t| t.place.iter().any(|p| t.ships.as_ref().unwrap().teams[p.0][p.1].name == name)), "no fight has a {name}");
         }
         for name in &teams[1..] {

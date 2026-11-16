@@ -2196,6 +2196,81 @@ Its guns fire through its own skin (a shot only meets enemy pixels), so nothing 
 
 **Nothing old moved:** with these parts in, every fight recorded before (the starter deck's 15, the 19 part fights, the 24 team fights and the old reference fleet's) comes out exactly as it did, tick for tick, since no old drawing has the new parts, the beam's 3 meets no armour 2, and a missile at 2 breaks plate as it did at 3. (Checked again after the missile change, for every fight with a missile in it.) Twelve deliberate breaks of the new rules (heavy plate at armour 1, rounds not slowed or not raised, stacking piercers, the tracker on big ships or turning like a cannon or piercing plate, the beam back at 2, every burst at 3, the missile at 3, a heavier missile no slower, a burst that bounces off what it can't break, and since the tracker fix, a tracker that always aims at the middle and one that checks against where its target is now) are each caught by the new tests. 302 tests pass.
 
+## The teams get the new parts (2026-11-15)
+
+Henry: "We should probably give the non-swarm teams some of these anti-swarm tools we just added, yes?" To my plan (below): "yes, with the AP lancers for swarm". On the results below: "Those are fine results for now."
+
+| row | what | verdict |
+|---|---|---|
+| E1 | **BIG GUNS: the BATTLESHIP redrawn.** Two of its five cannons swapped for one tracker (the same power), a cap of heavy plate on its prow, eight lances, twelve flak, and two cores, apart. 195 px and the second core (203 to build), at a frigate's speed as before (it was 188). | |
+| E2 | **LANCE LINE: the CRUISER and the CORVETTE redrawn.** The cruiser: a cap of heavy plate on its prow, where enemy lances land when it faces them, and a tracker amidships in place of five of its seventeen lances, with eleven engines so it keeps its speed (132 px; it was 124). The corvette: its nose a domino of heavy plate, plate cheeks, three lances and four flak (29 px and 22 px/s; it was 24 px and 26). | |
+| E3 | **SIEGE: a SENTINEL, and the LANCET in heavy plate.** The SENTINEL (new, 47 px, 15 px/s) is a tracker under a cap of plate with plate down its flanks; its outposts build them and its king prints them, between wardens and beamers. The LANCET's sides and stern are heavy plate in dominoes: no slower, as it already flew as slowly as a ship can, but it turns slower. | |
+| E4 | **SWARM: AP lancers in its boom.** Its outposts, planted from 5:30, print AP lancers among their miners, fighters and lancers, so it can break heavy plate. Its rush (nests and its king) is as it was. | |
+| E5 | **The arena's fights for them:** 6 CORVETTES VS 16 LANCERS is now 5 CORVETTES (to stay level on cost), 1 BATTLESHIP VS 21 LANCERS is now 23 LANCERS, and two new ones: 2 SENTINELS VS 10 FIGHTERS and VS 10 LANCERS. RAIDERS and the starter deck are unchanged. | |
+
+Every redrawn card spends exactly the power it makes, and every fight is level on cost. (SIEGE's escort was to be the SENTRY, but the game makes plurals with an S.)
+
+**The round robin, new against new** (eight seeds, each team on each side: 16 matches a cell, the row team's wins first):
+
+Before:
+
+| | STARTER | SWARM | LANCE LINE | BIG GUNS | RAIDERS | SIEGE | ALL |
+|---|---|---|---|---|---|---|---|
+| STARTER DECK | - | 4-12 | 14-2 | 16-0 | 3-13 | 4-12 | 41-39 |
+| SWARM | 12-4 | - | 16-0 | 16-0 | 9-7 | 16-0 | 69-11 |
+| LANCE LINE | 2-14 | 0-16 | - | 7-9 | 0-16 | 5-11 | 14-66 |
+| BIG GUNS | 0-16 | 0-16 | 9-7 | - | 2-14 | 12-4 | 23-57 |
+| RAIDERS | 13-3 | 7-9 | 16-0 | 14-2 | - | 16-0 | 66-14 |
+| SIEGE | 12-4 | 0-16 | 11-5 | 4-12 | 0-16 | - | 27-53 |
+
+After:
+
+| | STARTER | SWARM | LANCE LINE | BIG GUNS | RAIDERS | SIEGE | ALL |
+|---|---|---|---|---|---|---|---|
+| STARTER DECK | - | 6-10 | 1-15 | 16-0 | 3-13 | 6-10 | 32-48 |
+| SWARM | 10-6 | - | 15-1 | 16-0 | 8-8 | 11-5 | 60-20 |
+| LANCE LINE | 15-1 | 1-15 | - | 15-1 | 1-15 | 11-5 | 43-37 |
+| BIG GUNS | 0-16 | 0-16 | 1-15 | - | 2-14 | 10-6 | 13-67 |
+| RAIDERS | 13-3 | 8-8 | 15-1 | 14-2 | - | 16-0 | 66-14 |
+| SIEGE | 10-6 | 5-11 | 5-11 | 6-10 | 0-16 | - | 26-54 |
+
+**The AI teams against the SWARM Henry played** (`--old SWARM`, its AI rules as they were; its cards now include the AP lancers): the AI's wins of 80 went from 21 to 33. STARTER DECK 8-8 to 9-7, LANCE LINE 0-16 to 2-14, BIG GUNS 4-12 to 4-12, RAIDERS 8-8 to 10-6, SIEGE 1-15 to 8-8.
+
+Medians over each team's matches, before / after: SWARM's matches 8:51 / 11:02, LANCE LINE's 13:02 / 12:16, BIG GUNS' 14:21 / 13:44, SIEGE's 14:26 / 14:41. BIG GUNS sends no wave in 66 matches of 80 (55 before). The biggest fight in a match: median 104 / 101 ships, most 357 / 292.
+
+**The arena's army fights** (12 seeds; blue's wins, losses, draws):
+
+| fight | before | after |
+|---|---|---|
+| SWARM VS LANCE LINE | 12-0 | 0-12 |
+| SWARM VS BIG GUNS | 12-0 | 11-1 |
+| SWARM VS SIEGE | 12-0 | 12-0 |
+| LANCE LINE VS STARTER DECK | 5-6-1 | 12-0 |
+| LANCE LINE VS BIG GUNS | 11-1 | 12-0 |
+| LANCE LINE VS RAIDERS | 1-11 | 12-0 |
+| LANCE LINE VS SIEGE | 12-0 | 12-0 |
+| BIG GUNS VS STARTER DECK | 3-9 | 7-5 |
+| BIG GUNS VS RAIDERS | 4-4-4 | 12-0 |
+| BIG GUNS VS SIEGE | 10-2 | 12-0 |
+| SIEGE VS STARTER DECK | 0-12 | 0-12 |
+| RAIDERS VS SIEGE | 12-0 | 12-0 |
+| 1 BATTLESHIP VS 21 LANCERS, now 23 | 0-12 (0:14) | 0-12 (0:30) |
+| 6 CORVETTES VS 16 LANCERS, now 5 | 1-11 | 1-11 |
+| 1 CRUISER VS 2 FRIGATES | 4-6-2 | 7-4-1 |
+| 1 LANCET VS 1 BATTLESHIP | 6-6 | 1-11 |
+| 2 LANCETS VS 40 FIGHTERS | 0-12 | 0-12 |
+| 2 SENTINELS VS 10 FIGHTERS | - | 5-7 |
+| 2 SENTINELS VS 10 LANCERS | - | 2-10 |
+
+The other fights didn't move.
+
+**What it comes to:**
+- **LANCE LINE is a different team:** 14-66 to 43-37. Its army now beats SWARM's head-on in the arena (0-12 to 12-0), and beats every other team's army there. In a match it still loses to SWARM 1-15: the rush comes at 2:30, and its own army is massing for 7:00.
+- **SIEGE now holds against SWARM sometimes:** 0-16 to 5-11, and 1-15 to 8-8 against the SWARM Henry played.
+- **BIG GUNS got worse:** 23-57 to 13-67, still 0-16 against SWARM, and now 1-15 against LANCE LINE (9-7 before). Its battleship comes late, and a cap of heavy plate on the prow doesn't stop a swarm (it still loses to an equal cost of lancers 0-12, if more slowly), as the first BASTION showed. A BIG GUNS that wanted to hold off SWARM would need its big ship sooner, or a whole skin as the BASTION has. I haven't watched these matches; that's my reading of the numbers.
+- **SWARM is weaker, 69-11 to 60-20,** and its matches longer: the teams now last past its rush more often.
+- The scripted openings were stopped part way: they play the starter deck against the scripted bots, neither of which changed. So does `--frame-cost`, which came out as before (median frame at 4x about 3.3 ms, worst 7.5 ms, with nothing else loading the machine this time), so it doesn't see the new parts. For the team matches, the biggest fight got smaller (above). 302 tests pass.
+
 ## Wishlist (Henry's, for later; none of it is a work order)
 
 - **A king that's upgraded twice.** Henry, 2026-11-14: "Once we eventually get to king design, I want to have people optionally design two upgrades to their king where you pay the price upfront and it grows into a bigger, more consequential mothership/king. (twice. so you draw your starter king and then two bigger versions)." So three drawings of a king: the starter and two bigger ones, each upgrade paid for in full before it grows.
