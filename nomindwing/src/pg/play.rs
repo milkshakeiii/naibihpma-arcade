@@ -1333,12 +1333,14 @@ fn selected_line(ships: usize, factories: usize) -> String {
 }
 
 /// How far a ship's guns reach, for where it stands in a formation: the gun it lines up if it
-/// has one, else its cannon, else its missiles, else its flak.
+/// has one, else its cannon, else its tracker, else its missiles, else its flak.
 fn gun_range(st: &Stats) -> i32 {
     if st.aims() {
         st.fwd_reach()
     } else if st.cannon > 0 {
         CANNON_RANGE
+    } else if st.tracker > 0 {
+        TRACKER_RANGE
     } else if st.missile > 0 {
         MISSILE_RANGE
     } else {

@@ -57,8 +57,8 @@ impl Arena {
             if !s.dirty && s.st != s.stats_now() {
                 return bad("has stats that don't match its pixels");
             }
-            if s.turrets.iter().any(|t| s.shape.cells.get(t.cell) != Some(&Some(Part::Cannon))) {
-                return bad("has a turret that isn't on a cannon");
+            if s.turrets.iter().any(|t| !s.shape.cells.get(t.cell).copied().flatten().is_some_and(|p| p.turret())) {
+                return bad("has a turret that isn't on a cannon or a tracker");
             }
             if s.store < 0 {
                 return bad("has a store below zero");

@@ -19,12 +19,18 @@ pub const CANNON_RANGE: i32 = 130;
 pub const FLAK_PERIOD: i32 = 20;
 pub const LANCE_PERIOD: i32 = 45;
 pub const CANNON_PERIOD: i32 = 45;
-/// Damage per hit. A hit no stronger than a pixel's armour bounces off.
-pub const FLAK_DMG: i32 = 1;
-pub const LANCE_DMG: i32 = 2;
-pub const CANNON_DMG: i32 = 3;
-/// How far a lance shot punches: a bare pixel uses up 1, plate 2.
-pub const LANCE_PEN: i32 = 6;
+/// How hard each gun's shots pierce (2026-11-15; until then the same numbers were called
+/// damage). A shot breaks a pixel only if it pierces more than the pixel's armour (bare 0, plate
+/// 1, heavy plate 2); otherwise it bounces off and stops there. Pixels have no hit points, so
+/// that's all a hit is: the pixel breaks or it doesn't.
+pub const FLAK_PIERCE: i32 = 1;
+pub const LANCE_PIERCE: i32 = 2;
+pub const CANNON_PIERCE: i32 = 3;
+/// The most a shot pierces: one more than the heaviest armour, so there's always an answer.
+pub const PIERCE_TOP: i32 = 3;
+/// How deep a lance shot goes: each pixel it breaks uses up 1 and the pixel's armour more (bare
+/// 1, plate 2, heavy plate 3).
+pub const LANCE_DEPTH: i32 = 6;
 /// Ticks a ship with two or more scoops takes to bite a pixel out of a rock (one scoop takes
 /// twice as long). 40 until 2026-11-11.
 pub const CHEW_TICKS: i32 = 50;
@@ -46,9 +52,11 @@ pub const CORE_EXTRA: i32 = 8;
 pub const BEAM_REACH0: i32 = 40;
 pub const BEAM_REACH: i32 = 12;
 pub const BEAM_MAX: i32 = 16;
-/// Pixels a beam cuts for each pixel of the gun. Plate uses up two, as with a lance.
+/// Pixels a beam cuts for each pixel of the gun. Each uses up 1 and its armour more, as with a
+/// lance. A beam pierces 3: it was 2 until 2026-11-15, when nothing had armour 2, so heavy plate
+/// stops a small ship's lance but not a big ship's beam.
 pub const BEAM_CUT: i32 = 4;
-pub const BEAM_DMG: i32 = 2;
+pub const BEAM_PIERCE: i32 = 3;
 /// Ticks a beam shows its line before it cuts, and ticks it rests after.
 pub const BEAM_WARM: i32 = 15;
 pub const BEAM_PERIOD: i32 = 75;
@@ -66,6 +74,16 @@ pub const MISSILE_RANGE: i32 = 200;
 pub const MISSILE_PERIOD: i32 = 90;
 pub const MISSILE_SPEED: i32 = 3000;
 pub const MISSILE_LIFE: u32 = 120;
+/// A missile's burst pierces 2 (Henry, 2026-11-15: "I think missile should be piercing 2 to start
+/// with"): it breaks bare pixels and plate, as it always did, and not heavy plate.
+pub const MISSILE_PIERCE: i32 = 2;
+
+/// How fast a missile flies, in thousandths of a pixel a tick, from how hard it pierces: one
+/// beside a piercer pierces more than a missile does and flies a quarter slower, as any heavier
+/// round does.
+pub fn missile_rate(pierce: i32) -> i32 {
+    rounds(MISSILE_PIERCE, MISSILE_SPEED, pierce > MISSILE_PIERCE).1
+}
 
 /// The repeater (2026-11-13). Repeater pixels one behind another in a column make one gun, as
 /// beam pixels do. It fires small shots straight ahead: it reaches `REPEAT_REACH0` px and
@@ -84,6 +102,25 @@ pub const PROJ_REACH_MAX: i32 = 150;
 pub const PROJ_REST: i32 = 45;
 pub const PROJ_NEAR: usize = 4;
 pub const PROJ_OPEN: usize = 3;
+
+/// The tracker (2026-11-15): a 3x3 turret that turns fast and goes for the small ships in reach,
+/// putting quick shots into the middle of one. They pierce 1, so plate turns them. It uses twice
+/// a cannon's power, and power comes from hull, so it's a big ship's gun.
+pub const TRACKER_RANGE: i32 = 130;
+pub const TRACKER_PERIOD: i32 = 6;
+pub const TRACKER_PIERCE: i32 = 1;
+
+/// A gun's shots as they leave it: how hard they pierce and how fast they fly. A gun touching a
+/// standing piercer pixel (2026-11-15) fires heavier rounds: one level more piercing, up to
+/// `PIERCE_TOP`, and a quarter slower, so a nimble ship is harder to hit. Touching two is no
+/// better than one, and a gun already at the top isn't changed at all.
+pub fn rounds(pierce: i32, speed: i32, heavy: bool) -> (i32, i32) {
+    if heavy && pierce < PIERCE_TOP {
+        (pierce + 1, speed - speed / 4)
+    } else {
+        (pierce, speed)
+    }
+}
 
 /// How far a repeater gun of `n` pixels reaches (0 for none).
 pub fn repeat_reach(n: i32) -> i32 {
@@ -205,23 +242,54 @@ pub enum Part {
     /// A lump of these stops shots at every friend in reach. Never at its own ship, and never
     /// at a projector pixel.
     Projector,
+    /// Armour 2, in dominoes two wide or two tall: only shots that pierce 3 break it. (The parts
+    /// of 2026-11-15 come last so the older parts keep their numbers.)
+    HeavyPlate,
+    /// A gun touching it fires heavier rounds: one level more piercing, a quarter slower.
+    Piercer,
+    /// A 3x3 turret that turns fast and goes for the small ships in reach.
+    Tracker,
 }
 
 /// The parts in the order the yard shows them.
-pub const PARTS: [Part; 14] = [Part::Hull, Part::Plate, Part::Shield, Part::Projector, Part::Flak, Part::Lance, Part::Beam, Part::Cannon, Part::Missile, Part::Repeater, Part::Engine, Part::Scoop, Part::Factory, Part::Core];
+pub const PARTS: [Part; 17] = [
+    Part::Hull,
+    Part::Plate,
+    Part::HeavyPlate,
+    Part::Shield,
+    Part::Projector,
+    Part::Flak,
+    Part::Lance,
+    Part::Beam,
+    Part::Cannon,
+    Part::Tracker,
+    Part::Missile,
+    Part::Repeater,
+    Part::Piercer,
+    Part::Engine,
+    Part::Scoop,
+    Part::Factory,
+    Part::Core,
+];
 
-/// The yard's part categories, keys 1-6. Power is empty until its parts arrive.
+/// The parts that come in square blocks, which the editor only ever puts down or takes away
+/// whole: the 3x3 cannon and tracker. (Heavy plate comes in dominoes: `Design::dominoes`.)
+pub const BLOCK_PARTS: [Part; 2] = [Part::Cannon, Part::Tracker];
+
+/// The yard's part categories, keys 1-6. UPGRADES (key 4) was POWER, which stayed empty (hull
+/// is the power) until 2026-11-15, when an eighth weapon didn't fit the weapons' two rows of
+/// buttons: parts that make other parts better go there, the piercer first.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cat {
     Armor,
     Weapons,
     Drive,
-    Power,
+    Upgrades,
     Industry,
     Command,
 }
 
-pub const CATS: [Cat; 6] = [Cat::Armor, Cat::Weapons, Cat::Drive, Cat::Power, Cat::Industry, Cat::Command];
+pub const CATS: [Cat; 6] = [Cat::Armor, Cat::Weapons, Cat::Drive, Cat::Upgrades, Cat::Industry, Cat::Command];
 
 impl Cat {
     pub fn name(self) -> &'static str {
@@ -229,7 +297,7 @@ impl Cat {
             Cat::Armor => "HULL AND ARMOR",
             Cat::Weapons => "WEAPONS",
             Cat::Drive => "DRIVE",
-            Cat::Power => "POWER",
+            Cat::Upgrades => "UPGRADES",
             Cat::Industry => "INDUSTRY",
             Cat::Command => "COMMAND",
         }
@@ -258,7 +326,7 @@ pub struct PartInfo {
     /// Power one pixel makes, and what one uses (round 5). A cannon's is for the whole block.
     pub makes: i32,
     pub uses: i32,
-    /// Pixels in one of it: 9 for the cannon's 3x3 block, 1 for everything else.
+    /// Pixels in one of it: 9 for a 3x3 turret, 2 for heavy plate's domino, 1 for everything else.
     pub block: i32,
     /// Its palette colour. None is the team's own colour (hull).
     pub colour: Option<u8>,
@@ -281,7 +349,7 @@ pub fn secs(ticks: i32) -> String {
 }
 
 /// One row per part, in the order of the `Part` enum.
-pub const PART_INFO: [PartInfo; 14] = [
+pub const PART_INFO: [PartInfo; 17] = [
     PartInfo {
         ch: 'h',
         name: "HULL",
@@ -308,7 +376,7 @@ pub const PART_INFO: [PartInfo; 14] = [
         colour: Some(pal::STEEL),
         rank: 1,
         glyph: [".......", ".#...#.", ".......", ".......", ".......", ".#...#.", "......."],
-        about: || "FLAK BOUNCES OFF IT. LANCES AND CANNON SHELLS BREAK IT, AND IT SOAKS TWICE AS MUCH OF A LANCE.".into(),
+        about: || "ARMOR 1: A SHOT THAT PIERCES ONLY 1 BOUNCES OFF IT (FLAK, REPEATERS, TRACKERS). A LANCE OR BEAM USES UP 2 OF ITS DEPTH BREAKING IT.".into(),
     },
     PartInfo {
         ch: 'g',
@@ -322,7 +390,7 @@ pub const PART_INFO: [PartInfo; 14] = [
         colour: Some(pal::GUN),
         rank: 4,
         glyph: [".......", "...#...", "...#...", "..###..", "..###..", ".......", "......."],
-        about: || format!("A TURRET. SHOOTS THE NEAREST ENEMY WITHIN {FLAK_RANGE} PX, LEADING ITS AIM AND SPREADING FIRE OVER SEVERAL TARGETS. TOO WEAK FOR PLATE. ONE SHOT EVERY {} S.", secs(FLAK_PERIOD)),
+        about: || format!("A TURRET. SHOOTS THE NEAREST ENEMY WITHIN {FLAK_RANGE} PX, LEADING ITS AIM AND SPREADING FIRE OVER SEVERAL TARGETS. IT PIERCES {FLAK_PIERCE}, SO PLATE TURNS IT. ONE SHOT EVERY {} S.", secs(FLAK_PERIOD)),
     },
     PartInfo {
         ch: 'l',
@@ -336,7 +404,7 @@ pub const PART_INFO: [PartInfo; 14] = [
         colour: Some(pal::LANCE),
         rank: 5,
         glyph: ["...#...", "..###..", ".#.#.#.", "...#...", "...#...", "...#...", "......."],
-        about: || format!("SHOOTS STRAIGHT AHEAD ONLY, UP TO {LANCE_RANGE} PX. PUNCHES THROUGH {LANCE_PEN} PIXELS, OR {} OF PLATE. ONE SHOT EVERY {} S. IT HOLDS FIRE IF ITS TARGET COULD BE OFF ITS LINE WHEN THE SHOT ARRIVES.", LANCE_PEN / 2, secs(LANCE_PERIOD)),
+        about: || format!("SHOOTS STRAIGHT AHEAD ONLY, UP TO {LANCE_RANGE} PX. PIERCES {LANCE_PIERCE} AND PUNCHES THROUGH {LANCE_DEPTH} PIXELS, OR {} OF PLATE. ONE SHOT EVERY {} S. IT HOLDS FIRE IF ITS TARGET COULD BE OFF ITS LINE WHEN THE SHOT ARRIVES.", LANCE_DEPTH / 2, secs(LANCE_PERIOD)),
     },
     PartInfo {
         ch: 'n',
@@ -350,7 +418,7 @@ pub const PART_INFO: [PartInfo; 14] = [
         colour: Some(pal::CANNON),
         rank: 6,
         glyph: [".......", "..###..", ".#...#.", ".#...#.", ".#...#.", "..###..", "......."],
-        about: || format!("A BIG 3X3 TURRET, {CANNON_RANGE} PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL BLASTS A 3X3 HOLE, PLATE AND ALL. IT GOES FOR THE BIG SHIPS IN RANGE. ONE SHOT EVERY {} S.", secs(CANNON_PERIOD)),
+        about: || format!("A BIG 3X3 TURRET, {CANNON_RANGE} PX. IT TURNS SLOWLY, SO FAST CLOSE SHIPS ESCAPE IT. ITS SHELL PIERCES {CANNON_PIERCE} AND BLASTS A 3X3 HOLE, ARMOR AND ALL. IT GOES FOR THE BIG SHIPS IN RANGE. ONE SHOT EVERY {} S.", secs(CANNON_PERIOD)),
     },
     PartInfo {
         ch: 'e',
@@ -422,7 +490,7 @@ pub const PART_INFO: [PartInfo; 14] = [
         glyph: ["..#.#..", "..#.#..", "..#.#..", "..#.#..", "..#.#..", "..###..", "......."],
         about: || {
             format!(
-                "A COLUMN OF THESE IS ONE GUN, FIRING STRAIGHT AHEAD. ONE REACHES {} PX, EACH MORE ADDS {BEAM_REACH} (UP TO {BEAM_MAX}). IT CUTS {BEAM_CUT} PIXELS FOR EACH, PLATE COUNTING DOUBLE. IT SHOWS ITS LINE FOR {} S, CUTS, AND RESTS {} S.",
+                "A COLUMN OF THESE IS ONE GUN, FIRING STRAIGHT AHEAD. ONE REACHES {} PX, EACH MORE ADDS {BEAM_REACH} (UP TO {BEAM_MAX}). IT PIERCES {BEAM_PIERCE} AND CUTS {BEAM_CUT} PIXELS FOR EACH, PLATE COUNTING DOUBLE AND HEAVY PLATE TRIPLE. IT SHOWS ITS LINE FOR {} S, CUTS, AND RESTS {} S.",
                 beam_reach(1),
                 secs(BEAM_WARM),
                 secs(BEAM_PERIOD)
@@ -455,7 +523,7 @@ pub const PART_INFO: [PartInfo; 14] = [
         colour: Some(pal::MISSILE),
         rank: 5,
         glyph: ["...#...", "..###..", "..###..", "..###..", "..###..", ".#.#.#.", "......."],
-        about: || format!("A LAUNCHER. EVERY {} S IT SENDS A MISSILE AT THE NEAREST ENEMY WITHIN {MISSILE_RANGE} PX, ANY WAY IT FACES. THE MISSILE CHASES AS FAST AS THE FASTEST SHIP AND BLASTS A 3X3 HOLE. FLAK SHOOTS IT DOWN. A SHIELD STOPS IT.", secs(MISSILE_PERIOD)),
+        about: || format!("A LAUNCHER. EVERY {} S IT SENDS A MISSILE AT THE NEAREST ENEMY WITHIN {MISSILE_RANGE} PX, ANY WAY IT FACES. THE MISSILE CHASES AS FAST AS THE FASTEST SHIP AND BLASTS A 3X3 HOLE, PIERCING {MISSILE_PIERCE}. FLAK SHOOTS IT DOWN. A SHIELD STOPS IT.", secs(MISSILE_PERIOD)),
     },
     PartInfo {
         ch: 'r',
@@ -469,7 +537,7 @@ pub const PART_INFO: [PartInfo; 14] = [
         colour: Some(pal::REPEATER),
         rank: 5,
         glyph: ["...#...", ".......", "...#...", ".......", "...#...", "..###..", "..###.."],
-        about: || format!("A STREAM OF SMALL SHOTS STRAIGHT AHEAD. PIXELS IN A COLUMN ARE ONE GUN: {} PX AND {} SHOTS A SECOND WITH ONE, {} PX AND {} WITH {REPEAT_MAX}. PLATE TURNS THEM. EACH COSTS A SHIELD A CHARGE.", repeat_reach(1), (15 + repeat_period(1) / 2) / repeat_period(1), repeat_reach(REPEAT_MAX), 15 / repeat_period(REPEAT_MAX)),
+        about: || format!("A STREAM OF SMALL SHOTS STRAIGHT AHEAD. PIXELS IN A COLUMN ARE ONE GUN: {} PX AND {} SHOTS A SECOND WITH ONE, {} PX AND {} WITH {REPEAT_MAX}. THEY PIERCE {FLAK_PIERCE}, SO PLATE TURNS THEM. EACH COSTS A SHIELD A CHARGE.", repeat_reach(1), (15 + repeat_period(1) / 2) / repeat_period(1), repeat_reach(REPEAT_MAX), 15 / repeat_period(REPEAT_MAX)),
     },
     PartInfo {
         ch: 'j',
@@ -484,6 +552,48 @@ pub const PART_INFO: [PartInfo; 14] = [
         rank: 2,
         glyph: [".......", "..###..", ".#####.", ".#####.", ".#####.", "..###..", "......."],
         about: || format!("STOPS SHOTS AT FRIENDS IN REACH, NOT AT ITS OWN SHIP OR ANY PROJECTOR PIXEL: ONE A PIXEL, ALL BACK AFTER {} S WITH NONE. 16 PX REACH {}, 64 REACH {}. EACH NEEDS {PROJ_NEAR} PROJECTOR PIXELS ROUND IT AND {PROJ_OPEN} OPEN SIDES.", secs(PROJ_REST), proj_reach(16), proj_reach(64)),
+    },
+    PartInfo {
+        ch: 'a',
+        name: "HEAVY PLATE",
+        cat: Cat::Armor,
+        mass: 4,
+        armor: 2,
+        makes: 0,
+        uses: 0,
+        block: 2,
+        colour: Some(pal::HEAVY),
+        rank: 1,
+        glyph: [".......", ".##.##.", ".##.##.", ".......", ".##.##.", ".##.##.", "......."],
+        about: || format!("ARMOR 2, IN DOMINOES 2 WIDE OR 2 TALL ([T] TURNS IT): ONLY A SHOT THAT PIERCES {PIERCE_TOP} BREAKS IT (CANNONS, BEAMS, AND A LANCE OR MISSILE BESIDE A PIERCER). A LANCE OR BEAM USES UP 3 OF ITS DEPTH BREAKING IT."),
+    },
+    PartInfo {
+        ch: 'i',
+        name: "PIERCER",
+        cat: Cat::Upgrades,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 2,
+        block: 1,
+        colour: Some(pal::PIERCER),
+        rank: 4,
+        glyph: ["...#...", "...#...", "..###..", "..###..", ".#####.", ".......", "......."],
+        about: || format!("A GUN TOUCHING IT, EDGE TO EDGE, FIRES HEAVIER ROUNDS: THEY PIERCE ONE MORE, UP TO {PIERCE_TOP}, AND FLY A QUARTER SLOWER, SO NIMBLE SHIPS ARE HARDER TO HIT. TWO ON ONE GUN ARE NO BETTER THAN ONE."),
+    },
+    PartInfo {
+        ch: 't',
+        name: "TRACKER",
+        cat: Cat::Weapons,
+        mass: 2,
+        armor: 0,
+        makes: 0,
+        uses: 16,
+        block: 9,
+        colour: Some(pal::TRACKER),
+        rank: 6,
+        glyph: [".......", "#.....#", "#.....#", ".#...#.", "..###..", "...#...", "..###.."],
+        about: || format!("A BIG 3X3 TURRET, {TRACKER_RANGE} PX, THAT TURNS FAST AND GOES FOR THE SMALL SHIPS IN RANGE, PUTTING QUICK SHOTS INTO THE MIDDLE OF ONE. THEY PIERCE {TRACKER_PIERCE}, SO PLATE TURNS THEM. ONE SHOT EVERY {} S.", secs(TRACKER_PERIOD)),
     },
 ];
 
@@ -507,6 +617,19 @@ impl Part {
     pub fn name(self) -> &'static str {
         self.info().name
     }
+    /// The side of the square it comes in: 3 for a turret, 1 for everything else (heavy plate
+    /// comes in dominoes, not squares).
+    pub fn side(self) -> i32 {
+        if self.info().block == 9 {
+            3
+        } else {
+            1
+        }
+    }
+    /// A 3x3 turret: a gun whose centre pixel is its breech.
+    pub fn turret(self) -> bool {
+        matches!(self, Part::Cannon | Part::Tracker)
+    }
     /// The yard's description: what it does, then its power and weight from the table.
     pub fn blurb(self) -> String {
         let i = self.info();
@@ -518,10 +641,10 @@ impl Part {
         format!("{} - {} {power}. WEIGHS {}.", i.name, (i.about)(), i.mass * i.block)
     }
     /// Who makes power and who uses it, for the help and the power gauge: "HULL 1, CORE 4". A part
-    /// that comes as a block (the cannon) says so, since its number is for the whole block.
+    /// that comes as a block (a turret) says so, since its number is for the whole block.
     pub fn power_list(makers: bool) -> String {
         let of = |p: &Part| if makers { p.info().makes } else { p.info().uses };
-        let block = |p: &Part| if p.info().block > 1 { " (3X3)" } else { "" };
+        let block = |p: &Part| if p.side() > 1 { format!(" ({0}X{0})", p.side()) } else { String::new() };
         PARTS.iter().filter(|p| of(p) > 0).map(|p| format!("{}{} {}", p.name(), block(p), of(p))).collect::<Vec<_>>().join(", ")
     }
 }
@@ -614,6 +737,8 @@ pub struct Stats {
     pub flak: i32,
     pub lance: i32,
     pub cannon: i32,
+    /// Working tracker turrets.
+    pub tracker: i32,
     /// Beam pixels, and the length of its longest beam gun (a column of them).
     pub beam: i32,
     pub beam_len: i32,
@@ -655,7 +780,7 @@ impl Stats {
         }
     }
     pub fn armed(&self) -> bool {
-        self.flak + self.lance + self.cannon + self.beam + self.missile + self.repeater > 0
+        self.flak + self.lance + self.cannon + self.tracker + self.beam + self.missile + self.repeater > 0
     }
     /// Whether it has a gun that fires straight ahead only, which the whole ship lines up.
     pub fn aims(&self) -> bool {
@@ -706,19 +831,29 @@ impl Stats {
     }
 }
 
-/// Stats from a set of cells. `cannons` is how many working cannons there are (a cannon is a
-/// block, so the cells alone can't say), and `beam_len` the length of the longest beam gun (a
-/// column, which a list of cells can't say either).
-pub fn stats_of(cells: &[Option<Part>], cannons: i32, beam_len: i32, rep_len: i32) -> Stats {
+/// Stats from a set of cells. `cannons` and `trackers` are how many working turrets of each there
+/// are (a turret is a block, so the cells alone can't say), and `beam_len` the length of the
+/// longest beam gun (a column, which a list of cells can't say either).
+pub fn stats_of(cells: &[Option<Part>], cannons: i32, trackers: i32, beam_len: i32, rep_len: i32) -> Stats {
     let n = |p: Part| cells.iter().filter(|c| **c == Some(p)).count() as i32;
     let count = cells.iter().flatten().count() as i32;
     let mass: i32 = cells.iter().flatten().map(|p| p.mass()).sum();
     let engines = n(Part::Engine);
     let (flak, lance, cores, factory) = (n(Part::Flak), n(Part::Lance), n(Part::Core), n(Part::Factory));
-    // Power (round 5): what each pixel makes and uses comes from the part table. A cannon's draw
-    // is per working cannon, not per pixel of its block.
+    // Power (round 5): what each pixel makes and uses comes from the part table. A turret's draw
+    // is per working turret, not per pixel of its block.
     let made: i32 = PARTS.iter().map(|&p| n(p) * p.info().makes).sum();
-    let used: i32 = PARTS.iter().map(|&p| if p == Part::Cannon { cannons } else { n(p) } * p.info().uses).sum();
+    let used: i32 = PARTS
+        .iter()
+        .map(|&p| {
+            let k = match p {
+                Part::Cannon => cannons,
+                Part::Tracker => trackers,
+                _ => n(p),
+            };
+            k * p.info().uses
+        })
+        .sum();
     // Engines push in proportion to the power they get.
     let full = engines * 8;
     let thrust = if used > made { full * made / used } else { full };
@@ -732,7 +867,7 @@ pub fn stats_of(cells: &[Option<Part>], cannons: i32, beam_len: i32, rep_len: i3
         Flight::StandOff
     };
     let cost = count + core_cost(cores);
-    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
+    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, tracker: trackers, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
 }
 
 /// Which of a w x h grid's cells connect to `start` edge to edge, through cells where `on` holds.
@@ -766,8 +901,8 @@ pub struct Shape {
     pub w: i32,
     pub h: i32,
     pub cells: Vec<Option<Part>>,
-    /// The centre cell of each cannon block.
-    pub cannons: Vec<usize>,
+    /// The centre cell of each turret block: the cannons', then the trackers'.
+    pub turrets: Vec<usize>,
 }
 
 impl Shape {
@@ -942,29 +1077,31 @@ impl Design {
         }
     }
 
-    /// Sets one cell with no regard for cannon blocks; the editor uses `put`.
+    /// Sets one cell with no regard for blocks; the editor uses `put`.
     pub fn set(&mut self, x: i32, y: i32, p: Option<Part>) {
         if (0..GRID).contains(&x) && (0..GRID).contains(&y) {
             self.cells[(y * GRID + x) as usize] = p;
         }
     }
 
-    /// The top-left corner of every cannon block, and any cannon cells that don't make a whole
-    /// block. Blocks never overlap (the editor sees to that), so the first unclaimed cannon cell
-    /// in reading order is always some block's top-left corner.
-    pub fn cannon_blocks(&self) -> (Vec<(i32, i32)>, Vec<(i32, i32)>) {
+    /// The top-left corner of every whole block of part `p` (a 3x3 turret, or a 2x2 slab of heavy
+    /// plate), and any of its cells that don't make a whole block. Blocks never overlap (the
+    /// editor sees to that), so the first unclaimed cell in reading order is always some block's
+    /// top-left corner.
+    pub fn blocks(&self, p: Part) -> (Vec<(i32, i32)>, Vec<(i32, i32)>) {
+        let n = p.side();
         let mut claimed = vec![false; self.cells.len()];
         let (mut blocks, mut stray) = (Vec::new(), Vec::new());
         for y in 0..GRID {
             for x in 0..GRID {
                 let i = (y * GRID + x) as usize;
-                if claimed[i] || self.cells[i] != Some(Part::Cannon) {
+                if claimed[i] || self.cells[i] != Some(p) {
                     continue;
                 }
-                let whole = (0..3).all(|dy| (0..3).all(|dx| self.get(x + dx, y + dy) == Some(Part::Cannon) && !claimed[((y + dy) * GRID + x + dx) as usize]));
+                let whole = (0..n).all(|dy| (0..n).all(|dx| self.get(x + dx, y + dy) == Some(p) && !claimed[((y + dy) * GRID + x + dx) as usize]));
                 if whole {
-                    for dy in 0..3 {
-                        for dx in 0..3 {
+                    for dy in 0..n {
+                        for dx in 0..n {
                             claimed[((y + dy) * GRID + x + dx) as usize] = true;
                         }
                     }
@@ -978,38 +1115,183 @@ impl Design {
         (blocks, stray)
     }
 
-    /// The cannon block covering a cell, by its top-left corner.
-    pub fn cannon_at(&self, x: i32, y: i32) -> Option<(i32, i32)> {
-        self.cannon_blocks().0.into_iter().find(|&(bx, by)| (bx..bx + 3).contains(&x) && (by..by + 3).contains(&y))
+    /// The cannon blocks (`blocks` for the cannon).
+    #[cfg(test)]
+    pub fn cannon_blocks(&self) -> (Vec<(i32, i32)>, Vec<(i32, i32)>) {
+        self.blocks(Part::Cannon)
     }
 
-    fn clear_cannon(&mut self, (bx, by): (i32, i32)) {
-        for dy in 0..3 {
-            for dx in 0..3 {
+    /// Every whole block of every part that comes in blocks, with its top-left corner.
+    pub fn all_blocks(&self) -> Vec<(Part, (i32, i32))> {
+        BLOCK_PARTS.iter().flat_map(|&p| self.blocks(p).0.into_iter().map(move |b| (p, b))).collect()
+    }
+
+    /// The centre of each turret, cannons first: where its breech is.
+    pub fn breeches(&self) -> Vec<(Part, (i32, i32))> {
+        [Part::Cannon, Part::Tracker].iter().flat_map(|&p| self.blocks(p).0.into_iter().map(move |(x, y)| (p, (x + 1, y + 1)))).collect()
+    }
+
+    /// The block covering a cell, if any: its part and its top-left corner.
+    pub fn block_at(&self, x: i32, y: i32) -> Option<(Part, (i32, i32))> {
+        self.all_blocks().into_iter().find(|&(p, (bx, by))| (bx..bx + p.side()).contains(&x) && (by..by + p.side()).contains(&y))
+    }
+
+    /// Heavy plate's dominoes: its pixels in pairs side by side, two wide or two tall, as many
+    /// pairs as the drawing can be cut into, and the heavy pixels left over (loose). Any cut
+    /// that leaves nothing over will do, since the pixels are the same whichever way it's cut, so
+    /// this finds the most pairs there can be: a first pass in reading order, then each pixel
+    /// left over on a chessboard's dark squares passes pairs along until one frees up (an
+    /// augmenting path).
+    pub fn dominoes(&self) -> (Vec<((i32, i32), (i32, i32))>, Vec<(i32, i32)>) {
+        const NONE: usize = usize::MAX;
+        let cells: Vec<(i32, i32)> = (0..GRID * GRID).map(|i| (i % GRID, i / GRID)).filter(|&(x, y)| self.get(x, y) == Some(Part::HeavyPlate)).collect();
+        let mut id = vec![NONE; (GRID * GRID) as usize];
+        for (k, &(x, y)) in cells.iter().enumerate() {
+            id[(y * GRID + x) as usize] = k;
+        }
+        let near = |k: usize| -> Vec<usize> {
+            let (x, y) = cells[k];
+            [(1, 0), (0, 1), (-1, 0), (0, -1)]
+                .iter()
+                .map(|&(dx, dy)| (x + dx, y + dy))
+                .filter(|&(nx, ny)| (0..GRID).contains(&nx) && (0..GRID).contains(&ny))
+                .map(|(nx, ny)| id[(ny * GRID + nx) as usize])
+                .filter(|&j| j != NONE)
+                .collect()
+        };
+        let mut mate = vec![NONE; cells.len()];
+        for k in 0..cells.len() {
+            if mate[k] == NONE {
+                if let Some(j) = near(k).into_iter().find(|&j| mate[j] == NONE) {
+                    (mate[k], mate[j]) = (j, k);
+                }
+            }
+        }
+        for s in 0..cells.len() {
+            if mate[s] != NONE || (cells[s].0 + cells[s].1) % 2 != 0 {
+                continue;
+            }
+            // Breadth first from s: a light square is reached from a dark one, and goes on to
+            // the dark one it's paired with, until a light square that's free turns up.
+            let mut from = vec![NONE; cells.len()];
+            let mut queued = vec![false; cells.len()];
+            let mut queue = std::collections::VecDeque::from([s]);
+            queued[s] = true;
+            let mut free = NONE;
+            'search: while let Some(b) = queue.pop_front() {
+                for v in near(b) {
+                    if from[v] != NONE {
+                        continue;
+                    }
+                    from[v] = b;
+                    if mate[v] == NONE {
+                        free = v;
+                        break 'search;
+                    }
+                    if !queued[mate[v]] {
+                        queued[mate[v]] = true;
+                        queue.push_back(mate[v]);
+                    }
+                }
+            }
+            // Pass the pairs along the path, back to s.
+            let mut v = free;
+            while v != NONE {
+                let b = from[v];
+                let next = mate[b];
+                (mate[b], mate[v]) = (v, b);
+                v = next;
+            }
+        }
+        let pairs = (0..cells.len()).filter(|&k| mate[k] != NONE && mate[k] > k).map(|k| (cells[k], cells[mate[k]])).collect();
+        let loose = (0..cells.len()).filter(|&k| mate[k] == NONE).map(|k| cells[k]).collect();
+        (pairs, loose)
+    }
+
+    /// The domino a heavy pixel is half of, if it's paired.
+    pub fn domino_at(&self, x: i32, y: i32) -> Option<((i32, i32), (i32, i32))> {
+        self.dominoes().0.into_iter().find(|&(a, b)| a == (x, y) || b == (x, y))
+    }
+
+    /// Empties a cell, and the rest of the block or domino it's part of.
+    pub fn clear_at(&mut self, (x, y): (i32, i32)) {
+        match self.get(x, y) {
+            Some(Part::HeavyPlate) => match self.domino_at(x, y) {
+                Some((a, b)) => {
+                    self.set(a.0, a.1, None);
+                    self.set(b.0, b.1, None);
+                }
+                None => self.set(x, y, None),
+            },
+            Some(q) if q.side() > 1 => match self.block_at(x, y) {
+                Some((bp, b)) => self.clear_block(bp, b),
+                None => self.set(x, y, None),
+            },
+            _ => self.set(x, y, None),
+        }
+    }
+
+    /// The editor's paint for heavy plate: a domino with its top-left on the cell, two wide, or
+    /// two tall when `upright`. Whatever it lands on goes first, whole if it's a block or another
+    /// domino. Returns whether anything changed.
+    pub fn put_domino(&mut self, x: i32, y: i32, upright: bool) -> bool {
+        let (x1, y1) = if upright { (x, y + 1) } else { (x + 1, y) };
+        if x < 0 || y < 0 || x1 >= GRID || y1 >= GRID {
+            return false;
+        }
+        if self.domino_at(x, y).is_some_and(|(a, b)| [a, b] == [(x, y), (x1, y1)] || [b, a] == [(x, y), (x1, y1)]) {
+            return false;
+        }
+        for c in [(x, y), (x1, y1)] {
+            self.clear_at(c);
+        }
+        self.set(x, y, Some(Part::HeavyPlate));
+        self.set(x1, y1, Some(Part::HeavyPlate));
+        true
+    }
+
+    fn clear_block(&mut self, p: Part, (bx, by): (i32, i32)) {
+        for dy in 0..p.side() {
+            for dx in 0..p.side() {
                 self.set(bx + dx, by + dy, None);
             }
         }
     }
 
-    /// The editor's paint: a cannon cell is only ever removed with its whole block, and a cannon
-    /// stamps a 3x3 block centred on the cell (refused if it doesn't fit). Returns whether
-    /// anything changed.
+    /// The editor's paint: a block's or a domino's cell is only ever removed with the whole of
+    /// it, and a turret stamps a whole 3x3 block centred on the cell (refused if it doesn't fit).
+    /// Heavy plate puts down a domino two wide (`put_domino` turns it). Returns whether anything
+    /// changed.
     pub fn put(&mut self, x: i32, y: i32, p: Option<Part>) -> bool {
         if !(0..GRID).contains(&x) || !(0..GRID).contains(&y) {
             return false;
         }
-        if p == Some(Part::Cannon) {
-            if x < 1 || y < 1 || x > GRID - 2 || y > GRID - 2 {
+        if p == Some(Part::HeavyPlate) {
+            return self.put_domino(x, y, false);
+        }
+        if let Some(q) = p.filter(|q| q.side() > 1) {
+            let n = q.side();
+            let (x0, y0) = (x - (n - 1) / 2, y - (n - 1) / 2);
+            if x0 < 0 || y0 < 0 || x0 + n > GRID || y0 + n > GRID {
                 return false;
             }
-            for (bx, by) in self.cannon_blocks().0 {
-                if (bx - (x - 1)).abs() < 3 && (by - (y - 1)).abs() < 3 {
-                    self.clear_cannon((bx, by));
+            // A block the new one lands on goes whole first, so no scraps are left.
+            for (bp, (bx, by)) in self.all_blocks() {
+                let m = bp.side();
+                if bx < x0 + n && x0 < bx + m && by < y0 + n && y0 < by + m {
+                    self.clear_block(bp, (bx, by));
                 }
             }
-            for dy in -1..=1 {
-                for dx in -1..=1 {
-                    self.set(x + dx, y + dy, Some(Part::Cannon));
+            for dy in 0..n {
+                for dx in 0..n {
+                    if self.get(x0 + dx, y0 + dy) == Some(Part::HeavyPlate) {
+                        self.clear_at((x0 + dx, y0 + dy));
+                    }
+                }
+            }
+            for dy in 0..n {
+                for dx in 0..n {
+                    self.set(x0 + dx, y0 + dy, Some(q));
                 }
             }
             return true;
@@ -1017,18 +1299,16 @@ impl Design {
         if self.get(x, y) == p {
             return false;
         }
-        if self.get(x, y) == Some(Part::Cannon) {
-            match self.cannon_at(x, y) {
-                Some(b) => self.clear_cannon(b),
-                None => self.set(x, y, None),
-            }
+        if self.get(x, y).is_some_and(|q| q.side() > 1 || q == Part::HeavyPlate) {
+            self.clear_at((x, y));
         }
         self.set(x, y, p);
         true
     }
 
     /// A design is legal with at least one core, every pixel joined into one piece edge to edge
-    /// (so all its cores are joined too), whole cannon blocks, and no buried engines.
+    /// (so all its cores are joined too), whole blocks, heavy plate in whole dominoes, and no
+    /// buried engines.
     pub fn check(&self) -> Check {
         let cores: Vec<usize> = (0..self.cells.len()).filter(|&i| self.cells[i] == Some(Part::Core)).collect();
         let mut c = Check { cores: cores.len() as i32, no_seed: self.seeded && self.get(SEED_CELL.0, SEED_CELL.1) != Some(Part::Core), ..Default::default() };
@@ -1037,7 +1317,10 @@ impl Design {
         if let Some(seen) = ship {
             c.loose = (0..self.cells.len()).filter(|&i| self.cells[i].is_some() && !seen[i]).map(|i| (i as i32 % GRID, i as i32 / GRID)).collect();
         }
-        c.loose.extend(self.cannon_blocks().1);
+        for p in BLOCK_PARTS {
+            c.loose.extend(self.blocks(p).1);
+        }
+        c.loose.extend(self.dominoes().1);
         if let Some(bbox) = self.used_box() {
             let (x0, y0, x1, y1) = bbox;
             let engines: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| self.get(x, y) == Some(Part::Engine)).collect();
@@ -1049,7 +1332,7 @@ impl Design {
 
     pub fn stats(&self) -> Stats {
         let longest = |p: Part| beam_guns(GRID, GRID, |i| self.cells[i] == Some(p)).iter().map(|g| g.1).max().unwrap_or(0);
-        stats_of(&self.cells, self.cannon_blocks().0.len() as i32, longest(Part::Beam), longest(Part::Repeater))
+        stats_of(&self.cells, self.blocks(Part::Cannon).0.len() as i32, self.blocks(Part::Tracker).0.len() as i32, longest(Part::Beam), longest(Part::Repeater))
     }
 
     /// What its ships do, in a word or two, for a list. It follows from the drawing.
@@ -1093,12 +1376,12 @@ impl Design {
 
     pub fn shape(&self) -> Shape {
         let Some((x0, y0, x1, y1)) = self.used_box() else {
-            return Shape { w: 1, h: 1, cells: vec![None], cannons: Vec::new() };
+            return Shape { w: 1, h: 1, cells: vec![None], turrets: Vec::new() };
         };
         let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
         let cells = (0..w * h).map(|i| self.get(x0 + i % w, y0 + i / w)).collect();
-        let cannons = self.cannon_blocks().0.iter().map(|&(bx, by)| ((by + 1 - y0) * w + bx + 1 - x0) as usize).collect();
-        Shape { w, h, cells, cannons }
+        let turrets = self.breeches().iter().map(|&(_, (bx, by))| ((by - y0) * w + bx - x0) as usize).collect();
+        Shape { w, h, cells, turrets }
     }
 
     /// The whole drawing as a stamp.
@@ -1108,13 +1391,18 @@ impl Design {
     }
 
     /// The cells in a box (corners inclusive, either order) as a stamp, trimmed to what's drawn.
-    /// A cannon block the box cuts through is left out, so a stamp never holds part of one.
+    /// A block or domino the box cuts through is left out, so a stamp never holds part of one.
     pub fn copy_box(&self, a: (i32, i32), b: (i32, i32)) -> Stamp {
         let (x0, x1, y0, y1) = (a.0.min(b.0), a.0.max(b.0), a.1.min(b.1), a.1.max(b.1));
         let inside = |x: i32, y: i32| (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
-        let blocks = self.cannon_blocks().0;
+        let blocks = self.all_blocks();
+        let pairs = self.dominoes().0;
         let keep = |x: i32, y: i32| match self.get(x, y) {
-            Some(Part::Cannon) => blocks.iter().any(|&(bx, by)| (bx..bx + 3).contains(&x) && (by..by + 3).contains(&y) && inside(bx, by) && inside(bx + 2, by + 2)),
+            Some(Part::HeavyPlate) => pairs.iter().any(|&(a, b)| (a == (x, y) || b == (x, y)) && inside(a.0, a.1) && inside(b.0, b.1)),
+            Some(q) if q.side() > 1 => {
+                let n = q.side();
+                blocks.iter().any(|&(bp, (bx, by))| bp == q && (bx..bx + n).contains(&x) && (by..by + n).contains(&y) && inside(bx, by) && inside(bx + n - 1, by + n - 1))
+            }
             p => p.is_some(),
         };
         let used: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| keep(x, y)).collect();
@@ -1138,13 +1426,21 @@ impl Design {
     }
 
     /// Writes a stamp's pixels with its top-left at (x, y); its empty cells leave what's there,
-    /// and anything off the grid is dropped. A cannon block the stamp lands on is removed whole
-    /// first, so no scraps are left. Returns whether anything changed.
+    /// and anything off the grid is dropped. A block or domino the stamp lands on is removed
+    /// whole first, so no scraps are left. Returns whether anything changed.
     pub fn paste(&mut self, st: &Stamp, (x, y): (i32, i32)) -> bool {
         let mut changed = false;
-        for (bx, by) in self.cannon_blocks().0 {
-            if (0..9).any(|k| st.get(bx + k % 3 - x, by + k / 3 - y).is_some()) {
-                self.clear_cannon((bx, by));
+        for (a, b) in self.dominoes().0 {
+            if st.get(a.0 - x, a.1 - y).is_some() || st.get(b.0 - x, b.1 - y).is_some() {
+                self.set(a.0, a.1, None);
+                self.set(b.0, b.1, None);
+                changed = true;
+            }
+        }
+        for (bp, (bx, by)) in self.all_blocks() {
+            let n = bp.side();
+            if (0..n * n).any(|k| st.get(bx + k % n - x, by + k / n - y).is_some()) {
+                self.clear_block(bp, (bx, by));
                 changed = true;
             }
         }
@@ -1162,9 +1458,11 @@ impl Design {
         changed
     }
 
-    /// Fills a box (corners inclusive, either order) with a part, or empties it. Cannons tile the
-    /// box in whole 3x3 blocks from its top-left corner, leaving any strip too thin for one; a
-    /// cannon block the box touches is removed whole. Returns whether anything changed.
+    /// Fills a box (corners inclusive, either order) with a part, or empties it. A part that comes
+    /// in blocks tiles the box in whole ones from its top-left corner, leaving any strip too thin
+    /// for one; heavy plate fills a box with an even number of cells, leaving out the right-hand
+    /// column (or, one column wide, the bottom row) of an odd one. A block or domino the box
+    /// touches is removed whole. Returns whether anything changed.
     pub fn fill_box(&mut self, a: (i32, i32), b: (i32, i32), p: Option<Part>) -> bool {
         let (x0, x1) = (a.0.min(b.0).max(0), a.0.max(b.0).min(GRID - 1));
         let (y0, y1) = (a.1.min(b.1).max(0), a.1.max(b.1).min(GRID - 1));
@@ -1172,9 +1470,18 @@ impl Design {
             return false;
         }
         let (mut w, mut h) = (x1 - x0 + 1, y1 - y0 + 1);
-        if p == Some(Part::Cannon) {
-            (w, h) = (w / 3 * 3, h / 3 * 3);
+        if let Some(n) = p.map(|q| q.side()).filter(|&n| n > 1) {
+            (w, h) = (w / n * n, h / n * n);
             if w == 0 || h == 0 {
+                return false;
+            }
+        }
+        if p == Some(Part::HeavyPlate) && w * h % 2 == 1 {
+            if w > 1 {
+                w -= 1;
+            } else if h > 1 {
+                h -= 1;
+            } else {
                 return false;
             }
         }
@@ -1182,9 +1489,18 @@ impl Design {
             Some(_) => self.paste(&Stamp { w, h, cells: vec![p; (w * h) as usize] }, (x0, y0)),
             None => {
                 let mut changed = false;
-                for (bx, by) in self.cannon_blocks().0 {
-                    if bx + 2 >= x0 && bx <= x1 && by + 2 >= y0 && by <= y1 {
-                        self.clear_cannon((bx, by));
+                for (bp, (bx, by)) in self.all_blocks() {
+                    let n = bp.side();
+                    if bx + n - 1 >= x0 && bx <= x1 && by + n - 1 >= y0 && by <= y1 {
+                        self.clear_block(bp, (bx, by));
+                        changed = true;
+                    }
+                }
+                let inside = |(x, y): (i32, i32)| (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
+                for (a, b) in self.dominoes().0 {
+                    if inside(a) || inside(b) {
+                        self.set(a.0, a.1, None);
+                        self.set(b.0, b.1, None);
                         changed = true;
                     }
                 }
@@ -1201,15 +1517,32 @@ impl Design {
 
     /// Flood-fills the patch joined edge to edge that matches the cell at (x, y): an empty hole,
     /// or a patch of one part, which this swaps for another part or erases. An empty area that
-    /// reaches the edge of the grid isn't a hole, so it's refused, and so are cannons (they come
-    /// in 3x3 blocks; the rectangle tiles them). Returns whether anything changed.
+    /// reaches the edge of the grid isn't a hole, so it's refused, and so are turrets (the
+    /// rectangle tiles them), and heavy plate where what it fills can't be cut into dominoes.
+    /// Returns whether anything changed.
     pub fn flood(&mut self, (x, y): (i32, i32), p: Option<Part>) -> Result<bool, &'static str> {
         if !(0..GRID).contains(&x) || !(0..GRID).contains(&y) {
             return Ok(false);
         }
-        if p == Some(Part::Cannon) {
-            return Err("CANNONS DON'T FILL: USE THE RECTANGLE");
+        match p {
+            Some(Part::Cannon) => return Err("CANNONS DON'T FILL: USE THE RECTANGLE"),
+            Some(Part::Tracker) => return Err("TRACKERS DON'T FILL: USE THE RECTANGLE"),
+            _ => {}
         }
+        if p == Some(Part::HeavyPlate) {
+            let before = self.cells.clone();
+            let filled = self.flood_patch((x, y), p)?;
+            if !self.dominoes().1.is_empty() {
+                self.cells = before;
+                return Err("HEAVY PLATE COMES IN DOMINOES: THAT AREA DOESN'T CUT INTO THEM");
+            }
+            return Ok(filled);
+        }
+        self.flood_patch((x, y), p)
+    }
+
+    /// `flood` without the rules about blocks and dominoes.
+    fn flood_patch(&mut self, (x, y): (i32, i32), p: Option<Part>) -> Result<bool, &'static str> {
         let was = self.get(x, y);
         if was == p {
             return Ok(false);
@@ -1544,6 +1877,9 @@ pub(super) fn drawn(name: &str, at: (i32, i32), rows: &[&str], build: Option<&[u
 /// - BEAMER: a siege ship. Nine beam pixels down its spine reach 148 px and cut 36.
 /// - WARDEN: an escort inside four shield circles, with three lances in a column and four flak.
 /// - NEEDLE: the smallest ship a beam fits, two beam pixels on a fighter's frame: 64 px.
+///
+/// Then the missile's, the repeater's and the projector's, and the 2026-11-15 parts' (PICKET,
+/// BULWARK, AP LANCER, IRONLANCER, BASTION), which `teams::new_part_fights` fights.
 pub fn part_examples() -> Vec<Design> {
     vec![
         drawn("BEAMER", (47, 44), &["..b..", ".hbh.", ".hbh.", "hhbhh", "hhbhh", "hhbhh", "hhbhh", "phbhp", "phbhp", "hhchh", "egege"], None),
@@ -1578,6 +1914,41 @@ pub fn part_examples() -> Vec<Design> {
                 "hhhhhhhhhhhhhhh",
                 "hhhhhhhhhhhhhhh",
                 "eeeeeee.eeeeeee",
+            ],
+            None,
+        ),
+        // The parts of 2026-11-15. A tracker escort: one tracker over a broad hull of the power
+        // it needs, two flak, five engines.
+        drawn("PICKET", (45, 46), &["...ttt...", "...ttt...", ".hhttthh.", "ghhhchhhg", "hhhhhhhhh", "e.e.e.e.e"], None),
+        // A lance boat behind a prow of three heavy slabs: the lances fire through it.
+        drawn("BULWARK", (46, 46), &["aaaaaa", "aaaaaa", "hlhhlh", "hlgglh", "hhhchh", "hhhhh.", "eeeeee"], None),
+        // The starter lancer with a piercer between its two lances: both pierce 3.
+        drawn("AP LANCER", (48, 47), &[".l.", "hih", "hlh", "hch", "e.e"], None),
+        // The starter lancer behind plate, the swarm's answer to a tracker.
+        drawn("IRONLANCER", (48, 47), &[".p.", "plp", "hlh", "hch", "e.e"], None),
+        // All three on one big ship, redrawn (Henry, 2026-11-15: "redraw the bastion") after the
+        // first, with heavy plate on its prow only, lost to lancers like the battleship: now a
+        // skin of heavy plate a pixel thick all round, with everything inside it. Its guns fire
+        // through it: a tracker on each flank, four lances with piercers between them, four flak.
+        // Two cores, apart, so a cut down the middle leaves both halves flying. The engines sit
+        // outside the skin, along the stern and two on each flank, the only thing a plain lance
+        // or flak can break.
+        drawn(
+            "BASTION",
+            (42, 43),
+            &[
+                ".aaaaaaaaaaaa.",
+                ".ahhhhllhhhha.",
+                ".attthiihttta.",
+                ".attthllhttta.",
+                "eattthhhhtttae",
+                "eaghhhhhhhhgae",
+                ".ahhhhhhhhhha.",
+                ".ahhchhhhchha.",
+                ".aghhhhhhhhga.",
+                ".ahhhhhhhhhha.",
+                ".aaaaaaaaaaaa.",
+                ".eeeeeeeeeeee.",
             ],
             None,
         ),
@@ -2131,11 +2502,67 @@ mod tests {
     }
 
     #[test]
+    fn heavy_plate_and_trackers_go_down_and_come_up_whole() {
+        let mut d = Design::blank("T");
+        // Heavy plate is a domino with its top-left on the cell, two wide or two tall.
+        assert!(d.put(10, 10, Some(Part::HeavyPlate)));
+        assert_eq!((d.dominoes(), d.stats().count, d.stats().mass), ((vec![((10, 10), (11, 10))], vec![]), 2, 8));
+        assert!(d.put_domino(10, 11, true));
+        assert_eq!(d.dominoes(), (vec![((10, 10), (11, 10)), ((10, 11), (10, 12))], vec![]));
+        assert!(!d.put_domino(10, 11, true), "the same domino again changed something");
+        // A tracker stamped over one of the first domino's pixels takes that domino up whole,
+        // and leaves the other.
+        assert!(d.put(12, 9, Some(Part::Tracker)));
+        assert_eq!((d.dominoes(), d.blocks(Part::Tracker).0), ((vec![((10, 11), (10, 12))], vec![]), vec![(11, 8)]));
+        // Painting over a domino's pixel takes it up whole.
+        assert!(d.put(10, 12, Some(Part::Hull)));
+        assert_eq!((d.dominoes().0.len(), d.get(10, 11), d.stats().count), (0, None, 10));
+        assert!(d.put(12, 9, Some(Part::Hull)));
+        assert_eq!(d.stats().count, 2);
+        let mut d = Design::blank("T");
+        assert!(d.put(12, 12, Some(Part::Tracker)));
+        assert_eq!(d.stats().count, 9);
+        // Its power is for the whole block, and it's a gun.
+        let st = d.stats();
+        assert_eq!((st.tracker, st.used, st.armed()), (1, 16, true));
+        // Painting over any pixel of it takes it up whole.
+        assert!(d.put(13, 13, Some(Part::Hull)));
+        assert_eq!((d.blocks(Part::Tracker).0.len(), d.stats().count), (0, 1));
+        // Too near the edge to fit.
+        assert!(!d.put(GRID - 1, 5, Some(Part::HeavyPlate)) && !d.put_domino(5, GRID - 1, true) && !d.put(0, 5, Some(Part::Tracker)));
+        // The rectangle fills a box of an even number of cells, and leaves the last column of
+        // an odd one out.
+        let mut e = Design::blank("R");
+        assert!(e.fill_box((20, 20), (22, 22), Some(Part::HeavyPlate)));
+        assert_eq!((e.dominoes().0.len(), e.dominoes().1.len(), e.get(22, 20)), (3, 0, None));
+        // Erasing a box that touches a domino takes it up whole.
+        assert!(e.fill_box((21, 22), (21, 22), None));
+        assert_eq!(e.dominoes().1.len(), 0);
+        // Fill refuses a tracker, and heavy plate where it wouldn't cut into dominoes; it fills
+        // a hole it does cut into.
+        let mut ring = Design::from_rows("RING", &["hhhh", "h..h", "hhch"]);
+        let (l, t, _, _) = ring.used_box().unwrap();
+        assert!(ring.flood((l + 1, t + 1), Some(Part::Tracker)).is_err());
+        assert_eq!(ring.flood((l + 1, t + 1), Some(Part::HeavyPlate)), Ok(true));
+        assert_eq!(ring.dominoes().0.len(), 1);
+        let mut odd = Design::from_rows("ODD", &["hhhhh", "h...h", "hhchh"]);
+        let (l, t, _, _) = odd.used_box().unwrap();
+        let before = odd.cells.clone();
+        assert!(odd.flood((l + 1, t + 1), Some(Part::HeavyPlate)).is_err());
+        assert_eq!(odd.cells, before, "a refused fill changed the drawing");
+        // A heavy pixel left over (say, from a file) is loose; a shape a first pass in reading
+        // order would cut wrong still cuts into dominoes.
+        assert_eq!(Design::from_rows("F", &["aah", "aac", "ahh"]).check().loose.len(), 1);
+        assert!(Design::from_rows("L", &["aaa", "ahc"]).check().ok());
+        assert!(Design::from_rows("S", &["haah", "aaac", "ahhh"]).check().ok());
+    }
+
+    #[test]
     fn shapes_know_where_their_cannons_are() {
         let d = &defaults()[3];
         let s = d.shape();
-        assert_eq!(s.cannons.len(), 1);
-        let c = s.cannons[0];
+        assert_eq!(s.turrets.len(), 1);
+        let c = s.turrets[0];
         assert_eq!((c as i32 % s.w, c as i32 / s.w), (6, 5));
     }
 
@@ -2246,7 +2673,7 @@ mod tests {
         assert_eq!(PARTS.len(), PART_INFO.len());
         for p in PARTS {
             let info = p.info();
-            assert_eq!(format!("{p:?}").to_uppercase(), info.name, "{:?} got {}'s row", p, info.name);
+            assert_eq!(format!("{p:?}").to_uppercase(), info.name.replace(' ', ""), "{:?} got {}'s row", p, info.name);
             assert_eq!(Part::from_ch(info.ch), Some(p));
             assert!(info.glyph.iter().all(|r| r.chars().count() == 7), "{}'s shape isn't 7x7", info.name);
         }

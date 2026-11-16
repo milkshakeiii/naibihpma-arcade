@@ -130,6 +130,8 @@ pub struct Ed {
     /// Where the grid's top-left corner sits from the canvas's, in screen pixels.
     pub pan: (i32, i32),
     pub stamp: Option<Stamp>,
+    /// Heavy plate's domino stands two tall (else it lies two wide). [T] turns it.
+    pub upright: bool,
     /// A mouse button held down on the canvas: whether it's the right one, and the cell it went
     /// down on.
     pub drag: Option<(bool, (i32, i32))>,
@@ -149,7 +151,7 @@ impl Ed {
     }
 
     pub fn new() -> Ed {
-        Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, drag: None, last_cell: None, undo: Vec::new(), framed: None }
+        Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, upright: false, drag: None, last_cell: None, undo: Vec::new(), framed: None }
     }
 }
 
@@ -211,7 +213,16 @@ fn outline_clip(fb: &mut Framebuffer, clip: Rect, x: i32, y: i32, w: i32, h: i32
 pub fn swatch(fb: &mut Framebuffer, x: i32, y: i32, p: Part) {
     fb.rect_fill(x, y, 9, 9, OUTLINE);
     fb.rect_fill(x + 1, y + 1, 7, 7, part_col(p, 0));
-    icons::draw(fb, Icon::Part(p), x + 1, y + 1, if p == Part::Cannon { GOLD } else { OUTLINE });
+    icons::draw(fb, Icon::Part(p), x + 1, y + 1, if p.turret() { breech_col(p) } else { OUTLINE });
+}
+
+/// The colour of a turret's breech, its centre pixel.
+pub fn breech_col(p: Part) -> u8 {
+    if p == Part::Tracker {
+        TRACKER_HI
+    } else {
+        GOLD
+    }
 }
 
 impl Pg {
@@ -370,9 +381,14 @@ impl Pg {
         }
     }
 
+    /// [T]: turns the stamp you're holding, or, painting heavy plate, its domino.
     fn turn_stamp(&mut self) {
         match &self.ed.stamp {
             Some(st) => self.ed.stamp = Some(st.turned()),
+            None if self.ed.part == Part::HeavyPlate => {
+                self.ed.upright = !self.ed.upright;
+                self.say(if self.ed.upright { "HEAVY PLATE: TWO TALL" } else { "HEAVY PLATE: TWO WIDE" });
+            }
             None => self.say("NO STAMP TO TURN: [C] COPY ONE FIRST"),
         }
     }
@@ -409,9 +425,7 @@ impl Pg {
     fn lock_seed(&mut self) {
         let d = &mut self.lib[self.slot];
         if d.seeded && d.get(SEED_CELL.0, SEED_CELL.1) != Some(Part::Core) {
-            if let Some(b) = d.cannon_at(SEED_CELL.0, SEED_CELL.1) {
-                d.fill_box(b, (b.0 + 2, b.1 + 2), None);
-            }
+            d.clear_at(SEED_CELL);
             d.set(SEED_CELL.0, SEED_CELL.1, Some(Part::Core));
         }
     }
@@ -436,21 +450,35 @@ impl Pg {
     fn paint(&mut self, (cx, cy): (i32, i32), erase: bool) {
         let p = if erase { None } else { Some(self.ed.part) };
         let mirror = self.ed.mirror;
+        let upright = self.ed.upright;
         let d = &mut self.lib[self.slot];
-        let mut changed = d.put(cx, cy, p);
-        let mx = mirror_x(cx);
-        // A mirrored cannon that would overlap its twin is skipped rather than replacing it.
-        if mirror && mx != cx && !(p == Some(Part::Cannon) && (mx - cx).abs() < 3) {
-            changed |= d.put(mx, cy, p);
+        let mut changed;
+        if p == Some(Part::HeavyPlate) {
+            // A domino's twin is its mirror image: two wide, the twin's top-left is a cell
+            // further in; two tall on the middle column, it's its own twin. A twin that would
+            // overlap it is skipped rather than replacing it.
+            changed = d.put_domino(cx, cy, upright);
+            let mx = mirror_x(cx) - !upright as i32;
+            if mirror && (if upright { mx != cx } else { (mx - cx).abs() >= 2 }) {
+                changed |= d.put_domino(mx, cy, upright);
+            }
+        } else {
+            // A turret's twin is centred on the mirrored cell, and is skipped if it would overlap.
+            changed = d.put(cx, cy, p);
+            let mx = mirror_x(cx);
+            let n = p.map_or(1, |q| q.side());
+            if mirror && mx != cx && !(n > 1 && (mx - cx).abs() < n) {
+                changed |= d.put(mx, cy, p);
+            }
         }
         self.edited |= changed;
         self.lock_seed();
     }
 
     /// Paints every cell between the last sample and this one, so a fast stroke leaves no gaps.
-    /// A cannon stamps once per click, not along the stroke.
+    /// A turret or a domino of heavy plate stamps once per click, not along the stroke.
     fn paint_to(&mut self, cell: (i32, i32), erase: bool) {
-        if !erase && self.ed.part == Part::Cannon {
+        if !erase && (self.ed.part.side() > 1 || self.ed.part == Part::HeavyPlate) {
             if self.ed.last_cell.is_none() {
                 self.paint(cell, false);
             }
@@ -488,15 +516,24 @@ impl Pg {
         }
     }
 
-    /// The rectangle tool's box, and its mirror. Cannons tile the box in whole blocks, and the
-    /// mirrored box tiles exactly the mirror image of them.
+    /// The rectangle tool's box, and its mirror. A part that comes in blocks tiles the box in
+    /// whole ones, and the mirrored box tiles exactly the mirror image of them.
     fn fill_box_at(&mut self, a: (i32, i32), b: (i32, i32), erase: bool) {
         let p = if erase { None } else { Some(self.ed.part) };
         let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
         let (mut x1, mut y1) = (a.0.max(b.0), a.1.max(b.1));
-        if p == Some(Part::Cannon) {
-            x1 = x0 + (x1 - x0 + 1) / 3 * 3 - 1;
-            y1 = y0 + (y1 - y0 + 1) / 3 * 3 - 1;
+        if let Some(n) = p.map(|q| q.side()).filter(|&n| n > 1) {
+            x1 = x0 + (x1 - x0 + 1) / n * n - 1;
+            y1 = y0 + (y1 - y0 + 1) / n * n - 1;
+        }
+        // Heavy plate fills an even number of cells: an odd box loses its right-hand column
+        // here, so the mirrored box loses its left-hand one.
+        if p == Some(Part::HeavyPlate) && (x1 - x0 + 1) * (y1 - y0 + 1) % 2 == 1 {
+            if x1 > x0 {
+                x1 -= 1;
+            } else {
+                y1 -= 1;
+            }
         }
         let mirror = self.ed.mirror;
         let d = &mut self.lib[self.slot];
@@ -725,7 +762,7 @@ impl Pg {
             };
             let hov = r.contains(m.0, m.1);
             ui::button(fb, r, "", hov && !down, down);
-            let off = b == Btn::Turn && e.stamp.is_none();
+            let off = b == Btn::Turn && e.stamp.is_none() && e.part != Part::HeavyPlate;
             let col = if off { TEXT_FAINT } else if down { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
             icons::draw(fb, b.icon(), r.x + 8, r.y + 3, col);
         }
@@ -828,14 +865,14 @@ impl Pg {
             let (cx1, cy1) = (((c.w - e.pan.0) / z).min(GRID - 1), ((c.h - e.pan.1) / z).min(GRID - 1));
             // Guide blocks are 5 cells, centred, and the centre column (the mirror line) is lit.
             let band = |k: i32| ((k - GRID / 2).abs() + 2) / 5;
-            let breeches: Vec<(i32, i32)> = d.cannon_blocks().0.iter().map(|&(x, y)| (x + 1, y + 1)).collect();
+            let breeches = d.breeches();
             for cy in cy0..=cy1 {
                 for cx in cx0..=cx1 {
                     let (x, y) = (ox + cx * z, oy + cy * z);
                     let p = d.get(cx, cy);
-                    let breech = p == Some(Part::Cannon) && breeches.contains(&(cx, cy));
+                    let breech = p.is_some_and(|p| breeches.contains(&(p, (cx, cy))));
                     let col = match p {
-                        Some(_) if breech => GOLD,
+                        Some(p) if breech => breech_col(p),
                         Some(p) => part_col(p, 0),
                         None if cx == GRID / 2 => PANEL,
                         None if (band(cx) + band(cy)) % 2 == 0 => PANEL_DEEP,
@@ -843,7 +880,7 @@ impl Pg {
                     };
                     fill_clip(fb, c, x, y, inner, inner, col);
                     // At 8x each cell shows its part's shape too.
-                    if let Some(p) = p.filter(|&p| z >= 8 && (p != Part::Cannon || breech) && c.contains(x, y) && c.contains(x + 6, y + 6)) {
+                    if let Some(p) = p.filter(|&p| z >= 8 && (!p.turret() || breech) && c.contains(x, y) && c.contains(x + 6, y + 6)) {
                         icons::draw(fb, Icon::Part(p), x, y, OUTLINE);
                     }
                 }
@@ -893,12 +930,23 @@ impl Pg {
                     }
                 }
                 (None, Tool::Copy) => frame(fb, cell, cell, ACCENT),
+                _ if e.tool == Tool::Pencil && e.part == Part::HeavyPlate => {
+                    // The domino the click would put down, and its mirror twin.
+                    let far = |x: i32| if e.upright { (x, cell.1 + 1) } else { (x + 1, cell.1) };
+                    frame(fb, cell, far(cell.0), WHITE);
+                    let mx = mirror_x(cell.0) - !e.upright as i32;
+                    if e.mirror && (if e.upright { mx != cell.0 } else { (mx - cell.0).abs() >= 2 }) {
+                        frame(fb, (mx, cell.1), far(mx), TEXT_FAINT);
+                    }
+                }
                 _ => {
-                    let n = if e.tool == Tool::Pencil && e.part == Part::Cannon { 1 } else { 0 };
-                    frame(fb, (cell.0 - n, cell.1 - n), (cell.0 + n, cell.1 + n), WHITE);
+                    // A turret shows the whole block the click would stamp, and its mirror twin.
+                    let n = if e.tool == Tool::Pencil { e.part.side() } else { 1 };
+                    let a = (n - 1) / 2;
+                    frame(fb, (cell.0 - a, cell.1 - a), (cell.0 + a, cell.1 + a), WHITE);
                     let mx = mirror_x(cell.0);
                     if e.mirror && mx != cell.0 {
-                        frame(fb, (mx - n, cell.1 - n), (mx + n, cell.1 + n), TEXT_FAINT);
+                        frame(fb, (mx - a, cell.1 - a), (mx + a, cell.1 + a), TEXT_FAINT);
                     }
                 }
             }
@@ -928,7 +976,7 @@ impl Pg {
         if let Some(i) = (0..BTNS.len()).find(|&i| at(tool_rect(i))) {
             return match BTNS[i] {
                 Btn::Tool(t) => self.tool_info(t),
-                Btn::Turn => "[T] TURN THE STAMP YOU'RE HOLDING A QUARTER TURN CLOCKWISE.".into(),
+                Btn::Turn => "[T] TURN THE STAMP YOU'RE HOLDING A QUARTER TURN CLOCKWISE, OR HEAVY PLATE'S DOMINO FROM TWO WIDE TO TWO TALL AND BACK.".into(),
                 Btn::Undo => "[U] UNDO THE LAST CHANGE TO THIS DESIGN.".into(),
                 Btn::Mirror => "[M] MIRROR: EVERY TOOL ALSO WORKS ON THE OTHER SIDE OF THE LIT CENTRE COLUMN.".into(),
                 Btn::Clear => "CLEAR THE WHOLE DESIGN. [U] UNDO BRINGS IT BACK.".into(),
@@ -1012,9 +1060,10 @@ impl Pg {
         let p = self.ed.part.name();
         let mirror = if self.ed.mirror { " MIRROR IS ON: IT ALSO WORKS ON THE OTHER SIDE." } else { "" };
         match t {
-            Tool::Pencil if self.ed.part == Part::Cannon => format!("[P] PENCIL, PAINTING CANNON: A CLICK STAMPS A 3X3 CANNON CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF ONE TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}"),
+            Tool::Pencil if self.ed.part.side() == 3 => format!("[P] PENCIL, PAINTING {p}: A CLICK STAMPS A 3X3 {p} CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF ONE TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}"),
+            Tool::Pencil if self.ed.part == Part::HeavyPlate => format!("[P] PENCIL, PAINTING {p}: A CLICK PUTS DOWN A DOMINO {} FROM THE CELL ([T] TURNS IT); RIGHT-CLICK EITHER HALF TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}", if self.ed.upright { "TWO TALL" } else { "TWO WIDE" }),
             Tool::Pencil => format!("[P] PENCIL, PAINTING {p}. LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}"),
-            Tool::Rect => format!("[R] RECTANGLE: DRAG A BOX TO FILL IT WITH {p}; RIGHT-DRAG EMPTIES ONE. CANNONS TILE THE BOX IN 3X3 BLOCKS.{mirror}"),
+            Tool::Rect => format!("[R] RECTANGLE: DRAG A BOX TO FILL IT WITH {p}; RIGHT-DRAG EMPTIES ONE. TURRETS TILE THE BOX IN 3X3 BLOCKS; HEAVY PLATE FILLS AN EVEN NUMBER OF CELLS.{mirror}"),
             Tool::Fill => format!("[F] FILL: CLICK A HOLE INSIDE THE SHIP TO FILL IT WITH {p}, OR A PATCH OF ONE PART TO SWAP IT FOR {p}. RIGHT-CLICK EMPTIES A PATCH. OPEN SPACE WON'T FILL.{mirror}"),
             Tool::Copy if self.ed.stamp.is_some() => format!("STAMP: CLICK TO PLACE IT. IT BECOMES ORDINARY PIXELS; NOTHING STAYS LINKED. [T] TURNS IT, RIGHT-CLICK PUTS IT DOWN.{mirror}"),
             Tool::Copy => "[C] COPY: DRAG A BOX OVER PART OF A SHIP TO PICK IT UP AS A STAMP, OR RIGHT-CLICK A DESIGN'S TAB TO PICK UP THE WHOLE DESIGN.".into(),
@@ -1035,17 +1084,21 @@ fn gauges(st: &Stats) -> [(Icon, i32, Option<i32>, String, u8); 4] {
         (Icon::Speed, speed, None, format!("{} PX/S", st.top_speed_px_s()), ACCENT),
         (Icon::TurnRate, turn, None, if moves { format!("{}.{} S", st.turn_ds() / 10, st.turn_ds() % 10) } else { "-".into() }, ACCENT),
         (Icon::Thrust, push, Some(5), format!("{}/{}", st.thrust, st.mass), ACCENT),
-        (Icon::Cat(Cat::Power), load, None, format!("{}/{}", st.used, st.made), if st.used > st.made { BAD } else { ACCENT }),
+        (Icon::Power, load, None, format!("{}/{}", st.used, st.made), if st.used > st.made { BAD } else { ACCENT }),
     ]
 }
 
-/// How many of each part the design has (cannons by the block), leaving out the ones it lacks.
+/// How many of each part the design has (turrets by the block), leaving out the ones it lacks.
 fn tally(d: &Design, st: &Stats) -> Vec<(Part, i32)> {
     PARTS
         .iter()
         .map(|&p| {
-            // Cannons count by the block; everything else by the pixel.
-            let n = if p == Part::Cannon { st.cannon } else { d.cells.iter().filter(|c| **c == Some(p)).count() as i32 };
+            // Turrets count by the block, as a turret is one gun; everything else by the pixel.
+            let n = match p {
+                Part::Cannon => st.cannon,
+                Part::Tracker => st.tracker,
+                _ => d.cells.iter().filter(|c| **c == Some(p)).count() as i32,
+            };
             (p, n)
         })
         .filter(|&(_, n)| n > 0)
@@ -1189,6 +1242,35 @@ mod tests {
         assert_eq!(pg.lib[0].stats().count, n + 9);
         pg.undo();
         assert_eq!(pg.lib[0].cells, start);
+    }
+
+    #[test]
+    fn a_mirrored_domino_of_heavy_plate_lands_as_its_mirror_image() {
+        let mut pg = Pg::new(None, None);
+        pg.select_slot(5);
+        pg.press_btn(Btn::Clear);
+        pg.ed.part = Part::HeavyPlate;
+        pg.ed.mirror = true;
+        // Two wide: its cells are 20-21, so its twin's are their mirrors, 77-78.
+        pg.paint((20, 30), false);
+        assert_eq!(pg.lib[5].dominoes(), (vec![((20, 30), (21, 30)), ((77, 30), (78, 30))], vec![]));
+        assert_eq!(mirror_x(21), 77);
+        // [T] stands it up: two tall, its twin straight across.
+        pg.key_yard(Key::Letter('T'));
+        assert!(pg.ed.upright);
+        pg.paint((20, 40), false);
+        assert!(pg.lib[5].dominoes().0.contains(&((20, 40), (20, 41))) && pg.lib[5].dominoes().0.contains(&((78, 40), (78, 41))));
+        // Two tall on the middle column, it's its own twin.
+        pg.paint((GRID / 2, 50), false);
+        assert_eq!(pg.lib[5].dominoes().0.iter().filter(|(a, _)| a.1 == 50).count(), 1);
+        // Two wide across the middle column, the twin would overlap it, so there's only one.
+        pg.key_yard(Key::Letter('T'));
+        pg.paint((GRID / 2, 60), false);
+        assert_eq!((pg.lib[5].dominoes().0.iter().filter(|(a, _)| a.1 == 60).count(), pg.lib[5].dominoes().1.len()), (1, 0));
+        // A tracker's twin is centred on the mirrored cell, as a cannon's is.
+        pg.ed.part = Part::Tracker;
+        pg.paint((30, 40), false);
+        assert_eq!(pg.lib[5].blocks(Part::Tracker).0, vec![(29, 39), (mirror_x(31), 39)]);
     }
 
     #[test]

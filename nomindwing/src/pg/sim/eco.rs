@@ -319,7 +319,7 @@ struct Mind {
 fn class_of(st: &Stats) -> usize {
     if st.count > 20 {
         2
-    } else if st.lance + st.cannon + st.beam + st.missile + st.repeater > 0 {
+    } else if st.lance + st.cannon + st.tracker + st.beam + st.missile + st.repeater > 0 {
         1
     } else {
         0

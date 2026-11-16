@@ -2094,6 +2094,108 @@ The worst frame (37 ms of 66.7) came in a 35-minute AI match on the starter deck
 
 ---
 
+## Heavy plate, the piercer and the tracker (2026-11-15)
+
+Henry asked which part to build next, "something to reward non-swarmy ships or punish swarms, especially lancers". To my pitch of a tracker turret, with heavy plate second: "maybe all three: tracker, heavy plate, and armor-piercing. I think we want the tracker and other guns, but I want to avoid the solution to everything just being 'add a gun.' I want designing a ship to be more interesting than just which gun to slap on it. Note that this will mean adding an integer level armor piercing system. Please summarize that before you begin." My summary: the game already ran on integer levels (a shot's "damage" against a pixel's armour, since round 2), and the real risk is that each level is all or nothing while decks are fixed for a match. On the upgrader's price, Henry: "Hull plus slower round for now." Then, while it was being built: "One tweak, I think missile should be piercing 2 to start with. And can you clarify exactly how Lance's number of pierced pixels interact with hull being 0 and the other as armor values" (the answer is below the table). Not committed.
+
+**Why lancers beat big ships, before any of this:** in 1 BATTLESHIP VS 21 LANCERS (188 px against 189) the lancers win all 12 in about 14 s and lose 5. A lance can't miss a big ship and punches 6 px whatever fires it, so 21 lancers bring 42 lances to the battleship's 6. The battleship's guns are poor against small ships: its cannons turn slowly and go for big ships, its lances hold fire on targets that could dodge, and its flak reaches 48 px to a lance's 100. Missiles chase small ships, but SWARM's fighters carry four flak each and shoot them down.
+
+| row | what | verdict |
+|---|---|---|
+| V1 | **One rule for every hit:** a shot breaks a pixel only if it pierces more than the pixel's armour; otherwise it bounces off and stops there. Pixels have no hit points, so that's all a hit is. Armour: bare 0, plate 1, heavy plate 2. Piercing: flak, repeaters and trackers 1, lances and missiles 2, cannons and beams 3, the most there is, so everything has an answer. A shot that goes on through (a lance, a beam) uses up 1 and the pixel's armour more of its depth for each pixel it breaks (below the table); a burst goes off wherever it meets a ship and breaks every pixel of its 3x3 whose armour it out-pierces. This was the rule already, with "damage" for piercing; the code and every part's text now say piercing. | |
+| V2 | **Heavy plate:** armour 2, in dominoes two wide or two tall, 4 weight a pixel (a domino weighs 8, a plate pixel 2), no power. Only a shot that pierces 3 breaks it: cannons, beams, and a lance or missile beside a piercer. A lance or beam uses up 3 of its depth breaking a pixel. Built first as 2x2 slabs (my call); Henry: "we need to make heavy plate two tall or two wide, rotatable, not 2x2, because it's too awkward to place now in the builder, especially with symmetric mode on." Now dominoes: [T] or the turn button turns the next one; any shape that cuts into dominoes is legal (the yard finds a way to cut it, so a drawing doesn't say which way each one lies); a heavy pixel left over is loose. A domino two tall on the middle column is its own mirror twin. The rectangle fills an even number of cells (an odd box loses its right-hand column, and its mirror its left-hand one), and fill fills a hole only if it cuts into dominoes. | Dominoes (Henry). A whole skin of it that lancers can't touch without piercers: "that's not necessarily bad... I think it seems about right". |
+| V3 | **The beam pierces 3 (it was 2).** A change to a rule you agreed, but it changes nothing that was in the game: nothing had armour 2. With heavy plate in, it means heavy plate stops a small ship's lance but not a big ship's beam. | |
+| V4 | **The piercer** (UPGRADES, key 4; letter `i`): 1 weight, uses 2 power, so it costs its pixel and two of hull. A gun touching it edge to edge fires heavier rounds: one more piercing, up to 3, flying a quarter slower (a lance's 60 px/s goes to 45, flak's and a repeater's 90 to 75, a tracker's 135 to 105, a missile's 45 to 34, so the fastest ships outrun it). A slower lance shot holds fire on more targets, as its aim rule already says, and flak leads a slower missile by its own speed. Two piercers on one gun are no better than one; a gun already at 3 (a cannon, a beam) isn't changed. A column gun or a turret takes it if any of its pixels touches one. Shoot the piercer off and its guns fire plain rounds again. | |
+| V5 | **The tracker** (letter `t`): a 3x3 turret, 18 weight, 16 power (twice a cannon's), so it needs a lot of hull. It reaches 130 px, swings about 170 degrees a second (four times a cannon), fires every 0.4 s, and its shots fly at 135 px/s and pierce 1, so plate turns them. It goes for the small ships in reach (anything no more than half as big again as the smallest), the one its barrel reaches soonest, and aims at its middle, led by how it's flying, so shots dig in to a small ship's core; a shot at the middle that would meet none of the target's standing pixels goes at the standing pixel nearest the middle instead (the second half since Henry's question below). | |
+| V6 | **UPGRADES replaces the empty POWER category** (key 4). An eighth weapon part didn't fit the weapons' two rows of buttons, and seven categories don't fit their row. POWER had nothing in it (hull is the power); your speed and blast-radius upgraders would go in UPGRADES too. The power gauge keeps its bolt. | |
+| V7 | **Blocks in the yard:** trackers go down and come up whole, as cannons do (centred on the cell), and a mirrored one lands as its mirror image. The rectangle tiles them; fill refuses them. (Heavy plate's dominoes: V2.) | |
+| V8 | **Missiles pierce 2** (Henry's tweak; they were 3). Their burst breaks bare pixels and plate, as it always did, and spares heavy plate. | |
+| V9 | **A burst goes off wherever it meets a ship**, whatever it meets first: a missile that hits heavy plate still bursts and breaks whatever of its 3x3 it out-pierces. Before, every burst out-pierced everything, so whether it bounced first never came up. My call, from the rule as written ("a burst breaks every pixel of its 3x3 whose armour it out-pierces"); the other reading is that it bounces off heavy plate whole. | |
+| V10 | **Five example ships on the library's Parts shelf** and nine fights in the arena window, after the teams' own (blue is a NEW PARTS side, red the starter deck's lancers and fighters, or the AP lancer): PICKET (one tracker, 36 px), BULWARK (four lances behind a prow of heavy plate, 41 px), AP LANCER (the starter lancer with a piercer between its lances, 12 px), IRONLANCER (the starter lancer behind plate, 12 px), BASTION (148 px and two cores, so it costs 156; redrawn, below). Each spends exactly the power it makes. No ready-made team uses the new parts, so the AI plays them only from a deck that has them. | |
+
+**How a lance's depth meets armour** (Henry's question). A lance shot pierces 2 and has 6 of depth. It meets the pixels on its line one at a time, in order, whoever's ship they're on:
+- If it doesn't pierce more than the pixel's armour, it bounces off and stops there, and nothing behind that pixel is touched. For a plain lance that's heavy plate (2 is not more than 2).
+- Otherwise the pixel breaks, and the shot loses 1 plus the pixel's armour from its depth: 1 for hull or any other bare part (cores, guns, engines: armour 0), 2 for plate, and 3 for heavy plate (which only a lance beside a piercer, at 3, gets to break).
+- It stops once its depth is spent. The pixel that spends it still breaks, even if it costs more than was left.
+
+So a plain lance breaks 6 bare pixels in a row, or 3 plates, or a plate and 4 bare. Five bare pixels and then a plate is 6 pixels too: the plate takes its last 1. It stops dead at heavy plate, after whatever it broke on the way to it. A lance beside a piercer breaks 6 bare pixels or 2 heavy plates; bare, bare, heavy plate uses 5 and leaves 1, so the next pixel goes too. A beam works the same way with 4 of depth for each of its pixels, piercing 3. Flak, repeater and tracker shots have 1 of depth: one bare pixel, or a bounce off plate.
+
+**My calls, for you to rule on:**
+- The tracker aims at the middle of its target; flak and cannons aim at a random pixel.
+- The tracker doesn't aim at missiles. Its shots still take a missile down if they meet one, as flak's and a repeater's do.
+- Its targeting rule is the cannon's turned round (no more than 1.5 times the smallest in reach, where the cannon takes at least 2/3 of the biggest).
+- The numbers were set once and not tuned: heavy plate's 4 weight, the piercer's 2 power and quarter of speed, and the tracker's 16 power, 130 px, 0.4 s, 135 px/s and turn.
+
+**What they come to** (`--pg-sim teams`, 12 seeds a fight, both sides planning as in a match; px lost are averages over the 12):
+
+| fight | blue won | red won | drawn | average length | blue lost | red lost |
+|---|---|---|---|---|---|---|
+| 2 PICKETS VS 8 LANCERS (before the tracker fix below; after it, 9-3 again) | 9 | 3 | 0 | 0:34 | 33 px | 67 px |
+| 2 PICKETS VS 8 FIGHTERS | 0 | 12 | 0 | 0:10 | 72 | 27 |
+| 2 PICKETS VS 6 IRONLANCERS (after the fix: 1-11) | 3 | 9 | 0 | 0:52 | 57 | 25 |
+| 2 BULWARKS VS 9 LANCERS | 1 | 11 | 0 | 0:46 | 79 | 32 |
+| 2 BULWARKS VS 7 AP LANCERS | 0 | 11 | 1 | 0:51 | 80 | 29 |
+| 7 AP LANCERS VS 9 LANCERS | 3 | 9 | 0 | 1:11 | 76 | 50 |
+| 1 BASTION VS 15 LANCERS (first drawing) | 0 | 12 | 0 | 0:17 | 131 | 46 |
+| 1 BASTION VS 15 FIGHTERS (first drawing) | 0 | 12 | 0 | 0:07 | 131 | 28 |
+| (for comparison) 1 BATTLESHIP VS 21 LANCERS | 0 | 12 | 0 | 0:14 | 188 | 56 |
+
+- **Each part does its one job.** Trackers beat an equal cost of lancers 9-3 (and still do after the tracker fix below). The lancer's answer to them, plate, works: lancers behind plate beat the trackers 9-3. Lancers with a piercer beat heavy plate 11-0. And the piercer's slower rounds cost against bare ships: at equal cost, plain lancers beat lancers with piercers 9-3.
+- **My two big drawings don't beat a swarm.** The BASTION loses to 15 lancers and to 15 fighters as badly as the battleship does to 21, and kills about two lancers before it goes. I haven't watched these fights; my reading of the drawings is that heavy plate only on the prow leaves the sides and stern bare hull for a swarm to reach, and that fighters close inside their flak's 48 px within seconds, where the PICKET's two flak and the BASTION's four meet 32 and 60.
+- **So the parts are in, but "a big ship that beats a swarm" isn't shown yet.** That's down to drawing as much as numbers, and I haven't tuned either. Two drawings would test it before any number moves: a ship in a whole skin of heavy plate, with its guns buried inside (shots pass through their own ship, and only engines must be open), and a tracker ship in plate against fighters. The first would be immune to everything SWARM fires, which is the all-or-nothing risk from the summary showing up.
+
+**Henry on the results (2026-11-15):** "If you used the heavy plate to cover the whole anti-lancer ship the lancers would never win without piercers, that's not necessarily bad, that's the same way you can shield against fighters, in fact I think it seems about right considering there's a nice little multi-layered interaction there." On cores: "Another thing larger ships could use to their advantage is the ability to have at least 2 cores. That's an actual good anti-lancer strategy since lancers are largely about splitting enemy ships down the middle." (Extra cores have been in since round 3, at +8 for the second; none of my example ships has one.) And overall: "This may have actually worked as intended, with the caveat that I bet <25px ships are still a bit too strong overall. But that will change as we add more parts." So no numbers move for now.
+
+**The tracker stuck on a wreck (2026-11-15).** Henry, watching test 23 (1 BASTION VS 17 FIGHTERS): "why does the bastion's left gun get stuck in one position and just keep firing?" A trace of that fight: from about 7 s to the end at 34 s, its left tracker fired some 200 shots at one fighter wreck, sitting still with two pixels left and its middle pixel gone. The tracker aimed at the middle, so every shot flew through the hole, on a diagonal between the two pixels, and missed. (Flak's code had warned of this: it never aims at the middle, as that drills a tunnel later shots fly straight through.) The fix: a shot at the middle that would meet none of the target's standing pixels goes at the standing pixel nearest the middle instead. A tracker now kills that wreck (a test puts one at the bearing that missed), and only shots that would have missed are changed. Missiles, which also steer at a ship's middle, killed the same wreck with their first burst from six bearings, so they don't have the fault.
+
+Every fight with a tracker in it moved; the other 27 team fights didn't (12 seeds). The middle column is my first fix, which had a slip of its own (below):
+
+| fight | before the fix | first fix | the fix |
+|---|---|---|---|
+| 2 PICKETS VS 8 LANCERS | 9-3 | 2-9, 1 drawn | 9-3 |
+| 2 PICKETS VS 8 FIGHTERS | 0-12 | 0-12 | 0-12 |
+| 2 PICKETS VS 6 IRONLANCERS | 3-9 | 3-8, 1 drawn | 1-11 |
+| 1 BASTION VS 17 LANCERS | 8-0, 4 drawn (1:30) | 12-0 | 11-0, 1 drawn (a stalemate; 0:58) |
+| 1 BASTION VS 17 FIGHTERS | 12-0 | 12-0 | 12-0 |
+| 1 BASTION VS 13 AP LANCERS | 3-9 | 2-10 | 2-10 |
+
+- **The first fix made the PICKETS lose to lancers** (2-9; over 48 seeds 18-29, where the old aim won 34-14), and Henry asked me to find out why. Run side by side on the same seed, the old aim and the first fix parted before either tracker had fired: in the planners' look-ahead, which plays the fight forward with the same tracker rule. And with the look-ahead held the same, the live shots that differed were at healthy lancers, 9 pixels of 9, core standing. The check "would a shot at the middle meet anything" was wrong. The tracker aims from the snapshot of where its target stood as the tick began, as every gun does, but the check looked at the target's pixels where they were after its move that tick. A lancer crossing at 2 px a tick, 3 px wide, came out "missed", and the fallback aimed from where it now was and led it a second time, two pixels further on. So the PICKETS got worse from my slip, not because aiming through a hole was better.
+- **The fix as it stands** takes the check and the fallback from the snapshot too. Now the two aims differ only at real wrecks (lancers down to 1 to 5 pixels, their lances gone, the middle a hole), and over 48 seeds the PICKETS beat 8 lancers 38-10, where the old aim won 34-14. A test fires at a one-pixel bar crossing at 2 px a tick, a tick after its snapshot, and fails on the slip.
+- **The BASTION's four draws against lancers are gone,** so they were most likely turrets stuck on wrecks, not lancers it couldn't catch as I'd guessed.
+
+**The BASTION redrawn (2026-11-15).** Henry: "redraw the bastion". Now 148 px with two cores (156 to build), 15 px/s like the battleship, every pixel of power spent:
+
+```
+.aaaaaaaaaaaa.     a heavy plate (a skin a pixel thick: 42 pixels in dominoes)
+.ahhhhllhhhha.     l lance, i piercer: four lances, each touching a piercer
+.attthiihttta.     t tracker: one on each flank
+.attthllhttta.     g flak, four
+eattthhhhtttae     c core, two, apart
+eaghhhhhhhhgae     e engine: twelve along the stern and two on each flank, outside the skin
+.ahhhhhhhhhha.
+.ahhchhhhchha.
+.aghhhhhhhhga.
+.ahhhhhhhhhha.
+.aaaaaaaaaaaa.
+.eeeeeeeeeeee.
+```
+
+Its guns fire through its own skin (a shot only meets enemy pixels), so nothing but the engines is bare. The engines have to be outside: each needs a straight 3-wide way out.
+
+| fight (12 seeds) | BASTION won | it lost | drawn | average length | BASTION lost | other side lost |
+|---|---|---|---|---|---|---|
+| 1 BASTION VS 17 LANCERS (156 against 153) | 11 | 0 | 1 (a stalemate) | 0:58 | 11 px | 16 of 17 |
+| 1 BASTION VS 17 FIGHTERS | 12 | 0 | 0 | 0:20 | 16 px | all 17 |
+| 1 BASTION VS 13 AP LANCERS (156 against 156) | 2 | 10 | 0 | 0:36 | 132 px | 5 of 13, 88 px |
+
+(After the tracker fix above; before it, 8-0 with 4 drawn, 12-0, and 3-9.)
+
+- **Plain lancers and fighters can't get through it.** Against lancers it loses only engines (11 px on average) and kills 16 of 17. Fighters die in 20 s.
+- **Lancers with piercers are its answer,** 10-2 at equal cost. In three of their wins it was cut in two and a piece with a core flew on (splits).
+- That's the layering Henry described: heavy plate beats plain lances and flak, the piercer beats heavy plate, and plain lancers beat lancers with piercers (9-3, above).
+
+**Nothing old moved:** with these parts in, every fight recorded before (the starter deck's 15, the 19 part fights, the 24 team fights and the old reference fleet's) comes out exactly as it did, tick for tick, since no old drawing has the new parts, the beam's 3 meets no armour 2, and a missile at 2 breaks plate as it did at 3. (Checked again after the missile change, for every fight with a missile in it.) Twelve deliberate breaks of the new rules (heavy plate at armour 1, rounds not slowed or not raised, stacking piercers, the tracker on big ships or turning like a cannon or piercing plate, the beam back at 2, every burst at 3, the missile at 3, a heavier missile no slower, a burst that bounces off what it can't break, and since the tracker fix, a tracker that always aims at the middle and one that checks against where its target is now) are each caught by the new tests. 302 tests pass.
+
 ## Wishlist (Henry's, for later; none of it is a work order)
 
 - **A king that's upgraded twice.** Henry, 2026-11-14: "Once we eventually get to king design, I want to have people optionally design two upgrades to their king where you pay the price upfront and it grows into a bigger, more consequential mothership/king. (twice. so you draw your starter king and then two bigger versions)." So three drawings of a king: the starter and two bigger ones, each upgrade paid for in full before it grows.
@@ -2109,7 +2211,7 @@ The worst frame (37 ms of 66.7) came in a 35-minute AI match on the starter deck
   - **A blast-radius upgrade** for weapons, "works even on weapons that aren't splashy already!"
   - **A second level of armour** with a higher level of penetration needed to get through it. (Today there's one: plate.)
   - **Engines that increase turn speed**, "if that isn't already on there". (It partly is: a ship takes 2 x its weight / its thrust ticks to turn a quarter, so engines already turn it faster, by adding thrust. A part for turning alone would be new.)
-  - **A fast-tracking turret** with fast-moving anti-fighter projectiles: very effective against fighters, but large, and it needs lots of hull.
+  - **A fast-tracking turret** with fast-moving anti-fighter projectiles: very effective against fighters, but large, and it needs lots of hull. (Built 2026-11-15 as the TRACKER, with the second level of armour as HEAVY PLATE and the armour-penetration upgrade as the PIERCER: "Heavy plate, the piercer and the tracker".)
   - **Engines that must be even more exposed** but are a little more powerful than today's. (Today each engine needs a 3-wide way straight out of the ship for its exhaust.)
   - (The earlier list, of 2026-11-11, is in "The parts talk opens": logistics parts for miners and for speed, diagonal guns, stasis fields, rotation engines, rapid-fire guns, more turrets, a weapons charger, parts that need clearance, a sweeping weapon, more range and tracking play.)
 

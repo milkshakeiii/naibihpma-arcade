@@ -41,6 +41,13 @@ pub const PROJECTOR: u8 = 38;
 pub const PROJECTOR_HI: u8 = 39;
 /// The dotted line at the edge of a projector's reach.
 pub const PROJECTOR_DIM: u8 = 40;
+/// Heavy plate: a darker, bluer steel than plate.
+pub const HEAVY: u8 = 41;
+/// Piercer pixels.
+pub const PIERCER: u8 = 42;
+/// A tracker's housing, and its breech, barrel and shots.
+pub const TRACKER: u8 = 43;
+pub const TRACKER_HI: u8 = 44;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -110,6 +117,10 @@ pub fn game() -> Pal {
     set(&mut p, PROJECTOR, (96, 208, 252));
     set(&mut p, PROJECTOR_HI, (208, 240, 255));
     set(&mut p, PROJECTOR_DIM, (36, 96, 140));
+    set(&mut p, HEAVY, (100, 116, 152));
+    set(&mut p, PIERCER, (204, 64, 112));
+    set(&mut p, TRACKER, (132, 140, 68));
+    set(&mut p, TRACKER_HI, (188, 252, 228));
 
     set(&mut p, PANEL_LO, (36, 40, 56));
     set(&mut p, PANEL, (60, 66, 88));

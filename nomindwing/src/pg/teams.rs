@@ -228,7 +228,13 @@ fn army(team: &str) -> Vec<(&'static str, i32)> {
 /// a card to a block, as many columns as it takes to stay on the field.
 fn fight(name: &'static str, blue: (&'static str, &[(&str, i32)]), red: (&'static str, &[(&str, i32)])) -> Test {
     let all = ready_teams();
-    let team = |n: &str| team_of(all.iter().find(|t| t.name == n).unwrap_or_else(|| panic!("no team {n}")).designs.clone());
+    let team = |n: &str| {
+        if n == NEW_PARTS {
+            team_of(new_part_ships())
+        } else {
+            team_of(all.iter().find(|t| t.name == n).unwrap_or_else(|| panic!("no team {n}")).designs.clone())
+        }
+    };
     let sides = Sides { names: [blue.0, red.0], teams: [team(blue.0), team(red.0)] };
     let mut place = Vec::new();
     for (t, (_, ships)) in [blue, red].into_iter().enumerate() {
@@ -268,6 +274,39 @@ fn fight(name: &'static str, blue: (&'static str, &[(&str, i32)]), red: (&'stati
     Test { name, place, ships: Some(sides) }
 }
 
+/// The side the 2026-11-15 parts' example ships fight on. It's no team the AI plays.
+pub const NEW_PARTS: &str = "NEW PARTS";
+
+/// The example ships for the tracker, heavy plate and the piercer (`part_examples`), with the
+/// starter deck's fighter and lancer to set beside them.
+pub fn new_part_ships() -> Vec<Design> {
+    let ex = part_examples();
+    let mut ships: Vec<Design> = ["PICKET", "BULWARK", "AP LANCER", "IRONLANCER", "BASTION"].iter().map(|n| ex.iter().find(|d| d.name == *n).unwrap_or_else(|| panic!("no example called {n}")).clone()).collect();
+    ships.extend([0, 1].map(|s| starter_deck()[s].clone()));
+    ships
+}
+
+/// What the tracker, heavy plate and the piercer are for, each fight about level on cost: a
+/// tracker against lancers and fighters, and against the lancer behind plate that answers it;
+/// heavy plate against lancers, and against the lancer with a piercer that answers that; the
+/// piercer's slower rounds against bare lancers, where they gain nothing; and all three on one
+/// big ship in a whole skin of heavy plate, against a swarm of each and against the lancers with
+/// piercers that answer it.
+pub fn new_part_fights() -> Vec<Test> {
+    let (new, start) = (NEW_PARTS, "STARTER DECK");
+    vec![
+        fight("2 PICKETS VS 8 LANCERS", (new, &[("PICKET", 2)]), (start, &[("LANCER", 8)])),
+        fight("2 PICKETS VS 8 FIGHTERS", (new, &[("PICKET", 2)]), (start, &[("FIGHTER", 8)])),
+        fight("2 PICKETS VS 6 IRONLANCERS", (new, &[("PICKET", 2)]), (new, &[("IRONLANCER", 6)])),
+        fight("2 BULWARKS VS 9 LANCERS", (new, &[("BULWARK", 2)]), (start, &[("LANCER", 9)])),
+        fight("2 BULWARKS VS 7 AP LANCERS", (new, &[("BULWARK", 2)]), (new, &[("AP LANCER", 7)])),
+        fight("7 AP LANCERS VS 9 LANCERS", (new, &[("AP LANCER", 7)]), (start, &[("LANCER", 9)])),
+        fight("1 BASTION VS 17 LANCERS", (new, &[("BASTION", 1)]), (start, &[("LANCER", 17)])),
+        fight("1 BASTION VS 17 FIGHTERS", (new, &[("BASTION", 1)]), (start, &[("FIGHTER", 17)])),
+        fight("1 BASTION VS 13 AP LANCERS", (new, &[("BASTION", 1)]), (new, &[("AP LANCER", 13)])),
+    ]
+}
+
 /// The ready-made teams' fights, after the arena's first (`arena_fights`). For each team with a
 /// strategy, its army against the starter deck's, and a fight or two for what its new drawings
 /// are for; then every two of the five teams' armies against each other. Blue is the team being
@@ -292,6 +331,7 @@ pub fn team_fights() -> Vec<Test> {
         fight("1 LANCET VS 1 BATTLESHIP", (siege, &[("LANCET", 1)]), (guns, &[("BATTLESHIP", 1)])),
         fight("2 LANCETS VS 40 FIGHTERS", (siege, &[("LANCET", 2)]), (swarm, &[("FIGHTER", 40)])),
     ];
+    fights.extend(new_part_fights());
     for (a, b, name) in [
         (swarm, line, "SWARM VS LANCE LINE"),
         (swarm, guns, "SWARM VS BIG GUNS"),
@@ -392,9 +432,9 @@ mod fight_tests {
         for t in &fights {
             let sides = t.ships.as_ref().expect("every team fight brings its two teams");
             let lib = [&sides.teams[0][..], &sides.teams[1][..]];
-            // Each side's slots are its whole team.
+            // Each side's slots are its whole team (the NEW PARTS side's is the example ships).
             for k in 0..2 {
-                let whole = team_of(ready_teams().into_iter().find(|r| r.name == sides.names[k]).unwrap().designs);
+                let whole = if sides.names[k] == NEW_PARTS { team_of(new_part_ships()) } else { team_of(ready_teams().into_iter().find(|r| r.name == sides.names[k]).unwrap().designs) };
                 assert_eq!(lib[k].iter().map(|d| d.to_line()).collect::<Vec<_>>(), whole.iter().map(|d| d.to_line()).collect::<Vec<_>>(), "{}: {}", t.name, sides.names[k]);
             }
             let mut a = Arena::new();
@@ -419,7 +459,7 @@ mod fight_tests {
         }
         // Every new drawing is in a fight, and every team's army; and blue is each new team in
         // a fight of its own, so its whole team is seen.
-        for name in ["WASP", "NEST", "CORVETTE", "CRUISER", "BATTLESHIP", "DOCK", "LANCET"] {
+        for name in ["WASP", "NEST", "CORVETTE", "CRUISER", "BATTLESHIP", "DOCK", "LANCET", "PICKET", "BULWARK", "AP LANCER", "IRONLANCER", "BASTION"] {
             assert!(fights.iter().any(|t| t.place.iter().any(|p| t.ships.as_ref().unwrap().teams[p.0][p.1].name == name)), "no fight has a {name}");
         }
         for name in &teams[1..] {

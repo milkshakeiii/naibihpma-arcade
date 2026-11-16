@@ -393,8 +393,8 @@ pub fn draw_shape(fb: &mut Framebuffer, clip: Rect, sh: &Shape, x: i32, y: i32, 
         let open_above = py - t == 0 || !grid[((py - t - 1) * w + (px - l)) as usize];
         let col = if p == Part::Hull && open_above {
             team_col(team, 2)
-        } else if p == Part::Cannon && sh.cannons.contains(&i) {
-            GOLD
+        } else if p.turret() && sh.turrets.contains(&i) {
+            yard::breech_col(p)
         } else if p == Part::Projector && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|&(dx, dy)| in_knob(px - l + dx, py - t + dy)) {
             // Projector on all four sides of it: the lump's pale middle.
             PROJECTOR_HI
@@ -1129,7 +1129,7 @@ impl Pg {
             if s.st.power_pct() < 100 {
                 parts.push(format!("POWER {}%", s.st.power_pct()));
             }
-            for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON"), (s.st.beam, "BEAM"), (s.st.missile, "MISSILE"), (s.st.repeater, "REPEATER"), (s.st.shields, "SHIELD")] {
+            for (n, name) in [(s.st.flak, "FLAK"), (s.st.lance, "LANCE"), (s.st.cannon, "CANNON"), (s.st.tracker, "TRACKER"), (s.st.beam, "BEAM"), (s.st.missile, "MISSILE"), (s.st.repeater, "REPEATER"), (s.st.shields, "SHIELD")] {
                 if n > 0 {
                     parts.push(format!("{name} {n}"));
                 }

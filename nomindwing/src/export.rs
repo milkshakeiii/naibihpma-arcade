@@ -2249,7 +2249,50 @@ pub fn pg_screenshots(dir: &Path) {
             save(&fb, &pt, file);
         }
     }
+    new_parts_screenshots(dir);
     println!("exported proving-ground screenshots to {}", dir.display());
+}
+
+/// The parts of 2026-11-15 on screen: the BASTION in the yard with the pointer on the piercer's
+/// button, and its fight against seventeen lancers four seconds in.
+pub fn new_parts_screenshots(dir: &Path) {
+    use crate::app::App;
+    use crate::pg::design::{part_examples, Cat, Part};
+    use crate::pg::{Pg, Screen};
+    let _ = std::fs::create_dir_all(dir);
+    let mut fb = Framebuffer::new();
+    let save = |fb: &Framebuffer, pg: &Pg, name: &str| fb.save_png(&dir.join(name), pg.palette());
+    let mut pg = Pg::new(None, None);
+    pg.help = false;
+    pg.running = false;
+    pg.screen = Screen::Yard;
+    pg.lib[5] = part_examples().into_iter().find(|d| d.name == "BASTION").unwrap();
+    pg.select_slot(5);
+    pg.ed.cat = Cat::Upgrades;
+    pg.ed.part = Part::Piercer;
+    pg.mouse = pg.part_button(Part::Piercer);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "60_yard_new_parts.png");
+    pg.screen = Screen::Arena;
+    if pg.load_named("1 BASTION VS 17 LANCERS") {
+        pg.running = true;
+        for _ in 0..15 * 4 {
+            pg.tick();
+        }
+        pg.mouse = (0, 0);
+        pg.draw(&mut fb);
+        save(&fb, &pg, "61_bastion_vs_lancers.png");
+    }
+}
+
+#[cfg(test)]
+mod new_parts_shots {
+    /// Run by hand: `cargo test --release new_parts_shots -- --ignored`.
+    #[test]
+    #[ignore]
+    fn new_parts_shots() {
+        super::new_parts_screenshots(&std::env::temp_dir().join("nomindwing_new_parts"));
+    }
 }
 
 /// A point on the match's stance button, for the screenshot that points at it.

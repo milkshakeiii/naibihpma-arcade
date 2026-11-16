@@ -56,7 +56,7 @@ pub(super) const YARD_KEYS: &[Row] = &[
     ("1-6", "A CATEGORY OF PARTS"),
     ("TAB", "THE NEXT PART IN THE CATEGORY"),
     ("P R F C", "PENCIL, RECTANGLE, FILL, COPY"),
-    ("T", "TURN WHAT YOU'VE COPIED"),
+    ("T", "TURN WHAT YOU'VE COPIED, OR HEAVY PLATE"),
     ("U", "UNDO"),
     ("M", "MIRROR, ON AND OFF"),
     ("L", "THE LIBRARY"),

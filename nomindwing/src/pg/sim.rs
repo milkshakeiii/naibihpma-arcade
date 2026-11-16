@@ -37,6 +37,8 @@ const LANCE_LIFE: i32 = LANCE_RANGE + 12;
 const SHELL_SPEED: i32 = 4;
 /// A repeater's shot: as quick as flak's.
 const REPEAT_SPEED: i32 = 6;
+/// A tracker's shot: the quickest there is, so a nimble ship has the least time to get away.
+const TRACKER_SPEED: i32 = 9;
 /// A ship on GUARD fights what comes this near the place it was built: further than any gun
 /// reaches, so nothing can shell the factory beside it unanswered.
 pub const GUARD_RADIUS: i32 = 160;
@@ -66,6 +68,9 @@ const ORBIT_LEAD: i32 = 12;
 const DODGE_ROOM: i32 = 4;
 /// Ticks per 1/64 turn of a cannon turret: about 42 degrees a second.
 const TURRET_TURN: u32 = 2;
+/// 64ths of a turn a tracker turret swings in a tick: about 170 degrees a second, four times a
+/// cannon's.
+const TRACKER_TURN: i32 = 2;
 /// Length of a drawn cannon barrel from the turret's centre.
 pub const BARREL: i32 = 4;
 
@@ -190,7 +195,8 @@ impl Doing {
     }
 }
 
-/// A cannon: a 3x3 block whose centre pixel is the breech. It works while that pixel survives.
+/// A turret, a cannon or a tracker: a 3x3 block whose centre pixel is the breech. It works while
+/// that pixel survives. Which it is is the part at its breech.
 #[derive(Clone, Debug, Hash)]
 pub struct Turret {
     pub cell: usize,
@@ -409,10 +415,34 @@ impl Ship {
     pub fn live_shields(&self) -> Vec<usize> {
         (0..self.hp.len()).filter(|&c| self.hp[c] > 0 && self.charge[c] > 0 && self.shape.cells[c] == Some(Part::Shield)).collect()
     }
+    /// Its working turrets of a kind: standing breeches.
+    fn working(&self, p: Part) -> i32 {
+        self.turrets.iter().filter(|t| self.hp[t.cell] > 0 && self.shape.cells[t.cell] == Some(p)).count() as i32
+    }
+    /// The cells of the 3x3 turret whose breech is `centre`, as many as it has (a piece cut off a
+    /// ship may hold part of one).
+    pub fn block_cells(&self, centre: usize) -> Vec<usize> {
+        let w = self.shape.w;
+        let (x, y, p) = (centre as i32 % w, centre as i32 / w, self.shape.cells[centre]);
+        (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (x + dx, y + dy))).filter_map(|(cx, cy)| self.shape.local_cell(cx, cy)).filter(|&c| self.shape.cells[c] == p).collect()
+    }
+    /// Whether a gun made of these cells fires heavier rounds: one of them touches a standing
+    /// piercer pixel, edge to edge.
+    pub fn heavy_rounds(&self, gun: &[usize]) -> bool {
+        let w = self.shape.w;
+        gun.iter().any(|&c| {
+            let (x, y) = (c as i32 % w, c as i32 / w);
+            [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| self.shape.local_cell(x + dx, y + dy).is_some_and(|k| self.hp[k] > 0 && self.shape.cells[k] == Some(Part::Piercer)))
+        })
+    }
+    /// The cells of the repeater (or beam) gun whose front cell is `c` and that's `n` long: a
+    /// column running back from it.
+    pub fn column(&self, c: usize, n: i32) -> Vec<usize> {
+        (0..n.max(0) as usize).map(|k| c + k * self.shape.w as usize).collect()
+    }
     /// Its stats from the pixels it has left.
     fn stats_now(&self) -> Stats {
-        let cannons = self.turrets.iter().filter(|t| self.hp[t.cell] > 0).count() as i32;
-        stats_of(&self.alive_cells(), cannons, self.beam_guns().iter().map(|g| g.1).max().unwrap_or(0), self.repeat_guns().iter().map(|g| g.1).max().unwrap_or(0))
+        stats_of(&self.alive_cells(), self.working(Part::Cannon), self.working(Part::Tracker), self.beam_guns().iter().map(|g| g.1).max().unwrap_or(0), self.repeat_guns().iter().map(|g| g.1).max().unwrap_or(0))
     }
 
     /// A new ship made of some of this one's cells (a cut-off piece with a core of its own). It
@@ -434,16 +464,16 @@ impl Ship {
             charge[map(c)] = self.charge[c];
         }
         let turrets: Vec<Turret> = self.turrets.iter().filter(|t| cells.contains(&t.cell)).map(|t| Turret { cell: map(t.cell), ..t.clone() }).collect();
-        let shape = Shape { w: nw, h: nh, cells: new_cells, cannons: turrets.iter().map(|t| t.cell).collect() };
+        let shape = Shape { w: nw, h: nh, cells: new_cells, turrets: turrets.iter().map(|t| t.cell).collect() };
         // Place the new centre so every pixel stays exactly where it was.
         let c0 = cells[0];
         let (wx, wy) = self.cell_xy(c0);
         let (lx, ly) = shape.cell_xy(0, 0, self.facing, map(c0));
         let (x, y) = (wx - lx, wy - ly);
         let hp = shape.cells.iter().map(|c| c.is_some() as u8).collect();
-        let working = turrets.len() as i32;
+        let working = |p: Part| turrets.iter().filter(|t| shape.cells[t.cell] == Some(p)).count() as i32;
         let longest = |p: Part| beam_guns(nw, nh, |c| shape.cells[c] == Some(p)).iter().map(|g| g.1).max().unwrap_or(0);
-        let st = stats_of(&shape.cells, working, longest(Part::Beam), longest(Part::Repeater));
+        let st = stats_of(&shape.cells, working(Part::Cannon), working(Part::Tracker), longest(Part::Beam), longest(Part::Repeater));
         Ship {
             shape,
             st,
@@ -504,6 +534,8 @@ pub enum Kind {
     Missile,
     /// A repeater's shot: small, like flak's, fired straight ahead.
     Repeat,
+    /// A tracker's shot: small and quick.
+    Track,
 }
 
 #[derive(Clone, Copy, Debug, Hash)]
@@ -513,8 +545,8 @@ pub struct Shot {
     pub line: Line,
     pub left: i32,
     pub speed: i32,
-    dmg: i32,
-    pen: i32,
+    pierce: i32,
+    depth: i32,
     /// The ship it was fired at, so other guns can spread their fire.
     target: Option<usize>,
     pub prev: (i32, i32),
@@ -834,10 +866,10 @@ impl Arena {
         let cool = (0..n).map(|i| if shape.cells[i] == Some(Part::Shield) { 0 } else { (i as i32 * 7) % FLAK_PERIOD }).collect();
         let charge = shape.cells.iter().map(|c| if *c == Some(Part::Shield) { SHIELD_CHARGES } else { 0 }).collect();
         let turrets = shape
-            .cannons
+            .turrets
             .iter()
             .enumerate()
-            .map(|(k, &cell)| Turret { cell, aim: facing as i32 * 16, cool: (k as i32 * 11) % CANNON_PERIOD, turn_t: 0, aim_off: (0, 0), aim_for: None })
+            .map(|(k, &cell)| Turret { cell, aim: facing as i32 * 16, cool: (k as i32 * 11) % if shape.cells[cell] == Some(Part::Tracker) { TRACKER_PERIOD } else { CANNON_PERIOD }, turn_t: 0, aim_off: (0, 0), aim_for: None })
             .collect();
         let mut s = Ship {
             team,
@@ -1475,6 +1507,8 @@ impl Arena {
             st.fwd_reach() * 3 / 4
         } else if st.cannon > 0 {
             CANNON_RANGE * 2 / 3
+        } else if st.tracker > 0 {
+            TRACKER_RANGE * 2 / 3
         } else if st.missile > 0 {
             MISSILE_RANGE * 2 / 3
         } else {
@@ -1666,22 +1700,24 @@ impl Arena {
             0
         } else if beam.is_some() {
             BEAM_WARM
-        } else if let (None, Some((_, n))) = (lance, rep) {
+        } else if let (None, Some((c, n))) = (lance, rep) {
             // A repeater's shot is quicker than a lance's and spent sooner.
+            let speed = rounds(FLAK_PIERCE, REPEAT_SPEED, s.heavy_rounds(&s.column(c, n))).1;
             let (fx, fy) = facing_vec(f);
-            let (v, life) = (e.vx * fx + e.vy * fy, repeat_reach(n) / REPEAT_SPEED);
-            if 4 * REPEAT_SPEED - v <= 0 {
+            let (v, life) = (e.vx * fx + e.vy * fy, repeat_reach(n) / speed);
+            if 4 * speed - v <= 0 {
                 life
             } else {
-                (dist.abs() * 4 / (4 * REPEAT_SPEED - v)).min(life)
+                (dist.abs() * 4 / (4 * speed - v)).min(life)
             }
         } else {
+            let speed = rounds(LANCE_PIERCE, LANCE_SPEED, lance.is_some_and(|c| s.heavy_rounds(&[c]))).1;
             let (fx, fy) = facing_vec(f);
-            let (v, life) = (e.vx * fx + e.vy * fy, LANCE_LIFE / LANCE_SPEED);
-            if 4 * LANCE_SPEED - v <= 0 {
+            let (v, life) = (e.vx * fx + e.vy * fy, LANCE_LIFE / speed);
+            if 4 * speed - v <= 0 {
                 life
             } else {
-                (dist.abs() * 4 / (4 * LANCE_SPEED - v)).min(life)
+                (dist.abs() * 4 / (4 * speed - v)).min(life)
             }
         };
         if f % 2 == 1 {
@@ -1959,12 +1995,14 @@ impl Arena {
                 continue;
             }
             let (gx, gy) = self.ships[i].cell_xy(c);
+            let heavy = self.ships[i].heavy_rounds(&[c]);
             if part == Some(Part::Flak) {
+                let (pierce, speed) = rounds(FLAK_PIERCE, FLAK_SPEED, heavy);
                 // A missile in reach comes before any ship, unless two shots are on their way to
                 // it already.
-                if let Some(aim) = self.missile_in_reach(team, (gx, gy)) {
+                if let Some(aim) = self.missile_in_reach(team, (gx, gy), speed) {
                     let line = Line::new(gx, gy, aim.0, aim.1);
-                    self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: None, prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
+                    self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed, pierce, depth: 1, target: None, prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
                     self.ships[i].cool[c] = self.ships[i].st.reload(FLAK_PERIOD) + self.rng.below(4) as i32;
                     self.score[team].fired += 1;
                     continue;
@@ -1980,13 +2018,13 @@ impl Arena {
                     // Aim at a random surviving pixel (never the centre: that drills a tunnel later
                     // shots fly straight through), led by the target's velocity.
                     let (px, py) = self.random_cell(e.idx);
-                    let t = cheb(px, py, gx, gy) / FLAK_SPEED;
+                    let t = cheb(px, py, gx, gy) / speed;
                     let mut aim = (px + e.vx * t / 4, py + e.vy * t / 4);
                     if aim == (gx, gy) {
                         aim = (px, py + 1);
                     }
                     let line = Line::new(gx, gy, aim.0, aim.1);
-                    self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
+                    self.shots.push(Shot { team, kind: Kind::Flak, line, left: FLAK_RANGE + 12, speed, pierce, depth: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
                     pending[e.idx] += 1;
                     // A ship short of power reloads slower.
                     self.ships[i].cool[c] = self.ships[i].st.reload(FLAK_PERIOD) + self.rng.below(4) as i32;
@@ -1997,7 +2035,9 @@ impl Arena {
                 let tgt = snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, gx, gy) <= MISSILE_RANGE + e.half).min_by_key(|e| dist2(e.x, e.y, gx, gy)).copied();
                 if let Some(e) = tgt.filter(|e| (e.x, e.y) != (gx, gy)) {
                     let line = Line::new(gx, gy, e.x, e.y);
-                    self.shots.push(Shot { team, kind: Kind::Missile, line, left: 0, speed: 1000, dmg: CANNON_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
+                    // Its piercing says how fast it flies (`missile_rate`).
+                    let pierce = rounds(MISSILE_PIERCE, MISSILE_SPEED, heavy).0;
+                    self.shots.push(Shot { team, kind: Kind::Missile, line, left: 0, speed: 1000, pierce, depth: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
                     self.ships[i].cool[c] = self.ships[i].st.reload(MISSILE_PERIOD);
                     self.score[team].fired += 1;
                 }
@@ -2007,18 +2047,23 @@ impl Arena {
                 // of the three things `shot_meets` asks about.
                 let dir = facing_vec(self.ships[i].facing);
                 let (dx, dy) = dir;
-                let in_line = snap.iter().any(|e| e.team != team && self.shot_meets(e.idx, (gx, gy), dir, LANCE_SPEED, LANCE_LIFE - 1));
+                let (pierce, speed) = rounds(LANCE_PIERCE, LANCE_SPEED, heavy);
+                let in_line = snap.iter().any(|e| e.team != team && self.shot_meets(e.idx, (gx, gy), dir, speed, LANCE_LIFE - 1));
                 if in_line {
                     self.ships[i].aim_t = 0;
                     let line = Line::new(gx, gy, gx + dx * 400, gy + dy * 400);
-                    self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_LIFE, speed: LANCE_SPEED, dmg: LANCE_DMG, pen: LANCE_PEN, target: None, prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
+                    self.shots.push(Shot { team, kind: Kind::Lance, line, left: LANCE_LIFE, speed, pierce, depth: LANCE_DEPTH, target: None, prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
                     self.ships[i].cool[c] = self.ships[i].st.reload(LANCE_PERIOD);
                     self.score[team].fired += 1;
                 }
             }
         }
         for k in 0..self.ships[i].turrets.len() {
-            self.cannon(i, k, snap, pending);
+            if self.ships[i].shape.cells[self.ships[i].turrets[k].cell] == Some(Part::Tracker) {
+                self.tracker(i, k, snap, pending);
+            } else {
+                self.cannon(i, k, snap, pending);
+            }
         }
     }
 
@@ -2088,10 +2133,11 @@ impl Arena {
             }
             let (gx, gy) = self.ships[i].cell_xy(c);
             let reach = repeat_reach(n);
-            let in_line = snap.iter().any(|e| e.team != team && self.meets_at(e.idx, (gx, gy), dir, REPEAT_SPEED, reach, (e.vx, e.vy)));
+            let (pierce, speed) = rounds(FLAK_PIERCE, REPEAT_SPEED, self.ships[i].heavy_rounds(&self.ships[i].column(c, n)));
+            let in_line = snap.iter().any(|e| e.team != team && self.meets_at(e.idx, (gx, gy), dir, speed, reach, (e.vx, e.vy)));
             if in_line {
                 let line = Line::new(gx, gy, gx + dir.0 * 400, gy + dir.1 * 400);
-                self.shots.push(Shot { team, kind: Kind::Repeat, line, left: reach + 1, speed: REPEAT_SPEED, dmg: FLAK_DMG, pen: 1, target: None, prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
+                self.shots.push(Shot { team, kind: Kind::Repeat, line, left: reach + 1, speed, pierce, depth: 1, target: None, prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
                 let s = &mut self.ships[i];
                 s.cool[c] = s.st.reload(repeat_period(n));
                 s.aim_t = 0;
@@ -2173,7 +2219,7 @@ impl Arena {
     /// that doesn't have two shots on their way to it already. It gives back where to aim, which
     /// is where the missile will be when the shot gets there (it flies straight at its target),
     /// and counts the shot against the missile.
-    fn missile_in_reach(&mut self, team: usize, (gx, gy): (i32, i32)) -> Option<(i32, i32)> {
+    fn missile_in_reach(&mut self, team: usize, (gx, gy): (i32, i32), speed: i32) -> Option<(i32, i32)> {
         let tick = self.tick;
         let k = (0..self.shots.len())
             .filter(|&k| {
@@ -2182,12 +2228,12 @@ impl Arena {
             })
             .min_by_key(|&k| dist2(self.shots[k].line.x, self.shots[k].line.y, gx, gy))?;
         let (mx, my) = (self.shots[k].line.x, self.shots[k].line.y);
-        let t = cheb(mx, my, gx, gy) / FLAK_SPEED + 1;
+        let t = cheb(mx, my, gx, gy) / speed + 1;
         let aim = match self.shots[k].target.filter(|&j| self.ships[j].alive) {
             Some(j) => {
                 let (dx, dy) = (self.ships[j].x - mx, self.ships[j].y - my);
                 let len = isqrt(dx * dx + dy * dy).max(1);
-                let far = (MISSILE_SPEED * t / 1000).min(len);
+                let far = (missile_rate(self.shots[k].pierce) * t / 1000).min(len);
                 (mx + dx * far / len, my + dy * far / len)
             }
             None => (mx, my),
@@ -2198,7 +2244,8 @@ impl Arena {
     }
 
     /// Missiles steer, before anything flies. Each turns straight at where its target is now and
-    /// works out its steps for this tick: `MISSILE_SPEED` thousandths of a pixel, measured along
+    /// works out its steps for this tick: `MISSILE_SPEED` thousandths of a pixel (a quarter less
+    /// for a heavier one, `missile_rate`), measured along
     /// its line, so it's as fast on a diagonal as along a row. One whose target is gone flies on
     /// the way it was going. One that has flown `MISSILE_LIFE` ticks is spent.
     fn missiles_steer(&mut self, shots: &mut Vec<Shot>) {
@@ -2217,7 +2264,7 @@ impl Arena {
                     sh.speed = isqrt(1_000_000 + slope * slope);
                 }
             }
-            sh.acc += MISSILE_SPEED;
+            sh.acc += missile_rate(sh.pierce);
             sh.left = sh.acc / sh.speed.max(1000);
             sh.acc -= sh.left * sh.speed.max(1000);
         }
@@ -2247,7 +2294,7 @@ impl Arena {
             }
             let pm = path(&shots[mi]);
             for fi in 0..shots.len() {
-                if dead[fi] || !matches!(shots[fi].kind, Kind::Flak | Kind::Repeat) || shots[fi].team == shots[mi].team || cheb(shots[fi].line.x, shots[fi].line.y, pm[0].0, pm[0].1) > FLAK_SPEED + 6 {
+                if dead[fi] || !matches!(shots[fi].kind, Kind::Flak | Kind::Repeat | Kind::Track) || shots[fi].team == shots[mi].team || cheb(shots[fi].line.x, shots[fi].line.y, pm[0].0, pm[0].1) > shots[fi].speed.max(FLAK_SPEED) + 6 {
                     continue;
                 }
                 let pf = path(&shots[fi]);
@@ -2320,7 +2367,7 @@ impl Arena {
     /// of the cut. A shield's circle that the line comes into from outside stops it at the edge.
     fn cut(&mut self, i: usize, (gx, gy): (i32, i32), (dx, dy): (i32, i32), n: i32) {
         let team = self.ships[i].team;
-        let (reach, mut pen) = (beam_reach(n), beam_cut(n));
+        let (reach, mut depth) = (beam_reach(n), beam_cut(n));
         // The enemy's circles, and whether the line is inside each as it goes: it starts inside
         // any circle the muzzle is in, and that circle doesn't stop it.
         let mut rings: Vec<(usize, usize, (i32, i32), bool)> = Vec::new();
@@ -2363,14 +2410,14 @@ impl Arena {
                 }
                 hit = true;
                 let armor = self.ships[id].shape.cells[c].map_or(0, |p| p.armor());
-                if BEAM_DMG <= armor {
+                if BEAM_PIERCE <= armor {
                     self.score[team].bounced += 1;
                     self.sparks.push(Spark { x: px - dx, y: py - dy, t: 2, blast: false });
                     break 'walk;
                 }
                 self.kill_cell(id, c, (px, py), (dx, dy));
-                pen -= 1 + armor;
-                if pen <= 0 {
+                depth -= 1 + armor;
+                if depth <= 0 {
                     break 'walk;
                 }
             }
@@ -2458,10 +2505,93 @@ impl Arena {
             let line = Line::new(gx, gy, lx, ly);
             t.cool = reload;
             t.aim_for = None;
-            self.shots.push(Shot { team, kind: Kind::Shell, line, left: CANNON_RANGE + 12, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
+            self.shots.push(Shot { team, kind: Kind::Shell, line, left: CANNON_RANGE + 12, speed: SHELL_SPEED, pierce: CANNON_PIERCE, depth: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
             pending[e.idx] += 1;
             self.score[team].fired += 1;
         }
+    }
+
+    /// A tracker turret swings fast toward the small ships in reach and puts quick shots into the
+    /// middle of one, led by how it's flying.
+    ///
+    /// It goes for the small ships: anything in range no more than half as big again (as built) as
+    /// the smallest enemy in range, the cannon's rule turned round. Of those it takes the one its
+    /// barrel reaches soonest, so among ships of a size it stays on the one it's on. It aims at the
+    /// target's middle, so its shots dig in toward a small ship's core instead of chipping round
+    /// its edge: once the middle pixel is gone, the next shot flies through the hole to whatever is
+    /// behind it. But a shot at the middle that would meet no standing pixel of the target at all
+    /// goes at the standing pixel nearest the middle instead. (Until 2026-11-15 it always aimed at
+    /// the middle, and a wreck with a hole there took every shot through the hole, between its
+    /// pixels, for as long as it sat still: Henry's "stuck in one position and just keeps firing".)
+    fn tracker(&mut self, i: usize, k: usize, snap: &[Snap], pending: &mut [i32]) {
+        let (team, cell) = (self.ships[i].team, self.ships[i].turrets[k].cell);
+        if self.ships[i].hp[cell] == 0 {
+            return;
+        }
+        let (gx, gy) = self.ships[i].cell_xy(cell);
+        {
+            let t = &mut self.ships[i].turrets[k];
+            t.cool = (t.cool - 1).max(0);
+        }
+        let in_range = || snap.iter().filter(|e| e.team != team && cheb(e.x, e.y, gx, gy) <= TRACKER_RANGE + e.half);
+        let Some(small) = in_range().map(|e| e.full).min() else {
+            return;
+        };
+        let barrel = self.ships[i].turrets[k].aim;
+        let Some(e) = in_range().filter(|e| e.full * 2 <= small * 3).min_by_key(|e| (angle_diff(barrel, angle_of(e.x - gx, e.y - gy)).abs(), dist2(e.x, e.y, gx, gy))).copied() else {
+            return;
+        };
+        let (pierce, speed) = rounds(TRACKER_PIERCE, TRACKER_SPEED, self.ships[i].heavy_rounds(&self.ships[i].block_cells(cell)));
+        let reload = self.ships[i].st.reload(TRACKER_PERIOD);
+        // Where the target will be when a shot at `p` gets there: `p` moved on by its flight.
+        let led = |(ax, ay): (i32, i32)| {
+            let travel = isqrt(dist2(ax, ay, gx, gy)) / speed;
+            ((ax + e.vx * travel / 4, ay + e.vy * travel / 4), (e.vx * travel / 4, e.vy * travel / 4))
+        };
+        // The aim is taken from the snapshot (where the target stood when the tick began), as
+        // every gun's is, but the target has moved since: `since`. The check and the fallback are
+        // taken in the snapshot's frame too, or a ship flying fast across the line is "missed" by
+        // a shot that would hit it.
+        let since = (self.ships[e.idx].x - e.x, self.ships[e.idx].y - e.y);
+        let (mut aim, moved) = led((e.x, e.y));
+        let moved = (moved.0 - since.0, moved.1 - since.1);
+        if !self.line_meets(e.idx, (gx, gy), aim, moved) {
+            let (px, py) = self.middle_cell(e.idx);
+            aim = led((px - since.0, py - since.1)).0;
+        }
+        let (lx, ly) = aim;
+        let want = angle_of(lx - gx, ly - gy);
+        let t = &mut self.ships[i].turrets[k];
+        t.aim = (t.aim + angle_diff(t.aim, want).clamp(-TRACKER_TURN, TRACKER_TURN)).rem_euclid(64);
+        if t.cool == 0 && angle_diff(t.aim, want).abs() <= 1 && (lx, ly) != (gx, gy) {
+            // As with a cannon, once the barrel is on target the shot flies at the aim point.
+            let line = Line::new(gx, gy, lx, ly);
+            t.cool = reload;
+            self.shots.push(Shot { team, kind: Kind::Track, line, left: TRACKER_RANGE + 12, speed, pierce, depth: 1, target: Some(e.idx), prev: (gx, gy), connected: false, born: self.tick, acc: 0, cover: (0, 0) });
+            pending[e.idx] += 1;
+            self.score[team].fired += 1;
+        }
+    }
+
+    /// Whether a shot from `g` at `p`, flying on past it as far as a tracker's shot goes, would
+    /// meet a standing pixel of ship `j`, with `j` moved by `moved` from where it is now by then.
+    fn line_meets(&self, j: usize, (gx, gy): (i32, i32), (px, py): (i32, i32), (mx, my): (i32, i32)) -> bool {
+        let ts = &self.ships[j];
+        let mut l = Line::new(gx, gy, px, py);
+        for _ in 0..TRACKER_RANGE + 12 {
+            if ts.cell_at(l.x - mx, l.y - my).is_some_and(|c| ts.hp[c] > 0) {
+                return true;
+            }
+            l.step();
+        }
+        false
+    }
+
+    /// Where ship `j`'s standing pixel nearest its middle is (the first in its drawing's reading
+    /// order, of any as near).
+    fn middle_cell(&self, j: usize) -> (i32, i32) {
+        let s = &self.ships[j];
+        (0..s.hp.len()).filter(|&c| s.hp[c] > 0).map(|c| s.cell_xy(c)).min_by_key(|&(x, y)| dist2(x, y, s.x, s.y)).unwrap_or((s.x, s.y))
     }
 
     /// Knocks one pixel off a ship; it drifts away as a loose pixel.
@@ -2631,19 +2761,22 @@ impl Arena {
                 }
                 self.ships[id].last_hit = self.tick;
                 let armor = self.ships[id].shape.cells[c].map_or(0, |p| p.armor());
-                if sh.dmg <= armor {
-                    // Too weak for plate: it bounces off.
+                // A burst goes off where it meets a ship, whatever it meets, and breaks every
+                // pixel of its 3x3 whose armour it out-pierces. (Until 2026-11-15 every burst
+                // out-pierced everything, so it never mattered which came first.)
+                if sh.kind == Kind::Shell || sh.kind == Kind::Missile {
+                    self.blast(at.0, at.1, sh.team, sh.pierce, &boxes);
+                    continue 'shot;
+                }
+                if sh.pierce <= armor {
+                    // Too weak for this armour: it bounces off.
                     self.score[sh.team].bounced += 1;
                     self.sparks.push(Spark { x: before.0, y: before.1, t: 2, blast: false });
                     continue 'shot;
                 }
-                if sh.kind == Kind::Shell || sh.kind == Kind::Missile {
-                    self.blast(at.0, at.1, sh.team, &boxes);
-                    continue 'shot;
-                }
                 self.kill_cell(id, c, at, sh.line.dir());
-                sh.pen -= 1 + armor;
-                if sh.pen <= 0 {
+                sh.depth -= 1 + armor;
+                if sh.depth <= 0 {
                     continue 'shot;
                 }
             }
@@ -2672,8 +2805,8 @@ impl Arena {
         }
     }
 
-    /// A shell bursts: every enemy pixel in the 3x3 around the hit goes, plate and all.
-    fn blast(&mut self, x: i32, y: i32, team: usize, boxes: &[(usize, usize, (i32, i32, i32, i32))]) {
+    /// A shell bursts: every enemy pixel in the 3x3 around the hit whose armour it out-pierces goes.
+    fn blast(&mut self, x: i32, y: i32, team: usize, pierce: i32, boxes: &[(usize, usize, (i32, i32, i32, i32))]) {
         self.sparks.push(Spark { x, y, t: 3, blast: true });
         // A burst on a bare pixel (a projector's own) spares the covered pixels round it, for
         // one charge in all.
@@ -2692,7 +2825,7 @@ impl Arena {
                                 continue;
                             }
                         }
-                        if self.ships[id].shape.cells[c].map_or(0, |p| p.armor()) < CANNON_DMG {
+                        if self.ships[id].shape.cells[c].map_or(0, |p| p.armor()) < pierce {
                             self.kill_cell(id, c, (px, py), (dx, dy));
                         }
                     }
@@ -3191,7 +3324,7 @@ mod tests {
         assert_eq!(pixels(&a, 0), before, "no pixel moved or vanished in the split");
         assert_eq!((a.score[0].split, a.score[0].placed), (1, 2));
         for s in a.ships.iter().filter(|s| s.alive) {
-            let st = stats_of(&s.alive_cells(), 0, 0, 0);
+            let st = stats_of(&s.alive_cells(), 0, 0, 0, 0);
             assert_eq!((st.cores, st.flak, st.engines, st.count), (1, 2, 2, 9), "{:?}", s.alive_cells());
         }
         // The original refreshes its stats at the end of the tick; the new ship starts with its own.
@@ -3206,7 +3339,7 @@ mod tests {
     /// A flak shot from team 0 at (x, y), flying toward (tx, ty), fired on an earlier tick.
     fn flak_at(a: &Arena, (x, y): (i32, i32), (tx, ty): (i32, i32)) -> Shot {
         let line = Line::new(x, y, tx, ty);
-        Shot { team: 0, kind: Kind::Flak, line, left: FLAK_RANGE, speed: FLAK_SPEED, dmg: FLAK_DMG, pen: 1, target: None, prev: (x, y), connected: false, born: a.tick.saturating_sub(1), acc: 0, cover: (0, 0) }
+        Shot { team: 0, kind: Kind::Flak, line, left: FLAK_RANGE, speed: FLAK_SPEED, pierce: FLAK_PIERCE, depth: 1, target: None, prev: (x, y), connected: false, born: a.tick.saturating_sub(1), acc: 0, cover: (0, 0) }
     }
 
     #[test]
@@ -4082,7 +4215,7 @@ mod tests {
         assert_eq!((a.ships[1].px_now(), a.ships[1].charge[c], a.score[0].shielded, a.score[0].hits), (full, SHIELD_CHARGES - 1, 1, 0));
         // A shell at the same egg: stopped, with no blast.
         let line = Line::new(sx - 30, sy, sx + 30, sy);
-        a.shots.push(Shot { team: 0, kind: Kind::Shell, line, left: CANNON_RANGE, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: None, prev: (sx - 30, sy), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        a.shots.push(Shot { team: 0, kind: Kind::Shell, line, left: CANNON_RANGE, speed: SHELL_SPEED, pierce: CANNON_PIERCE, depth: 1, target: None, prev: (sx - 30, sy), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
         while !a.shots.is_empty() {
             a.step();
         }
@@ -4162,7 +4295,7 @@ mod tests {
     /// A missile of blue's at a point, after a ship.
     fn missile_at(a: &mut Arena, (x, y): (i32, i32), target: usize) {
         let (tx, ty) = (a.ships[target].x, a.ships[target].y);
-        a.shots.push(Shot { team: 0, kind: Kind::Missile, line: Line::new(x, y, tx, ty), left: 0, speed: 1000, dmg: CANNON_DMG, pen: 1, target: Some(target), prev: (x, y), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        a.shots.push(Shot { team: 0, kind: Kind::Missile, line: Line::new(x, y, tx, ty), left: 0, speed: 1000, pierce: MISSILE_PIERCE, depth: 1, target: Some(target), prev: (x, y), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
     }
 
     #[test]
@@ -4323,7 +4456,7 @@ mod tests {
         let far = Arena::new().ships.len();
         assert_eq!(far, 0);
         // Blue has nothing on the field but the missile, so nothing else draws their fire.
-        a.shots.push(Shot { team: 0, kind: Kind::Missile, line: Line::new(300 - FLAK_RANGE + 4, 180, 300, 180), left: 0, speed: 1000, dmg: CANNON_DMG, pen: 1, target: Some(0), prev: (0, 0), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        a.shots.push(Shot { team: 0, kind: Kind::Missile, line: Line::new(300 - FLAK_RANGE + 4, 180, 300, 180), left: 0, speed: 1000, pierce: MISSILE_PIERCE, depth: 1, target: Some(0), prev: (0, 0), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
         a.step();
         let at_it = a.shots.iter().filter(|s| s.kind == Kind::Flak).count();
         assert_eq!(at_it, 2, "{at_it} flak shots went at one missile");
@@ -4355,7 +4488,7 @@ mod tests {
         let (mut a, (mx, my)) = turret_ready();
         a.add(1, 0, &slab('h'), mx + 300, my + 200);
         for (team, dx, dy) in [(1, 30, 0), (1, 30, 5), (0, 40, 0)] {
-            a.shots.push(Shot { team, kind: Kind::Missile, line: Line::new(mx + dx, my + dy, mx + 300, my + 200), left: 0, speed: 1000, dmg: CANNON_DMG, pen: 1, target: None, prev: (0, 0), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+            a.shots.push(Shot { team, kind: Kind::Missile, line: Line::new(mx + dx, my + dy, mx + 300, my + 200), left: 0, speed: 1000, pierce: MISSILE_PIERCE, depth: 1, target: None, prev: (0, 0), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
         }
         a.cut(0, (mx, my), (1, 0), 3);
         assert_eq!((missiles(&a).len(), a.score[0].downed), (2, 1));
@@ -4493,8 +4626,8 @@ mod tests {
         let mut a = Arena::new();
         a.add(0, 0, &slab('h'), 60, 60);
         a.tick = 3;
-        a.shots.push(Shot { team: 1, kind: Kind::Missile, line: Line::new(200, 150, 200, 300), left: 0, speed: 1000, dmg: CANNON_DMG, pen: 1, target: None, prev: (200, 150), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
-        a.shots.push(Shot { team: 0, kind: Kind::Repeat, line: Line::new(195, 153, 400, 153), left: 80, speed: REPEAT_SPEED, dmg: FLAK_DMG, pen: 1, target: None, prev: (195, 153), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        a.shots.push(Shot { team: 1, kind: Kind::Missile, line: Line::new(200, 150, 200, 300), left: 0, speed: 1000, pierce: MISSILE_PIERCE, depth: 1, target: None, prev: (200, 150), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        a.shots.push(Shot { team: 0, kind: Kind::Repeat, line: Line::new(195, 153, 400, 153), left: 80, speed: REPEAT_SPEED, pierce: FLAK_PIERCE, depth: 1, target: None, prev: (195, 153), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
         a.shots_step();
         assert_eq!((a.shots.len(), a.score[0].downed), (0, 1));
         // The example ship flies as lance ships do: onto its target's row, holding off at
@@ -4668,11 +4801,233 @@ mod tests {
         assert_eq!(to.0, a.ships[2].x - 4, "the cut should end on the covered ship's first pixel");
         // A shell that would have burst on it: stopped, no hole, one charge.
         let (l, _, _, _) = a.ships[2].bbox();
-        a.shots.push(Shot { team: 0, kind: Kind::Shell, line: Line::new(l - 20, my, l + 40, my), left: CANNON_RANGE, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: None, prev: (l - 20, my), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        a.shots.push(Shot { team: 0, kind: Kind::Shell, line: Line::new(l - 20, my, l + 40, my), left: CANNON_RANGE, speed: SHELL_SPEED, pierce: CANNON_PIERCE, depth: 1, target: None, prev: (l - 20, my), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
         while !a.shots.is_empty() {
             a.step();
         }
         assert_eq!((a.ships[2].px_now(), a.ships[1].skin.0, a.score[0].shielded), (full, 10, 2));
+    }
+
+    /// A wall facing west: a face of heavy plate two slabs deep, with hull and a core behind it.
+    fn heavy_wall() -> Design {
+        Design::from_rows("WALL", &["aaaah", "aaaah", "aaaac", "aaaah"])
+    }
+
+    /// The wall alone in the arena, turned so its heavy face is west.
+    fn wall_arena() -> Arena {
+        let mut a = Arena::new();
+        a.add(0, 0, &heavy_wall(), 300, 180);
+        a.ships[0].facing = 0;
+        a
+    }
+
+    /// Red fires one shot east along the wall's third row from 30 px out, and it flies until
+    /// it's spent.
+    fn shoot_wall(a: &mut Arena, kind: Kind, pierce: i32, depth: i32, speed: i32) {
+        let (l, t, _, _) = a.ships[0].bbox();
+        let y = t + 2;
+        a.shots.push(Shot { team: 1, kind, line: Line::new(l - 30, y, l + 60, y), left: 120, speed, pierce, depth, target: None, prev: (l - 30, y), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        while !a.shots.is_empty() {
+            a.step();
+        }
+    }
+
+    #[test]
+    fn heavy_plate_turns_a_lance_and_breaks_under_a_heavier_round_or_a_shell() {
+        assert!(heavy_wall().check().ok());
+        // A lance pierces 2, no more than armour 2: it bounces and stops at the first pixel.
+        let mut a = wall_arena();
+        let full = a.ships[0].px_now();
+        shoot_wall(&mut a, Kind::Lance, LANCE_PIERCE, LANCE_DEPTH, LANCE_SPEED);
+        assert_eq!((a.ships[0].px_now(), a.score[1].bounced), (full, 1));
+        // A lance beside a piercer pierces 3: it breaks heavy plate at 3 of its depth a pixel, so
+        // two pixels of the row go, and it's spent in the second.
+        let (pierce, speed) = rounds(LANCE_PIERCE, LANCE_SPEED, true);
+        shoot_wall(&mut a, Kind::Lance, pierce, LANCE_DEPTH, speed);
+        assert_eq!(a.ships[0].px_now(), full - 2);
+        // A shell pierces 3: its burst takes every heavy pixel of the 3x3 that's on the wall.
+        let mut a = wall_arena();
+        shoot_wall(&mut a, Kind::Shell, CANNON_PIERCE, 1, SHELL_SPEED);
+        assert_eq!(a.ships[0].px_now(), full - 6);
+        // A missile pierces 2: it bursts on the heavy face and breaks none of it. One beside a
+        // piercer pierces 3, and its burst takes the six heavy pixels a shell's does.
+        let mut a = wall_arena();
+        shoot_wall(&mut a, Kind::Missile, MISSILE_PIERCE, 1, 1000);
+        assert_eq!(a.ships[0].px_now(), full);
+        let mut a = wall_arena();
+        shoot_wall(&mut a, Kind::Missile, rounds(MISSILE_PIERCE, MISSILE_SPEED, true).0, 1, 1000);
+        assert_eq!(a.ships[0].px_now(), full - 6);
+        assert_eq!((missile_rate(MISSILE_PIERCE), missile_rate(3)), (MISSILE_SPEED, MISSILE_SPEED - MISSILE_SPEED / 4));
+        // A missile's burst goes off on the heavy plate it meets and still breaks the bare hull
+        // in its 3x3: here the two hull pixels above the slab it hits.
+        let mut a = Arena::new();
+        a.add(0, 0, &Design::from_rows("CAP", &["hhhh", "aahh", "aach", "hhhh"]), 300, 180);
+        a.ships[0].facing = 0;
+        let (n, (l, t, _, _)) = (a.ships[0].px_now(), a.ships[0].bbox());
+        a.shots.push(Shot { team: 1, kind: Kind::Missile, line: Line::new(l - 30, t + 1, l + 60, t + 1), left: 0, speed: 1000, pierce: MISSILE_PIERCE, depth: 1, target: None, prev: (l - 30, t + 1), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        while !a.shots.is_empty() {
+            a.step();
+        }
+        assert_eq!(a.ships[0].px_now(), n - 2);
+        // Flak bounces off it as it does off plate.
+        let mut a = wall_arena();
+        shoot_wall(&mut a, Kind::Flak, FLAK_PIERCE, 1, FLAK_SPEED);
+        assert_eq!((a.ships[0].px_now(), a.score[1].bounced), (full, 1));
+    }
+
+    #[test]
+    fn a_beam_pierces_heavy_plate_at_three_of_its_cut_a_pixel() {
+        let (mut a, (mx, my)) = turret_ready();
+        let wall = Design::from_rows("WALL", &["aaaaaaaah", "aaaaaaaah", "aaaaaaaac", "aaaaaaaah"]);
+        a.add(1, 0, &wall, mx + 50, my);
+        // North up, so the beam runs along the row with the core at its far end. (Facing west,
+        // the wall stands across the line, and four of the cut take a whole column and cut it
+        // in two.)
+        a.ships[1].facing = 0;
+        let full = a.ships[1].px_now();
+        for _ in 0..BEAM_WARM + 1 {
+            a.step();
+        }
+        // A gun of three cuts twelve: four heavy pixels.
+        assert_eq!(a.ships[1].px_now(), full - 4);
+    }
+
+    /// One of the 2026-11-15 example ships.
+    fn example(name: &str) -> Design {
+        part_examples().into_iter().find(|d| d.name == name).unwrap()
+    }
+
+    /// The first shot a ship fires at a still hull slab straight ahead of it, 60 px east.
+    fn first_lance_shot(d: &Design) -> Shot {
+        let mut a = Arena::new();
+        a.add(0, 0, d, 200, 180);
+        a.ships[0].facing = 1;
+        a.add(1, 0, &slab('h'), 260, 180);
+        while !a.shots.iter().any(|s| s.kind == Kind::Lance) {
+            assert!(a.tick < 15 * 20, "{} never fired", d.name);
+            a.step();
+        }
+        *a.shots.iter().find(|s| s.kind == Kind::Lance).unwrap()
+    }
+
+    #[test]
+    fn a_gun_touching_a_piercer_fires_heavier_slower_rounds_and_two_are_no_better() {
+        // One level more piercing and a quarter slower, up to 3; a gun at 3 isn't changed.
+        assert_eq!(rounds(FLAK_PIERCE, FLAK_SPEED, true), (2, 5));
+        assert_eq!(rounds(FLAK_PIERCE, REPEAT_SPEED, true), (2, 5));
+        assert_eq!(rounds(LANCE_PIERCE, LANCE_SPEED, true), (3, 3));
+        assert_eq!(rounds(TRACKER_PIERCE, TRACKER_SPEED, true), (2, 7));
+        assert_eq!(rounds(CANNON_PIERCE, SHELL_SPEED, true), (3, 4));
+        assert_eq!(rounds(LANCE_PIERCE, LANCE_SPEED, false), (2, 4));
+        // The AP lancer's shots, against the starter lancer's.
+        let ap = first_lance_shot(&example("AP LANCER"));
+        assert_eq!((ap.pierce, ap.speed), (3, 3));
+        let plain = first_lance_shot(&starter_deck()[1]);
+        assert_eq!((plain.pierce, plain.speed), (2, 4));
+        // Both its lances touch its one piercer. Once that's shot off, neither does.
+        let mut a = Arena::new();
+        a.add(0, 0, &example("AP LANCER"), 200, 180);
+        let s = &a.ships[0];
+        let lances: Vec<usize> = (0..s.hp.len()).filter(|&c| s.shape.cells[c] == Some(Part::Lance)).collect();
+        assert!(lances.len() == 2 && lances.iter().all(|&c| s.heavy_rounds(&[c])));
+        let p = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Piercer)).unwrap();
+        a.ships[0].hp[p] = 0;
+        assert!(lances.iter().all(|&c| !a.ships[0].heavy_rounds(&[c])), "a piercer that's been shot off still upgraded its guns");
+        // A lance with a piercer on each side fires the same rounds as one with one.
+        let two = Design::from_rows("TWO", &["ili", "hhh", "hch", "e.e"]);
+        let one = Design::from_rows("ONE", &["ilh", "hhh", "hch", "e.e"]);
+        let (a2, a1) = (first_lance_shot(&two), first_lance_shot(&one));
+        assert_eq!(((a2.pierce, a2.speed), (a1.pierce, a1.speed)), ((3, 3), (3, 3)));
+        // A piercer only at a corner of a gun doesn't touch it.
+        let mut a = Arena::new();
+        a.add(0, 0, &Design::from_rows("CORNER", &["l.", "hi", "hc", "e."]), 200, 180);
+        let s = &a.ships[0];
+        let l = (0..s.hp.len()).find(|&c| s.shape.cells[c] == Some(Part::Lance)).unwrap();
+        assert!(!s.heavy_rounds(&[l]));
+    }
+
+    #[test]
+    fn a_tracker_goes_for_the_small_ship_and_swings_four_times_as_fast_as_a_cannon() {
+        let picket = example("PICKET");
+        assert_eq!((picket.stats().tracker, picket.stats().used, picket.stats().made), (1, 23, 23));
+        // A big hulk 90 px east and a small one 100 px south, both still. The tracker starts
+        // facing east, on the big one, and swings a quarter turn to the small one.
+        let mut a = Arena::new();
+        a.add(0, 0, &picket, 200, 180);
+        a.ships[0].facing = 1;
+        a.ships[0].turrets[0].aim = 16;
+        a.ships[0].order = Order::Hold;
+        a.add(1, 0, &slab('h'), 290, 180);
+        a.add(1, 0, &Design::from_rows("HULK", &["hch"]), 200, 280);
+        while !a.shots.iter().any(|s| s.kind == Kind::Track) {
+            assert!(a.tick < 15 * 3, "the tracker hadn't fired in three seconds");
+            a.step();
+        }
+        let shot = *a.shots.iter().find(|s| s.kind == Kind::Track).unwrap();
+        assert_eq!((shot.target, shot.pierce, shot.speed), (Some(2), TRACKER_PIERCE, TRACKER_SPEED));
+        // Sixteen 64ths at two a tick: eight ticks to swing, where a cannon takes thirty-two.
+        assert!(a.tick <= 10, "it took {} ticks to swing a quarter turn and fire", a.tick);
+        // It stays on small ships while they're in reach, and kills the hulk.
+        while a.ships[2].alive {
+            assert!(a.tick < 15 * 30, "the hulk outlived thirty seconds of tracker fire");
+            assert!(a.shots.iter().all(|s| s.kind != Kind::Track || s.target == Some(2)), "it fired at the big hulk with the small one in reach");
+            a.step();
+        }
+    }
+
+    #[test]
+    fn a_tracker_kills_a_wreck_whose_middle_is_gone() {
+        // An L of three pixels (its fourth, the middle of its box, shot away), sitting still to
+        // the south-west, so a shot at the middle would pass between its arms on the diagonal.
+        let mut a = Arena::new();
+        a.add(0, 0, &example("PICKET"), 200, 120);
+        a.ships[0].order = Order::Hold;
+        a.add(1, 0, &Design::from_rows("WRECK", &["ch", "hh"]), 140, 180);
+        a.ships[1].facing = 0;
+        let mid = a.ships[1].cell_at(a.ships[1].x, a.ships[1].y).unwrap();
+        a.ships[1].hp[mid] = 0;
+        run(&mut a, 15 * 20);
+        assert_eq!(a.over, Some(Some(0)), "the wreck outlived twenty seconds of tracker fire ({} of {} shots hit)", a.score[0].hits, a.score[0].fired);
+    }
+
+    #[test]
+    fn a_tracker_leads_a_fast_crossing_ship_from_where_the_tick_began() {
+        // A bar one pixel wide, due north, flying east at 2 px a tick. The tracker aims from the
+        // snapshot (where the bar stood as the tick began), but by the time it shoots the bar has
+        // moved a tick on. The shot must still go at the snapshot's middle, led, not at where the
+        // bar is now, led again: two pixels further on, a one-pixel bar is missed.
+        let mut a = Arena::new();
+        a.add(0, 0, &example("PICKET"), 200, 200);
+        a.add(1, 0, &Design::from_rows("BAR", &["h", "h", "c", "h", "h"]), 200, 110);
+        a.ships[1].facing = 0;
+        let s = &a.ships[0];
+        let cell = s.turrets[0].cell;
+        let g = s.cell_xy(cell);
+        let e = Snap { idx: 1, team: 1, x: 200, y: 110, vx: 8, vy: 0, half: 2, full: 5, working: false, worker: false };
+        a.ships[1].x += 2;
+        let travel = isqrt(dist2(200, 110, g.0, g.1)) / TRACKER_SPEED;
+        let want = (200 + 8 * travel / 4, 110);
+        a.ships[0].turrets[0].aim = angle_of(want.0 - g.0, want.1 - g.1);
+        let mut pending = vec![0; a.ships.len()];
+        a.tracker(0, 0, &[e], &mut pending);
+        let shot = *a.shots.iter().find(|s| s.kind == Kind::Track).expect("it didn't fire");
+        let mut to = Line::new(g.0, g.1, want.0, want.1);
+        let mut l = shot.line;
+        for _ in 0..isqrt(dist2(want.0, want.1, g.0, g.1)) {
+            to.step();
+            l.step();
+        }
+        assert_eq!((l.x, l.y), (to.x, to.y), "the shot went somewhere other than the snapshot's middle, led");
+    }
+
+    #[test]
+    fn plate_turns_a_trackers_shots() {
+        let mut a = Arena::new();
+        a.add(0, 0, &example("PICKET"), 200, 180);
+        a.ships[0].order = Order::Hold;
+        a.add(1, 0, &Design::from_rows("BOX", &["ppp", "pcp", "ppp"]), 300, 180);
+        run(&mut a, 15 * 20);
+        assert!(a.score[0].bounced > 10 && a.score[1].px_lost == 0, "{} bounced, {} px lost", a.score[0].bounced, a.score[1].px_lost);
     }
 
     #[test]
@@ -4714,7 +5069,7 @@ mod tests {
         };
         let (x, y) = s.proj_lumps()[0].iter().copied().filter(|&c| by_hull(c)).map(|c| s.cell_xy(c)).min_by_key(|p| p.1).unwrap();
         let (base, knob) = (hull(&a), a.ships[0].st.projector);
-        a.shots.push(Shot { team: 0, kind: Kind::Shell, line: Line::new(x, y - 30, x, y + 30), left: CANNON_RANGE, speed: SHELL_SPEED, dmg: CANNON_DMG, pen: 1, target: None, prev: (x, y - 30), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
+        a.shots.push(Shot { team: 0, kind: Kind::Shell, line: Line::new(x, y - 30, x, y + 30), left: CANNON_RANGE, speed: SHELL_SPEED, pierce: CANNON_PIERCE, depth: 1, target: None, prev: (x, y - 30), connected: false, born: a.tick, acc: 0, cover: (0, 0) });
         while !a.shots.is_empty() {
             a.step();
         }

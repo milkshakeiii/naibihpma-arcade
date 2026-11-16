@@ -19,6 +19,8 @@ pub enum Icon {
     Speed,
     TurnRate,
     Thrust,
+    /// The power gauge's.
+    Power,
     Flight(Flight),
 }
 
@@ -27,7 +29,7 @@ pub fn art(i: Icon) -> [&'static str; 7] {
         Icon::Cat(Cat::Armor) => [".#####.", "#######", "#######", "#######", ".#####.", "..###..", "...#..."],
         Icon::Cat(Cat::Weapons) => ["...#...", ".#####.", ".#...#.", "##.#.##", ".#...#.", ".#####.", "...#..."],
         Icon::Cat(Cat::Drive) => ["...#...", "..###..", ".#####.", "..###..", "..###..", ".#.#.#.", "#..#..#"],
-        Icon::Cat(Cat::Power) => ["....##.", "...##..", "..##...", ".#####.", "...##..", "..##...", ".##...."],
+        Icon::Cat(Cat::Upgrades) => ["...#...", "..#.#..", ".#...#.", "...#...", "..#.#..", ".#...#.", "......."],
         Icon::Cat(Cat::Industry) => ["..#.#..", ".#####.", "##...##", ".#...#.", "##...##", ".#####.", "..#.#.."],
         Icon::Cat(Cat::Command) => [".......", "#..#..#", "##.#.##", "#######", "#######", ".#####.", "......."],
         Icon::Part(p) => p.info().glyph,
@@ -42,6 +44,7 @@ pub fn art(i: Icon) -> [&'static str; 7] {
         Icon::Speed => [".......", "#..#...", ".#..#..", "..#..#.", ".#..#..", "#..#...", "......."],
         Icon::TurnRate => ["..###..", ".#...#.", "#.....#", "#...###", "#....#.", ".#.....", "..##..."],
         Icon::Thrust => ["...#...", "..##...", "..###..", ".##.##.", ".#...#.", ".##.##.", "..###.."],
+        Icon::Power => ["....##.", "...##..", "..##...", ".#####.", "...##..", "..##...", ".##...."],
         Icon::Flight(Flight::Runs) => ["#......", ".#.....", "..#....", "...#..#", "....#.#", ".....##", "..#####"],
         Icon::Flight(Flight::StandOff) => ["...#...", "...#...", ".......", "##...##", ".......", "...#...", "...#..."],
         Icon::Flight(Flight::Still) => ["...#...", "..#.#..", "...#...", "...#...", "#..#..#", ".#.#.#.", "..###.."],
@@ -67,7 +70,7 @@ mod tests {
     #[test]
     fn every_icon_is_seven_by_seven() {
         let mut all: Vec<Icon> = CATS.iter().map(|&c| Icon::Cat(c)).chain(PARTS.iter().map(|&p| Icon::Part(p))).collect();
-        all.extend([Icon::Pencil, Icon::Rect, Icon::Fill, Icon::Copy, Icon::Turn, Icon::Undo, Icon::Mirror, Icon::Clear, Icon::Speed, Icon::TurnRate, Icon::Thrust]);
+        all.extend([Icon::Pencil, Icon::Rect, Icon::Fill, Icon::Copy, Icon::Turn, Icon::Undo, Icon::Mirror, Icon::Clear, Icon::Speed, Icon::TurnRate, Icon::Thrust, Icon::Power]);
         all.extend([Flight::Runs, Flight::StandOff, Flight::Still].map(Icon::Flight));
         for i in all {
             assert!(art(i).iter().all(|r| r.chars().count() == 7), "{:?}", i);

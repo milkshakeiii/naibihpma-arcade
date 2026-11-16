@@ -85,7 +85,8 @@ pub fn ship(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
         let (gx, gy) = s.cell_xy(t.cell);
         let (ux, uy) = dir64(t.aim);
         let (ex, ey) = (gx + ux * BARREL / 1024, gy + uy * BARREL / 1024);
-        clipped_line(fb, f, gx - cx, gy - cy, ex - cx, ey - cy, GUN, true);
+        let col = if s.shape.cells[t.cell] == Some(Part::Tracker) { TRACKER_HI } else { GUN };
+        clipped_line(fb, f, gx - cx, gy - cy, ex - cx, ey - cy, col, true);
     }
     shields(fb, f, s, (cx, cy));
 }
@@ -203,6 +204,7 @@ pub fn fire(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
             Kind::Shell => (GOLD, WHITE),
             Kind::Missile => (MISSILE, MISSILE_HI),
             Kind::Repeat => (REPEATER, WHITE),
+            Kind::Track => (TRACKER, TRACKER_HI),
             Kind::Flak => (team_col(sh.team, 1), team_col(sh.team, 3)),
         };
         pc(fb, f, p.0, p.1, c0);
