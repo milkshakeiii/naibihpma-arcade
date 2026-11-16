@@ -35,8 +35,10 @@ use std::time::Duration;
 /// 6: the missile, and seeds sent into open space. 9 and 10: ships selected and sent, the stance
 /// and rally points. 11: ships choose how they fly, and no design carries a way or a group.
 /// 12: nor an order, and a card's own order is an AI's to give. 13: an AI's plan is part of the
-/// match. 14: heavy plate, the piercer and the tracker, in designs and in the state.)
-pub const PROTO: u32 = 14;
+/// match. 14: heavy plate, the piercer and the tracker, in designs and in the state. 15: each
+/// ship has a way of flying of its own, and a think is used on the tick it's due. 16: each ship
+/// rolls its own dice, so every fight falls out another way.)
+pub const PROTO: u32 = 16;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.

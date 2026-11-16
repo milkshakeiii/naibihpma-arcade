@@ -2271,6 +2271,299 @@ The other fights didn't move.
 - **SWARM is weaker, 69-11 to 60-20,** and its matches longer: the teams now last past its rush more often.
 - The scripted openings were stopped part way: they play the starter deck against the scripted bots, neither of which changed. So does `--frame-cost`, which came out as before (median frame at 4x about 3.3 ms, worst 7.5 ms, with nothing else loading the machine this time), so it doesn't see the new parts. For the team matches, the biggest fight got smaller (above). 302 tests pass.
 
+## The planner on the other cores, ship by ship (2026-11-16)
+
+Henry, asked what should come next: unit AI ("multithreading, granularity, we want the ships to feel like they're microing themselves effectively"), more parts, a campaign, or Steam. I argued for the unit AI's machinery first (it doesn't depend on which parts exist), then a small round of parts picked for the behaviours they ask of ships, then the behaviours themselves; Steam after the two-machine test, which is still open; the campaign last. Henry: "Yes" to a plan, then "Yes, build it", assuming a four-core machine. Not committed.
+
+**Where the planner stood** (measured on 60 team matches before anything changed). It played the fight forward 8 s for each way one design could fly, one design at a time, on the game's own thread, held to about 1 ms of the 66.7 ms tick:
+
+| ships in the fight | one design decided in | every design on a side |
+|---|---|---|
+| under 20 | 0.5 s | 0.5 to 1.6 s |
+| 20 to 40 | 0.8 s | 1.7 s |
+| 40 to 70 | 2.6 s | 6.4 s |
+| 70 to 110 | 8 s | 24 s |
+| over 110 | 12 s | 36 s |
+
+In a fight of over about 70 ships the answer came after the 8 s it had looked ahead. There was one fight on the map 99% of the time (ships within 300 px of each other counted as one fight), so thinking about separate fights separately would have gained nothing, and isn't built.
+
+| row | what | verdict |
+|---|---|---|
+| U1 | **The playing forward is done on worker threads** (`sim/pool.rs`): every core but one, the game's own. The game's thread only begins a think (it copies the fight) and uses it. A fight played forward works from its own copy and gives back a number, so it comes out the same on any thread at any speed. | |
+| U2 | **A think is used on a tick fixed when it begins, by the size of the fight alone, and never sooner.** A machine that has its answers early waits for the tick; one that hasn't got them by then waits for them. So two machines in a match always fly the same plan, and every machine plays the same game. | |
+| U3 | **The machine it's planned for: four cores, each half as fast as an i9-13900KF's** (Henry's ruling on my proposal). A side's planner counts on half of the three spare cores. What a fight costs to play forward is a sum fitted to 6,892 thinks: for each ship, 10 ns for each gun in the fight and 1,200 ns besides, a tick, on this machine. My first sum, the square of the ships, was out by up to three times (a ship with many guns costs far more), and would have had one think in ten late on that machine. | |
+| U4 | **Every ship of a side in the fight is thought about at once.** A think plays the fight forward once with nothing changed and once for each other way each unit could fly, from the same start on the same fresh dice. A unit takes the way that beat leaving things as they are by the most, if any did. | |
+| U5 | **How fine it thinks: a round of decisions should take about a second** (15 ticks), which sets how many units a side has. Each ship for itself in a small fight; squads of a design's ships that are near each other in a bigger one; a whole design at a time in the biggest, never coarser. Ten fighters a side decide ship by ship; twenty a side in 17 squads; fifty a side in 3; a hundred and fifty a side as one design, in about 3 s. Henry's grain: "per ship when few, groups when many". | |
+| U6 | **Each ship has a way of flying of its own.** A ship that stays as it was is given the way it was flying, so what's decided later for the rest of its design doesn't move it. A ship that hasn't been in a think (a newcomer, or one elsewhere on the map) flies as most of its design did after their last. | |
+| U7 | **A side begins a think no sooner than 8 ticks after it began its last,** which is how often it decided for a design in a small fight before. | |
+| U8 | **On screen:** the bar under a ship says what its side has it doing ("ITS SIDE HAS IT KITING."), where it said what its side had every ship of the design doing. The ARCH button's tip says the same. | |
+
+**Where what I built departs from the plan:**
+- I built the threads and "every design at once" together and measured them as one step, not two.
+- My estimates of how soon everything would be decided were too rosy, because the sum they came from was too low: I said 0.3 s at 60 ships, under 1 s at 100 and about 4 s at 250. As built, a round takes about a second up to a hundred ships and about 3 s at three hundred, but it gets there by thinking coarser than I'd pictured: ship by ship only up to about 35 ships in the fight.
+
+**The proofs.** Fourteen tests in `sim/arch.rs` and two in `sim/pool.rs`. The main one plays a fight of forty fighters five ways and compares the checksum after every tick: every think worked out by the game's own thread on the tick it's due; by the workers with the game not waiting for them; by workers each held up for some milliseconds; and by workers with the game waiting until every answer is in early. All the same fight. Then the fault those guard against, a think used the moment its answers are in, with the answers in early: a different fight, so the comparison does catch it. Others: a think's scores are what playing each change forward by hand gives; nothing is used before the tick it's due though the answers are in; a copy of a fight made in the middle of a think plays on the same; the units for five sizes of fight. 307 tests pass.
+
+One old test changed: the rush opening's hurt king still goes home, but its one lancer, flying as its side's planner now has it, kills the enemy's idle king six seconds later, so the test allows the match to be the rusher's.
+
+**What a frame costs now** (`--frame-cost`, which now also plays SWARM against RAIDERS and BIG GUNS against LANCE LINE, with nothing else loading the machine; before, the starter deck and my saved team only):
+
+| ms a tick on the game's own thread | before: median | 99.9% | max | now: median | 99.9% | max |
+|---|---|---|---|---|---|---|
+| the match's tick | 1.83 | 8.98 | 11.58 | 1.02 | 5.60 | 7.29 |
+| of it, the planners | 0.96 | 7.00 | 9.08 | 0.00 | 0.37 | 1.12 |
+| a whole frame at 4x | 3.13 | 10.40 | 13.35 | 3.22 | 7.86 | 9.59 |
+
+**Whether the cores keep up** (the same four matches, 8,610 thinks, with three worker threads as a four-core machine has). A think plays 11 fights forward at the median and 55 at the most, 129 ms of one core's work at the median and 952 at the most, and is allowed 0.33 s at the median, 1.1 s at the 99th in a hundred and 1.5 s at the most. Here, with three workers, it had every answer in after 15% of that at the median and 60% at the 99.9th in a hundred; 26 of the 8,610 took over half of it, which is what would be late on a machine half as fast, and 2 took longer than allowed (one twice as long: something else had the machine). So on the machine planned for, about one think in 300 would be late and the game would wait for it, a fraction of a second. With every core of this machine, the median think is in after 6% of its time.
+
+**Not done, and for Henry:**
+- The round robins and the tally are in, with three measurements they sent me to: "The planner's tables" below.
+- The one think in 300: a bigger margin in U3 would end that, and every machine would decide more slowly for it. I left it.
+- New things to choose between (targets, keeping a prow to the enemy, staying with a projector) are the next half.
+- The tools: `--frame-cost` as above, with `--workers N`; `--ways` now also gives, by the size of the fight, how many ships a decision is for and how long it takes, and how often the same think on other dice comes out the same; `--grain design`, with any tool, holds the planner to a design at a time.
+
+**The planner's tables, and what a decision is made of (2026-11-16, later).** Nothing in the game changed for this. The tools gained two measurements and one switch that only they set: `--ways` now scores each change in a think on two rolls of the dice, and `--flight` fights a planner whose scores are thrown away (`Arena::blind`, `Think::blind`), runs a fight's seeds side by side, and takes `--grain design`. `--flight` lost its line timing a tick, which timed the game's thread waiting for the workers and so said nothing about a frame; `--frame-cost` says that.
+
+*The round robins.* 240 matches each, 8 seeds a pairing, each team on each side, both sides on the same planner: the planner before this work (the committed game), the planner now, and the planner now held to a design at a time (`--grain design`). Each cell is the first team's wins and the second's, of 16. No match was drawn.
+
+| pairing | planner before | now, ship by ship | now, a design at a time |
+|---|---|---|---|
+| STARTER DECK v SWARM | 6-10 | 6-10 | 6-10 |
+| STARTER DECK v LANCE LINE | 1-15 | 0-16 | 2-14 |
+| STARTER DECK v BIG GUNS | 16-0 | 13-3 | 14-2 |
+| STARTER DECK v RAIDERS | 3-13 | 0-16 | 0-16 |
+| STARTER DECK v SIEGE | 6-10 | 0-16 | 0-16 |
+| SWARM v LANCE LINE | 15-1 | 16-0 | 16-0 |
+| SWARM v BIG GUNS | 16-0 | 16-0 | 16-0 |
+| SWARM v RAIDERS | 8-8 | 6-10 | 6-10 |
+| SWARM v SIEGE | 11-5 | 15-1 | 11-5 |
+| LANCE LINE v BIG GUNS | 15-1 | 16-0 | 16-0 |
+| LANCE LINE v RAIDERS | 1-15 | 1-15 | 0-16 |
+| LANCE LINE v SIEGE | 11-5 | 13-3 | 10-6 |
+| BIG GUNS v RAIDERS | 2-14 | 0-16 | 0-16 |
+| BIG GUNS v SIEGE | 10-6 | 7-9 | 7-9 |
+| RAIDERS v SIEGE | 16-0 | 16-0 | 15-1 |
+
+| a team's 80 matches: won-lost, median length | planner before | now, ship by ship | now, a design at a time |
+|---|---|---|---|
+| STARTER DECK | 32-48, 14:02 | 19-61, 13:20 | 22-58, 13:21 |
+| SWARM | 60-20, 11:02 | 63-17, 11:21 | 59-21, 11:18 |
+| LANCE LINE | 43-37, 12:16 | 46-34, 11:29 | 40-40, 11:04 |
+| BIG GUNS | 13-67, 13:44 | 10-70, 12:44 | 9-71, 11:48 |
+| RAIDERS | 66-14, 12:39 | 73-7, 12:15 | 73-7, 10:24 |
+| SIEGE | 26-54, 14:41 | 29-51, 13:24 | 37-43, 14:15 |
+| the 240 matches took, on 32 cores | 428 s | 5,252 s | 3,700 s |
+
+What these can and can't say. Both sides of every match fly by the same planner, so the tables show how the balance between the teams moved and not whether ships fly better. (I told Henry these were the tables that would show whether it plays better. They aren't.) What moved: the lopsided pairings got more lopsided. STARTER DECK won 9 of its 32 against RAIDERS and SIEGE before and none now, at either grain; BIG GUNS against SIEGE went from 10-6 to 7-9; SWARM against SIEGE is 15-1 ship by ship and 11-5 otherwise. Each team's first wave and factories planted are about what they were. A round robin now takes an hour and a half to run where it took seven minutes: the playing forward is most of it, which is what the cores are for.
+
+*Which ways are kept* (`--ways 1`: 30 matches, then the arena's team fights at 12 seeds each; the tally before was on two seeds a pairing and on 24 team fights, so only the rates compare).
+
+| | decisions | attack runs / kite / orbit kept | every way scored the same (all 0) | gave a new way | time in a fight: runs / kite / orbit |
+|---|---|---|---|---|---|
+| matches, planner before | 52,872 on 60 | 30 / 38 / 31 % | 18 % (7 %) | 42 % | 29 / 33 / 36 % |
+| matches, ship by ship | 248,299 on 30 | 33 / 32 / 34 % | 12 % (2 %) | 52 % | 32 / 33 / 34 % |
+| matches, a design at a time | 107,782 on 30 | 30 / 36 / 33 % | 9 % (3 %) | 52 % | 29 / 37 / 32 % |
+| team fights, planner before | 37,639 | 27 / 36 / 35 % | 14 % (1 %) | 45 % | 44 / 31 / 23 % |
+| team fights, ship by ship | 339,390 | 31 / 33 / 34 % | 7 % (0 %) | 57 % | 32 / 34 / 33 % |
+| team fights, a design at a time | 106,376 | 27 / 36 / 36 % | 5 % (0 %) | 55 % | 27 / 37 / 35 % |
+
+Ship by ship, no design leans far any way: the widest in matches is the wasp, kiting 45% (60% a design at a time, 64% before). A design at a time, some still do: in matches the wasp kites 60% and the raker 48%, and in the team fights the picket orbits 54% and the ironlancer 15%.
+
+| matches, by ships in the fight | ship by ship: decisions | ships a decision is for, median and most | seconds to decide, median and most | gave a new way | a design at a time: decisions | ships | seconds | new way |
+|---|---|---|---|---|---|---|---|---|
+| under 10 | 3,158 | 1, 1 | 0.1, 0.1 | 23 % | 2,241 | 1, 6 | 0.1, 0.1 | 24 % |
+| 10 to 19 | 23,292 | 1, 1 | 0.1, 0.4 | 38 % | 12,735 | 2, 13 | 0.1, 0.1 | 39 % |
+| 20 to 39 | 119,272 | 1, 2 | 0.3, 1.2 | 51 % | 37,951 | 2, 17 | 0.1, 0.3 | 50 % |
+| 40 to 69 | 73,881 | 1, 13 | 0.7, 1.4 | 57 % | 28,687 | 4, 30 | 0.2, 0.6 | 57 % |
+| 70 to 109 | 21,479 | 1, 23 | 1.0, 1.4 | 58 % | 13,364 | 4, 30 | 0.4, 1.1 | 57 % |
+| 110 and over | 7,217 | 3, 35 | 1.0, 2.6 | 59 % | 12,804 | 6, 36 | 1.0, 2.6 | 61 % |
+
+So decisions do land in about a second, as planned, where a big fight took 24 to 36 s to get round a side's designs. And ship by ship, a ship in a fight is handed a new way of flying about every two seconds (129,000 new ways over 238,000 seconds of ships in fights), each of them chosen by looking 8 s ahead.
+
+*The same think on other dice.* The check the tally of 2026-11-15 asked for. Every ten seconds the tool takes each side's think in hand and works it out again with the dice in the fights played forward falling another way.
+
+| | matches, ship by ship | team fights, ship by ship | matches, a design at a time | team fights, a design at a time |
+|---|---|---|---|---|
+| decisions looked at again | 13,448 | 10,861 | 3,483 | 1,294 |
+| came out the same | 44 % | 40 % | 47 % | 56 % |
+| of those where either roll gave a new way, the same | 27 % of 10,292 | 27 % of 8,849 | 31 % of 2,670 | 38 % of 913 |
+
+*Each change on two rolls* (`--ways 0`, the team fights only; matches weren't run for this, so nothing here is from a fight of over 110 ships). A change is one unit flying one other way. Its score is the fight played forward with it, less the fight played forward with nothing changed, on the same dice. "The two rolls agree" is the correlation between a change's score on the think's dice and on the other dice: near 1 if the score is what the change did, near 0 if it's the dice.
+
+| ship by ship, by ships in the fight | changes | px the dice alone move the unchanged fight's score (median) | px a change moves it (median) | px a change is worth (average) | the two rolls agree | changes ahead on the first roll that are ahead on the second | all changes ahead on the second |
+|---|---|---|---|---|---|---|---|
+| under 10 | 1,442 | 3 | 5 | -0.4 | 0.19 | 59 % | 36 % |
+| 10 to 19 | 2,946 | 11 | 15 | -0.6 | -0.02 | 55 % | 46 % |
+| 20 to 39 | 11,902 | 23 | 22 | +1.7 | 0.07 | 53 % | 47 % |
+| 40 to 69 | 5,592 | 27 | 24 | -0.4 | 0.01 | 50 % | 47 % |
+| 70 to 109 | 940 | 23 | 29 | -9.9 | 0.03 | 36 % | 32 % |
+| a change for 1 ship | 16,710 | | 19 | +0.3 | 0.05 | 53 % | 46 % |
+| for 2 to 5 | 5,380 | | 24 | +1.8 | 0.06 | 52 % | 47 % |
+| for 6 to 15 | 732 | | 28 | -10.9 | -0.09 | 33 % | 30 % |
+
+| a design at a time, by ships in the fight | changes | the dice alone | a change | worth | agree | ahead again | all ahead |
+|---|---|---|---|---|---|---|---|
+| under 10 | 636 | 1 | 9 | -3.9 | 0.33 | 63 % | 32 % |
+| 10 to 19 | 626 | 9 | 17 | -7.2 | 0.23 | 56 % | 40 % |
+| 20 to 39 | 688 | 14 | 26 | -9.0 | 0.39 | 63 % | 42 % |
+| 40 to 69 | 380 | 20 | 29 | -7.3 | 0.39 | 60 % | 44 % |
+| 70 to 109 | 260 | 32 | 42 | -18.9 | 0.33 | 50 % | 36 % |
+| a change for 1 ship | 614 | | 13 | -4.8 | 0.22 | 55 % | 36 % |
+| for 2 to 5 | 924 | | 16 | -5.5 | 0.28 | 60 % | 41 % |
+| for 6 to 15 | 840 | | 27 | -12.5 | 0.40 | 63 % | 39 % |
+| for 16 and over | 212 | | 20 | -10.9 | 0.44 | 55 % | 40 % |
+
+Ship by ship, in a fight of ten ships or more, one roll says almost nothing about the next: a change that came out ahead is ahead again 50 to 55% of the time, where any change at all is 46 to 47%. One ship flying another way moves the score by about what the dice alone move it. A design at a time, about a third of a change's score is the change.
+
+Why: every roll in a fight comes off one run of dice (six places in `sim.rs`: which pixel a gun aims for, the scatter in flak's reload, and how a pixel drifts when it's shot off). A think gives every fight it plays forward the same dice, but a ship that flies another way fires at other moments and breaks pixels at other moments, and from the first of those on every other ship's rolls fall differently too. So "the same fresh dice" stop being the same within a tick or two, and a change's score is mostly a second roll of the whole fight.
+
+*The planner against none, and against a blind one* (`--flight`: mixed fleets from a deck, five fights, 12 seeds, each side once, so 120 fights a cell; won-lost-drawn). BLIND is the control: a planner that thinks as often but throws the scores away and hands each unit, with equal chance, the way it has or either other. The old fleet's deck was left out: its fights are three-minute stalemates and nothing is judged on it now.
+
+| | planner before | now, ship by ship | now, a design at a time |
+|---|---|---|---|
+| STARTER DECK: planner v none | 81-39 | 85-35 | 83-37 |
+| PARTS LIBRARY: planner v none | 82-2-36 | 96-1-23 | 114-0-6 |
+| YOUR TEAM: planner v none | 97-23 | 107-13 | 109-10-1 |
+| pixels the planner's side lost and took, the three decks | 97,097 and 159,153 | 74,483 and 165,172 | 67,427 and 164,573 |
+| STARTER DECK: blind v none | | 58-62 | 63-56-1 |
+| PARTS LIBRARY: blind v none | | 67-45-8 | 56-47-17 |
+| YOUR TEAM: blind v none | | 73-46-1 | 68-51-1 |
+| STARTER DECK: planner v blind | | 77-43 | 78-42 |
+| PARTS LIBRARY: planner v blind | | 79-6-35 | 98-2-20 |
+| YOUR TEAM: planner v blind | | 90-30 | 99-21 |
+
+*How I read it.*
+- **The work was worth doing.** Against ships that fly as drawn, of 360 fights, the planner before won 260, lost 64 and drew 36. Now it wins 288, loses 49 and draws 23 ship by ship, and wins 306, loses 47 and draws 7 a design at a time, losing a quarter to a third fewer pixels.
+- **The looking ahead is real.** Handing out ways by chance is about a coin flip against flying as drawn (198-153-9 ship by ship, 187-154-19 a design at a time), and the planner beats that 246-79-35 and 275-65-20. So the scores carry something, though one decision at a time it's little.
+- **As built, thinking ship by ship is worse than a design at a time.** It wins fewer fights against none (288 to 306) and against blind (246 to 275), most of the gap on the parts deck (96-1-23 to 114-0-6); it's level on the starter deck. Its decisions are nearer to dice, and it takes about 40% more work. What improved on the old planner is U1 and U4 (decisions in a second, every design at once), not U5.
+- **I haven't found which decisions carry the wins.** Fights of under ten ships are the only ones where one ship's change repeats at all (0.19), and every fight ends as one. Or many slight edges add up. Not measured.
+- **The round robins don't judge any of it,** as above.
+- **U5 is still as built.** The game thinks ship by ship in small fights, as Henry ruled. I haven't switched it to a design at a time on these numbers: it's Henry's rule, and the step below may give ship by ship what it lacks.
+
+*What I'd do next (built the same day: see the next section): give each ship its own dice.* A roll made from the match's seed, the tick, the ship and what the roll is for, in place of the next number off one run. Then a ship that flies another way leaves every other ship's rolls where they were, and a change's score is what the change did. It costs nothing a tick. Every recorded fight plays out anew (the odds are the same, the rolls aren't), and it's a new protocol number. The three tools above would say whether it worked: the agreement between rolls should rise at both grains, and ship by ship should start to beat a design at a time if it has anything to offer. I'd do it before the behaviours half, because the more ways a ship can choose between, the more chances the dice have to pick one. If it doesn't lift the agreement, the fallback is a design at a time with the spare work spent on more rolls for each choice.
+
+## Each ship its own dice, and what a think's choices are worth (2026-11-16)
+
+Henry, asked whether to give each ship its own dice and to measure a ship's own score beside the whole fight's: "Yes, both." Built and measured the same day. How the game's planner chooses is unchanged: everything past the dice is a measurement, or a switch only the tools set.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| Y1 | **Each ship rolls its own dice.** A roll is made from the fight's dice, the tick, the ship, which of its pixels (or turrets) is rolling, and what the roll is for (`Arena::roll`): the pixel a flak gun, a cannon or a ship's lances aim at, how long a flak reload takes, how far a pixel knocked off drifts, and where a broken node's pixels land. Asking uses nothing up, so what one ship does can't move another's rolls along. The arena no longer holds any dice that get used up (`Arena.dice` is a number; the map's rocks and stars are made with dice of their own). A fight a planner plays forward is given other dice than the match's, made from the match's dice, the tick and the side. | |
+| Y2 | **The same roll picks the same pixel while that pixel stands** (`random_cell`). The dice give every pixel of the target a number and the surviving pixel with the lowest is the one: each is as likely as any other. Counted off along the survivors, as before, one pixel lost anywhere on the target moved every pick. | |
+| Y3 | **Each ship keeps an account:** the pixels it has knocked off (`dealt`: by its shots, bursts and beams, and whatever broke away or burst afterwards on a ship it was the last to hit) and the pixels it has lost (`lost`). A shot remembers who fired it. A side's score is exactly the sum of its ships' accounts. Nothing in the game reads them; the tools do. | |
+| Y4 | **The network protocol is 16.** Every fight falls out another way: the odds are the same, the rolls aren't. | |
+| Y5 | **Four tests that were one fight on one roll are now twenty rolls each,** and two of them hold a fault where it is (below). | |
+
+*The proof.*
+- Two skirmishes of fighters 600 px apart, played once as they are and once with one fighter of the first kiting: the second skirmish must end with every ship where it was, the same pixels left and its guns as far through their reloads. It fails on the old dice (written first, against them) and passes now.
+- The same roll picks the same pixel as the target is taken apart a pixel at a time, until that pixel goes; and on 200 rolls a pixel no pixel is picked under half or over twice its share.
+- After eight mixed-fleet fights fought to the end, every pixel a side lost is in one of its ships' `lost` and in one enemy ship's `dealt`. With a burst's kills left uncredited it fails (686 against 781).
+
+*What moved in the recorded fights* (12 seeds each, the old dice beside the new; counted by wins and draws, not seconds or pixels):
+- the starter deck's reference fights: 3 of 15 rows moved (12 FRIGATES VS 1 CAPITAL 9-3 to 6-6, 76 FIGHTERS VS 76 LANCERS 7-5 to 5-7, 6 FIGHTERS VS 1 FRIGATE 0-11-1 to 1-10-1); blue's wins over all rows 124 to 120;
+- the part examples' fights: 12 of 19 rows moved, none in who was ahead; the furthest are 2 BEAMERS VS 6 LANCERS 1-11 to 4-8, 2 RAKERS VS 1 WARDEN 8-1-3 to 4-0-8 and 2 ARCHERS VS 1 OUTPOST 9-1-2 to 12-0-0; blue's wins over all rows 99 to 104;
+- the team fights: not compared. The run on the old dice was still going when this was committed.
+
+*The four tests.* Each was one fight on the roll the arena starts on. On twenty rolls, on the old dice (a copy of the last commit) and on the new:
+
+| The test's claim | Holds on the old dice | On the new |
+|---|---|---|
+| Two frigates lining their lances up on each other settle (within 90 px up and down, three volleys each or more) | 4 of 20 | 5 of 20 |
+| The beamer and the warden keep to their row (within 90 px, four cuts or more reaching the circles) | 15 of 20 | 15 of 20 |
+| No fighter is inside the capital for more than 3 ticks in a row | 16 of 20 | 15 of 20 |
+| The gunminer hits the fighter (it fires at all in 8, and in 10) | 5 of 20 | 7 of 20 |
+
+So the dice broke none of them: they were never true of more than their own roll. Two are faults, **found here and not mended:**
+- **Two lance ships lining up on each other mostly don't settle.** In 11 fights of 20 the frigate ranges further than 90 px (up to the whole height of the map), and in others the two stand off and fire one volley each in thirty seconds.
+- **A fighter can be inside a capital for up to 20 ticks,** in about one fight in four. The capital flies onto it and keeps coming the way the fighter is getting out.
+
+The tests now hold each at today's rate (4 of 20, 14 of 20), named for what's true (`..._settle_one_time_in_four`, `small_ships_seldom_stay_inside_big_ones`), with the fault written in.
+
+**What the dice did for a ship's choice.** Each change in a think scored on the think's dice and on other dice (`--ways 0`, the arena's team fights). Ahead again: of the changes that beat leaving things alone on the first roll, the share that did on the second. Any: the share of all changes ahead on the second. Agree: how far the two rolls agree on what a change is worth (1 wholly, 0 not at all).
+
+| Ships in the fight | Shared dice: px a change moves the score, agree, ahead again / any | Own dice | Own dice and Y2 | The same, scored on the unit's own account |
+|---|---|---|---|---|
+| under 10 | 5, 0.19, 59% / 36% | 5, 0.38, 60% / 35% | 5, 0.43, 55% / 29% | 2, 0.55, 62% / 26% |
+| 10-19 | 15, -0.02, 55% / 46% | 7, 0.18, 51% / 34% | 9, 0.16, 53% / 38% | 4, 0.35, 59% / 33% |
+| 20-39 | 22, 0.07, 53% / 47% | 13, 0.03, 50% / 41% | 14, 0.11, 49% / 41% | 5, 0.28, 58% / 36% |
+| 40-69 | 24, 0.01, 50% / 47% | 16, 0.07, 49% / 44% | 15, 0.19, 50% / 42% | 5, 0.32, 57% / 40% |
+| 70-109 | 29, 0.03, 36% / 32% | 15, 0.17, 55% / 45% | 13, -0.02, 47% / 37% | 9, 0.25, 55% / 40% |
+
+A design at a time the rolls agreed 0.23 to 0.39 before and 0.30 to 0.47 now; on the unit's own account, 0.41 to 0.53. So the shared dice were part of the noise and not most of it: a change moves the score about a third less, and one roll still says little about the next. The rest is the fight itself. A ship that flies another way changes who is nearest to whom, targets change, and the fight goes another way by the rules alone.
+
+**What the way a unit is given is worth to its side.** The way picked on the think's dice, scored on two rolls kept back (the whole fight's score, px a unit a think; a unit that stays as it is counts 0; with standard errors, which are on the small side since the units of one fight aren't independent):
+
+| The way is picked on | Ship by ship (10,846 units) | A design at a time (1,324) |
+|---|---|---|
+| the whole fight's score, one roll (the game) | 2.10 ±0.26 | 5.40 ±0.82 |
+| the same on two rolls added up | 2.86 ±0.26 | 6.62 ±0.84 |
+| on three | 3.07 ±0.25 | 7.43 ±0.83 |
+| the unit's own account, one roll | 1.64 ±0.25 | 5.35 ±0.82 |
+| the unit's own account, three rolls | 2.48 ±0.25 | 6.37 ±0.85 |
+| chance (as it is, or any other way, each as likely) | -0.63 ±0.18 | -3.74 ±0.66 |
+| knowing the two rolls kept back | 15.45 ±0.24 | 16.65 ±0.78 |
+
+- Three rolls for one is worth 0.97 ±0.19 more a pick ship by ship and 2.03 ±0.58 a design at a time: about 40% more.
+- **A margin looks free, one think at a time** (in fights it isn't: below). A change that came out 1 to 10 px ahead is worth nothing on other dice (0.28 ±0.79 and 0.18 ±0.93 ship by ship); one 11 to 40 ahead about 2.5; one over 40, 8.4. Giving a new way only when it's more than 10 px ahead keeps the worth (2.16 for 2.10 ship by ship, 5.19 for 5.40 a design at a time) and cuts the units given a new way each think from 56% to 38% (52% to 36%).
+
+**A think's changes made together.** The planner judges each change with everything else left as it is, then makes them all at once. That joint change played forward on the two rolls kept back (px to the side a think, over thinks that give any unit a new way):
+
+| | Ship by ship (1,030 thinks) | A design at a time (502) |
+|---|---|---|
+| units given a new way | 6.0 of 9.7 | 1.4 of 1.8 |
+| what the think counted on: each change on its own dice, added up | 206.5 ±8.7 | 51.3 ±3.4 |
+| the changes one at a time on the rolls kept back, added up | 22.1 ±5.2 | 14.3 ±2.4 |
+| **all of them made together** | **10.2 ±1.6** | **7.9 ±1.8** |
+| only the half that came out furthest ahead, together | 11.4 ±1.4 | 11.9 ±1.8 |
+| only the one furthest ahead | 8.2 ±1.2 | 11.5 ±1.8 |
+| only those more than 10 px ahead, together (4.0 units) | 10.1 ±1.4 | not run |
+| the ways each unit's own account gives, together (5.3 units) | 14.7 ±1.6 | not run |
+
+Made together the changes are worth about half what they're worth one at a time, and the one furthest ahead carries most of it. One at a time the whole fight's score is the slightly better judge; made together, the units' own accounts are.
+
+**In fights** (`--flight`, 120 fights a deck, won-lost-drawn). The other planners are switches only the tools set (`Judge`): OWN judges a change on its own ships' account; HALF makes only the half of a think's changes that came out furthest ahead; MARGIN only those more than 10 px ahead; BEST only the one furthest ahead; BLIND throws the scores away.
+
+| Against ships that fly as drawn | STARTER | PARTS | YOUR TEAM | All 360 |
+|---|---|---|---|---|
+| the game's planner, shared dice, ship by ship | 85-35 | 96-1-23 | 107-13 | 288-49-23 |
+| the game's planner, shared dice, a design at a time | 83-37 | 114-0-6 | 109-10-1 | 306-47-7 |
+| **the game's planner, ship by ship** | 83-37 | 106-1-13 | 114-6 | **303-44-13** |
+| the game's planner, a design at a time | 77-43 | 113-0-7 | 111-8-1 | 301-51-8 |
+| HALF | 89-31 | 114-0-6 | 115-5 | 318-36-6 |
+| MARGIN | 88-31-1 | 99-1-20 | 113-7 | 300-39-21 |
+| BEST | 90-30 | 98-5-17 | 109-11 | 297-46-17 |
+| BEST, a design at a time | 83-37 | 115-0-5 | 110-9-1 | 308-46-6 |
+| OWN | 82-38 | 105-0-15 | 110-10 | 297-48-15 |
+| OWN, a design at a time | 80-39-1 | 111-0-9 | 112-8 | 303-47-10 |
+| BLIND | 61-59 | 66-48-6 | 74-46 | 201-153-6 |
+
+| The game's planner against | STARTER | PARTS | YOUR TEAM | All 360 |
+|---|---|---|---|---|
+| BLIND | 72-48 | 92-2-26 | 91-27-2 | 255-77-28 |
+| OWN | 59-61 | 22-50-48 | 47-71-2 | 128-182-50 |
+| OWN, a design at a time | 57-63 | 25-35-60 | 55-63-2 | 137-161-62 |
+| HALF | 63-56-1 | 41-38-41 | 59-60-1 | 163-154-43 |
+| MARGIN | 66-54 | 57-18-45 | 55-62-3 | 178-134-48 |
+| BEST | 63-57 | 67-30-23 | 75-43-2 | 205-130-25 |
+
+*How I read it.*
+- **The dice lifted thinking ship by ship to level with a design at a time** against ships that fly as drawn (288 to 303, with a design at a time at 301), most of it on the parts deck. The grain no longer shows there.
+- **How many of a think's changes are made hardly matters against ships that fly as drawn.** Every planner that looks ahead wins 297 to 318 of 360; the blind one 201.
+- **Against another planner, one does better than the game's: the one that judges a change on its own ships' account.** It beats the game's planner 182 to 128 ship by ship and 161 to 137 a design at a time, though one change at a time it's the slightly worse judge. A unit's own account leaves out the rest of the fight, so a pick doesn't lean on something elsewhere that's gone once everyone has changed at once. Both sides plan in every match, so this is the fight that counts.
+- **Making fewer of a think's changes doesn't beat the game's planner.** The better half is level with it (the first figure in each row is the game's planner's wins). One change a think loses to it on every deck, and the margin loses to it on the parts deck, though both are as good as any against ships that fly as drawn. So the margin that looked free one think at a time isn't, against a side that plans.
+- **The game's planner is as it was.** I haven't switched it to the unit's own account, a margin or more rolls: those are changes to U4, and what came next (below) may replace what they'd change.
+
+*Tools.* `--ways` gained the lines above (the unit's own account, the worth of a pick on one to three rolls, the margin, how far ahead against what it's worth, a think's changes made together). `--flight` takes `--judges` (blind, own, best, half, margin; a v before a name fights the game's planner against it) and `--lean`. All 311 tests pass (1 ignored).
+
+*Not done.* Nothing was watched in the window. The pick's worth and the changes made together were measured in the arena's team fights only, so nothing over 110 ships. The two faults above stand. Thinking finer was never fought against thinking coarser head to head (the grain is the arena's, not a side's).
+
+**Where it went next (Henry, the same day).**
+- Henry asked what I'd build if only "the ships should look like they have a smart onboard AI while basically following high level player orders" were sacred. My answer: move the smartness onto the ship. Each ship reads its own drawing (where its guns reach and bear, its toughest side, how fast it flies and turns) and runs a few general rules from what's near it: hold where your guns reach and theirs don't; show your toughest side to the biggest threat; shoot what your guns can hurt and finish what's nearly dead; get off a line that's about to fire; fall back behind friends when badly hurt; stay with your group and your projector; keep to a choice for a few seconds. Orders are a leash: a place and a posture. The look-ahead stays as the referee for every rule, and perhaps for rare calls for a whole group. The yardstick becomes dumb moments counted over twenty rolls (in range and not firing, inside a bigger ship, changes of mind a minute, hurt ships left in front, ships away from their projector). What worries me about it: the planner does win today, DRILLED failed, it's the ship AI Henry parked, and it retires most of U1 to U8. I proposed an arena toy of three rules. *Not answered.*
+- Henry asked whether ships can strafe and fly backwards. They can: thrust is the same in every direction whatever the facing, and the facing (one of four quarter turns) only says where the pixels and the fixed guns are. Every ship stops dead from full speed within a few pixels (a fighter in 0.4 s and about 7 px, a frigate in 0.5 s and 4 px, a capital in 0.8 s and 5 px). Henry: "I didn't exactly intend for ships to be able to strafe and fly backwards. We might be due for a large overhaul. If ships can strafe and fly backwards, especially with fast acceleration, I'm not sure to what extent orbiting and attack runs even make sense. As you said, it's more just a matter of staying in the right zone and dodging a bit."
+- I laid out three flight models. *Zone-keepers:* today's physics with the patterns dropped. *Momentum:* thrust any way but far less of it, so stopping or reversing costs seconds. *Nose-first:* full thrust ahead, weak sideways and astern, with momentum; engines could later push the way they're drawn. My pick is nose-first: runs and orbits become consequences and not styles, a ship turning in is a tell, and the drawing matters more. It would move the king's hand-flown feel (which may have to stay an exception), miners, formations, escorts and guard posts, every recorded fight, the match AI's timings and the balance, and at 15 frames a second the quarter turns would show more. With four facings any diagonal travel is partly sideways, so the choice is how freely a ship moves off its nose, not whether. I proposed an arena-only switch between the three, to watch the same fights each way before anything in a match changes.
+- I stopped adding planner experiments at that point: they measure a flight model that may go. The dice, the accounts and the twenty-roll tests stand whichever way it goes.
+- **Henry's ruling: nose-first.** "I think we want to commit and push what we have now and then begin work on a nose-first overhaul." Two questions first. One: with four rotations on screen, should the pixels behave as they're shown with a hidden rotation only for the flight physics, or should ships accelerate in four directions only? Two: should engines push the way they're drawn straight away, "because that is emergent depth (good) and I believe it's a big chunk of how nose-first makes drawings matter"? And a point Henry had made before: rotation engines, which set how fast a ship turns apart from the regular engines. "This would be an overhaul so don't preserve things that we don't want to preserve, including the whole flight pattern system. They're in the git history. One thing we might want to preserve would be multithreading (your call) but in a very different form." So this section is where the planner and its three ways of flying stop: this commit is the last that has them.
+
 ## Wishlist (Henry's, for later; none of it is a work order)
 
 - **A king that's upgraded twice.** Henry, 2026-11-14: "Once we eventually get to king design, I want to have people optionally design two upgrades to their king where you pay the price upfront and it grows into a bigger, more consequential mothership/king. (twice. so you draw your starter king and then two bigger versions)." So three drawings of a king: the starter and two bigger ones, each upgrade paid for in full before it grows.

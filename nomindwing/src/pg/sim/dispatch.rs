@@ -135,7 +135,7 @@ impl Arena {
         let mut a = self.clone();
         a.arch = Default::default();
         a.rehearsal = true;
-        a.rng = Rng::new(self.tick as u64 * 2 + t as u64 + 7);
+        a.dice = Rng::keyed([self.dice, self.tick as u64, t as u64, 1]).next_u64();
         a.send_all(t, plan);
         let end = a.tick + DISPATCH_AHEAD;
         while a.over.is_none() && a.tick < end {

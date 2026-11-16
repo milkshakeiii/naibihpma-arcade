@@ -45,6 +45,14 @@ static WHEEL: AtomicI32 = AtomicI32::new(0);
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let arg = |name: &str| args.iter().position(|a| a == name).map(|i| args.get(i + 1).cloned());
+    // --grain design: with any tool, each side's planner thinks a whole design at a time.
+    if arg("--grain").flatten().as_deref() == Some("design") {
+        export::COARSE.store(true, Ordering::Relaxed);
+    }
+    // --workers N: the planners' worker threads, for measuring a machine with fewer cores.
+    if let Some(n) = arg("--workers").flatten().and_then(|s| s.parse::<u64>().ok()) {
+        pg::sim::pool::WORKERS.store(n, Ordering::Relaxed);
+    }
     if let Some(dir) = arg("--export-screenshots") {
         export::pg_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots".into())));
         return;

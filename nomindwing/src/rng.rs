@@ -9,6 +9,16 @@ impl Rng {
         Self(seed ^ 0x9E37_79B9_7F4A_7C15)
     }
 
+    /// A generator for one roll that has a name: the same parts always give the same numbers,
+    /// and asking uses nothing up anywhere else.
+    pub fn keyed(parts: [u64; 4]) -> Self {
+        let mut z = 0x243F_6A88_85A3_08D3u64;
+        for p in parts {
+            z = Rng(z ^ p).next_u64();
+        }
+        Self(z)
+    }
+
     pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;

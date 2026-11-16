@@ -1816,9 +1816,9 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
         parts.push(format!("CARRYING {}", s.carry));
     }
     lines.push(parts.join("  "));
-    // What its side has decided for its design, once it's had a fight to think about.
-    if let Some(way) = a.plan[s.team].get(s.slot).copied().flatten().filter(|_| s.role == Role::Ship && s.st.thrust > 0 && s.st.armed()) {
-        lines.push(chosen_line(&s.name, way));
+    // What its side has decided for it, once it's had a fight to think about.
+    if let Some(way) = a.planned(i).filter(|_| s.role == Role::Ship && s.st.thrust > 0 && s.st.armed()) {
+        lines.push(chosen_line(way));
     }
     if s.role == Role::King {
         lines.extend(wrap(&format!("ITS SIDE HAS {} PX OF SHIPS AND FACTORIES STANDING. WITH UNDER {KING_NEEDS}, AFTER THE FIRST MINUTE, A KING FLIES AT A FIFTH OF ITS SPEED.", a.standing(s.team)), 49));

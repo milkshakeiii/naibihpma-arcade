@@ -272,7 +272,7 @@ fn brain_tip(team: usize, b: Brain) -> String {
     let key = ["B", "V"][team];
     let now = match b.ways {
         Ways::Drawn => "PLAIN: NO PLANNER. EACH SHIP GOES FOR THE NEAREST ENEMY AND FLIES AT IT AS ITS DRAWING SUGGESTS.".to_string(),
-        Ways::Plan => format!("ARCH: ONE PLANNER FOR THE SIDE. WHILE THERE'S A FIGHT IT TAKES ONE DESIGN AT A TIME, PLAYS THE FIGHT FORWARD {} S FOR EACH WAY THAT DESIGN COULD FLY, AND KEEPS WHAT CAME OUT BEST.", ARCH_AHEAD / 15),
+        Ways::Plan => format!("ARCH: ONE PLANNER FOR THE SIDE. WHILE THERE'S A FIGHT IT PLAYS IT FORWARD {} S FOR EACH WAY EACH SHIP COULD FLY (EACH GROUP, IN A BIG FIGHT) AND KEEPS WHAT COMES OUT BEST.", ARCH_AHEAD / 15),
     };
     format!("[{key}] HOW {}'S SHIPS CHOOSE. {now} CLICK FOR THE NEXT; THE FIGHT STARTS AGAIN.", team_name(team))
 }
@@ -1142,10 +1142,10 @@ impl Pg {
                 parts.push(format!("CARRYING {}", s.carry));
             }
             let mut lines = vec![format!("{} {} - {}", team_name(s.team), s.name, s.doing.name()), parts.join("  ")];
-            // What its side's planner has decided for its design.
+            // What its side's planner has decided for it.
             if a.brain[s.team].ways == Ways::Plan {
-                if let Some(style) = a.plan[s.team].get(s.slot).copied().flatten() {
-                    lines.push(chosen_line(&s.name, style));
+                if let Some(style) = a.planned(i) {
+                    lines.push(chosen_line(style));
                 }
             }
             Some(lines)

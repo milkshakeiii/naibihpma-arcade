@@ -497,10 +497,12 @@ impl Arena {
         let mut a = Arena::blank(MW, MH, seed);
         // In a match every ship chooses how it flies: each side has its planner.
         a.brain = [Brain::ARCH; 2];
-        let rocks = a.match_rocks();
+        // The map's own dice: they make the rocks and stars, and nothing in the match rolls them.
+        let mut rng = Rng::new(seed);
+        let rocks = a.match_rocks(&mut rng);
         for _ in 0..900 {
-            let (x, y) = (a.rng.range(0, MW - 1), a.rng.range(0, MH - 1));
-            let c = if a.rng.chance(15) { 2 } else if a.rng.chance(40) { 1 } else { 0 };
+            let (x, y) = (rng.range(0, MW - 1), rng.range(0, MH - 1));
+            let c = if rng.chance(15) { 2 } else if rng.chance(40) { 1 } else { 0 };
             a.stars.push((x, y, c));
         }
         let k = king();
@@ -559,13 +561,13 @@ impl Arena {
 
     /// Rocks in mirrored pairs (every rock has a twin through the centre, so neither king is ever
     /// a pixel closer to anything), one giant in the middle, and two home rocks by each king.
-    fn match_rocks(&mut self) -> Vec<Rock> {
+    fn match_rocks(&mut self, rng: &mut Rng) -> Vec<Rock> {
         let (w, h) = (self.w, self.h);
         let mut rocks = Vec::new();
         let mut placed: Vec<(i32, i32, i32)> = Vec::new();
         // The giant: point-symmetric itself, so it's its own twin.
         let (cx, cy, r) = (w / 2, h / 2, 30);
-        let half: Vec<(i32, i32)> = self.blob(cx, cy, r).into_iter().filter(|&(x, y)| y < cy || (y == cy && x <= cx)).collect();
+        let half: Vec<(i32, i32)> = Arena::blob(rng, cx, cy, r).into_iter().filter(|&(x, y)| y < cy || (y == cy && x <= cx)).collect();
         let mut giant = half.clone();
         giant.extend(half.iter().map(|&(x, y)| (w - 1 - x, h - 1 - y)));
         giant.sort();
@@ -585,8 +587,8 @@ impl Arena {
                 if tries > 20000 {
                     break;
                 }
-                let r = self.rng.range(lo, hi);
-                let (x, y) = (self.rng.range(r + 14, w - r - 15), self.rng.range(r + 14, h - r - 15));
+                let r = rng.range(lo, hi);
+                let (x, y) = (rng.range(r + 14, w - r - 15), rng.range(r + 14, h - r - 15));
                 let (mx, my) = (w - 1 - x, h - 1 - y);
                 let clear = |px: i32, py: i32, all: &Vec<(i32, i32, i32)>| {
                     KING_STARTS.iter().all(|&(a, b)| dist2(px, py, a, b) >= (r + 90) * (r + 90)) && all.iter().all(|&(a, b, r2)| dist2(px, py, a, b) >= (r + r2 + 26) * (r + r2 + 26))
@@ -600,7 +602,7 @@ impl Arena {
             }
         }
         for (x, y, r) in pairs {
-            let px = self.blob(x, y, r);
+            let px = Arena::blob(rng, x, y, r);
             let twin: Vec<(i32, i32)> = px.iter().map(|&(a, b)| (w - 1 - a, h - 1 - b)).collect();
             self.put_rock(px, &mut rocks);
             self.put_rock(twin, &mut rocks);
@@ -610,13 +612,13 @@ impl Arena {
     }
 
     /// A rough disc of rock: a ragged edge, solid inside.
-    fn blob(&mut self, cx: i32, cy: i32, r: i32) -> Vec<(i32, i32)> {
+    fn blob(rng: &mut Rng, cx: i32, cy: i32, r: i32) -> Vec<(i32, i32)> {
         let mut px = Vec::new();
         for y in -r..=r {
             for x in -r..=r {
                 let d = dist2(x, y, 0, 0);
                 let edge = d > (r - 2) * (r - 2);
-                if d <= r * r && !(edge && self.rng.chance(35)) {
+                if d <= r * r && !(edge && rng.chance(35)) {
                     px.push((cx + x, cy + y));
                 }
             }
@@ -1122,9 +1124,10 @@ impl Arena {
             let team = self.ships[i].team;
             self.eco_mut().spilt[team] += self.ships[i].store;
             self.ships[i].store = 0;
-            for _ in 0..n {
-                let (dx, dy) = (self.rng.range(-h, h), self.rng.range(-h, h));
-                let drift = 2 + self.rng.below(6) as i32;
+            for k in 0..n {
+                let mut dice = self.roll(i, k as usize, Roll::Spill);
+                let (dx, dy) = (dice.range(-h, h), dice.range(-h, h));
+                let drift = 2 + dice.below(6) as i32;
                 self.debris.push(Debris { x: (x + dx).clamp(0, self.w - 1), y: (y + dy).clamp(0, self.h - 1), vx: dx.signum(), vy: dy.signum(), drift, taken: false });
             }
         }
@@ -4288,8 +4291,13 @@ mod tests {
         for _ in 0..15 * 45 {
             a.step();
         }
+        // (The one lancer it had asked for fights on at the enemy's king, which nobody plays.
+        // Since each ship has a way of flying of its own, 2026-11-15, it kills that king inside
+        // the 45 s, some six seconds after its own king is home: the match is the rusher's, or
+        // still going, and its king is home either way.)
         let (hx, hy) = KING_STARTS[0];
-        assert!(a.over.is_none() && cheb(a.ships[k].x, a.ships[k].y, hx, hy) <= 6, "the hurt king is at ({}, {}), not home", a.ships[k].x, a.ships[k].y);
+        assert!(a.over.is_none() || a.over == Some(Some(0)), "the rusher lost: {:?}", a.over);
+        assert!(cheb(a.ships[k].x, a.ships[k].y, hx, hy) <= 6, "the hurt king is at ({}, {}), not home", a.ships[k].x, a.ships[k].y);
     }
 
     #[test]
