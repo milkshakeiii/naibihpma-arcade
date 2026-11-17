@@ -6,7 +6,7 @@
 //! Everything takes the field it draws into and the camera: the world point at the field's top
 //! left. A world point (x, y) lands on screen at (x - cam.0, y - cam.1).
 
-use super::design::{Part, SCOOP_CARRY, SHIELD_R};
+use super::design::{Part, SCOOP_CARRY, SHIELD_R, TRACTOR_TICKS};
 use super::sim::*;
 use super::{clipped_line, draw_shape, pc};
 use crate::framebuffer::Framebuffer;
@@ -31,15 +31,88 @@ pub fn backdrop(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) 
     }
 }
 
-/// Loose pixels, and the trails behind ships.
+/// Loose pixels, and the exhaust engines have left.
 pub fn drift(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
     for d in &a.debris {
         pc(fb, f, d.x - cx, d.y - cy, LOOSE);
     }
-    for s in a.ships.iter().filter(|s| s.alive && s.warp == 0) {
-        for &(x, y) in &s.trail {
-            pc(fb, f, x - cx, y - cy, team_col(s.team, 0));
+    for p in &a.exhaust {
+        pc(fb, f, p.x - cx, p.y - cy, team_col(p.team, 0));
+    }
+}
+
+/// A tractor's reach is shown by one pink dot that goes once round it, then rests: the frames
+/// (15 a second) a lap takes, and the frames before the next.
+pub const RING_LAP: u32 = 60;
+pub const RING_REST: u32 = 45;
+
+/// The pixels of a circle of radius `r` round (0, 0), in order once round from the top,
+/// clockwise: each eighth walked along the way it runs flatter, so they're evenly apart.
+pub fn circle_round(r: i32) -> Vec<(i32, i32)> {
+    let k1 = r * 181 / 256;
+    let far = |k: i32| isqrt(r * r - k * k);
+    let up: Vec<i32> = (0..=k1).collect();
+    let down: Vec<i32> = (0..=k1).rev().collect();
+    let mut round = Vec::new();
+    round.extend(up.iter().map(|&k| (k, -far(k))));
+    round.extend(down.iter().map(|&k| (far(k), -k)));
+    round.extend(up.iter().map(|&k| (far(k), k)));
+    round.extend(down.iter().map(|&k| (k, far(k))));
+    round.extend(up.iter().map(|&k| (-k, far(k))));
+    round.extend(down.iter().map(|&k| (-far(k), k)));
+    round.extend(up.iter().map(|&k| (-far(k), -k)));
+    round.extend(down.iter().map(|&k| (-k, -far(k))));
+    round.dedup();
+    round
+}
+
+/// A tractor's reach: one pink dot going round its ship's middle at that distance, a lap
+/// every so often. Drawn for the tractor ship under the pointer and the ones selected.
+/// (A dotted circle for an evening, 2026-11-16. Henry: "can we have the circle showing the
+/// tractor's range just be one pink dot that goes around in a circle occasionally. I think
+/// it's too loud right now.")
+pub fn tractor_ring(fb: &mut Framebuffer, f: Rect, (x, y): (i32, i32), reach: i32, (cx, cy): (i32, i32), frame: u32) {
+    let t = frame % (RING_LAP + RING_REST);
+    if t >= RING_LAP || reach <= 0 {
+        return;
+    }
+    let round = circle_round(reach);
+    let (dx, dy) = round[t as usize * round.len() / RING_LAP as usize];
+    pc(fb, f, x - cx + dx, y - cy + dy, TRACTOR);
+}
+
+/// The tractors' pull: a dotted line from each ship that's being emptied to the tractor ship
+/// emptying it, and a bright pixel running along it to the tractor, once for each pixel that
+/// comes across. The line stays while pixels keep coming.
+pub fn tractors(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    for m in a.ships.iter().filter(|m| m.alive) {
+        let Some((j, at)) = m.pulled else { continue };
+        let px = a.tractor_px(j);
+        if px == 0 {
+            continue;
         }
+        // How long a pixel takes to come across: the time between two pulls, and not so short
+        // that the line can't be seen.
+        let (since, every) = (a.tick.saturating_sub(at) as i32, (TRACTOR_TICKS / px).max(6));
+        if since > every {
+            continue;
+        }
+        let t = &a.ships[j];
+        // It ends on one of the tractor ship's tractor pixels: the first still standing.
+        let to = (0..t.hp.len()).find(|&c| t.hp[c] > 0 && t.shape.cells[c] == Some(Part::Tractor)).map_or((t.x, t.y), |c| t.cell_xy(c));
+        let mut l = crate::geom::Line::new(m.x - cx, m.y - cy, to.0 - cx, to.1 - cy);
+        let mut pts = vec![(l.x, l.y)];
+        while (l.x, l.y) != (to.0 - cx, to.1 - cy) && pts.len() < 400 {
+            l.step();
+            pts.push((l.x, l.y));
+        }
+        for (k, &(x, y)) in pts.iter().enumerate() {
+            if k % 3 == 0 {
+                pc(fb, f, x, y, TRACTOR);
+            }
+        }
+        let k = (pts.len() - 1) * since.min(every) as usize / every as usize;
+        pc(fb, f, pts[k].0, pts[k].1, TRACTOR_HI);
     }
 }
 

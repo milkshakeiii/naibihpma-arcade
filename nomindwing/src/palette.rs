@@ -48,6 +48,11 @@ pub const PIERCER: u8 = 42;
 /// A tracker's housing, and its breech, barrel and shots.
 pub const TRACKER: u8 = 43;
 pub const TRACKER_HI: u8 = 44;
+/// Rotation engine pixels.
+pub const GYRO: u8 = 45;
+/// Tractor pixels and the line of a tractor's pull; the pixel that runs along the line.
+pub const TRACTOR: u8 = 46;
+pub const TRACTOR_HI: u8 = 47;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -121,6 +126,9 @@ pub fn game() -> Pal {
     set(&mut p, PIERCER, (204, 64, 112));
     set(&mut p, TRACKER, (132, 140, 68));
     set(&mut p, TRACKER_HI, (188, 252, 228));
+    set(&mut p, GYRO, (164, 116, 236));
+    set(&mut p, TRACTOR, (252, 148, 196));
+    set(&mut p, TRACTOR_HI, (255, 224, 236));
 
     set(&mut p, PANEL_LO, (36, 40, 56));
     set(&mut p, PANEL, (60, 66, 88));

@@ -73,6 +73,11 @@ pub const RULE_SPEND: u32 = 2;
 /// The AI plants as soon as its bank holds the factory's price, keeping nothing back for the new
 /// factory to print with (Henry planted at 121, the outpost's price, all through his match).
 pub const RULE_SPARE: u32 = 4;
+/// The AI keeps its tractors up with its miners (2026-11-16, with the tractor): when its tractors
+/// can't pull as fast as two thirds of its miners bite (a miner flies as well as bites), its
+/// king prints a collector before another miner. With the rule off it never prints one, and
+/// lives on what its king's and its factories' tractors take in.
+pub const RULE_TRACTORS: u32 = 8;
 const PILE_TICKS: u32 = 15 * 30;
 const PILE_MOST: usize = 14;
 /// Accumulators count in 60ths of a pixel per tick: a factory pixel adds 1 a tick, so it prints a
@@ -388,6 +393,35 @@ pub struct Rock {
     pub px: Vec<(i32, i32)>,
 }
 
+/// The biggest body among some pixels, in the order they came: the most of them that hang
+/// together, edge to edge or corner to corner. (Of two as big, the one that comes first.)
+fn one_body(px: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
+    let all: std::collections::HashSet<(i32, i32)> = px.iter().copied().collect();
+    let mut body_of: std::collections::HashMap<(i32, i32), usize> = std::collections::HashMap::new();
+    let mut sizes: Vec<usize> = Vec::new();
+    for &start in &px {
+        if body_of.contains_key(&start) {
+            continue;
+        }
+        let id = sizes.len();
+        let (mut todo, mut n) = (vec![start], 0);
+        body_of.insert(start, id);
+        while let Some((x, y)) = todo.pop() {
+            n += 1;
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                let p = (x + dx, y + dy);
+                if all.contains(&p) && !body_of.contains_key(&p) {
+                    body_of.insert(p, id);
+                    todo.push(p);
+                }
+            }
+        }
+        sizes.push(n);
+    }
+    let Some(best) = (0..sizes.len()).max_by_key(|&id| (sizes[id], std::cmp::Reverse(id))) else { return px };
+    px.into_iter().filter(|p| body_of[p] == best).collect()
+}
+
 /// What planting a seeded design on a rock pixel would link, as things stand (see
 /// `Arena::plant_links`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -469,9 +503,14 @@ impl Card {
     pub fn miner(&self) -> bool {
         self.ok && !self.seeded && self.st.thrust > 0 && self.st.scoops > 0
     }
-    /// A ship that flies and fights: armed, with no mining equipment.
+    /// A ship that flies with a tractor and no scoop: it follows the miners.
+    pub fn collector(&self) -> bool {
+        self.ok && !self.seeded && self.st.collector()
+    }
+    /// A ship that flies and fights: armed, with no mining equipment and no tractor (a
+    /// collector with guns stays with the miners).
     pub fn warship(&self) -> bool {
-        self.ok && !self.seeded && self.st.armed() && self.st.thrust > 0 && self.st.scoops == 0
+        self.ok && !self.seeded && self.st.armed() && self.st.thrust > 0 && self.st.scoops == 0 && self.st.tractor == 0
     }
     /// A seeded design that prints.
     pub fn factory(&self) -> bool {
@@ -481,7 +520,7 @@ impl Card {
     /// anything that flies, unless it has mining equipment. (Henry, 2026-11-14: "ATTACK should
     /// send everything unless it has mining equipment. miners should still mine.")
     pub fn stanced(&self) -> bool {
-        self.ok && !self.seeded && self.st.thrust > 0 && self.st.scoops == 0
+        self.ok && !self.seeded && self.st.thrust > 0 && self.st.scoops == 0 && self.st.tractor == 0
     }
 
 }
@@ -495,8 +534,6 @@ impl Arena {
     /// The same, saying who plays each side.
     pub fn for_bots(seed: u64, deck: [Vec<Design>; 2], bot: [Bot; 2]) -> Arena {
         let mut a = Arena::blank(MW, MH, seed);
-        // In a match every ship chooses how it flies: each side has its planner.
-        a.brain = [Brain::ARCH; 2];
         // The map's own dice: they make the rocks and stars, and nothing in the match rolls them.
         let mut rng = Rng::new(seed);
         let rocks = a.match_rocks(&mut rng);
@@ -628,6 +665,10 @@ impl Arena {
 
     fn put_rock(&mut self, px: Vec<(i32, i32)>, rocks: &mut Vec<Rock>) {
         let px: Vec<(i32, i32)> = px.into_iter().filter(|&(x, y)| (0..self.w).contains(&x) && (0..self.h).contains(&y)).collect();
+        // A rock is one body. Its ragged edge leaves a speck or two standing clear of the rest
+        // (twelve on the map of Henry's match of 2026-11-17), and to a seed that lands on one,
+        // a speck is the whole rock: those are left out.
+        let px = one_body(px);
         if px.is_empty() {
             return;
         }
@@ -676,7 +717,12 @@ impl Arena {
         best.map(|(_, p)| p)
     }
 
-    /// Every pixel of the rock touching `start`, edge to edge.
+    /// Every pixel of the rock `start` is part of: the rock pixels touching it, edge to edge or
+    /// corner to corner, and the ones touching those. What looks like one rock is one rock.
+    /// (Edge to edge only, until 2026-11-17. Every rock's outline has a few pixels that hang on
+    /// by a corner, 278 of the 22,496 on the map of Henry's match that day, and each counted
+    /// as a rock of its own: a seed whose core came down on one found a single pixel to eat
+    /// and grew the rest of its factory out of the bank, at whatever came in.)
     pub fn rock_blob(&self, start: (i32, i32)) -> Vec<(i32, i32)> {
         let mut seen = std::collections::HashSet::new();
         let mut todo = vec![start];
@@ -684,7 +730,7 @@ impl Arena {
         seen.insert(start);
         while let Some((x, y)) = todo.pop() {
             out.push((x, y));
-            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
                 let n = (x + dx, y + dy);
                 if self.rock_at(n.0, n.1) && seen.insert(n) {
                     todo.push(n);
@@ -856,9 +902,55 @@ impl Arena {
         }
     }
 
+    /// Tractors pull (2026-11-16). Every ship with tractor pixels working takes a pixel off a
+    /// ship of its side in its reach that's carrying any, one every `TRACTOR_TICKS` for each
+    /// tractor pixel it has, into its own store: that's when the pixel is banked. Of the ships
+    /// waiting to be emptied it takes from the one with the least left, so that one is away
+    /// soonest; with none waiting, from the one carrying most, which is a miner still at work
+    /// in its reach. A tractor with nothing to pull is ready to pull at once, and no more than
+    /// that: its idle time isn't saved up.
+    fn tractors(&mut self) {
+        let tick = self.tick;
+        for j in 0..self.ships.len() {
+            let px = self.tractor_px(j);
+            if px == 0 {
+                self.ships[j].pull = 0;
+                continue;
+            }
+            let (team, x, y, reach) = (self.ships[j].team, self.ships[j].x, self.ships[j].y, self.tractor_reach(j));
+            let mut pull = self.ships[j].pull + px;
+            while pull >= TRACTOR_TICKS {
+                let from = (0..self.ships.len())
+                    .filter(|&m| {
+                        let o = &self.ships[m];
+                        o.alive && o.team == team && o.carry > 0 && o.warp == 0 && o.maker.is_none() && dist2(o.x, o.y, x, y) <= reach * reach
+                    })
+                    .min_by_key(|&m| {
+                        let o = &self.ships[m];
+                        if o.hauling {
+                            (0, o.carry, m)
+                        } else {
+                            (1, -o.carry, m)
+                        }
+                    });
+                let Some(m) = from else {
+                    pull = TRACTOR_TICKS;
+                    break;
+                };
+                pull -= TRACTOR_TICKS;
+                self.ships[m].carry -= 1;
+                self.ships[m].pulled = Some((j, tick));
+                self.ships[j].store += 1;
+                self.score[team].mined += 1;
+            }
+            self.ships[j].pull = pull;
+        }
+    }
+
     pub(super) fn eco_post(&mut self) {
         self.networks();
         self.spills();
+        self.tractors();
         // Anything delivered or printed this tick is dealt with from next tick on.
         let n = self.ships.len();
         // Everyone with something to print: kings with a queue, factories with a build order.
@@ -1006,7 +1098,7 @@ impl Arena {
 
     // ----- Networks and banks -----
 
-    fn reach(&self, i: usize) -> i32 {
+    pub(super) fn reach(&self, i: usize) -> i32 {
         if self.ships[i].role == Role::King {
             KING_RANGE
         } else {
@@ -1064,7 +1156,10 @@ impl Arena {
                 let was = old.get(i).copied().unwrap_or(usize::MAX);
                 let team = self.ships[i].team;
                 let parted = team == self.ships[j].team && was != usize::MAX && old.get(j) == Some(&was) && net[i] != net[j];
-                let flew_off = (self.ships[i].role == Role::King || self.ships[j].role == Role::King) && !lost[team];
+                // (Nor has a node that flies by itself, a collector or a carrier, by flying
+                // out of reach: 2026-11-16, when collectors began to come and go all match.)
+                let flies = |k: usize| self.ships[k].role == Role::King || self.ships[k].st.thrust > 0;
+                let flew_off = (flies(i) || flies(j)) && !lost[team];
                 if parted && !flew_off {
                     split[team] = true;
                 }
@@ -1088,20 +1183,29 @@ impl Arena {
         }
     }
 
-    /// Takes a pixel for printing: from the printer's own store first, then from the nearest node
-    /// in its network that has one.
+    /// Takes a pixel for printing: from the nodes of its network that fly first, the nearest
+    /// of them (Henry, 2026-11-16: "Resources get used from mobile collectors first before
+    /// getting used from stationary outposts": a collector is the node easiest to lose, and
+    /// what it holds spills). Then from the printer's own store, then from the nearest node in
+    /// its network that has one.
     fn take_px(&mut self, i: usize) -> bool {
         let team = self.ships[i].team;
+        let (x, y) = (self.ships[i].x, self.ships[i].y);
+        let net = self.eco().net.get(i).copied().filter(|&id| id != usize::MAX);
+        if let Some(id) = net {
+            let flying = (0..self.ships.len()).filter(|&j| self.eco().net.get(j) == Some(&id) && self.ships[j].store > 0 && self.ships[j].role == Role::Ship && self.ships[j].st.thrust > 0).min_by_key(|&j| (dist2(self.ships[j].x, self.ships[j].y, x, y), j));
+            if let Some(j) = flying {
+                self.ships[j].store -= 1;
+                self.eco_mut().spent[team] += 1;
+                return true;
+            }
+        }
         if self.ships[i].store > 0 {
             self.ships[i].store -= 1;
             self.eco_mut().spent[team] += 1;
             return true;
         }
-        let id = match self.eco().net.get(i).copied() {
-            Some(id) if id != usize::MAX => id,
-            _ => return false,
-        };
-        let (x, y) = (self.ships[i].x, self.ships[i].y);
+        let Some(id) = net else { return false };
         let from = (0..self.ships.len()).filter(|&j| self.eco().net.get(j) == Some(&id) && self.ships[j].store > 0).min_by_key(|&j| dist2(self.ships[j].x, self.ships[j].y, x, y));
         match from {
             Some(j) => {
@@ -1688,8 +1792,16 @@ impl Arena {
         let (x, y, team) = (self.ships[i].x, self.ships[i].y, self.ships[i].team);
         // It comes down when it reaches its rock pixel, or when it's run up against a bigger enemy
         // and the pixel it was after is gone or under an enemy (so it can never get there).
+        //
+        // Reaching it is being within 2 px of it, or having come to rest as near it as a ship
+        // of its sort can place itself (`near_enough`: 3 px for a seed). That's where its
+        // flight leaves it, and stopped that near it flies no further. (With only the 2 px, a
+        // seed that stopped 3 px off sat by its rock for good: Henry's match of 2026-11-17,
+        // and 4 seeds in 135 sent to the pixels of one rock. It still comes down on the pixel
+        // it was sent to, not where it stopped.)
         let sow = self.ships[i].sow;
-        let there = cheb(x, y, target.0, target.1) <= 2;
+        let (off, at_rest) = (cheb(x, y, target.0, target.1), (self.ships[i].vx, self.ships[i].vy) == (0, 0));
+        let there = off <= 2 || (at_rest && off <= near_enough(&self.ships[i].st));
         let shut_out = !sow && self.ships[i].bumped && (!self.rock_at(target.0, target.1) || self.enemy_pixel(team, target.0, target.1));
         if !there && !shut_out {
             return;
@@ -1786,9 +1898,10 @@ impl Arena {
         // coming. (The scripted openings see only ships, as they always have.)
         let (home, far) = (KING_STARTS[t], KING_STARTS[1 - t]);
         let invader = |s: &&Ship| bot == Bot::Ai && s.alive && s.team != t && s.role == Role::King && dist2(s.x, s.y, home.0, home.1) < dist2(s.x, s.y, far.0, far.1);
-        // What's the AI's to defend: its king, what it has planted, and its miners. (For the
+        // What's the AI's to defend: its king, what it has planted, its miners and its
+        // collectors, which hold what the miners bit. (For the
         // scripted openings, as always, the king and what's planted.)
-        let by_mine = |x: i32, y: i32, range: i32| self.ships.iter().any(|s| s.alive && s.team == t && (s.role == Role::King || s.rooted || (bot == Bot::Ai && s.role == Role::Ship && is(s, Card::miner))) && cheb(s.x, s.y, x, y) <= range);
+        let by_mine = |x: i32, y: i32, range: i32| self.ships.iter().any(|s| s.alive && s.team == t && (s.role == Role::King || s.rooted || (bot == Bot::Ai && s.role == Role::Ship && (is(s, Card::miner) || is(s, Card::collector)))) && cheb(s.x, s.y, x, y) <= range);
         let raiders = |range: i32| -> Vec<(i32, i32, i32, bool)> { self.ships.iter().filter(|s| invader(s) || (foe(s) && by_mine(s.x, s.y, range))).map(|f| (f.x, f.y, f.px_now(), f.role == Role::King)).collect() };
         let alarm = !raiders(ALARM_RANGE).is_empty();
         // Its fleet, once turned out, stays out until the raiders are well clear.
@@ -1941,10 +2054,17 @@ impl Arena {
             // keeps them lean for its opening, or the rule's off.
             let lean = strategy.is_some_and(|p| tick < p.lean * 15) || self.eco().off[t] & RULE_MINERS != 0;
             let short_of_miners = if bot == Bot::Ai && !lean { miners < MINERS_MOST && miners as i32 * MINER_ROCK < self.rock_in_reach(t) } else { miners < factories.max(1) + 1 };
+            // What its tractors can pull against what its miners bite, counting what's on its
+            // king's queue as there already: `RULE_TRACTORS`.
+            let pull: i32 = (0..self.ships.len()).filter(|&j| self.ships[j].team == t).map(|j| self.tractor_px(j)).sum::<i32>() + self.eco().queue[t].iter().map(|j| cards[j.slot].st.tractor).sum::<i32>();
+            let short_of_tractors = self.eco().off[t] & RULE_TRACTORS == 0 && miners as i32 * TRACTOR_TICKS * 2 > pull * CHEW_TICKS * 3;
             let print = match bot {
                 // Against a raid that outweighs what it has, guns before anything: something
                 // small, right now.
                 Bot::Ai if outgunned => Self::counter(&cards, faced, left.min(100)),
+                // A collector, when its miners bite faster than its tractors pull: a miner
+                // more would only wait its turn.
+                Bot::Ai if short_of_tractors && cheapest(Card::collector).is_some() => cheapest(Card::collector),
                 // Miners: while there's rock for them (or, for the scripted openings, one more
                 // than it has factories), whatever the factories add.
                 Bot::Ai | Bot::Expander | Bot::Saboteur if short_of_miners && cheapest(Card::miner).is_some() => cheapest(Card::miner),
@@ -2167,7 +2287,7 @@ impl Arena {
                     continue;
                 }
                 let rad = isqrt(left / 3) + 4;
-                let taken = self.ships.iter().any(|s| s.alive && s.role == Role::Ship && (s.node || s.grow.as_ref().is_some_and(|g| g.eats)) && cheb(s.x, s.y, r.cx, r.cy) <= rad + s.half())
+                let taken = self.ships.iter().any(|s| s.alive && s.role == Role::Ship && (s.plant() || s.grow.as_ref().is_some_and(|g| g.eats)) && cheb(s.x, s.y, r.cx, r.cy) <= rad + s.half())
                     || self.ships.iter().any(|s| s.alive && s.seed_for.is_some_and(|(_, p)| cheb(p.0, p.1, r.cx, r.cy) <= rad));
                 let (mine, theirs) = (dist2(r.cx, r.cy, kx, ky), dist2(r.cx, r.cy, ex, ey));
                 let links = linked(&reach, r.cx, r.cy);
@@ -2665,7 +2785,7 @@ mod tests {
         for &g in &there {
             let s = &a.ships[g];
             let d = cheb(s.x, s.y, at.0, at.1);
-            assert!(s.ring0 == POST_GAP && s.posted && d >= POST_GAP / 2 && d <= POST_GAP + s.half() + 4, "guard {g} is {d} px from the rally point");
+            assert!(s.ring0 == POST_GAP && s.posted && d >= POST_GAP / 2 && d <= POST_GAP + s.half() + 4 + crate::pg::sim::near_enough(&s.st), "guard {g} is {d} px from the rally point");
             for &o in there.iter().filter(|&&o| o != g) {
                 assert!(cheb(s.x, s.y, a.ships[o].x, a.ships[o].y) >= s.half() + a.ships[o].half() + 2, "guards {g} and {o} stand on each other");
             }
@@ -2714,15 +2834,23 @@ mod tests {
             // factory prints into, and no further out than the rings this many guards fill.
             assert_eq!((s.home, s.ring0), ((fx, fy), fh + POST_GAP));
             let far = isqrt(dist2(s.x, s.y, fx, fy));
-            assert!(far >= fh + POST_GAP && far <= fh + POST_GAP + 2 * POST_SPACE + s.half() + 2, "{} waits {far} px from its factory", s.name);
-            // Nothing is parked on top of anything else: clear water between every two hulls.
+            // (A ship that keeps its speed stops as near its post as it can place itself, not
+            // on the pixel: usually within a pixel or two, at worst `near_enough`.)
+            let near = crate::pg::sim::near_enough(&s.st);
+            assert!(far >= fh + POST_GAP - near && far <= fh + POST_GAP + 2 * POST_SPACE + s.half() + 2 + near, "{} waits {far} px from its factory", s.name);
+            // Nothing is parked on top of anything else. (Clear water between every two hulls,
+            // when ships stopped on the pixel. Now two neighbours may each be a few pixels
+            // off their posts, towards each other.)
             for (m, &j) in guards.iter().enumerate().skip(n + 1) {
                 let gap = cheb(at[n].0, at[n].1, at[m].0, at[m].1) - s.half() - a.ships[j].half();
-                assert!(gap >= 4, "{} and {} wait {gap} px apart", s.name, a.ships[j].name);
+                assert!(gap >= 1 - near, "{} and {} wait {gap} px apart", s.name, a.ships[j].name);
             }
-            // At its post it looks outward.
-            let out = if (s.x - fx).abs() >= (s.y - fy).abs() { if s.x > fx { 1 } else { 3 } } else if s.y > fy { 2 } else { 0 };
-            assert_eq!(s.facing, out, "{} at ({}, {}) from its factory faces {}", s.name, s.x - fx, s.y - fy, s.facing);
+            // At its post it looks outward: across or along, whichever its post is further
+            // out by (either, where it's about as far out both ways: the ship may stand a
+            // few pixels off its post).
+            let (ax, ay) = ((s.x - fx).abs(), (s.y - fy).abs());
+            let (out_x, out_y) = (if s.x > fx { 1 } else { 3 }, if s.y > fy { 2 } else { 0 });
+            assert!((s.facing == out_x && ax + 2 * near >= ay) || (s.facing == out_y && ay + 2 * near >= ax), "{} at ({}, {}) from its factory faces {}", s.name, s.x - fx, s.y - fy, s.facing);
         }
         // The first ring goes all the way round the factory, not down one side of it.
         let ring: Vec<(i32, i32)> = at.iter().take(8).map(|&(x, y)| (x - fx, y - fy)).collect();
@@ -2738,7 +2866,7 @@ mod tests {
         a.ships[runner].order = Order::Hold;
         a.ships[runner].home = (gx + 24 * along.0, gy + 24 * along.1);
         let mut nearest = i32::MAX;
-        for _ in 0..15 * 4 {
+        for _ in 0..15 * 12 {
             a.step();
             nearest = nearest.min(cheb(a.ships[runner].x, a.ships[runner].y, gx, gy));
             assert_eq!(spots(&a, &guards), at, "a guard was pushed off its post by a ship flying over it");
@@ -2758,7 +2886,8 @@ mod tests {
         let block = a.spawn(0, 4, &slab(5, 5), before[0].0, before[0].1, 0, false);
         restless(&mut a, &guards, 6);
         let reach = a.ships[block].half() + a.ships[g].half() + 3;
-        assert_eq!(cheb(a.ships[g].x, a.ships[g].y, before[0].0, before[0].1), reach, "the guard under the block didn't step just clear of it");
+        let stepped = cheb(a.ships[g].x, a.ships[g].y, before[0].0, before[0].1);
+        assert!((stepped - reach).abs() <= crate::pg::sim::near_enough(&a.ships[g].st), "the guard under the block didn't step just clear of it: {stepped} px, for {reach}");
         // Dead centre under the block, every side is as near: it takes the one away from home.
         let home = (a.ships[f].x, a.ships[f].y);
         assert!(dist2(a.ships[g].x, a.ships[g].y, home.0, home.1) > dist2(before[0].0, before[0].1, home.0, home.1), "the guard under the block stepped in towards its factory");
@@ -2784,7 +2913,7 @@ mod tests {
         let mut stayed = 0;
         for (n, &i) in guards.iter().enumerate() {
             let s = &a.ships[i];
-            assert!(cheb(s.x, s.y, kx, ky) >= kh + s.half() + 3, "{} waits under the king", s.name);
+            assert!(cheb(s.x, s.y, kx, ky) >= kh + s.half() - crate::pg::sim::near_enough(&s.st), "{} waits under the king", s.name);
             stayed += ((s.x, s.y) == before[n]) as usize;
         }
         assert!(stayed >= guards.len() - 5, "the king's arrival moved {} of {} guards", guards.len() - stayed, guards.len());
@@ -2795,7 +2924,9 @@ mod tests {
         }
         a.command(Cmd::Steer { team: 0, dx: 0, dy: 0 });
         restless(&mut a, &guards, 8);
-        assert_eq!(spots(&a, &guards)[1..], before[1..], "a guard didn't go back to its post when the king left");
+        let back = spots(&a, &guards);
+        // (To its post: as near it as it can place itself, coming from either side.)
+        assert!((1..guards.len()).all(|n| cheb(back[n].0, back[n].1, before[n].0, before[n].1) <= 2 * crate::pg::sim::near_enough(&a.ships[guards[n]].st)), "a guard didn't go back to its post when the king left: {back:?}, from {before:?}");
     }
 
     #[test]
@@ -2829,7 +2960,8 @@ mod tests {
         assert!(!a.ships[bait].alive, "the guards never dealt with an enemy {} px from their factory", 110);
         assert!(left >= guards.len() / 2, "only {left} of {} guards went for it", guards.len());
         restless(&mut a, &guards, 20);
-        assert_eq!(spots(&a, &guards), before, "a guard came home to a different post");
+        let home = spots(&a, &guards);
+        assert!((0..guards.len()).all(|n| cheb(home[n].0, home[n].1, before[n].0, before[n].1) <= 2 * crate::pg::sim::near_enough(&a.ships[guards[n]].st)), "a guard came home to a different post: {home:?}, from {before:?}");
         assert_eq!(restless(&mut a, &guards, 5), 0);
     }
 
@@ -2882,9 +3014,9 @@ mod tests {
         for x in 0..all.len() {
             for y in x + 1..all.len() {
                 let gap = cheb(at[x].0, at[x].1, at[y].0, at[y].1) - a.ships[all[x]].half() - a.ships[all[y]].half();
-                assert!(gap >= 3, "{} and {} wait {gap} px apart", a.ships[all[x]].name, a.ships[all[y]].name);
+                assert!(gap >= -crate::pg::sim::near_enough(&a.ships[all[x]].st), "{} and {} wait {gap} px apart", a.ships[all[x]].name, a.ships[all[y]].name);
             }
-            assert!(cheb(at[x].0, at[x].1, king.0, king.1) >= a.ships[k].half() + a.ships[all[x]].half() + 3, "a guard waits under the king");
+            assert!(cheb(at[x].0, at[x].1, king.0, king.1) >= a.ships[k].half() + a.ships[all[x]].half() - crate::pg::sim::near_enough(&a.ships[all[x]].st), "a guard waits under the king");
         }
         // The others go off to fight and come back. The summoned fighter that wanted the older
         // guard's post has lost its guns, so it stays: it takes the post while the other is away,
@@ -2901,15 +3033,20 @@ mod tests {
         let mut took = false;
         for _ in 0..15 * 60 {
             a.step();
-            took |= cheb(a.ships[late].x, a.ships[late].y, before[2].0, before[2].1) <= 2;
+            took |= cheb(a.ships[late].x, a.ships[late].y, before[2].0, before[2].1) <= 3;
             if !a.ships[bait].alive {
                 break;
             }
         }
         assert!(!a.ships[bait].alive, "the guards never dealt with the enemy");
-        assert!(took, "the gunless fighter never moved onto the post left empty beside it");
+        // (Until 2026-11-16 the gunless fighter moved onto the post left empty beside it while
+        // the others fought. A ship with an enemy in sight now picks its own course, and has
+        // 24 px round its spot to do it in for next to nothing: it doesn't turn about twice
+        // to move up 8 px.)
+        let _ = took;
         restless(&mut a, &all, 20);
-        assert_eq!(spots(&a, &all), at, "a guard came back from the fight to a different place");
+        let back = spots(&a, &all);
+        assert!((0..all.len()).all(|n| cheb(back[n].0, back[n].1, at[n].0, at[n].1) <= 2 * crate::pg::sim::near_enough(&a.ships[all[n]].st)), "a guard came back from the fight to a different place: {back:?}, from {at:?}");
     }
 
     #[test]
@@ -3527,7 +3664,7 @@ mod tests {
         for i in two {
             assert!(a.ships[i].alive && far(&a, i) <= 6, "a minute on, ship {i} is {} px from home", far(&a, i));
         }
-        assert!(a.ships[lancer].sent == Some((kx + 300, ky - 200)) && cheb(a.ships[lancer].x, a.ships[lancer].y, kx + 300, ky - 200) <= 2);
+        assert!(a.ships[lancer].sent == Some((kx + 300, ky - 200)) && cheb(a.ships[lancer].x, a.ships[lancer].y, kx + 300, ky - 200) <= crate::pg::sim::near_enough(&a.ships[lancer].st));
         // The same stance twice changes nothing, and tells nobody to gather.
         let orders = a.eco().tally[0].orders;
         a.command(Cmd::Stance { team: 0, attack: false });
@@ -3654,12 +3791,437 @@ mod tests {
     }
 
     #[test]
+    fn a_ship_sent_somewhere_keeps_getting_nearer_until_its_there() {
+        // Henry, 2026-11-16, of a match on his own deck: "this fighter seemed to be somehow
+        // stuck for a while". His fighter takes 1.5 s a quarter turn. Two things held such a
+        // ship up. Standing with a long leg and a short one to fly, it took the short one if
+        // its engine happened to point that way, overshot it, came back and overshot again,
+        // with the long leg still to fly: one miner here for 41 s (the test of the trap itself
+        // is `a_ship_near_its_spot_gets_onto_it_without_fussing`). And having stopped a few
+        // pixels off its spot it backed off and came in again from further out.
+        //
+        // His deck against the starter deck, both sides played by the AI so that there are
+        // ships to send, three matches of four minutes. Every second one of blue's ships
+        // that can fly is sent somewhere, half the time within 40 px and half within 300,
+        // whatever it's doing. No ship on its way goes 15 s without getting nearer its spot
+        // (the place it was sent to, or the nearest point clear of what stands there), by
+        // one leg or the other, until it has stopped as near it as it can place itself.
+        // (The longest now is 9 s. A match is too chancy to pin one rule down: it's the other
+        // test that fails when the trap is put back.)
+        let mine: Vec<Design> = std::fs::read_to_string("proving_ground_designs.txt").map(|t| t.lines().filter_map(Design::from_line).collect()).unwrap_or_default();
+        let deck = if mine.len() >= starter_deck().len() { mine } else { starter_deck() };
+        const LIMIT: u32 = 15 * 15;
+        let (mut sends, mut arrived, mut longest) = (0, 0, 0);
+        for seed in [606u64, 607, 608] {
+            let mut a = Arena::for_match(seed, [deck.clone(), starter_deck()], [true, true]);
+            let mut rng = Rng::new(seed);
+            // For each ship that's been sent: where to, how near it has been, and when it last got nearer.
+            let mut track: std::collections::HashMap<usize, ((i32, i32), i32, u32)> = Default::default();
+            while a.over.is_none() && a.tick < 15 * 60 * 4 {
+                if a.tick % 15 == 0 {
+                    let able: Vec<usize> = (0..a.ships.len())
+                        .filter(|&i| {
+                            let s = &a.ships[i];
+                            s.alive && s.team == 0 && s.role == Role::Ship && s.st.thrust > 0 && s.warp == 0 && s.grow.is_none() && s.maker.is_none()
+                        })
+                        .collect();
+                    if !able.is_empty() {
+                        let i = able[rng.below(able.len() as u32) as usize];
+                        let (s, far) = (&a.ships[i], if rng.chance(50) { 40 } else { 300 });
+                        let to = ((s.x + rng.range(-far, far)).clamp(20, a.w - 21), (s.y + rng.range(-far, far)).clamp(20, a.h - 21));
+                        a.command(Cmd::Send { team: 0, ship: i, at: to, pace: 0 });
+                        track.insert(i, (to, i32::MAX, a.tick));
+                        sends += 1;
+                    }
+                }
+                a.step();
+                let tick = a.tick;
+                track.retain(|&i, t| {
+                    let s = &a.ships[i];
+                    if !s.alive || s.sent != Some(t.0) || s.st.thrust == 0 {
+                        return false;
+                    }
+                    let spot = s.goal.filter(|_| s.doing == Doing::Sent).unwrap_or(t.0);
+                    if cheb(s.x, s.y, spot.0, spot.1) <= crate::pg::sim::near_enough(&s.st) && (s.vx, s.vy) == (0, 0) {
+                        arrived += 1;
+                        return false;
+                    }
+                    let d = (s.x - spot.0).abs() + (s.y - spot.1).abs();
+                    // (A ship fighting what's round the place is holding its range, not on its way.)
+                    if d < t.1 || s.doing != Doing::Sent {
+                        (t.1, t.2) = (d.min(t.1), tick);
+                    }
+                    longest = longest.max(tick - t.2);
+                    assert!(tick - t.2 <= LIMIT, "seed {seed} at {}:{:02}: {} at {:?}, going {:?}, has been {} s no nearer its spot {spot:?} than {} px", tick / 900, tick / 15 % 60, s.name, (s.x, s.y), (s.vx, s.vy), (tick - t.2) / 15, t.1);
+                    true
+                });
+            }
+        }
+        println!("{sends} sends, {arrived} came to rest on their spots; the longest any went without getting nearer: {} s", longest / 15);
+        assert!(arrived >= 100, "only {arrived} of {sends} sent ships came to rest on their spots");
+    }
+
+    #[test]
+    fn a_seed_sent_to_any_pixel_of_a_rock_comes_down_on_it() {
+        // Every pixel of blue's home rock as the place a seed is sent, on the maps of Henry's
+        // two matches of 2026-11-17 and on another. Each seed comes down within a minute, the
+        // factory's core stands on the very pixel it was sent to, and it has the whole rock to
+        // eat.
+        //
+        // (A seed that stops 3 px from its pixel has stopped as near as it can place itself.
+        // While coming down took being within 2 px, 4 of 135 on the first of those maps never
+        // did. And a rock was counted edge to edge: a pixel of its outline hanging on by a
+        // corner was a rock of its own, so the factory that landed on one ate that pixel and
+        // grew the rest out of the bank. Henry's outpost, in the second match.)
+        for seed in [60921, 28259, 1] {
+            let base = Arena::for_match(seed, [starter_deck(), starter_deck()], [false, false]);
+            let (r, _) = home_rock(&base);
+            let px = base.eco.as_ref().unwrap().rocks[r].px.clone();
+            let mut tried = 0;
+            for &target in px.iter() {
+                let mut a = base.clone();
+                a.command(Cmd::Print { team: 0, slot: 4, target: Some(target) });
+                while a.eco.as_ref().unwrap().tally[0].planted == 0 {
+                    a.step();
+                    let s = a.ships.iter().find(|s| s.alive && s.team == 0 && s.role == Role::Seed);
+                    assert!(a.tick < 15 * 60, "map {seed}: the seed sent to {target:?} never came down: it's {:?}", s.map(|s| ((s.x, s.y), (s.vx, s.vy))));
+                }
+                let f = factory(&a).unwrap();
+                assert_eq!(a.mid_from(0, 4, target), Some((a.ships[f].x, a.ships[f].y)), "map {seed}: the factory sent to {target:?} stands somewhere else");
+                // The whole rock is its to eat (but for a pixel or two it has eaten already).
+                let food = a.ships[f].grow.as_ref().map_or(0, |g| g.food.len());
+                assert!(food + 3 >= px.len(), "map {seed}: the factory sent to {target:?} has {food} px of a {} px rock to eat", px.len());
+                tried += 1;
+            }
+            assert!(tried >= 90, "only {tried} places tried on map {seed}");
+        }
+    }
+
+    #[test]
+    fn every_rock_is_one_body_and_any_pixel_of_it_is_the_whole_rock() {
+        // On four maps: whichever pixel of a rock is asked, the rock is all of that rock's
+        // pixels, the ones on its outline that hang on by a corner included. (Counted edge to
+        // edge, 278 of the 22,496 rock pixels on the map of Henry's match were rocks of their
+        // own, a few on every rock. Twelve more stood clear of their rock altogether: rocks
+        // are made without those now.)
+        for seed in [28259, 60921, 1, 2] {
+            let a = Arena::for_match(seed, [starter_deck(), starter_deck()], [false, false]);
+            let rocks = &a.eco.as_ref().unwrap().rocks;
+            assert!(rocks.len() >= 50, "{} rocks on map {seed}", rocks.len());
+            for r in rocks {
+                let mut whole = r.px.clone();
+                whole.sort();
+                for &p in &r.px {
+                    let mut rock = a.rock_blob(p);
+                    rock.sort();
+                    assert!(rock == whole, "map {seed}: the rock at {p:?} is {} px of the {} px rock it's on", rock.len(), whole.len());
+                }
+            }
+        }
+    }
+
+    /// A full miner of the starter deck's for blue, put down at a point.
+    fn full_miner(a: &mut Arena, x: i32, y: i32) -> usize {
+        let m = a.spawn(0, 3, &starter_deck()[3], x, y, 0, false);
+        a.ships[m].carry = a.ships[m].st.scoops * SCOOP_CARRY;
+        m
+    }
+
+    fn far(a: &Arena, i: usize, j: usize) -> i32 {
+        isqrt(dist2(a.ships[i].x, a.ships[i].y, a.ships[j].x, a.ships[j].y))
+    }
+
+    #[test]
+    fn a_miners_load_comes_off_at_a_tractor_a_pixel_at_a_time() {
+        // A full miner 30 px from its king. Nothing is banked the moment it's there, as it was
+        // until 2026-11-16: the king's eight tractor pixels pull a pixel a second out of it.
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        let m = full_miner(&mut a, kx + 30, ky);
+        let cap = a.ships[m].carry;
+        assert_eq!((a.tractor_px(k), cap, TRACTOR_TICKS), (8, 9, 120));
+        assert!(a.tractor_reach(k) >= 40, "the king's tractor reaches {} px", a.tractor_reach(k));
+        let (bank, mined, made) = (a.ships[k].store, a.score[0].mined, a.eco.as_ref().unwrap().made[0]);
+        let mut came = Vec::new();
+        for _ in 0..15 * 10 {
+            let before = a.ships[m].carry;
+            a.step();
+            let now = a.ships[m].carry;
+            assert!(now == before || now == before - 1, "{before} px to {now} in a tick");
+            if now < before {
+                came.push(a.tick);
+                assert_eq!(a.ships[m].pulled, Some((k, a.tick)), "the pull isn't marked for the picture");
+            }
+            if now > 0 {
+                assert!(far(&a, m, k) <= a.tractor_reach(k) && a.ships[m].doing == Doing::Haul, "it left with {now} px still aboard");
+            }
+        }
+        assert_eq!((a.ships[m].carry, came.len() as i32), (0, cap));
+        assert!(came.windows(2).all(|w| w[1] - w[0] == 15), "a pixel a second: {came:?}");
+        // Banked as it came: the king holds the load and what it made by itself, and the load
+        // is what was mined.
+        assert_eq!(a.score[0].mined - mined, cap);
+        assert_eq!(a.ships[k].store - bank, cap + a.eco.as_ref().unwrap().made[0] - made);
+        // Empty, it's off to the rock again.
+        assert!(a.ships[m].doing == Doing::Mine && a.ships[m].dock.is_none(), "{}", a.ships[m].doing.name());
+    }
+
+    #[test]
+    fn a_factory_with_no_tractor_takes_nothing_in() {
+        // The starter deck's outpost as it was drawn before tractors, 300 px from the king, and
+        // a full miner beside it. The factory is a node and takes nothing: the miner flies to
+        // the king, whose tractor is the only one its side has.
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        let old = crate::pg::design::retired_starters().into_iter().filter(|(slot, _)| *slot == 4).last().unwrap().1;
+        assert_eq!((old.stats().factory, old.stats().tractor), (28, 0));
+        let f = a.spawn(0, 4, &old, kx + 300, ky, 0, false);
+        let m = full_miner(&mut a, kx + 300, ky - 20);
+        let cap = a.ships[m].carry;
+        for _ in 0..15 * 4 {
+            a.step();
+        }
+        assert!(a.ships[f].node && a.ships[f].store == 0 && a.ships[m].carry == cap);
+        assert_eq!(a.ships[m].dock, Some(k));
+        while a.ships[m].carry > 0 {
+            a.step();
+            assert!(a.tick < 15 * 60, "it never unloaded: it's {} px from its king", far(&a, m, k));
+        }
+        assert!(far(&a, m, k) <= a.tractor_reach(k) && a.ships[f].store == 0);
+    }
+
+    #[test]
+    fn a_full_miner_goes_where_it_will_be_empty_soonest() {
+        // Two outposts far from the king, one 60 px from a full miner and one 130 px the other
+        // way. With nobody waiting it takes the nearer. With five full miners waiting at the
+        // nearer (45 px, at a pixel every 2 s), it flies the 70 px further to the one that's
+        // free. And once it has chosen it keeps to its choice.
+        let pick = |waiting: i32| {
+            let mut a = quiet();
+            let (x, y) = (700, 500);
+            let d = starter_deck();
+            let near = a.spawn(0, 4, &d[4], x + 60, y, 0, false);
+            let free = a.spawn(0, 4, &d[4], x - 130, y, 0, false);
+            assert_eq!((a.tractor_px(near), a.tractor_px(free)), (4, 4));
+            for n in 0..waiting {
+                let w = full_miner(&mut a, x + 60, y - 30 + 6 * n);
+                (a.ships[w].hauling, a.ships[w].dock) = (true, Some(near));
+            }
+            a.step();
+            let m = full_miner(&mut a, x, y);
+            a.step();
+            let first = a.ships[m].dock;
+            for _ in 0..30 {
+                a.step();
+            }
+            assert_eq!(a.ships[m].dock, first, "it changed its mind on the way");
+            (first, near, free)
+        };
+        let (dock, near, _) = pick(0);
+        assert_eq!(dock, Some(near));
+        let (dock, _, free) = pick(5);
+        assert_eq!(dock, Some(free));
+    }
+
+    #[test]
+    fn a_tractor_empties_the_miners_waiting_before_the_ones_at_work_and_the_nearly_empty_first() {
+        // Three miners in reach of one outpost's tractor: two waiting to be emptied, with 9 px
+        // and 2 px, and one still at work with 5. The one with 2 goes first and is away; then
+        // the one with 9; the one at work is left until nobody is waiting.
+        let mut a = quiet();
+        let (x, y) = (700, 500);
+        let d = starter_deck();
+        let f = a.spawn(0, 4, &d[4], x, y, 0, false);
+        let full = full_miner(&mut a, x + 20, y);
+        let two = full_miner(&mut a, x, y + 20);
+        let busy = full_miner(&mut a, x - 20, y);
+        (a.ships[two].carry, a.ships[busy].carry) = (2, 5);
+        (a.ships[two].hauling, a.ships[busy].hauling) = (true, false);
+        let mined = a.score[0].mined;
+        let mut order = Vec::new();
+        for _ in 0..15 * 2 * 8 {
+            let before = [a.ships[full].carry, a.ships[two].carry, a.ships[busy].carry];
+            a.step();
+            for (n, &m) in [full, two, busy].iter().enumerate() {
+                if a.ships[m].carry < before[n] {
+                    order.push(n);
+                }
+            }
+        }
+        // (The one at work flies off to its rock, out of reach, long before its turn.)
+        assert_eq!(order, vec![1, 1, 0, 0, 0, 0, 0, 0], "who was pulled from, pull by pull");
+        // Eight pixels in sixteen seconds, through the outpost's four tractor pixels.
+        assert_eq!((a.score[0].mined - mined, a.tractor_px(f)), (8, 4));
+    }
+
+    #[test]
+    fn a_collector_stands_by_the_miners_in_link_with_its_network() {
+        // Four miners at work on a rock some way from blue's king, and a collector printed
+        // beside the king. It flies out and stands where its tractor covers their work: they
+        // never have to leave the rock, and what they bite is banked through it.
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        let link = KING_RANGE + NODE_RANGE;
+        // A rock out of the king's own reach and well inside link of it.
+        let face = {
+            let e = a.eco.as_ref().unwrap();
+            let r = e.rocks.iter().filter(|r| (90..link - 40).contains(&isqrt(dist2(r.cx, r.cy, kx, ky)))).min_by_key(|r| dist2(r.cx, r.cy, kx, ky)).expect("no rock between 90 px and link of the king");
+            r.px.iter().copied().min_by_key(|&(x, y)| dist2(x, y, kx, ky)).unwrap()
+        };
+        let d = starter_deck();
+        assert!(d[7].stats().collector() && d[7].does() == "COLLECTS");
+        let miners: Vec<usize> = (0..4).map(|n| a.spawn(0, 3, &d[3], face.0 - 4 + 3 * n, face.1, 0, false)).collect();
+        let c = a.spawn(0, 7, &d[7], kx + 40, ky, 0, false);
+        for _ in 0..15 * 60 {
+            a.step();
+        }
+        let s = &a.ships[c];
+        assert!(s.doing == Doing::Collect && (s.vx, s.vy) == (0, 0), "after a minute it's {} at {:?}, going {:?}", s.doing.name(), (s.x, s.y), (s.vx, s.vy));
+        let e = a.eco.as_ref().unwrap();
+        assert!(e.net[c] != usize::MAX && e.net[c] == e.net[k], "it stands out of link with its king");
+        // Every miner is in its reach, at work, and has carried nothing home.
+        for &m in &miners {
+            assert!(far(&a, m, c) <= a.tractor_reach(c), "a miner is {} px from it, and it reaches {}", far(&a, m, c), a.tractor_reach(c));
+            assert!(a.ships[m].doing == Doing::Mine, "a miner is {}", a.ships[m].doing.name());
+        }
+        // A minute more: it holds its place, and banks what four miners bite, less what they
+        // still carry (a pixel every 50 ticks each: 72 in a minute).
+        let (at, store) = ((s.x, s.y), s.store);
+        for _ in 0..15 * 60 {
+            a.step();
+            assert!(cheb(a.ships[c].x, a.ships[c].y, at.0, at.1) <= STAND_REST, "it moved off to {:?} from {at:?}", (a.ships[c].x, a.ships[c].y));
+        }
+        let banked = a.ships[c].store - store;
+        assert!((60..=72).contains(&banked), "it banked {banked} px in a minute from four miners");
+    }
+
+    /// How far a collector may shift about its place while the miners it stands by eat their
+    /// rock back (px): one hop.
+    const STAND_REST: i32 = 24;
+
+    #[test]
+    fn a_collector_goes_no_further_from_its_network_than_still_links() {
+        // The miners work a rock far out of link of anything. The collector stands on the way
+        // to them, as far out as still links to its king: they fly the rest, and unload there.
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        let link = KING_RANGE + NODE_RANGE;
+        let face = {
+            let e = a.eco.as_ref().unwrap();
+            let r = e.rocks.iter().filter(|r| (link + 120..link + 300).contains(&isqrt(dist2(r.cx, r.cy, kx, ky)))).min_by_key(|r| dist2(r.cx, r.cy, kx, ky)).expect("no rock well out of link of the king");
+            r.px.iter().copied().min_by_key(|&(x, y)| dist2(x, y, kx, ky)).unwrap()
+        };
+        let d = starter_deck();
+        for n in 0..3 {
+            a.spawn(0, 3, &d[3], face.0 - 3 + 3 * n, face.1, 0, false);
+        }
+        let c = a.spawn(0, 7, &d[7], kx + 40, ky, 0, false);
+        for _ in 0..15 * 90 {
+            a.step();
+        }
+        let s = &a.ships[c];
+        let out = far(&a, c, k);
+        assert!((s.vx, s.vy) == (0, 0) && (link - 24..=link).contains(&out), "it stands {out} px from its king, and links at {link}");
+        let e = a.eco.as_ref().unwrap();
+        assert!(e.net[c] == e.net[k], "it stands out of link with its king");
+        // On the way to the rock: it has made up nearly all of the link's length towards it.
+        let to_face = |x: i32, y: i32| isqrt(dist2(x, y, face.0, face.1));
+        assert!(to_face(s.x, s.y) <= to_face(kx, ky) - link + 30, "it's {} px from the rock, and its king is {}", to_face(s.x, s.y), to_face(kx, ky));
+        // The miners bring their loads to it, not to the king.
+        assert!(a.ships[c].store > 0, "nothing was unloaded at it in a minute and a half");
+    }
+
+    #[test]
+    fn what_a_flying_node_holds_is_spent_before_what_a_standing_one_holds() {
+        // Henry, 2026-11-16: "Resources get used from mobile collectors first before getting
+        // used from stationary outposts." A collector in link with the king, holding 20 px,
+        // and the king holding 100: the king prints a fighter, and the collector pays.
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        let d = starter_deck();
+        let c = a.spawn(0, 7, &d[7], kx + 60, ky, 0, false);
+        (a.ships[k].store, a.ships[c].store) = (100, 20);
+        a.eco.as_mut().unwrap().made[0] += 20 + 100 - START_BANK;
+        let price = d[0].stats().cost;
+        let made = a.eco.as_ref().unwrap().made[0];
+        a.command(Cmd::Print { team: 0, slot: 0, target: None });
+        while a.eco.as_ref().unwrap().tally[0].summoned == 0 {
+            a.step();
+            assert!(a.tick < 15 * 60, "the king never printed its fighter");
+        }
+        assert_eq!(a.ships[c].store, 20 - price, "the collector didn't pay for the fighter");
+        assert_eq!(a.ships[k].store, 100 + a.eco.as_ref().unwrap().made[0] - made, "the king paid");
+        // With the collector empty, the king pays.
+        a.ships[c].store = 0;
+        a.eco.as_mut().unwrap().made[0] -= 20 - price;
+        let (bank, made) = (a.ships[k].store, a.eco.as_ref().unwrap().made[0]);
+        a.command(Cmd::Print { team: 0, slot: 0, target: None });
+        while a.eco.as_ref().unwrap().tally[0].summoned == 1 {
+            a.step();
+            assert!(a.tick < 15 * 120, "the king never printed its second fighter");
+        }
+        assert_eq!(a.ships[k].store, bank - price + a.eco.as_ref().unwrap().made[0] - made);
+    }
+
+    #[test]
+    fn a_collector_coming_and_going_is_no_split() {
+        // A collector in link with the king is sent out of link and back. Its network parts
+        // and joins again, and nothing says the network has split: it flew off by itself.
+        let mut a = quiet();
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        let c = a.spawn(0, 7, &starter_deck()[7], kx + 60, ky, 0, false);
+        a.step();
+        assert_eq!(a.eco.as_ref().unwrap().net[c], a.eco.as_ref().unwrap().net[k]);
+        a.command(Cmd::Send { team: 0, ship: c, at: (kx + 400, ky), pace: 0 });
+        let mut parted = false;
+        for _ in 0..15 * 40 {
+            a.step();
+            parted |= a.eco.as_ref().unwrap().net[c] != a.eco.as_ref().unwrap().net[k];
+        }
+        assert!(parted, "it never got out of link: it's {} px from its king", far(&a, c, k));
+        assert_eq!(a.eco.as_ref().unwrap().split_at[0], 0, "a collector flying off was called a split");
+    }
+
+    #[test]
+    fn the_ai_prints_a_collector_when_its_miners_bite_faster_than_its_tractors_pull() {
+        // The AI's king and one outpost: twelve tractor pixels, which pull a pixel every 10
+        // ticks. Miners bite one every 50 each, and fly as well: the AI wants tractors for two
+        // thirds of their bite. So seven miners are within what it has, and eight are over.
+        let first = |miners: i32, off: u32| {
+            let mut a = ai_alone();
+            a.eco.as_mut().unwrap().off[0] = off;
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let f = friend(&mut a, OUTPOST, kx + 80, ky - 60);
+            (a.ships[f].rooted, a.ships[f].node) = (true, true);
+            for n in 0..miners {
+                friend(&mut a, MINER, kx - 60 + 6 * n, ky + 40);
+            }
+            a.ships[k].store = 2000;
+            a.score[0].mined += 2000 - START_BANK;
+            think(&mut a);
+            first_ship_printed(&a)
+        };
+        const COLLECTOR: usize = 7;
+        assert_ne!(first(7, 0), Some(COLLECTOR), "seven miners are within what twelve tractor pixels pull");
+        assert_eq!(first(8, 0), Some(COLLECTOR), "eight miners out-bite twelve tractor pixels, and the AI printed no collector");
+        assert_ne!(first(8, RULE_TRACTORS), Some(COLLECTOR), "with the rule off it printed one");
+    }
+
+    #[test]
     fn full_miners_get_home_in_the_time_the_flight_takes() {
         // A whole economy at work: a side that plants factories and prints miners without a
         // pause, against the AI, for six minutes. Miners heap up on the rock faces, and each one
-        // that fills has to get home past the rest. Every trip home to a drop-off that stayed
-        // where it was, with nothing solid in the way, takes the straight flight at the miner's
-        // speed and no more than 3 s on top. (When friends pushed a full miner like any other
+        // that fills has to get home past the rest. Every trip into the reach of a tractor that stayed
+        // where it was, with nothing solid in the way, takes what the miner's own flight takes
+        // with nothing else on the map (getting up speed, turning about, stopping where it
+        // can hand over) and no more than 10 s on top. (When friends pushed a full miner like any other
         // ship, the heaps held some of them back: 22 s at the worst here, and over a minute in
         // longer matches.)
         let mut a = Arena::for_bots(1, [starter_deck(), starter_deck()], [Bot::Boomer, Bot::Ai]);
@@ -3672,27 +4234,36 @@ mod tests {
             out.resize(a.ships.len(), None);
             for i in 0..a.ships.len() {
                 let s = &a.ships[i];
-                if s.alive && s.doing == Doing::Haul {
+                // A trip is from the tick a miner sets off with its load to the tick it's in
+                // the reach of the tractor it chose.
+                let dock = s.dock.filter(|_| s.alive && s.doing == Doing::Haul);
+                let there = dock.is_some_and(|j| far(&a, i, j) <= a.tractor_reach(j));
+                if let (Some(j), false) = (dock, there) {
                     if out[i].is_none() {
-                        if let (at, reach, Some(node)) = a.station(i) {
-                            out[i] = Some((a.tick, (isqrt(dist2(s.x, s.y, at.0, at.1)) - reach).max(0), node, at, false));
-                        }
+                        let at = (a.ships[j].x, a.ships[j].y);
+                        out[i] = Some((a.tick, a.flight_time(i, at, a.tractor_reach(j) * 2 / 3) as i32, j, at, false));
                     }
                     if let Some(trip) = out[i].as_mut() {
                         trip.4 |= s.bumped;
                     }
-                } else if let Some((t0, far, node, at, bumped)) = out[i].take() {
+                } else if let Some((t0, flight, node, at, bumped)) = out[i].take() {
                     let o = &a.ships[node];
-                    // (A miner whose engines were shot off on the way can't make the trip at all.)
-                    if s.alive && o.alive && (o.x, o.y) == at && !bumped && s.st.vmax > 0 {
+                    // (A miner whose engines were shot off on the way can't make the trip at
+                    // all, and a collector that moved off isn't the trip that was measured.)
+                    if s.alive && there && o.alive && (o.x, o.y) == at && !bumped && s.st.vmax > 0 {
                         trips += 1;
-                        worst = worst.max((a.tick - t0) as i32 - far * 4 / s.st.vmax);
+                        worst = worst.max((a.tick - t0) as i32 - flight);
                     }
                 }
             }
         }
-        assert!(trips >= 100, "only {trips} trips home in six minutes");
-        assert!(worst <= 45, "a full miner took {} s longer to get home than the flight takes", worst / 15);
+        println!("{trips} trips, the worst {} ticks over its flight", worst);
+        // (Over a hundred until 2026-11-16: a miner in reach of a tractor where it works makes
+        // no trip at all now.)
+        assert!(trips >= 50, "only {trips} trips home in six minutes");
+        // (10 s: a miner with an enemy in sight picks its own course home, and one that stops
+        // just short of where it can hand over has to set off again.)
+        assert!(worst <= 150, "a full miner took {} s longer to get home than the flight takes", worst / 15);
     }
 
     #[test]
@@ -3743,7 +4314,8 @@ mod tests {
             let k = a.eco.as_ref().unwrap().king[0];
             let cards = &a.eco.as_ref().unwrap().cards[0];
             assert!(a.bank(k) >= cards[4].cost + 40 && a.bank(k) < cards[5].cost, "the bank should hold an outpost and not a shipyard");
-            for _ in 0..15 * 5 {
+            // (Twelve seconds: the seed has to get up speed, turn about and stop on its rock.)
+            for _ in 0..15 * 12 {
                 a.step();
             }
             a.eco.as_ref().unwrap().tally[0].planted
@@ -4288,6 +4860,7 @@ mod tests {
             a.kill_cell(k, c, at, (0, 0));
         }
         assert!(a.ships[k].alive && a.ships[k].px_now() * 4 < full * 3);
+        let was = cheb(a.ships[k].x, a.ships[k].y, KING_STARTS[0].0, KING_STARTS[0].1);
         for _ in 0..15 * 45 {
             a.step();
         }
@@ -4297,7 +4870,10 @@ mod tests {
         // still going, and its king is home either way.)
         let (hx, hy) = KING_STARTS[0];
         assert!(a.over.is_none() || a.over == Some(Some(0)), "the rusher lost: {:?}", a.over);
-        assert!(cheb(a.ships[k].x, a.ships[k].y, hx, hy) <= 6, "the hurt king is at ({}, {}), not home", a.ships[k].x, a.ships[k].y);
+        // (Since lances lead their targets, 2026-11-16, the lancer kills that king before the
+        // rusher's is home, and the match stops with it on its way.)
+        let now = cheb(a.ships[k].x, a.ships[k].y, hx, hy);
+        assert!(now <= 6 || (a.over == Some(Some(0)) && now < was), "the hurt king is at ({}, {}), not home ({was} px off when it was hurt)", a.ships[k].x, a.ships[k].y);
     }
 
     #[test]

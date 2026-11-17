@@ -107,7 +107,7 @@ const MATCH_HELP: [(&str, &str); 10] = [
     ("KING", "RIGHT-CLICK MOVES IT. A CARD OR ITS KEY PRINTS A SHIP. RIGHT-CLICK REPEATS IT. BACKSPACE STOPS IT."),
     ("SEEDS", "A SEEDED CARD IS PAID FOR AT ONCE. ITS SEED GROWS IT OUT OF THE ROCK YOU CLICK, OR FROM ITS NETWORK IN OPEN SPACE (CTRL+CLICK), AT TWICE THE COST."),
     ("FACTORY", "IT PRINTS ITS BUILD ORDER ROUND AND ROUND, WAITING WHEN THE BANK IS EMPTY. SELECT IT AND RIGHT-CLICK: ITS NEW SHIPS GATHER THERE."),
-    ("BANK", "MINERS HAUL TO THE NEAREST NODE (KING OR FACTORY). LINKED NODES SHARE A BANK; NODES CUT OFF FROM YOUR KING KEEP THEIR OWN."),
+    ("BANK", "MINERS UNLOAD AT TRACTORS (YOUR KING HAS ONE), A PIXEL AT A TIME. LINKED NODES SHARE A BANK; CUT-OFF NODES KEEP THEIR OWN."),
     ("FLEET", "DRAG A BOX OR CLICK TO SELECT; DOUBLE-CLICK A TYPE. RIGHT-CLICK SENDS THEM THERE TO FIGHT."),
     ("UNSENT", "UNSENT SHIPS GUARD WHERE THEY WERE BUILT. T, OR THE BUTTON BY THE CLOCK: THEY ALL ATTACK."),
     ("VIEW", "WASD OR ARROWS SCROLL. CLICK THE SMALL MAP TO JUMP. K TWICE: YOUR KING. TAB: WHOLE MAP."),
@@ -408,6 +408,9 @@ impl Pg {
             Key::Letter('L') => self.turn_lag(),
             // Your warships in view. With Ctrl, every one you have, wherever it is.
             Key::Letter('Q') => p.select_fleet(ctrl, shift),
+            // Your miners and collectors in view, the same way (Henry, 2026-11-16: "E selects
+            // economy units just like Q selects combat units").
+            Key::Letter('E') => p.select_workers(ctrl, shift),
             Key::Letter('G') => self.let_go(),
             Key::Letter('T') => self.turn_stance(),
             Key::Letter('K') => self.king_key(),
@@ -895,6 +898,13 @@ impl Pg {
             let (x, y, w, h) = on_field(l, t, r, b);
             fb.corners(x - 2, y - 2, w + 4, h + 4, 2, WHITE);
         }
+        // How far the tractors reach, of the ship under the pointer and of the ones selected:
+        // a dot that goes round at that distance.
+        if !p.tactical {
+            for i in hovered.into_iter().chain(p.picked.iter().copied()).filter(|&i| a.tractor_reach(i) > 0) {
+                scene::tractor_ring(fb, f, (a.ships[i].x, a.ships[i].y), a.tractor_reach(i), p.cam, self.frames);
+            }
+        }
         // Where a world point lands on the field, and what clips a line drawn there.
         let spot = |(x, y): (i32, i32)| if p.tactical { (TAC.x + x / TAC_SCALE, TAC.y + y / TAC_SCALE) } else { (x - p.cam.0, y - p.cam.1) };
         let clip = if p.tactical { TAC } else { f };
@@ -908,8 +918,13 @@ impl Pg {
             if x - 2 >= clip.x && y - 2 >= clip.y && x + w + 2 <= clip.x + clip.w && y + h + 2 <= clip.y + clip.h {
                 fb.corners(x - 2, y - 2, w + 4, h + 4, 2, GOOD);
             }
-            // (No cross under a ship that's standing on its spot.)
-            if let Some(to) = a.ships[i].sent.filter(|to| !going.contains(to) && cheb(a.ships[i].x, a.ships[i].y, to.0, to.1) > 2) {
+            // (No cross under a ship that's standing on its spot: within 2 px of it, or come
+            // to rest as near it as a ship of its sort can place itself.)
+            let on_spot = |to: &(i32, i32)| {
+                let (s, off) = (&a.ships[i], cheb(a.ships[i].x, a.ships[i].y, to.0, to.1));
+                off <= 2 || ((s.vx, s.vy) == (0, 0) && off <= near_enough(&s.st))
+            };
+            if let Some(to) = a.ships[i].sent.filter(|to| !going.contains(to) && !on_spot(to)) {
                 going.push(to);
             }
             if let Some(to) = a.ships[i].rally {
@@ -1045,6 +1060,12 @@ impl Pg {
             notes.push(("YOUR NETWORK SPLIT".into(), GOLD));
         }
         if a.over.is_none() {
+            // Tractors are what's holding your mining up: this many of your miners are
+            // standing in one's reach with a load, waiting their turn.
+            let waiting = waiting_miners(a, me);
+            if waiting >= WAITING_NOTE {
+                notes.push((format!("{waiting} MINERS ARE WAITING ON A TRACTOR"), GOLD));
+            }
             if a.king_slowed(me) {
                 notes.push((format!("YOUR KING IS SLOWED: UNDER {KING_NEEDS} PX LEFT STANDING"), BAD));
             }
@@ -1066,7 +1087,7 @@ impl Pg {
                 }
                 Some(lines)
             } else if let Some(at) = at {
-                a.rock_near(at, if p.tactical { TAC_SCALE } else { 2 }).map(|px| vec![format!("ROCK: {} PX LEFT. ANYONE CAN MINE IT, AND A SEED CAN GROW A FACTORY OUT OF IT.", a.rock_blob(px).len())])
+                a.rock_near(at, if p.tactical { TAC_SCALE } else { 2 }).map(|px| rock_lines(a.rock_blob(px).len()))
             } else {
                 self.match_tip().map(|t| wrap(&t, 49))
             };
@@ -1077,6 +1098,8 @@ impl Pg {
             bar = Some(wrap(&selected_line(p.picked.len() - factories, factories), 49));
         }
         if let Some(lines) = bar {
+            // No line is drawn wider than the bar, whoever wrote it.
+            let lines: Vec<String> = lines.iter().flat_map(|l| wrap(l, BAR_COLS)).collect();
             let h = lines.len() as i32 * 9 + 6;
             let r = Rect::new(0, f.h - h, f.w, h);
             ui::panel(fb, r);
@@ -1194,8 +1217,8 @@ impl Pg {
         p.draw_minimap(fb);
         for t in 0..2 {
             let y = 274 + t as i32 * 10;
-            let ships = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.grow.is_none() && !s.node).count();
-            let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.node).count();
+            let ships = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.grow.is_none() && !s.plant()).count();
+            let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.plant()).count();
             fb.text(team_name(t), 308, y, team_col(t, 2), None, 1);
             let count = format!("{factories}F {ships}S");
             fb.text(&count, 340, y, TEXT, None, 1);
@@ -1273,7 +1296,7 @@ impl Pg {
         if (306..400).contains(&m.0) && (0..12).contains(&m.1) {
             let cut = cut_off(&p.arena, me);
             let more = if cut > 0 { format!(" +{cut}: HELD BY NODES OF YOURS CUT OFF FROM YOUR KING. FLY NEAR THEM, OR PLANT A LINK, TO SPEND IT.") } else { String::new() };
-            return Some(format!("BANK: THE PIXELS STORED IN YOUR KING'S NETWORK. YOUR KING MAKES 1 EVERY {} S; MINERS HAUL TO THE NEAREST NODE.{more}", secs(KING_MAKES_EVERY as i32)));
+            return Some(format!("BANK: THE PIXELS STORED IN YOUR KING'S NETWORK. YOUR KING MAKES 1 EVERY {} S; TRACTORS PULL IN WHAT MINERS CARRY.{more}", secs(KING_MAKES_EVERY as i32)));
         }
         if QUEUE.contains(m.0, m.1) {
             return Some("YOUR KING'S QUEUE: IT PRINTS THE FIRST, PAID A PIXEL AT A TIME FROM ITS NETWORK, AND THE BAR IS HOW FAR THAT HAS GOT. THE LOOP SIGN MARKS ONE IT KEEPS PRINTING.".into());
@@ -1305,6 +1328,19 @@ impl Pg {
 /// a bit counterintuitive to players", so it's said where the seed is placed. And 2026-11-13:
 /// say the one rule, that it draws from its network, and none of what follows from it.
 /// What the bar says under one of your ships that can be selected.
+/// How many of a side's miners are standing with a load, waiting for a tractor to take it.
+fn waiting_miners(a: &Arena, team: usize) -> usize {
+    a.ships.iter().filter(|s| s.alive && s.team == team && s.carry > 0 && s.dock.is_some() && s.doing == Doing::Haul && (s.vx, s.vy) == (0, 0)).count()
+}
+/// The match says so once this many are.
+const WAITING_NOTE: usize = 4;
+
+/// The letters that fit across the bar at the foot of the screen.
+const BAR_COLS: usize = 49;
+/// What the bar says of the rock under the pointer.
+fn rock_lines(px: usize) -> Vec<String> {
+    wrap(&format!("ROCK: {px} PX LEFT. ANYONE CAN MINE IT, AND A SEED CAN GROW A FACTORY OUT OF IT."), BAR_COLS)
+}
 const SELECT_HINT: &str = "CLICK SELECTS IT. DOUBLE-CLICK: ALL OF ITS TYPE.";
 /// What the bar says under one of your factories.
 const FACTORY_HINT: &str = "CLICK SELECTS IT, TO SET WHERE ITS SHIPS GATHER.";
@@ -1504,11 +1540,20 @@ impl Play {
         }
     }
 
-    /// Selects your warships, which is everything of yours that can be sent and isn't a miner:
-    /// the ones in view, or with `all` every one you have.
+    /// Selects your warships, which is everything of yours that can be sent and isn't a miner
+    /// or a collector: the ones in view, or with `all` every one you have.
     fn select_fleet(&mut self, all: bool, add: bool) {
         let me = self.link.me;
-        let got = (0..self.arena.ships.len()).filter(|&i| self.arena.ships[i].sendable(me) && !self.arena.ships[i].miner() && (all || self.in_view(i))).collect();
+        let got = (0..self.arena.ships.len()).filter(|&i| self.arena.ships[i].sendable(me) && !self.arena.ships[i].worker() && (all || self.in_view(i))).collect();
+        self.take(got, add);
+    }
+
+    /// Selects the ships of yours that work and don't fight: the miners and collectors in
+    /// view, or with `all` every one you have. Between them Q and E take everything of yours
+    /// that can be sent.
+    fn select_workers(&mut self, all: bool, add: bool) {
+        let me = self.link.me;
+        let got = (0..self.arena.ships.len()).filter(|&i| self.arena.ships[i].sendable(me) && self.arena.ships[i].worker() && (all || self.in_view(i))).collect();
         self.take(got, add);
     }
 
@@ -1552,7 +1597,7 @@ impl Play {
         let (a, me) = (&self.arena, self.link.me);
         let to = (to.0.clamp(FIELD.x, FIELD.x + FIELD.w - 1), to.1.clamp(FIELD.y, FIELD.y + FIELD.h - 1));
         let mine = |i: usize| a.ships[i].selectable(me);
-        let fleet = |i: usize| a.ships[i].sendable(me) && !a.ships[i].miner();
+        let fleet = |i: usize| a.ships[i].sendable(me) && !a.ships[i].worker();
         let mut clicked = None;
         let got: Vec<usize> = if (to.0 - from.0).abs() <= 2 && (to.1 - from.1).abs() <= 2 {
             match self.ship_under(to, |s| s.selectable(me)) {
@@ -1619,6 +1664,7 @@ impl Play {
             crate::render::dotted(fb, f, si.x - cx, si.y - cy, sj.x - cx, sj.y - cy, 4, team_col(si.team, 0));
         }
         scene::drift(fb, f, a, self.cam);
+        scene::tractors(fb, f, a, self.cam);
         // Our seeds' courses.
         for s in a.ships.iter().filter(|s| s.alive && s.team == self.link.me && s.role == Role::Seed) {
             if let Some((_, (tx, ty))) = s.seed_for {
@@ -1632,7 +1678,7 @@ impl Play {
         for t in 0..2 {
             let k = &a.ships[e.king[t]];
             if k.alive && a.king_slowed(t) {
-                for c in (0..k.hp.len()).filter(|&c| k.hp[c] > 0 && k.shape.cells[c] == Some(Part::Engine)) {
+                for c in (0..k.hp.len()).filter(|&c| k.hp[c] > 0 && k.shape.cells[c].and_then(Part::pushes).is_some()) {
                     let (px, py) = k.cell_xy(c);
                     pc(fb, f, px - cx, py - cy, STEEL_DK);
                 }
@@ -1751,8 +1797,8 @@ fn links(a: &Arena) -> Vec<(usize, usize)> {
 pub fn state_line(a: &Arena) -> String {
     let e = a.eco.as_ref().unwrap();
     let side = |t: usize| {
-        let ships = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.grow.is_none() && !s.node).count();
-        let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.node).count();
+        let ships = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.grow.is_none() && !s.plant()).count();
+        let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.plant()).count();
         let tl = e.tally[t];
         format!(
             "{} bank {} (peak {}, {} in all its nodes), {} factories, {} ships, {} px standing{}; planted {}, printed {}, summoned {}, mined {}, lost {} ships",
@@ -1777,6 +1823,22 @@ pub fn state_line(a: &Arena) -> String {
 pub fn clock(tick: u32) -> String {
     let t = tick / 15;
     format!("{}:{:02}", t / 60, t % 60)
+}
+
+/// What the bar says of a ship's tractor: how fast it pulls, how far from the ship's middle it
+/// reaches, and how many miners are bringing it a load or waiting with one.
+fn tractor_line(px: i32, reach: i32, waiting: usize) -> String {
+    let rate = if px >= TRACTOR_TICKS / 15 { format!("{} PX A SECOND", fmt_tenths(px * 150 / TRACTOR_TICKS)) } else { format!("1 PX EVERY {} S", secs(TRACTOR_TICKS / px)) };
+    format!("TRACTOR: {rate}, {reach} PX REACH. {waiting} MINER{} WITH A LOAD.", if waiting == 1 { "" } else { "S" })
+}
+
+/// A number of tenths as a decimal: "1", "1.5".
+fn fmt_tenths(t: i32) -> String {
+    if t % 10 == 0 {
+        format!("{}", t / 10)
+    } else {
+        format!("{}.{}", t / 10, t % 10)
+    }
 }
 
 /// The inspector's lines for a ship.
@@ -1816,9 +1878,8 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
         parts.push(format!("CARRYING {}", s.carry));
     }
     lines.push(parts.join("  "));
-    // What its side has decided for it, once it's had a fight to think about.
-    if let Some(way) = a.planned(i).filter(|_| s.role == Role::Ship && s.st.thrust > 0 && s.st.armed()) {
-        lines.push(chosen_line(way));
+    if a.tractor_px(i) > 0 {
+        lines.push(tractor_line(a.tractor_px(i), a.tractor_reach(i), a.ships.iter().filter(|m| m.alive && m.carry > 0 && m.dock == Some(i)).count()));
     }
     if s.role == Role::King {
         lines.extend(wrap(&format!("ITS SIDE HAS {} PX OF SHIPS AND FACTORIES STANDING. WITH UNDER {KING_NEEDS}, AFTER THE FIRST MINUTE, A KING FLIES AT A FIFTH OF ITS SPEED.", a.standing(s.team)), 49));
@@ -2295,7 +2356,8 @@ mod tests {
     #[test]
     fn an_empty_slot_is_a_card_that_prints_nothing() {
         use crate::app::{App, Ev};
-        // Your team: the starter deck and two empty slots.
+        // Your team: the starter deck and an empty slot. (Two, until the collector took the
+        // eighth, 2026-11-16.)
         let mut pg = Pg::new(None, None);
         pg.start_match(false, 5);
         pg.help = false;
@@ -2307,7 +2369,7 @@ mod tests {
             pg.event(Ev::Release { x, y, right });
             pg.tick();
         };
-        for n in [8, 9] {
+        for n in [9] {
             click(&mut pg, card_rect(n as usize - 1), false);
             click(&mut pg, card_rect(n as usize - 1), true);
             assert_eq!(queue(&pg), 0, "slot {n} is empty and went on the king's queue");
@@ -2315,11 +2377,11 @@ mod tests {
             pg.event(Ev::Move(card_rect(n as usize - 1).x + 20, card_rect(n as usize - 1).y + 5));
             assert!(pg.match_tip().unwrap().contains("AN EMPTY SLOT"));
         }
-        // Against the starter deck, which has seven: the same keys, and nothing breaks.
+        // Against the starter deck, which has eight: the same key, and nothing breaks.
         let mut pg = Pg::new(None, None);
         pg.start_match(true, 5);
         pg.help = false;
-        for n in [8, 9] {
+        for n in [9] {
             click(&mut pg, card_rect(n as usize - 1), false);
             click(&mut pg, card_rect(n as usize - 1), true);
             assert_eq!(queue(&pg), 0);
@@ -2549,7 +2611,14 @@ mod tests {
         let (l, g) = (sent(&pg, lancer).0.unwrap(), sent(&pg, frigate).0.unwrap());
         assert!(cheb(l.0, l.1, to.0, to.1) <= 12 && cheb(g.0, g.1, to.0, to.1) <= 12 && l != g, "{l:?} and {g:?}, sent to {to:?}");
         // One ship sent alone flies flat out.
-        drag(&mut pg, (200, 50), (200, 50), false);
+        // (A click on the lancer, wherever it has got to: the screen's (200, 50) is the map's
+        // (200, 800).)
+        let on_lancer = {
+            let s = &pg.play.as_ref().unwrap().arena.ships[lancer];
+            (s.x, s.y - 750)
+        };
+        drag(&mut pg, on_lancer, on_lancer, false);
+        assert_eq!(picked(&pg), vec![lancer]);
         drag(&mut pg, (250, 100), (250, 100), true);
         pg.tick();
         pg.tick();
@@ -2647,9 +2716,87 @@ mod tests {
     }
 
     #[test]
+    fn the_match_shows_a_tractors_pull_its_reach_and_the_miners_waiting_on_it() {
+        use crate::app::App;
+        let mut pg = Pg::new(None, None);
+        pg.start_match(true, 3);
+        pg.help = false;
+        let d = starter_deck();
+        let (k, kx, ky) = {
+            let a = &pg.play.as_ref().unwrap().arena;
+            let k = a.eco.as_ref().unwrap().king[0];
+            (k, a.ships[k].x, a.ships[k].y)
+        };
+        // Five full miners 30 px to the right of your king, inside its tractor's reach.
+        let miners: Vec<usize> = (0..5)
+            .map(|n| {
+                let a = &mut pg.play.as_mut().unwrap().arena;
+                let m = a.spawn(0, 3, &d[3], kx + 30, ky - 8 + 4 * n, 1, false);
+                a.ships[m].carry = 9;
+                m
+            })
+            .collect();
+        for _ in 0..20 {
+            pg.tick();
+        }
+        let (cx, cy) = pg.play.as_ref().unwrap().cam;
+        let reach = {
+            let a = &pg.play.as_ref().unwrap().arena;
+            // All five stand waiting, which is enough for the match to say so, and the king
+            // has pulled its first pixel off one of them.
+            assert_eq!(waiting_miners(a, 0), 5);
+            assert!(waiting_miners(a, 0) >= WAITING_NOTE);
+            assert_eq!(miners.iter().filter(|&&m| a.ships[m].pulled.is_some()).count(), 1);
+            a.tractor_reach(k)
+        };
+        // The pull is drawn: a dotted line across the gap between the king and the miners.
+        let pink = |fb: &Framebuffer, xs: std::ops::Range<i32>, ys: std::ops::Range<i32>| ys.flat_map(|y| xs.clone().map(move |x| (x, y))).filter(|&(x, y)| matches!(fb.get(x, y), TRACTOR | TRACTOR_HI)).count();
+        let mut fb = Framebuffer::new();
+        pg.mouse = (300, 30);
+        pg.draw(&mut fb);
+        let gap = pink(&fb, kx + 12 - cx..kx + 26 - cx, ky - 12 - cy..ky + 12 - cy);
+        assert!(gap >= 4, "{gap} px of the pull between the king and the miner it's emptying");
+        // Its reach isn't drawn until the pointer is on the king. Then one pink dot goes once
+        // round the king at that distance, clockwise from the top, and rests before the next
+        // lap. (The pull's line is all well inside the reach.)
+        let on_ring = |fb: &Framebuffer| -> Vec<(i32, i32)> {
+            let far = reach + 2;
+            (-far..=far).flat_map(|dy| (-far..=far).map(move |dx| (dx, dy))).filter(|&(dx, dy)| (isqrt(dx * dx + dy * dy) - reach).abs() <= 1 && fb.get(kx - cx + dx, ky - cy + dy) == TRACTOR).collect()
+        };
+        assert!(on_ring(&fb).is_empty(), "the reach is drawn with the pointer away");
+        pg.mouse = (kx - cx, ky - cy);
+        let mut lap = Vec::new();
+        for frame in 0..scene::RING_LAP + scene::RING_REST {
+            pg.frames = frame;
+            pg.draw(&mut fb);
+            let dots = on_ring(&fb);
+            if frame < scene::RING_LAP {
+                assert_eq!(dots.len(), 1, "frame {frame} of a lap: {dots:?}");
+                lap.push(dots[0]);
+            } else {
+                assert!(dots.is_empty(), "frame {frame}, resting: {dots:?}");
+            }
+        }
+        // It starts at the top, is to the right a quarter of the way round, below at half
+        // and to the left at three quarters; and it never jumps far.
+        let quarter = scene::RING_LAP as usize / 4;
+        assert_eq!(lap[0], (0, -reach));
+        assert!(lap[quarter].0 >= reach - 1 && lap[2 * quarter].1 >= reach - 1 && lap[3 * quarter].0 <= 1 - reach, "{:?}", [lap[quarter], lap[2 * quarter], lap[3 * quarter]]);
+        assert!(lap.windows(2).all(|w| cheb(w[0].0, w[0].1, w[1].0, w[1].1) <= 6), "the dot jumped: {lap:?}");
+        // And what the bar says of a tractor.
+        assert_eq!(tractor_line(8, 46, 5), "TRACTOR: 1 PX A SECOND, 46 PX REACH. 5 MINERS WITH A LOAD.");
+        assert_eq!(tractor_line(4, 44, 1), "TRACTOR: 1 PX EVERY 2 S, 44 PX REACH. 1 MINER WITH A LOAD.");
+        assert_eq!(tractor_line(12, 40, 0), "TRACTOR: 1.5 PX A SECOND, 40 PX REACH. 0 MINERS WITH A LOAD.");
+        let a = &pg.play.as_ref().unwrap().arena;
+        assert!(ship_lines(a, k).iter().any(|l| l.starts_with("TRACTOR: 1 PX A SECOND")), "{:?}", ship_lines(a, k));
+    }
+
+    #[test]
     fn the_words_for_selecting_fit_where_they_are_shown() {
         // The bar is 49 letters wide; a tip in it may run to seven lines.
         assert!(selected_line(999, 0).len() <= 49 && SELECT_HINT.len() <= 49 && FACTORY_HINT.len() <= 49);
+        // The rock's line ran off the right of the bar until 2026-11-16 (Henry's screenshot).
+        assert!(rock_lines(641).len() == 2 && rock_lines(99999).iter().all(|l| l.len() <= BAR_COLS), "{:?}", rock_lines(641));
         assert!([selected_line(0, 1), selected_line(0, 99), selected_line(999, 99)].iter().all(|l| wrap(l, 49).len() <= 2));
         assert!(wrap(HOME_TIP, 49).len() <= 7 && wrap(STANCE_TIP, 49).len() <= 7);
         // The stance button comes first after the clock, and both its faces fit it.
@@ -2716,6 +2863,17 @@ mod tests {
         assert_eq!(picked(&pg).len(), 6);
         letter(&mut pg, 'Q', false, false);
         assert!(picked(&pg).is_empty());
+        // E is the same for the ships that work: the miner in view, and with Ctrl every miner.
+        let far_miner = pg.play.as_mut().unwrap().arena.spawn(0, 3, &d[3], 900, 330, 1, false);
+        letter(&mut pg, 'E', false, false);
+        assert!(picked(&pg).is_empty(), "the view is scrolled away from the miner");
+        letter(&mut pg, 'E', true, false);
+        assert_eq!(picked(&pg), vec![miner, far_miner]);
+        // Shift adds: the warships and the miners together are everything that can be sent.
+        letter(&mut pg, 'Q', true, true);
+        assert_eq!(picked(&pg), vec![f[0], f[1], f[2], miner, lancer, frigate, far, far_miner]);
+        pg.event(Ev::Key(Key::Esc));
+        kill(&mut pg, far_miner);
         // Ctrl with a card's key: every ship of that card on the map. Nothing is printed.
         letter(&mut pg, 'Z', true, false);
         assert_eq!(picked(&pg), vec![f[0], f[1], f[2], far]);
@@ -2904,15 +3062,19 @@ mod tests {
         // Sent with a right-click, they fly there, each to its own spot, and then stand still.
         letter(&mut pg, 'Q', true, false);
         assert_eq!(picked(&pg).len(), 17);
+        let at_rest = |pg: &Pg| picked(pg).iter().map(|&i| (pg.play.as_ref().unwrap().arena.ships[i].x, pg.play.as_ref().unwrap().arena.ships[i].y)).collect::<Vec<_>>();
         drag(&mut pg, (280, 120), (280, 120), true);
         for _ in 0..15 * 30 {
             pg.tick();
         }
-        let at_rest = |pg: &Pg| picked(pg).iter().map(|&i| (pg.play.as_ref().unwrap().arena.ships[i].x, pg.play.as_ref().unwrap().arena.ships[i].y)).collect::<Vec<_>>();
         let then = at_rest(&pg);
+        // A ship that keeps its speed stops as near its spot as a ship of its sort can
+        // place itself: usually within a few pixels, at worst 6 for the starter fighter
+        // and 14 for a frigate. It can't shuffle the rest of the way.
         for (k, &i) in picked(&pg).iter().enumerate() {
-            let to = pg.play.as_ref().unwrap().arena.ships[i].sent.unwrap();
-            assert!(cheb(then[k].0, then[k].1, to.0, to.1) <= 1, "ship {i} is at {:?}, and was sent to {to:?}", then[k]);
+            let s = &pg.play.as_ref().unwrap().arena.ships[i];
+            let to = s.sent.unwrap();
+            assert!(cheb(then[k].0, then[k].1, to.0, to.1) <= crate::pg::sim::near_enough(&s.st), "ship {i} is at {:?}, and was sent to {to:?}", then[k]);
         }
         for _ in 0..30 {
             pg.tick();

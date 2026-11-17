@@ -72,7 +72,7 @@ fn tool_rect(i: usize) -> Rect {
 }
 /// What the flight row says when pointed at. Ships choose how they fly, so there's nothing to
 /// set: the row shows where the drawing starts them.
-const FLIGHT_TIP: &str = "IN A FIGHT, SHIPS CHOOSE HOW THEY FLY: ATTACK RUNS, KITING OR ORBITING. UNTIL THEN THE DRAWING DOES: AT LEAST 1 THRUST PER WEIGHT RUNS, LESS KITES. NO ENGINES: IT STAYS PUT.";
+const FLIGHT_TIP: &str = "IN A FIGHT A SHIP HOLDS AT THE REACH OF ITS GUNS. NO ENGINES: IT STAYS PUT.";
 
 fn chip_rect(k: usize) -> Rect {
     Rect::new(250 + k as i32 * 12, BUILD_Y, 11, 11)
@@ -132,6 +132,9 @@ pub struct Ed {
     pub stamp: Option<Stamp>,
     /// Heavy plate's domino stands two tall (else it lies two wide). [T] turns it.
     pub upright: bool,
+    /// The way the engine you paint pushes its ship: 0 ahead, 1 to its right, 2 astern, 3 to
+    /// its left. [T] turns it.
+    pub engine_way: usize,
     /// A mouse button held down on the canvas: whether it's the right one, and the cell it went
     /// down on.
     pub drag: Option<(bool, (i32, i32))>,
@@ -151,7 +154,7 @@ impl Ed {
     }
 
     pub fn new() -> Ed {
-        Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, upright: false, drag: None, last_cell: None, undo: Vec::new(), framed: None }
+        Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, upright: false, engine_way: 0, drag: None, last_cell: None, undo: Vec::new(), framed: None }
     }
 }
 
@@ -175,10 +178,12 @@ fn canvas_centre() -> (i32, i32) {
 
 /// The yard's one-line status: what's wrong with the design, or how it will behave. `power` is
 /// the percent of the power it needs that it has.
-pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order) -> (String, u8) {
+pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order, collects: bool) -> (String, u8) {
     match check.problem() {
         Some(why) => (why, BAD),
         None if power < 100 => (format!("UNDERPOWERED: RUNS AT {power}%"), GOLD),
+        // A ship that flies with a tractor and no scoop, armed or not.
+        None if collects => ("A COLLECTOR: FOLLOWS YOUR MINERS".into(), GOOD),
         None if !armed => {
             // What it does follows from the drawing: no engines, a scoop, or neither.
             let what = match order {
@@ -381,7 +386,8 @@ impl Pg {
         }
     }
 
-    /// [T]: turns the stamp you're holding, or, painting heavy plate, its domino.
+    /// [T]: turns the stamp you're holding, or, painting heavy plate, its domino, or, painting
+    /// engines, the way they push.
     fn turn_stamp(&mut self) {
         match &self.ed.stamp {
             Some(st) => self.ed.stamp = Some(st.turned()),
@@ -389,7 +395,21 @@ impl Pg {
                 self.ed.upright = !self.ed.upright;
                 self.say(if self.ed.upright { "HEAVY PLATE: TWO TALL" } else { "HEAVY PLATE: TWO WIDE" });
             }
+            None if self.ed.part == Part::Engine => {
+                self.ed.engine_way = (self.ed.engine_way + 1) % 4;
+                self.say(&format!("ENGINE: IT PUSHES THE SHIP {}", WAYS[self.ed.engine_way]));
+            }
             None => self.say("NO STAMP TO TURN: [C] COPY ONE FIRST"),
+        }
+    }
+
+    /// The part the tools put down: the one chosen, and for an engine the one turned the way
+    /// [T] has it.
+    fn brush(&self) -> Part {
+        if self.ed.part == Part::Engine {
+            Part::engine(self.ed.engine_way)
+        } else {
+            self.ed.part
         }
     }
 
@@ -448,7 +468,7 @@ impl Pg {
 
     /// The pencil on one cell, and its mirror.
     fn paint(&mut self, (cx, cy): (i32, i32), erase: bool) {
-        let p = if erase { None } else { Some(self.ed.part) };
+        let p = if erase { None } else { Some(self.brush()) };
         let mirror = self.ed.mirror;
         let upright = self.ed.upright;
         let d = &mut self.lib[self.slot];
@@ -468,7 +488,8 @@ impl Pg {
             let mx = mirror_x(cx);
             let n = p.map_or(1, |q| q.side());
             if mirror && mx != cx && !(n > 1 && (mx - cx).abs() < n) {
-                changed |= d.put(mx, cy, p);
+                // (An engine's twin pushes the mirrored way.)
+                changed |= d.put(mx, cy, p.map(Part::mirrored));
             }
         }
         self.edited |= changed;
@@ -498,7 +519,7 @@ impl Pg {
     }
 
     fn flood_at(&mut self, cell: (i32, i32), erase: bool) {
-        let p = if erase { None } else { Some(self.ed.part) };
+        let p = if erase { None } else { Some(self.brush()) };
         let mirror = self.ed.mirror && mirror_x(cell.0) != cell.0;
         let d = &mut self.lib[self.slot];
         if erase && d.get(cell.0, cell.1).is_none() {
@@ -507,7 +528,7 @@ impl Pg {
         match d.flood(cell, p) {
             Ok(mut changed) => {
                 if mirror {
-                    changed |= d.flood((mirror_x(cell.0), cell.1), p).unwrap_or(false);
+                    changed |= d.flood((mirror_x(cell.0), cell.1), p.map(Part::mirrored)).unwrap_or(false);
                 }
                 self.edited |= changed;
                 self.lock_seed();
@@ -519,7 +540,7 @@ impl Pg {
     /// The rectangle tool's box, and its mirror. A part that comes in blocks tiles the box in
     /// whole ones, and the mirrored box tiles exactly the mirror image of them.
     fn fill_box_at(&mut self, a: (i32, i32), b: (i32, i32), erase: bool) {
-        let p = if erase { None } else { Some(self.ed.part) };
+        let p = if erase { None } else { Some(self.brush()) };
         let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
         let (mut x1, mut y1) = (a.0.max(b.0), a.1.max(b.1));
         if let Some(n) = p.map(|q| q.side()).filter(|&n| n > 1) {
@@ -539,7 +560,7 @@ impl Pg {
         let d = &mut self.lib[self.slot];
         let mut changed = d.fill_box((x0, y0), (x1, y1), p);
         if mirror && mirror_x(x1) != x0 {
-            changed |= d.fill_box((mirror_x(x1), y0), (mirror_x(x0), y1), p);
+            changed |= d.fill_box((mirror_x(x1), y0), (mirror_x(x0), y1), p.map(Part::mirrored));
         }
         self.edited |= changed;
         self.lock_seed();
@@ -762,7 +783,7 @@ impl Pg {
             };
             let hov = r.contains(m.0, m.1);
             ui::button(fb, r, "", hov && !down, down);
-            let off = b == Btn::Turn && e.stamp.is_none() && e.part != Part::HeavyPlate;
+            let off = b == Btn::Turn && e.stamp.is_none() && e.part != Part::HeavyPlate && e.part != Part::Engine;
             let col = if off { TEXT_FAINT } else if down { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
             icons::draw(fb, b.icon(), r.x + 8, r.y + 3, col);
         }
@@ -806,7 +827,7 @@ impl Pg {
             swatch(fb, r.x, r.y, p);
             fb.text(&n.to_string(), r.x + 12, r.y + 1, TEXT, None, 1);
         }
-        let (status, col) = yard_status(&check, st.armed(), st.power_pct(), st.order());
+        let (status, col) = yard_status(&check, st.armed(), st.power_pct(), st.order(), st.collector());
         fb.text(&status, STATUS_RECT.x + 2, STATUS_RECT.y + 2, col, None, 1);
 
         // Built or seeded, and what its factory pixels print.
@@ -976,7 +997,7 @@ impl Pg {
         if let Some(i) = (0..BTNS.len()).find(|&i| at(tool_rect(i))) {
             return match BTNS[i] {
                 Btn::Tool(t) => self.tool_info(t),
-                Btn::Turn => "[T] TURN THE STAMP YOU'RE HOLDING A QUARTER TURN CLOCKWISE, OR HEAVY PLATE'S DOMINO FROM TWO WIDE TO TWO TALL AND BACK.".into(),
+                Btn::Turn => "[T] TURN THE STAMP YOU'RE HOLDING A QUARTER TURN CLOCKWISE, OR HEAVY PLATE'S DOMINO FROM TWO WIDE TO TWO TALL AND BACK, OR THE WAY THE ENGINES YOU PAINT PUSH.".into(),
                 Btn::Undo => "[U] UNDO THE LAST CHANGE TO THIS DESIGN.".into(),
                 Btn::Mirror => "[M] MIRROR: EVERY TOOL ALSO WORKS ON THE OTHER SIDE OF THE LIT CENTRE COLUMN.".into(),
                 Btn::Clear => "CLEAR THE WHOLE DESIGN. [U] UNDO BRINGS IT BACK.".into(),
@@ -1026,7 +1047,7 @@ impl Pg {
         if on_row(GAUGE_Y[2]) {
             let (a, b) = (st.zero_to_top_ds() / 10, st.zero_to_top_ds() % 10);
             let short = if st.thrust < st.engines * 8 { format!(", DOWN FROM {} FOR WANT OF POWER", st.engines * 8) } else { String::new() };
-            return format!("THRUST {}{short}, FOR WEIGHT {} (8 PER ENGINE). AT THE GOLD MARK OR PAST IT, 1 THRUST PER WEIGHT, IT RUNS UNLESS YOU CHOOSE; SHORT OF IT, IT KITES. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
+            return format!("THRUST {}{short}, FOR WEIGHT {} (8 PER ENGINE). THE GOLD MARK IS 1 THRUST PER WEIGHT. 0 TO TOP SPEED IN {a}.{b} S.", st.thrust, st.mass);
         }
         if on_row(GAUGE_Y[3]) {
             return format!("POWER: IT USES {} OF THE {} IT MAKES. MADE PER PIXEL: {}. WHAT A PART USES IS ON ITS OWN HOVER. SHORT OF POWER, IT ALL SLOWS IN STEP: AT 75%, GUNS RELOAD A THIRD SLOWER.", st.used, st.made, Part::power_list(true));
@@ -1037,7 +1058,7 @@ impl Pg {
             }
         }
         if at(STATUS_RECT) {
-            return "A SHIP NEEDS A CORE, AND ITS PIXELS MUST ALL JOIN UP EDGE TO EDGE (CORNERS DON'T COUNT). EVERY ENGINE NEEDS A STRAIGHT WAY OUT OF THE SHIP, 3 WIDE. LOOSE PIXELS AND BURIED ENGINES SHOW RED. CUT APART, EACH PIECE WITH A CORE FLIES ON.".into();
+            return "A SHIP NEEDS A CORE, AND ITS PIXELS MUST ALL JOIN UP EDGE TO EDGE (CORNERS DON'T COUNT). EVERY ENGINE'S EXHAUST NEEDS A STRAIGHT WAY OUT OF THE SHIP, 3 WIDE, THE OTHER WAY FROM ITS PUSH. LOOSE PIXELS AND BURIED ENGINES SHOW RED. CUT APART, EACH PIECE WITH A CORE FLIES ON.".into();
         }
         self.tool_info(self.ed.tool)
     }
@@ -1062,6 +1083,7 @@ impl Pg {
         match t {
             Tool::Pencil if self.ed.part.side() == 3 => format!("[P] PENCIL, PAINTING {p}: A CLICK STAMPS A 3X3 {p} CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF ONE TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}"),
             Tool::Pencil if self.ed.part == Part::HeavyPlate => format!("[P] PENCIL, PAINTING {p}: A CLICK PUTS DOWN A DOMINO {} FROM THE CELL ([T] TURNS IT); RIGHT-CLICK EITHER HALF TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}", if self.ed.upright { "TWO TALL" } else { "TWO WIDE" }),
+            Tool::Pencil if self.ed.part == Part::Engine => format!("[P] PENCIL, PAINTING {p}: IT PUSHES THE SHIP {} ([T] TURNS IT). LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}", WAYS[self.ed.engine_way]),
             Tool::Pencil => format!("[P] PENCIL, PAINTING {p}. LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}"),
             Tool::Rect => format!("[R] RECTANGLE: DRAG A BOX TO FILL IT WITH {p}; RIGHT-DRAG EMPTIES ONE. TURRETS TILE THE BOX IN 3X3 BLOCKS; HEAVY PLATE FILLS AN EVEN NUMBER OF CELLS.{mirror}"),
             Tool::Fill => format!("[F] FILL: CLICK A HOLE INSIDE THE SHIP TO FILL IT WITH {p}, OR A PATCH OF ONE PART TO SWAP IT FOR {p}. RIGHT-CLICK EMPTIES A PATCH. OPEN SPACE WON'T FILL.{mirror}"),
@@ -1097,7 +1119,7 @@ fn tally(d: &Design, st: &Stats) -> Vec<(Part, i32)> {
             let n = match p {
                 Part::Cannon => st.cannon,
                 Part::Tracker => st.tracker,
-                _ => d.cells.iter().filter(|c| **c == Some(p)).count() as i32,
+                _ => d.cells.iter().filter(|c| c.map(Part::kind) == Some(p)).count() as i32,
             };
             (p, n)
         })
@@ -1245,6 +1267,47 @@ mod tests {
     }
 
     #[test]
+    fn t_turns_the_engine_you_paint_and_its_mirror_twin_pushes_the_mirrored_way() {
+        let mut pg = Pg::new(None, None);
+        pg.select_slot(5);
+        pg.press_btn(Btn::Clear);
+        pg.ed.part = Part::Engine;
+        pg.ed.mirror = true;
+        let at = |pg: &Pg, x: i32, y: i32| pg.lib[5].get(x, y);
+        // As chosen, an engine pushes its ship ahead, and so does its twin.
+        pg.paint((20, 30), false);
+        assert_eq!((at(&pg, 20, 30), at(&pg, mirror_x(20), 30)), (Some(Part::Engine), Some(Part::Engine)));
+        // [T] turns what the pencil paints: to the right, and its twin across the ship pushes
+        // to the left. The turn button does the same, and it's lit while engines are chosen.
+        pg.key_yard(Key::Letter('T'));
+        assert_eq!(pg.ed.engine_way, 1);
+        pg.paint((20, 32), false);
+        assert_eq!((at(&pg, 20, 32), at(&pg, mirror_x(20), 32)), (Some(Part::EngineRight), Some(Part::EngineLeft)));
+        pg.press_btn(Btn::Turn);
+        pg.paint((20, 34), false);
+        assert_eq!((at(&pg, 20, 34), at(&pg, mirror_x(20), 34)), (Some(Part::EngineAstern), Some(Part::EngineAstern)));
+        pg.key_yard(Key::Letter('T'));
+        pg.paint((20, 36), false);
+        assert_eq!((at(&pg, 20, 36), at(&pg, mirror_x(20), 36)), (Some(Part::EngineLeft), Some(Part::EngineRight)));
+        // Round again to ahead.
+        pg.key_yard(Key::Letter('T'));
+        assert_eq!(pg.ed.engine_way, 0);
+        // The box and the fill put down the turned engine too.
+        pg.key_yard(Key::Letter('T'));
+        pg.fill_box_at((10, 50), (11, 50), false);
+        assert_eq!((at(&pg, 10, 50), at(&pg, mirror_x(10), 50)), (Some(Part::EngineRight), Some(Part::EngineLeft)));
+        // However they're turned they're all engines to the tally, and they save and load as
+        // they are.
+        let st = pg.lib[5].stats();
+        assert_eq!(tally(&pg.lib[5], &st).iter().find(|t| t.0 == Part::Engine).map(|t| t.1), Some(12));
+        assert_eq!(Design::from_line(&pg.lib[5].to_line()).map(|d| d.cells), Some(pg.lib[5].cells.clone()));
+        // With another part chosen and no stamp in hand, there's nothing to turn.
+        pg.ed.part = Part::Hull;
+        pg.key_yard(Key::Letter('T'));
+        assert_eq!(pg.ed.engine_way, 1);
+    }
+
+    #[test]
     fn a_mirrored_domino_of_heavy_plate_lands_as_its_mirror_image() {
         let mut pg = Pg::new(None, None);
         pg.select_slot(5);
@@ -1332,11 +1395,10 @@ mod tests {
         assert!(!d(&pg).seeded);
         // They and the build row sit between the status line and the info box.
         assert!(KIND_BTNS[0].y >= STATUS_RECT.y + STATUS_RECT.h && BUILD_Y >= KIND_BTNS[0].y + KIND_BTNS[0].h && ADD_Y >= BUILD_Y + 11 && ADD_Y + 11 <= INFO_RECT.y, "the column's rows overlap");
-        // The row says where the drawing starts its ships, and its hover text that ships choose.
-        assert_eq!(d(&pg).flies(), Some(Style::Runs));
+        // The row says whether the drawing flies, and its hover text what a ship does in a fight.
         pg.mouse = (COL_X + 20, FLIGHT_Y + 2);
         let st = d(&pg).stats();
-        assert!(pg.yard_info(&d(&pg), &st).starts_with("IN A FIGHT, SHIPS CHOOSE HOW THEY FLY"));
+        assert!(pg.yard_info(&d(&pg), &st).starts_with("IN A FIGHT A SHIP HOLDS AT THE REACH OF ITS GUNS"));
     }
 
     #[test]

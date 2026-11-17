@@ -55,7 +55,7 @@ The fight is over when a king dies.
 - **Guns work while it grows.** They fire as soon as they appear.
 - **Its factory pixels grow it first, then print.** While it grows, a seed eats at a base rate and every factory pixel grown so far adds its printing to the growth. A design with factory pixels near its core snowballs its own growth. Once it's whole (or the rock runs out), the factory pixels start on the build order. (Built this way so a factory pixel never does two jobs at once; see the judgement calls below.)
 - **If the rock runs out first, the factory stays unfinished:** fewer factory pixels, so it's smaller and slower.
-- **No claims, no ownership.** A rock is just pixels: anyone can mine it, and anyone's seed can eat it. Two seeds on one rock share it, and each grows from what it gets. The planted factory is the claim, and taking it back means destroying it.
+- **No claims, no ownership.** A rock is just pixels: anyone can mine it, and anyone's seed can eat it. (A rock is every rock pixel that touches, edge to edge or corner to corner: 2026-11-17. Until then a pixel hanging on by a corner counted as a rock of its own.) Two seeds on one rock share it, and each grows from what it gets. The planted factory is the claim, and taking it back means destroying it.
 - **A seed comes down on the pixel it was sent to** (M2.15, 2026-11-11), or the nearest free one within 10 px if that's gone. While you pick a rock, the match draws what the factory would link to there, so where it will stand has to be exact.
 - **Only the king prints seeds.** Toy 1's outposts printed their own seeds, so expansion compounded for free. Here expansion goes at the king's pace, one deliberate planting at a time. This throttle is what replaces claims.
 - **A seeded design with engines can fly off its rock once grown,** as a mobile shipyard.
@@ -74,13 +74,13 @@ The fight is over when a king dies.
 
 ### Mining and pixels
 - **Scoop ships mine any rock.** About 2.5 px/s with one scoop and 5 px/s with two or more (the proving ground's current rates), plus travel time.
-- **They haul to the nearest node of their own network.** A rock near your network is cheap to work. One near theirs means long, exposed trips past their guns. Territory comes from distance and guns, not a rule.
+- **A tractor takes their load, a pixel at a time** (2026-11-16; until then a load was banked the moment a miner reached any node). A full miner flies into the reach of a tractor and waits there until it's empty. A miner that works within a tractor's reach is emptied as it works and never leaves the rock. Your king has a tractor. A factory has one if it's drawn with one, and so has a collector, which flies out to where your miners work. A rock near your tractors is cheap to work. One near theirs means long, exposed trips past their guns. Territory comes from distance and guns, not a rule.
 - **A miner at work keeps apart from nobody** (M2.21). Other ships of a side keep a pixel or two apart. A miner going to its rock pixel, working it, or taking a full load home doesn't, and nothing keeps apart from it: miners heap up on a rock face, fly through each other and over a parked fleet, and other ships fly over them.
 - **Loose pixels are anyone's:** from shots, kills and spilled stock. Once the rocks are gone, the economy runs on wreckage.
 
 ### Networks and split pools
-- **Nodes are the king and anything with factory pixels** (factories and carriers). In round 1, every node has a fixed link range. Two of your nodes link when their ranges overlap, and links are drawn as dotted lines in your colour.
-- **Pixels are stored at nodes.** A network's bank is everything its nodes hold. A delivery goes into the node it reached, and printing draws from the nearest nodes in the network first.
+- **Nodes are the king and anything with factory pixels or tractor pixels** (factories, carriers and collectors). In round 1, every node has a fixed link range. Two of your nodes link when their ranges overlap, and links are drawn as dotted lines in your colour.
+- **Pixels are stored at nodes.** A network's bank is everything its nodes hold. What a tractor pulls goes into its own ship. Printing draws from the nodes that fly first (a collector is the easiest node to lose), then from the printer itself, then from the nearest node in the network.
 - **A split is physical:** cut a link and each half keeps the pixels sitting in its nodes. Reconnect and they pool again. You're told when a network breaks in two: two nodes parting, or your king cut off by a node you lost. Your king flying out of reach by itself breaks nothing and says nothing (M2.16, 2026-11-11). Hovering a factory shows its network's bank.
 - **A destroyed node spills its stock** as loose pixels anyone can scoop.
 
@@ -108,7 +108,8 @@ The fight is over when a king dies.
 | Hyperspace arrival | 2 s | Long enough to see, short enough not to matter |
 | Seed | What it grows into, paid at once: 121 px outpost, 693 px shipyard (20 px) | Every factory is a purchase |
 | Seed's base eating rate | 4 px/s, plus the factory's own print rate (6 until 2026-11-11; round 1's 4 px/s) | An outpost grows in about 27 s, a shipyard in about two minutes |
-| Factory print rate | 1 ship pixel per factory pixel every 26.7 s (4 s) | The outpost's 28 factory pixels print 1.05 px/s, the shipyard's 118 print 4.4 px/s |
+| Factory print rate | 1 ship pixel per factory pixel every 26.7 s (4 s) | The outpost's 24 factory pixels print 0.9 px/s, the shipyard's 110 print 4.1 px/s (28 and 118 until 2026-11-16, when some became tractor pixels) |
+| Tractor | A pixel every 8 s for each tractor pixel; weight 1, uses 2 power; reaches 30 px past its ship's edge and 4 more for each pixel along the side of the square its pixels would make | Eight pull a pixel a second, which is what three miners bite. The king has 8, the outpost 4, the shipyard 8, the collector 8 |
 | Factory size limit | 10 px per factory pixel | Its biggest ship takes 4½ minutes (40 s) |
 | Factory pixel | weight 1, uses 2 power (1 until 2026-11-11) | Two hull pixels to feed each one: a factory the same size prints two thirds as fast |
 | Lance | weight 2, uses 3 power (2 until 2026-11-11) | A two-lance lancer is 9 px, not 7 |
@@ -351,7 +352,7 @@ What they say: the numbers can make every ship count, but slower isn't longer. W
 | J5 | **The AEGIS example has no guns,** so it stays beside the nearest friend that has (an old rule for any unarmed ship on HUNT), and it's drawn as fast as the RAKER. Small fast ships outrun it. | Nothing was added to flying. Whether ships should stay near a projector is ship behaviour, which is parked: one for the unit-AI talk. | |
 | J6 | **The parts team:** the RAKER has the NEEDLE's slot (the NEEDLE is still in the library), the AEGIS is slot 9, and there are nineteen fights. | | |
 | C1 | **Selecting.** A box dragged on the field takes what's yours inside it, and if any of that is neither a miner nor your king, only those. A click takes the ship under it, or your king. Ctrl+click: every ship of that design. Q: every warship. Esc: nobody. On the whole map (Tab) too. | Does it feel like the RTS control you had in mind? Is leaving miners and the king out of a box round a fleet right? | Played 2026-11-13. Not enough alone: Henry asked for a double click for a type on screen, a way to take a type across the whole map, and control groups (C8, C9). |
-| C2 | **Sending.** With ships selected, a right-click on the field, the whole map or the small map sends them there. They fly together at the pace of the slowest, fight what comes within 130 px on the way and what's within 160 px of the place once there, and stay. | Is going-and-fighting the right thing for a right-click to mean? Do you miss a plain move, or "attack that one"? | Henry: "We don't have to add attack orders but right-clicking a unit should probably effectively move the "go here and fight" order along with the unit." Added (C10). Waypoints with Shift "can maybe wait". |
+| C2 | **Sending.** With ships selected, a right-click on the field, the whole map or the small map sends them there. They fly together at the pace of the slowest, fight what comes within 130 px on the way and what's within 160 px of the place once there, and stay. (Since 2026-11-16 a sent ship doesn't stop for what comes close on the way: H10 and I5.) | Is going-and-fighting the right thing for a right-click to mean? Do you miss a plain move, or "attack that one"? | Henry: "We don't have to add attack orders but right-clicking a unit should probably effectively move the "go here and fight" order along with the unit." Added (C10). Waypoints with Shift "can maybe wait". |
 | C3 | **Let go.** X, or the LET GO button by the clock, sends the selected ships back to what their cards say. | Is "back to the card" what you'd expect, or should they stay where they are? | The key is G now (C12). Not otherwise ruled. |
 | C4 | **The king is selected and sent like a ship.** It flies there with no key held and stops when it arrives. WASD still flies it and takes over at once. | Keep WASD as well? Does a sent king feel better under lag, as you guessed? | Henry: "Very likely WASD should scroll the camera, not fly the king (We can think about direct flight as a special level in the campaign, perhaps)." Changed (C11). |
 | C5 | **The whole map is for selecting.** A click on it no longer moves the view. The small map still does. | | |
@@ -2564,7 +2565,392 @@ Made together the changes are worth about half what they're worth one at a time,
 - I stopped adding planner experiments at that point: they measure a flight model that may go. The dice, the accounts and the twenty-roll tests stand whichever way it goes.
 - **Henry's ruling: nose-first.** "I think we want to commit and push what we have now and then begin work on a nose-first overhaul." Two questions first. One: with four rotations on screen, should the pixels behave as they're shown with a hidden rotation only for the flight physics, or should ships accelerate in four directions only? Two: should engines push the way they're drawn straight away, "because that is emergent depth (good) and I believe it's a big chunk of how nose-first makes drawings matter"? And a point Henry had made before: rotation engines, which set how fast a ship turns apart from the regular engines. "This would be an overhaul so don't preserve things that we don't want to preserve, including the whole flight pattern system. They're in the git history. One thing we might want to preserve would be multithreading (your call) but in a very different form." So this section is where the planner and its three ways of flying stop: this commit is the last that has them.
 
+## Nose-first flight: the first stage (2026-11-16 and 17)
+
+Henry's rulings, on my two questions and after: ships accelerate in four directions only, with no hidden heading ("good points on 1, agreed"); engines push the way they're drawn, straight away ("agreed on 2 as well. I like the arcade-hybrid feel of strict retro pixely four-directional ships transported into the world of smart AI, fast CPUs, and pixel simulation"); rotation engines as a part of their own; the flight patterns and anything else not wanted go, with multithreading my call. On my plan for the AI (each ship plays forward only its own motion a few seconds ahead; whole fights are played forward only by the tools, as referee): "that sounds good but intuitively I think it also needs to pay attention to turret tracking (this would allow orbit behavior to emerge) and in-flight projectiles (doesn't look good to run right into a lance blast)."
+
+This is the first stage: what was taken out, the new flight in the arena, and a plain pilot. The match still flies the old way. Nothing here has been watched in the window by anyone but me in exported frames.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| F1 | **The planner and the three ways of flying are gone:** attack runs, kiting and orbiting, the planner that picked between them (`arch.rs`), its worker threads (`pool.rs`), the arena's brain buttons (B and V), and the tools that measured them (`--flight`, `--ways`, `--plan-cost`, `--frame-cost`, `--grain`, `--workers`). They're in the git history, at 7cac7b0. A ship that fights now holds at the reach of its guns, everywhere. | |
+| F2 | **An engine pushes its ship one way: the way it's turned.** Ahead as it comes; [T] or the yard's turn button turns the one you paint to push to the right, astern or to the left, and the mirror puts its twin down pushing the mirrored way. It's four letters in a design (e, d, q, w). Its exhaust goes out the other way, and needs the straight way out of the ship, 3 wide, that an engine always needed: now that one way, where any of the four used to do. With no way out it's buried, shows red and pushes nothing (`Part::pushes`, `exhaust_clear`, `Stats::push`). | |
+| F3 | **Every engine pushes with all it has, 12, that one way.** (For a day, 2026-11-16, an engine pushed away from every way out its exhaust had and shared its push between them: Henry's ruling below.) | |
+| F4 | **A ship keeps its speed** until an engine pushes against it, and its speed changes by its push over 4 times its weight, a tick. One with no engine left drifts on, and the edge of the map stops it. Top speeds are as they were. | |
+| F5 | **A rotation engine (GYRO) is a part,** in the yard's DRIVE group: 1 power, weight 1. A quarter turn takes the ship's spread (each pixel's weight, times one plus the square of how far it sits from the middle) over what turns it: 2 for each core, and for each rotation engine 3 for every pixel it sits from the middle, plus one. Never more than 3 seconds; what can't fly can't turn. Ordinary engines no longer turn a ship. | |
+| F6 | **An engine that's pushing leaves exhaust** (2026-11-16; until Henry watched, it showed a flame, one bright pixel on the engine, and every ship had a tail from its middle). A pixel in its side's dim colour is left in space where the engine's exhaust comes out, every third tick of pushing, and stays 20 ticks. Engines side by side take turns. A ship that's coasting leaves nothing, and flown nose-first a ship has no tail. (A match, on the old flight, keeps the tail: nothing there says which engine is pushing.) | Henry, 2026-11-16: "I think sparse exhaust particles coming from the engines would look better than the current flame pixel, and then we can remove the tail that comes from the middle of each ship. the new exhaust particles can look basically the same as that tail just a little sparser." Built so. He hasn't seen it yet. |
+| F7 | **The plain pilot.** Every tick a ship burns the engines that bring its speed nearer to what it wants. It flies a leg at a time, across the map or along it; it turns only when its engines can't do a fair share (a third) of the job as it faces; going slowly it uses whatever engine already points the right way; and it begins braking early enough to stop, counting the time to turn an engine against its way. It counts as there when it's as near as a ship that drifts while it turns can place itself: 3 px plus a quarter of its quarter turn's ticks. | |
+| F8 | **The flight toy:** `--nose` opens the arena with four ships drawn for this (ARROW, SKATER, BRAKER, LANCET), the starter fighter and frigate, and six fights, flown nose-first. Nothing is loaded or saved. The network protocol is 17. | |
+
+*Henry's ruling on F2 and F3 (2026-11-16).* As first built an engine's way of pushing was read off the hull round it: it pushed away from every way out its exhaust had, sharing its push between them, so the starter fighter's two stern-corner engines pushed 12 ahead and 6 to each side. Henry: "corner engines fire diagonally always, and ships have no default ability to rotate? do you think we should keep it like that or reconsider?" (Neither quite: a corner engine had two half-strength nozzles fired separately, and every ship that flies turns, slowly, by its core.) I recommended one engine, one way, chosen when it's placed; Henry: "Yes, switch." The core's turn stays, and its numbers wait for Henry's eye.
+
+*What the switch moved.* Two built-in drawings had engines on their flanks whose exhaust only ever got out sideways: the BASTION's four and the WASP's two. They're turned to push across, as side thrusters. Nothing in Henry's saved team needed turning: all its engines vent astern. The yard's rectangle tool put a mirrored box down with the same engines and not their mirror images; a test for [T] found it, and it's mended.
+
+*What the drawings come to.*
+
+| | Push ahead / right / astern / left | Quarter turn |
+|---|---|---|
+| ARROW (`g.g` `ycy` `hhh` `.e.`) | 12 / 0 / 0 / 0 | 2 ticks |
+| SKATER (`g.g` `dhw` `hch` `.e.`) | 12 / 12 / 0 / 12 | 12 ticks |
+| BRAKER (`.q.` `gcg` `heh`) | 12 / 0 / 12 / 0 | 8 ticks |
+| LANCET (`.l.` `ycy` `heh`) | 12 / 0 / 0 / 0 | 2 ticks |
+| starter FIGHTER | 24 / 0 / 0 / 0 | 12 ticks |
+| starter LANCER | 24 / 0 / 0 / 0 | 14 ticks |
+| starter FRIGATE | 60 / 0 / 0 / 0 | 45 ticks (the slowest there is) |
+| starter CAPITAL | 372 / 0 / 0 / 0 | 45 ticks |
+
+*The proof* (all in `sim.rs`'s tests):
+- Which way an engine pushes, for a dozen drawings: each of the four turnings, on a corner and out on a stalk (still ahead only), turned into the hull (buried, nothing), one shot off, and one whose blocked exhaust is freed by a shot.
+- In the yard: [T] and the turn button turn the engine the pencil, the box and the fill put down, the mirror's twin pushes the mirrored way, a turned copy turns its engines with it, and a design saves and loads its engines as they're turned.
+- A rotation engine further out turns a ship faster, the same pixels drawn long turn slower than drawn compact, and a quarter turn takes exactly its ticks.
+- **A ship only ever speeds up the way one of its engines pushes:** nine drawings, each sent to twenty places, checked every tick for forty seconds.
+- **Every flier reaches where it's sent and stops there:** the same nine and twenty places. It gets near enough, stops, never sets off again, and makes sixteen quarter turns at most.
+- A ship with its engine shot off keeps its speed and the edge stops it; an engine leaves exhaust while it pushes and only then (where its exhaust comes out, every third tick, gone after 20; five rules broken on purpose, five caught).
+
+*How the toy's fights go, headless, on six rolls each.* The flak ships mostly fight to a finish in 5 to 25 seconds: six starter fighters beat six ARROWs every time (four guns each to two), SKATERs beat ARROWs 4 times in 6 with 2 stalemates, and beat BRAKERs 5 in 6. Against the frigate the small flak ships lose most of their pixels and it ends in a stalemate (ARROWs 5 of 6 and a draw on time, SKATERs 6 of 6); the LANCETs win 4 of 6 and stalemate twice. A ship makes three or four quarter turns in ten seconds of fighting.
+
+*What the pilot can't do yet, which is the next stage's work.*
+- **It doesn't dodge and it doesn't think ahead.** It flies legs because, going both ways at once, it would have to stop one, turn and stop the other, drifting all the while.
+- **Lancers fight badly.** A lance fires straight ahead and wants its row to the pixel, and a ship that drifts while it turns can't nudge itself a pixel sideways. Two old-fleet lancers against a still slab: 4 shots in a minute, and a draw.
+- **A ship that's slow to turn is clumsy by design:** the starter frigate takes 3 seconds a quarter turn and settles for within 14 px of where it's sent. Every existing drawing is like this until it's given rotation engines, Henry's saved team included.
+- **The yard still shows the old numbers** (turning and thrust per weight as a match flies them). `--deck` prints the new ones beside them.
+
+*What moved.* The match keeps its old flight, but with the planner gone its ships hold at the reach of their guns where they used to fly as the planner chose, so every recorded match and arena fight plays out anew. Not re-recorded: the fights are about to change again with the pilot and the behaviours. One match test clicked on a lancer where an attack run used to leave it; it now clicks where the lancer is. The lance-and-plate test holds its lancers in line, so it's about lances and plate and not about flying. 298 tests pass, in under a minute where the suite took nine and a half minutes with the planner in it.
+
+*Next, as agreed.* The rollout pilot: each ship plays its own motion a few seconds forward over a few dozen sequences of turns and burns, and scores a path by where its orders want it, by whether a gun can really bring a shot onto it there (a turret's turn rate, and a shot aimed where the ship would be at its present speed), and by shots already in flight as things to stay clear of, weighed by what they'd cost. Then the behaviours, then the match (miners, the king, formations, the AI), and the old flight comes out.
+
+## Nose-first flight: ships pick their own courses (2026-11-16)
+
+The second stage. Henry on the plan for it: "that sounds good but intuitively I think it also needs to pay attention to turret tracking (this would allow orbit behavior to emerge) and in-flight projectiles (doesn't look good to run right into a lance blast)". Both are in. It's in the arena's flight toy (`--nose`); the match still flies the old way. I haven't watched any of it in the window. What I know of how it looks comes from pictures of where the ships went (`--nose-trails`) and the tables below.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| H1 | **A ship in a fight picks its own course.** Every 4 ticks (ships take turns) it plays its own next four seconds forward some thirty ways, flown by the plain pilot's own rules, and takes the one that costs it least, counted in pixels. Nothing else is played forward: enemy ships are carried on at the speed they have, and the shots in the air fly on along their lines. A ship with no enemy within 240 px and no enemy shot near flies as it did. | |
+| H2 | **The ways it weighs:** as its plan says; the course it's already on; standing still; each of eight directions, at its top speed and slowly; a step each of four ways, for half a second or a second and a third, before carrying on as planned; and going round its target either way, fast or at half its speed. | |
+| H3 | **Shots in the air.** A shot that would cross the ship costs what it would break: 4 px for a lance shot, 8 for a shell, 1 for anything else. (A missile steers, so it isn't a line to step off.) | |
+| H4 | **Guns that could bring a shot onto it.** Flak and turrets fire at where a ship will be if it keeps the speed it has, so a ship that will have changed its speed by the time the shot arrives isn't charged for it. A turret has to swing its barrel round first. An enemy lance is a danger down the lines its lances are on, to a ship any of whose pixels a line crosses. An enemy's guns are shared between the ships of the thinking ship's side inside their reach. | |
+| H5 | **Its own guns.** Flak, cannons and trackers count for every tick an enemy is in their reach. A lance fires a whole shot the moment it's loaded and its line crosses a pixel its target still has, so a ship that can't sit still on a line can fly its lance across the target. | |
+| H6 | **Its orders aren't the pilot's to change.** A ship whose guns need no lining up is wanted at a range from its target, on whichever side: every pixel off that range, averaged over the four seconds, costs a pixel. So it goes round its target and jinks, and doesn't back away. Any other ship is wanted on a spot, with a leash of 24 px round it that costs next to nothing (room to step out of a shot's way or fly a lance across a target) and a pixel for each pixel beyond. | **Keep, and a move order wins** (Henry, 2026-11-16). Asked "Should a losing ship stay at its guns' distance from its target?": "Yes, unless it has a move order to go somewhere else". The second half is H10. |
+| H7 | **It doesn't twitch.** Each quarter turn on the way costs a pixel, and it leaves the course it's on only for one better by a pixel. | |
+| H8 | **Two turret fights in the toy, and two ships for them:** the GUNBOAT (a cannon on the smallest hull that feeds it: its core and eight hull make the 12 power the cannon, two rotation engines and two engines use) and SIEGE's SENTINEL (a tracker). The toy has eight ships and eight fights. | |
+| H9 | **Tools.** `--nose-referee [N] [parts]`: the toy's fights (or the parts toy's) on N rolls each, with neither side picking its own courses, with blue, with red, with both. `--nose-trails [DIR]`: a picture of where every ship went in each fight's first twenty seconds, on the plain pilot and with every ship picking its own course. | |
+| H10 | **A ship sent somewhere else goes** (from Henry's ruling on H6; nose-first flight only). On its way to where it was sent a ship stops for nothing. The place is where it's wanted, so it flies there, its guns fire at whatever comes in reach as it passes, and it dodges as it goes. Within 210 px of the place it takes up the fight with what's within 160 px of the place, as it always did, and holds its range there (H6). Sent with a group, it keeps to the group's pace in a fight too. **This changes C2,** which had a sent ship stop and fight what came within 130 px of it on the way. The match, on the old flight, still does that. | |
+
+*Where this differs from what I told Henry.* I said a ship would try "a few dozen sequences of turns and burns". What's built is speeds to hold, each flown by the plain pilot, which decides the turns and burns: thirty-odd of them. And "where its orders want it" grew a rule of its own, H6, after I saw what ships did without it (below). Both are my calls, unjudged.
+
+*What ships do, from the pictures* (one roll of each fight, both sides picking their own courses, against the same fight on the plain pilot):
+- **On the plain pilot** every ship flies a straight line to the reach of its guns, stops and shoots.
+- **ARROWS against GUNBOATS:** the ARROWS come in, swing off their lines as the shells come and curve round. The GUNBOATS, wanted at cannon range, turn about and back away as the ARROWS close, their turrets still firing behind them.
+- **SKATERS against ARROWS:** a furball. Loops and long sweeping curves round each other, one ship swinging right out to the edge of the fight and back.
+- **LANCETS against the FRIGATE:** the LANCETS curve onto the frigate's flank in a bundle and work across it in short passes; the frigate turns away from their lines.
+- **ARROWS against the FRIGATE:** they go in, cross it and loop back, and five of six die doing it. The frigate out-guns them, and H6 keeps them at it.
+
+*The referee: the toy's eight fights, 48 rolls each.* Blue's wins, red's, draws; seconds a fight; then for each side the pixels it lost a fight, the pixel hits it took for each shot fired at it, the circles its ships made of their nearest enemy in 10 s near it, and the share of the time they had an enemy inside flak range.
+
+| Fight | Picks its own courses | Blue-red-drawn | Length | Blue | Red |
+|---|---|---|---|---|---|
+| 6 ARROWS VS 6 FIGHTERS | neither | 0-48-0 | 9 s | 54 px, 0.72, 1.16, 29% | 20 px, 0.74, 0.79, 27% |
+|  | blue | 0-48-0 | 15 s | 54 px, 0.53, 0.37, 27% | 25 px, 0.64, 0.32, 18% |
+|  | red | 0-48-0 | 9 s | 54 px, 0.61, 0.59, 34% | 16 px, 0.62, 0.50, 33% |
+|  | both | 0-48-0 | 11 s | 54 px, 0.54, 0.39, 27% | 17 px, 0.51, 0.40, 23% |
+| 6 SKATERS VS 6 ARROWS | neither | 20-5-23 | 27 s | 37 px, 0.67, 0.42, 28% | 43 px, 0.76, 0.45, 29% |
+|  | blue | 31-14-3 | 19 s | 38 px, 0.61, 0.52, 51% | 46 px, 0.79, 0.72, 55% |
+|  | red | 32-14-2 | 25 s | 37 px, 0.76, 0.32, 38% | 46 px, 0.69, 0.28, 39% |
+|  | both | 41-6-1 | 20 s | 33 px, 0.61, 0.56, 42% | 52 px, 0.72, 0.64, 46% |
+| 6 BRAKERS VS 6 SKATERS | neither | 3-45-0 | 9 s | 41 px, 0.75, 1.95, 46% | 22 px, 0.66, 0.64, 58% |
+|  | blue | 40-7-1 | 13 s | 28 px, 0.59, 0.25, 54% | 50 px, 0.78, 0.34, 61% |
+|  | red | 17-29-2 | 16 s | 37 px, 0.72, 0.54, 58% | 36 px, 0.69, 0.46, 60% |
+|  | both | 46-2-0 | 18 s | 20 px, 0.53, 0.75, 51% | 53 px, 0.54, 0.78, 53% |
+| 6 LANCETS VS 1 FRIGATE | neither | 20-0-28 | 33 s | 26 px, 0.73, 0.05, 10% | 42 px, 0.94, 0.03, 12% |
+|  | blue | 48-0-0 | 10 s | 0 px, 0.70, 0.02, 1% | 55 px, 0.65, 0.02, 2% |
+|  | red | 2-43-3 | 34 s | 41 px, 0.64, 0.14, 15% | 6 px, 0.71, 0.16, 19% |
+|  | both | 29-17-2 | 37 s | 22 px, 0.54, 0.18, 16% | 38 px, 0.76, 0.24, 22% |
+| 6 ARROWS VS 1 FRIGATE | neither | 0-7-41 | 45 s | 43 px, 0.77, 0.28, 19% | 5 px, 1.84, 0.21, 14% |
+|  | blue | 0-28-20 | 27 s | 50 px, 0.72, 0.27, 35% | 5 px, 1.81, 0.29, 29% |
+|  | red | 0-26-22 | 56 s | 47 px, 0.71, 0.36, 16% | 6 px, 1.79, 0.33, 12% |
+|  | both | 0-43-5 | 68 s | 53 px, 0.64, 0.25, 21% | 4 px, 1.88, 0.16, 13% |
+| 6 SKATERS VS 1 FRIGATE | neither | 0-5-43 | 35 s | 47 px, 0.73, 0.31, 23% | 6 px, 1.77, 0.18, 19% |
+|  | blue | 0-27-21 | 31 s | 52 px, 0.66, 0.48, 50% | 7 px, 1.83, 0.51, 39% |
+|  | red | 0-35-13 | 49 s | 51 px, 0.66, 0.36, 21% | 6 px, 1.80, 0.31, 17% |
+|  | both | 0-35-13 | 39 s | 52 px, 0.64, 0.45, 43% | 6 px, 1.85, 0.47, 32% |
+| 6 ARROWS VS 2 GUNBOATS | neither | 48-0-0 | 9 s | 20 px, 0.65, 0.10, 25% | 44 px, 0.81, 0.06, 28% |
+|  | blue | 48-0-0 | 9 s | 2 px, 0.07, 0.23, 22% | 44 px, 0.79, 0.18, 25% |
+|  | red | 42-6-0 | 20 s | 27 px, 0.43, 0.14, 23% | 41 px, 0.80, 0.15, 30% |
+|  | both | 48-0-0 | 15 s | 7 px, 0.14, 0.20, 23% | 44 px, 0.82, 0.22, 26% |
+| 6 ARROWS VS 1 SENTINEL | neither | 0-48-0 | 9 s | 54 px, 0.84, 0.38, 15% | 5 px, 1.47, 0.53, 32% |
+|  | blue | 10-36-2 | 14 s | 48 px, 0.83, 0.33, 39% | 18 px, 1.58, 0.33, 47% |
+|  | red | 0-48-0 | 10 s | 54 px, 0.82, 0.42, 17% | 2 px, 1.74, 0.50, 35% |
+|  | both | 0-48-0 | 19 s | 54 px, 0.75, 0.35, 39% | 6 px, 1.77, 0.31, 39% |
+
+Over all eight, a side picking its own courses against one on the plain pilot **won 426, lost 253 and drew 89**, and lost 21,073 px to the plain side's 28,994. Its ships had an enemy in flak range 35% of the time (the plain side's 30%), fired 0.54 shots a ship a second (0.44), took 0.86 pixel hits for each shot fired at them (0.92), and made 4.9 quarter turns in 10 s (5.3).
+
+*On fights it wasn't worked out on:* the parts toy's nineteen fights, 24 rolls each (`--nose-referee 24 parts`; beamers, wardens, rakers, archers, an aegis, all with engines astern only and no rotation engines). Won 490, lost 292, drew 130; lost 32,505 px and took 41,823.
+
+*What it reads as.*
+- **Shots in flight, Henry's second point, shows plainly.** A standing ARROW with a lance shot coming from 90 px takes 36 of 36 on the plain pilot and none picking its own course. Against two GUNBOATS, six ARROWS lose 391 px in twenty fights on the plain pilot and 45 picking their own courses.
+- **Turret tracking, his first, is in and does next to nothing, and orbiting hasn't come out of it.** With the term switched off in the build as it stands, the whole table's wins, losses and draws are the same to the fight (426-253-89). Against the GUNBOATS, ARROWS circle a little more with it (0.23 circles of their nearest enemy in 10 s against 0.20, and 0.10 on the plain pilot) and lose a little more (2 px a fight against none; with both sides thinking, 7 against none). Against the SENTINEL nothing changes at all. The reason is in the numbers, not the pilot. A cannon's barrel goes right round in 8.5 s. To get round the turret faster than that a ship has to be within about 30 px of it: further out the ARROW isn't fast enough (22 px/s), and the SKATER, which is, can't hold so tight a circle at that speed with one engine's push turning its path inward. Their flak wants them at about 50 px. A tracker turns four times as fast. What saves a ship from a cannon is seeing the shell in the air and not being where it was aimed. If orbiting a turret is to be a real tactic, that's turret turn rates and ships' push, which are Henry's numbers and I haven't touched them. I've left the term in because he asked for it; by its own measure it could come out.
+- **The outcome of a fight is still mostly the drawings.** ARROWS lose to starter FIGHTERS every time whoever thinks, and to the SENTINEL 36 times in 48 at best. Where the two sides are near each other it decides it: BRAKERS against SKATERS goes 3-45 on the plain pilot and 40-7 with the BRAKERS thinking.
+- **Circling is no commoner overall** (0.33 circles in 10 s against the plain side's 0.36, which is ships passing each other). It shows against the cannon and in the furballs.
+
+*Each term switched off in turn* (the same eight fights and 48 rolls, on the build before the last three changes: a firmer hold on range, the ship's own lance shots, and facing its target as it goes). All in: 448 won, 185 lost, 135 drawn.
+
+| Switched off | Won-lost-drawn | What else moved |
+|---|---|---|
+| flak and turrets leading it (H4) | 260-338-170 | the one it can't do without |
+| its own guns (H5) | 361-194-213 | it stops closing: 0.21 shots a ship a second for 0.51, and fights between two thinking sides run 71 s for 34 |
+| where its plan wants it (H6) | 374-197-197 | the same, 94 s |
+| a range, not a spot, for ships with no gun to line up (H6) | 388-231-149 | |
+| keeping the course it's on (H7) | 407-197-164 | |
+| the cost of a turn (H7) | 472-134-162 | it wins more without it, and makes 6.7 quarter turns in 10 s for 2.2. Kept, for how it looks. |
+| shots in the air (H3) | 438-192-138 | against the GUNBOATS it loses 11 px a fight for 0 |
+| enemy lance lines (H4) | 437-188-143 | a thinking frigate under thinking LANCETS goes down in 14 s for 47 |
+| turret barrels (H4) | 446-187-135 | circles of a cannon ship with both sides thinking: 0.18 for 0.59. (In the build as it stands the GUNBOATS back away, and it's 0.15 for 0.20: above.) |
+| sharing an enemy's fire (H4) | 435-186-147 | |
+| going round its target as a way to go (H2) | 444-189-135 | against the GUNBOATS, 0.15 hits a shot for 0.02 |
+| place over the whole way (the end only) | 462-196-110 | fights between two thinking sides run 44 s for 34 |
+
+Five of them move who wins by more than chance does (a run of 768 fights wanders by 30 or so either way). The rest are kept for what they do in the fights they're about, shown in the last column, except turret barrels, which is kept because Henry asked for it.
+
+*Tried and taken out.*
+- **Weaving back and forth** as a way to go: 443-204-121 without it against 430-196-142 with. Out.
+- **Sharing an enemy's fire among every ship in the fight,** not only the ones inside its reach (so that six ships each afraid of a frigate's whole flak would go in together): 360-244-164 against 449-198-121. Ships went in and were shot. Out.
+- **Counting a pixel taken off the enemy for more than a pixel of its own** (one and a half, or two): 449 and 431 wins against 448. Nothing in it. Out.
+- **Fear of an enemy lance across the enemy's whole width,** as first built: thinking LANCETS wouldn't line up on a frigate (8-34-6 in 92 s). It's now the lines its lances are really on.
+
+*The one rule that's a choice about the game: H6.* With a pixel out of place costing a sixteenth of a pixel, a side picking its own courses won 470-189-109, more than as built. But its ARROWS, sent at a frigate, backed off the map ahead of it (in flak range 8% of the time, fights of 107 s) and beat a plain frigate 44 times in 48 by leading it about. That's the pilot deciding to retreat, which is an order's to decide. With every pixel out of place costing a pixel the retreat stopped (in range 32%, 37 s), but a ship no longer stepped out of a lance shot's way (36 of 36 hit) and a LANCET broke the slab below in 11 fights of 20. So the two kinds of place are costed differently: a range is held firmly, since a ship can dodge round its target without leaving it, and a spot has a leash. As built: 426-253-89, and the ARROWS go at the frigate and lose to it (0-28-20 in 27 s, in range 35%).
+
+*Henry's ruling on H6, and what it turned up (2026-11-16).* "Yes, unless it has a move order to go somewhere else."
+- **A move order didn't get a ship out of a fight.** The send order (C2) has a ship on its way stop and fight whatever comes within 130 px of it. A ship that's sent out of a fight has an enemy that near, so it turned back to it. On the old flight, which is what a match flies today: four fights at ten rolls, every blue ship sent to a place 400 px behind it five seconds in, and thirty seconds later 14 of 240 were at the place. Nobody had tried it: every test of sending sent ships towards a fight.
+- **Built, for nose-first flight (H10):** a ship on its way stops for nothing, and takes up the fight again only round the place it was sent to. In the test below, of 212 ships sent out of two fights, the 153 that kept an engine all got there. With the old rule put back, 115 kept one and 56 got there.
+- **A rule Henry had kept, changed: C2's "fight what comes within 130 px on the way".** Reason: it and his ruling can't both hold. A ship that stops for what's near can't be ordered away from what's near. What it costs: a group sent across the map now flies past a picket it meets, shooting as it passes, where it used to stop and clear it. To fight the picket, send the group at it. Not ruled.
+- **The match isn't changed.** It flies the old way, and there a sent ship still stops to fight. This reaches the match when nose-first flight does, unless Henry wants it sooner.
+- **The pace is kept.** A ship sent with a group flew at the group's pace only while it flew as its plan said; picking its own course it would have run ahead. The pilot's ways to go are now capped at the pace, and its picture of its plan is flown at the pace as the game flies it.
+- **Not seen in a window.** The flight toy has no way to send a ship, so none of this can be watched yet.
+- **Noticed on the way, not changed: hulks adrift.** Against the FRIGATE an ARROW's one engine is often shot off, and with nose-first flight it then drifts on at the speed it had. Over twenty rolls, of the time ARROWS were alive after the first ten seconds, more than two thirds was spent adrift (8,646 ship-ticks of 12,636). The ones that could still fly were between 20 and 40 px from the frigate's middle 69% of the time (they're wanted at 36). That's F-row behaviour, for when Henry watches.
+
+*Henry after watching the toy (2026-11-16): the exhaust (F6, above), and two questions.*
+
+"Why don't the lancets shoot at the frigate in test 4?"
+- **The window plays the same roll of the dice every time,** and on that roll the six LANCETS fire one shot in 28 s and lose. On rolls 1 to 12 they win 8 (firing 6 to 15 shots, the first at 5.5 s), lose 3 (1 to 3 shots) and once fire nothing in 60 s.
+- **It's the lance's own rule, not their flying.** A lance holds its fire unless the shot would land three ways: with the target flying on as it is, with it at the speed it's trying for, and with it stopped dead (the lance aim round, 2026-11-12). A lance shot takes 19 ticks to cross 75 px. A frigate crossing at a pixel a tick moves 19 px in that time, twice its own width, and since it picks its own course it never stops crossing their lines. On the window's roll a LANCET had its lance on a line through the frigate for 122 ship-ticks, and one shot came of it. On the rolls they win, the frigate flies straight down a LANCET's line in the opening.
+- **Two of the three questions ask about things a ship can't do any more.** Flown nose-first it can't stop dead, and it can't have the speed it's trying for at once.
+- **The pilot's picture of its own lance is wrong with it** (H5): it counts a shot whenever the lance is loaded and crosses the target, so it flies passes the gun then doesn't fire on.
+- **Tried, not kept: a lance fires at where its target is heading** (the first of the three questions alone). On the window's roll the LANCETS fire 5 shots from 5.5 s and win in 6 s; on rolls 1 to 12 they win 10 and two run out the minute. A thinking side against a plain one over the toy's fights at 24 rolls: 208-125-51, against 213-124-47 as built, which is no difference; on the parts toy 533-253-126 against 490-292-130.
+- **Not changed.** The hold-fire rule is one Henry agreed to. Put to him.
+
+"Will ships with insufficient penetration target engines if they can't target anything else vulnerable?"
+- **No. No gun looks at armour when it picks a pixel.** Flak, a cannon, a tracker and a lance lining up each take a living pixel of the target at random. Flak and trackers pierce 1, lances and missiles 2, cannons and beams 3 (one more beside a piercer); plate is 1 and heavy plate 2, everything else 0, engines among them; a shot that doesn't out-pierce what it meets bounces off.
+- **Aiming alone wouldn't do it:** a shot stops at the first pixel on its line, so one aimed at an engine behind plate meets the plate. What makes engines the answer is that each has to keep its exhaust lane open to space, so there is always a side an engine can be hit from. A rule for it would be: a gun aims at a pixel it can break and can get at from where it is. Not built; Henry asked a question.
+
+*The proof* (in `sim.rs`'s tests; the suite is 305 and passes):
+- **A ship holds its range in a fight it's losing, and leaves when it's sent somewhere else:** twenty rolls each of six ARROWS against a FRIGATE and six SKATERS against six ARROWS, on a map with room to leave. Eight seconds in, every ship has an enemy within 130 px. Left to it, ARROWS that can fly are within 60 px of the frigate 77% of the time. Sent 400 px away, every ship that keeps an engine comes within reach of the place. Two rules broken on purpose, as a check: sent ships stopping to fight (56 of 115 get there, and the test fails) and no firm range (21% of the time within 60 px, and it fails).
+- **A ship sent with a group keeps to the group's pace under fire:** a SKATER sent past a GUNBOAT goes 12 flat out and never above 6 at a pace of 4, on a course of its own for most of the way. With the pilot forgetting the pace, its picture of its plan is wrong, it stops picking courses, and the test fails.
+- **A ship playing its flight forward flies exactly as the game then flies it:** every flier sent eight ways, the copy and the ship compared for place, speed and facing at every tick of twenty seconds.
+- **A ship gets out of the way of a lance shot that's coming:** 36 shots at a standing ARROW, at each of its pixels from each of four sides. 36 hit on the plain pilot, none picking its own course. With the pilot blinded to shots in the air, as a check on the test, 36 hit and the test fails.
+- **Ships under cannon dodge the shells:** twenty fights of six ARROWS and two GUNBOATS. The ARROWS win all twenty either way, and lose 45 px picking their own courses to 391 on the plain pilot.
+- **A lancer gets its lance onto a small still target:** a LANCET against a slab three pixels deep, twenty rolls from five starts. Picking its own course it breaks the slab every time.
+- **A fight on the rollout pilot plays the same twice,** tick for tick by checksum, and differently on other dice.
+
+*A fault of the plain pilot, recorded and not mended.* On the plain pilot alone the LANCET breaks that slab in 4 fights of 20. It stops within a few pixels of its spot, calls that near enough, and where its lance then bears on nothing it sits there. (Stage one's notes had this as "lancers fight badly".) Every ship in a fight now picks its own course, so a player doesn't meet it; it does mean the referee's plain side is weaker than it should be wherever lances are concerned.
+
+*What it costs.* About 0.04 ms a tick for each ship in a fight, on one core: fights of seven or eight ships ran at 0.20 to 0.33 ms a tick against 0.011 to 0.017 on the plain pilot. A hundred ships fighting at once would be about 4 ms of a 67 ms tick. It's not on other cores. Each ship's think reads the map and writes only its own course, so it could be.
+
+*Open, and mine to flag.*
+- **Turret tracking earns nothing as the numbers stand** (above). In, because Henry asked for it. Out, or the turret numbers looked at, is his call.
+- **A ship holds its range even when it's out-gunned** (H6): ruled, keep. ARROWS sent at a frigate die at it unless they're sent somewhere else.
+- **A sent ship no longer stops on its way** (H10), which changes C2. Not ruled, and not in the match.
+- **Cannon ships back away from what closes on them,** to keep cannon range, showing their engines. It follows from H6 and from their plan wanting cannon range. It may read as smart or as running.
+- **Turning.** A thinking ship makes about five quarter turns in 10 s, the same as a plain one in a fight.
+- **Nothing here is in the match.** Miners, the king, formations and the AI still fly the old way. (Since the next section: everything but the king flies nose-first.)
+
+## Everything flies nose-first; lances lead; guns aim at what they can break (2026-11-16)
+
+Henry, after watching the toy: "We should remove the old flight system, everything should use the new system. We don't want to keep stuff around that we don't need anymore." On the lance: "The old 'sure shot' doesn't apply anymore (and I was always skeptical of it). Yes, lances should lead their target. I'd probably go for a linear lead (not track current acceleration) what do you think? ... shot taking in general should probably be wired in to the flight logic, so that the paths reflect the actual shots they'll take and optimize for that." And on "a gun aims at a pixel it can break and can get at from where it is": "yes, I think we want this."
+
+*My answer on the lead: linear, yes.* An engine burns in bursts of a tick or two as the pilot trims, so a ship's acceleration at any moment says next to nothing about the next second. Flak and turrets already lead by the speed a ship has, and the pilot's dodging is built on exactly that: change your speed after the shot leaves. One rule for every gun means a dodge is the same move against all of them.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| I1 | **Every ship in a match flies nose-first.** The old flight is deleted: `steer_any_way`, the `nose` switch, the old way of arriving, the tail. Wire version 18. **The king is not converted:** it still flies its own way, straight from its orders at a set speed (I14). | |
+| I2 | **A scoop reaches.** Rock within 8 px of a miner (12 for the starter miner: twice what it can place itself to) is taken from where it sits, a loose pixel within that is picked up, and a load is handed over from that far. **This changes the mining rule,** which had a miner sit on each pixel it ate. A ship that keeps its speed can't shuffle 3 px to the next one: left alone, the economy stopped at 18 px in four minutes. | |
+| I3 | **A full miner stops at its drop-off.** It used to fly through it flat out, which with momentum carried it half across the map. | |
+| I4 | **A ship flies straight at its spot and stops as near it as a ship of its sort can place itself** (3 px with rotation engines, 6 for the starter fighter, 8 for Henry's, 14 for a frigate with none; usually nearer). Stopped that near, it stays. (For a day a ship that stopped more than 3 px off backed off and came in again, and until Henry's first match it flew one leg at a time: both gone, below.) | |
+| I5 | **A sent ship stops for nothing on its way** (H10), now in the match. **This changes C2.** | |
+| I6 | **A lance fires at where its target is heading:** when a shot fired now would meet a standing pixel of an enemy that flies on at the speed it has. The hold-fire rule is gone. | |
+| I7 | **A shot has a tick's start on what it's fired at.** It's fired after the ships have moved and flies its first pixels in the tick it's fired. The lance's rule counted its target as moving from the moment of firing, so at 35 px and further its shots at anything crossing faster than half a pixel a tick went by a pixel in front. Hidden until now, because the old rule never fired at a crossing ship. | |
+| I8 | **Every aimed gun's lead is counted right.** A cannon and a tracker aim from where the target stood when the tick began and counted the shell's flight a tick short three times in four; and they measured the way as the crow flies, when a shot covers a pixel of the longer way each step whatever its slant. Cannons landed 61 of 101 shells on a 5x5 hulk drifting steadily by; now 90 of 97. Flak was nearly right already. | |
+| I9 | **A ship picking its course counts the shots it will really fire.** Its own lance by the gun's own rule (the same code, asked about later ticks); an enemy lance as a danger where it will fire and the ship will still be; an enemy beam that's warming, as a cut on its line when it's ready; its beam or repeater led as the gun leads. | |
+| I10 | **A gun aims at a pixel it can break and can get at from where it is.** A shot breaks the first standing pixel it meets or bounces off it, so flak, a cannon and a tracker aim only at a pixel where the first thing in the way is something they out-pierce. With none such they shoot all the same, and the shots bounce. A ship that lines a gun up picks a pixel some side of which is open to it, and lines up from an open side. | |
+| I11 | **Ships whose guns can't break the armour in front of them fly round to where they can.** For each ship the game works out from which of sixteen bearings a shot that pierces 1, and one that pierces 2, can break something; a ship counts its flak and trackers only from an open bearing. | |
+| I12 | **The toy:** a TURTLE (a hull in a shell of plate, open only astern, where its engines are) and "6 ARROWS VS 1 TURTLE". Nine ships, nine fights. Engines leave exhaust everywhere now, and nothing has a tail. | |
+| I13 | **A ship lining a gun up keeps to the spot it's making for** unless another is 60 px nearer. It used to take whichever was nearest at each moment, and with momentum it overshot each in turn. And a ship gets off a warming beam's line only if its own flight, played forward, gets it clear in time. | |
+| I14 | **Not done: the king.** It flies straight to where it's sent at 2.5 px a tick (0.5 when beaten), with no engines consulted. On its own four engines it would be a slow capital that takes 3 s a quarter turn. That changes the beaten-king rule (M2.10), the AI's king, which runs from raids by its keys, and thirty tests that drive a king about. Put to Henry before doing it. | **Not yet** (Henry, 2026-11-16). The king stays as it is until he says. |
+
+*Rules Henry had agreed to that this changes, each with its reason.*
+- **C2, "fight what comes within 130 px on the way"** (I5): gone from the match too. A ship that stops for what's near can't be ordered away from what's near.
+- **The lance's hold-fire rule** (I6): gone, on his word.
+- **Mining pixel by pixel** (I2): a miner works what's in reach of its scoops from one place. Forced: see the row.
+- **A guard without guns moves up into a post left empty beside it:** not while an enemy is in sight. A ship in a fight has 24 px round its spot for next to nothing (H6) and doesn't turn about twice to move up 8 px.
+- **The starter fighter gets off a warming beam's line:** it can't any more. It takes 12 ticks a quarter turn and its engines push ahead; the beam warms for 15. A ship with rotation engines can.
+
+*What the match does now, against the old flight* (the same four AI against AI matches on the starter deck, the old source built beside the new):
+
+| | Old flight | Nose-first |
+|---|---|---|
+| Mined by 2:00, 4:00, 6:00 (blue, seed 1) | 117, 504, 1035 | 117, 414, 918 |
+| Match length, seeds 1 to 4 | 15:57, 20:35, 13:42, 14:36 | 17:50, 21:27, 19:43, 21:54 |
+| Time to play a match | 6 to 11 s | 36 to 94 s |
+| A tick, seed 4 | 0.68 ms | 4.8 ms |
+
+The economy is a tenth to a fifth slower and matches run about a third longer. Nothing was tuned. The cost is the pilot: every ship with an enemy in sight thinks. 4.8 ms is a fourteenth of a tick on this machine; the suite went from 50 s to 9 minutes.
+
+*The toy's referee after all of it* (nine fights, 48 rolls each): a side picking its own courses against one on the plain pilot won 505, lost 225 and drew 134. What moved most: LANCETS against the FRIGATE with both sides thinking, 29-17-2 in 37 s to 48-0-0 in 9 s (they fire now); thinking GUNBOATS against plain ARROWS, 6-42 to 45-3, and with both thinking the ARROWS no longer win every time (29-17-2): cannons hit what flies steadily.
+
+*The proof* (the suite is 307 and passes, with two tests switched off: one from before, and the RAKER's, below):
+- **Every lance shot at a ship that flies on lands:** fifty hulks drifting across a lance's line, near and far, slow and fast. Every shot fired lands, and every hulk is fired at. This is what found I7.
+- **A gun that aims leads by the time its shot takes:** flak 272 of 290, cannon 90 of 97, tracker 341 of 357 on a hulk drifting by. Only the cannon's number tells the new lead from the old.
+- **A gun aims at what it can break and can get at:** a flak gun astern of a plated shell breaks it with its first shots and none bounce; in front of it and abeam every shot bounces. With flak aiming at any pixel, the test fails.
+- **Ships fly round to where they can:** six ARROWS in front of the shell break it 20 times in 20 picking their own courses and never on the plain pilot; six LANCETS in front of one in heavy plate break it 20 in 20 on either pilot. With guns counted from any side, or a line-up from the nearest side, the test fails.
+- **Not shown by any test:** that the tracker's new aim differs from its old one. In two set-ups tried the two did the same.
+
+*Faults and limits, recorded and not mended.*
+- **A ship that's slow to turn and lines a gun up doesn't settle on its line.** The parts toy's RAKER (engines astern only, 3 s a quarter turn) was in line with a slab for 88 ticks of 1800 and fired 5 shots: it overshoots its line and comes back over it. Its test is switched off, saying so. The BEAMER closes to 37 px of a target it used to hold 97 px off.
+- **Formations and posts are only as fine as the ships are nimble.** A ship that comes to rest as near its spot as it can place itself stays there: usually within a pixel or two, at worst 6 px for the starter fighter and 14 for a frigate. So two guards on neighbouring posts can stand a few pixels into each other. Near a fight a ship has H6's 24 px.
+- **Two tests of the where-to-send experiment are switched off.** Their staging counted on a sent fleet fighting what it met on the way; with I5 the two plans they compare come out level, so the tests fail before they reach the rule they're about.
+- **The yard's gauges still show the old flight's turning and thrust.**
+- **Ships with their engines shot off drift on,** as before.
+
+*Henry's first match on it (2026-11-16, seed 606, his deck against SWARM).* With a screenshot of a fighter selected and standing 230 px from where it was sent: "this fighter seemed to be somehow stuck for a while. i also had a miner that looked like it was mining from like 5 pixels away from the rock".
+- **The stuck ship: found, a fault of the plain pilot, mended.** The log has the sends but not which ship each was for, so I played the same match with both sides on the AI and one of blue's ships sent somewhere every second, and looked for any ship on its way that went 10 s without getting nearer. A miner did, for 41 s. The trace: 36 px to fly one way and 3 px the other, its engine pointing along the 3. Standing with two legs to fly, it took the one its engine could start on. That leg was shorter than it drifts while it turns about to stop (7 px for the miner, 11 for Henry's fighter, which takes 1.5 s a quarter turn), so it was carried past, turned, came back and was carried past again, at a quarter of a pixel a tick, with the long leg never begun. Now a leg too short to stop on is left till last.
+- **The backing off I added the round before is gone.** It was there to hold ships to within 3 px of their spots. Measured on Henry's fighter and miner it bought nothing: a ship sent to a spot nearer than a hop that simply sets off is carried past and stops as near on the far side, in a third of the time. And a ship now stays where it has come to rest if that's as near as it can place itself. In the match, the longest any ship goes without getting nearer its spot fell from 41 s to 12 with the backing off and 7 without.
+- **Tests:** `a_ship_near_its_spot_gets_onto_it_without_fussing` (Henry's fighter and miner, each alone, facing each way: the trap; a spot it can leave be; spots a little further). With the trap put back it fails (never there, against 67 ticks). `a_ship_sent_somewhere_keeps_getting_nearer_until_its_there` is the match: no ship goes 12 s. It doesn't pin any one rule down: a match is too chancy for that.
+- **The miner: that was my rule (I2), and half of it was a fault.** A miner bites whatever rock is within 12 px of its middle, and as built it stopped flying the moment something was in reach, so it sat out in space. Now it flies on to the rock it's eating and comes to rest against it. It still eats everything in reach from there before it moves, so by the end of a sitting it is taking pixels from up to 12 px off. Not changed: whether that reach should show, or be shorter.
+
+*"Why do we have a concept of legs?"* Henry, the same evening: "what if we got rid of the concept of legs and just had ships add or subtract vectors that get them closer to their target position+speed? i also noticed Swarm's fighter flew to the top left corner before flying south, which seemed like an odd way to fly toward the enemy base".
+- **Why they're there.** An engine pushes one way, and a ship with one engine can stop only one way's speed at a time. Flying across and then along, it only ever has one to stop. That was my shortcut in the first stage, and it's all in the arriving rule: the half of the pilot that burns and turns already works Henry's way, cutting whatever gap there is between the speed it has and the speed it's asked for.
+- **What they cost.** Every trip goes by a corner: every one of 28 ships, on 20 trips each, flies 129 to 132% of the straight way. That's SWARM's fighter. And a leg can be too short to fly, which was the stuck ship.
+- **Tried twice without them, the same evening, and not kept** (a third try is what's built: below). Each way's speed asked for at once, held to what the ship can stop from in the room left that way; then the same with each way stopped in one burn, the nearer first.
+
+| | Legs | Both ways at once |
+|---|---|---|
+| SKATER (engines on its flanks too) | 158 ticks a trip, 2 quarter turns, 131% of the straight way | 132 ticks, 2 turns, 102% |
+| ARROW (one engine, turns in 2 ticks) | 211 ticks, 5 turns, 130% | 166 ticks, 16 turns, 92% |
+| Henry's FIGHTER (one way, 23 ticks a quarter turn) | 213 ticks, 5 turns, stops within 1 px | 214 ticks, 11 turns, up to 13 px off, one trip in twenty never settled |
+| Starter FRIGATE (45 ticks a quarter turn) | 406 ticks, 5 turns, within 1 px | 423 ticks, 6 turns, up to 12 px off |
+| BRAKER (engines ahead and astern) | 146 ticks, 1 turn | 157 ticks, one trip never settled, 68 px off |
+| All 28 ships | 314 ticks a trip | 317 |
+
+- **What it reads as.** For a ship that can push across as well as along, it's simply better: straight there, sooner, no more turning. A one-engine ship that turns fast gets there a fifth sooner but turns three times as often, swapping from one way's braking to the other's as each comes due. A one-engine ship that turns slowly gains nothing and stops badly: by the time it has turned to stop one way, the other is overdue.
+- **What would work is a plan, not a rule applied tick by tick:** burn one way, turn once, burn the other, coast straight at the place, turn once and stop one way, turn once and stop the other. Three quarter turns where legs take five, on the straight way. Put to Henry.
+
+*Henry: "Yes, I think we need ships to fly approximately straight towards their destinations. It will be surprising behavior for the player otherwise." Built the same evening: the legs are gone.*
+- **As built** (`Flyer::arrive`). A ship asks for speed both ways at once, each its share of its top speed, so the two together point at the place. Each way is held to what the ship can stop from in the room left that way, and is stopped in one burn when it's going faster than that. The two stops come in turn, the shorter way first. So that the shorter is done in time it's flown a little faster than its share, and the ship's line points at where the longer way's own stop begins; the longer way's room has to cover the shorter's whole stop and then its own turn. Setting off, it gets up speed the shorter way first, so it flies with its nose along the way it's mostly going. The last way left is slowed as its room runs out. It turned out not to need a plan kept from tick to tick: the order of the two stops, and one burn for each, was what the first two tries lacked.
+- **A one-engine ship's trip:** burn the shorter way, quarter turn, burn the longer, coast at the place nose first, quarter turn and stop the shorter, quarter turn and stop the longer. The end of the line bends a little: the last stretch is flown the longer way alone.
+- **Measured,** the same 28 ships and 20 trips each:
+
+| | Legs | Straight |
+|---|---|---|
+| All 28 ships, a trip | 314 ticks | 278 ticks |
+| How far they fly for the straight way | 129 to 132% (WASP 151%) | 114% on average; 94 to 118% for 25 of them |
+| Quarter turns a trip | 5 (1 or 2 for ships with engines on their flanks) | 4 for nineteen ships, 5 for five (ARROW 8, LANCET 7; with flank engines, 1) |
+| How far off they stop, at worst | 1 to 3 px | 1 to 13 px, never more than a ship can place itself |
+| Henry's FIGHTER | 213 ticks, 5 turns, 129% | 174 ticks, 4 turns, 109% |
+| Henry's FRIGATE | 410 ticks, 5 turns, 130% | 364 ticks, 4 turns, 113% |
+| Starter MINER | 189 ticks, 5 turns, 129% | 155 ticks, 5 turns, 105% |
+| GUNBOAT | 314 ticks, 5 turns, 130% | 274 ticks, 4 turns, 100% |
+
+- **What it costs: ships stop less exactly.** Flying a leg at a time a ship crept up on its spot and stopped within a pixel or two. Now the shorter way is stopped in one burn and ends where it ends: a few pixels off, at worst as far as the ship can place itself. Sent in formation, the starter deck's ships all stand within that of their spots, where 15 of 17 stood within 2 px. Formations and guards' rings are a little raggeder.
+- **Not as good yet for ships with engines pointing more than one way:** SKATER flies 123% of the straight way, BRAKER 137% and WASP 139%, with a loop near the end. They arrive. SKATER and BRAKER are the toy's; WASP is SWARM's.
+- **A fault found on the way:** a ship standing a hop or two from its spot with both ways to make up turned on the spot for ever, each turn changing which way looked better to set off on. It now takes the longer way first, whatever it's facing.
+- **In Henry's match** (the random-sends test): no ship goes more than 9 s without getting nearer its spot.
+- The suite is 307 and passes, with the same four tests switched off.
+
+*Henry, after playing it (2026-11-16): "I tried the new legless flight. It was an improvement."*
+
+## Pixel tractors and collectors (2026-11-16)
+
+Henry: "I had some inspiration for mining gameplay depth (and slowing down the game a bit): pixel tractors. Pixels don't get dropped off instantly for free any more. Instead, miners need to fly within range of a pixel tractor that beams the collected pixels into the bank at a fixed rate. Miners no longer scale indefinitely on their own, and this opens up a "resource collector" unit type that can follow miners and has tractors and nodes. (Collectors will need their own AI behavior to let them follow groups of miners in a reasonable way.) (Resources get used from mobile collectors first before getting used from stationary outposts.) It's fun to see miners devour the map in 11 minutes right now but it isn't balanced."
+
+Built the same evening. Docking ports, the other half of the idea, are in the wishlist below.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| T1 | **The TRACTOR, a part** (INDUSTRY, letter `u`, weight 1, 2 power, pink). In a match nothing takes a miner's load the moment it arrives. A ship with tractor pixels pulls a pixel out of a miner in its reach every 8 s for each tractor pixel it has: eight pull a pixel a second. The pixel is banked when it comes across, into that ship's own store. | |
+| T2 | **Its reach** is measured from its ship's middle: the ship's edge, 30 px, and 4 more for each pixel along the side of the square its pixels would make. The king's reaches 46 px, the outpost's 44, the collector's 41; sixty-four tractor pixels would reach 62 past the edge. | |
+| T3 | **A ship with tractor pixels is a node:** it stores what it pulls and links like a factory (80 px). **Mine to flag:** Henry said a collector "has tractors and nodes". There's no separate node part: a tractor with nowhere to put what it pulls would do nothing, so the one part does both. A node part that only links (a relay) is still open. | |
+| T4 | **A full miner goes where it will be empty soonest:** for each tractor ship of its side, the flight there and the loads already waiting there. It keeps to its choice. It stops well inside the reach, on the side it came from, and waits until it's empty. With no tractor left anywhere it waits where it was built. | |
+| T5 | **A miner in a tractor's reach where it works is emptied as it works.** It never fills and never leaves the rock. So a mining site's income is what its miners bite or what the tractors there pull, whichever is less. | |
+| T6 | **Who a tractor takes from:** the miners waiting to be emptied before the ones still at work, and of those waiting the one with the least left, so it's away soonest. | |
+| T7 | **The COLLECTOR** (starter deck, slot 8): eight tractor pixels round its core, fifteen hull and three engines, 27 px, 22 px/s. A ship that flies with a tractor and no scoop is a collector, whatever else it carries: it follows the miners instead of taking the stance, and guns on it fire at what comes in reach. | |
+| T8 | **Where a collector stands.** Each miner's place of work is the rock pixel it's after. A tractor has room for as many miners as it can keep emptied (a collector's eight pixels: three). The tractors that stand and the collectors built before this one take the nearest places of work in their reach first, up to their room. Of the places left, this one takes the one with the most others round it and stands in the middle of those. It thinks once a second and keeps its place unless the new one is more than 16 px off. With no miners to stand by, it waits where it was built. Shot at with no guns, it runs for the nearest node. | |
+| T9 | **A collector goes no further than still links.** If the miners' rock is out of link of its network, it stands on the way there, as far out as links, and the miners fly the rest. **Mine to flag:** Henry asked only that it follow the miners "in a reasonable way". Out of link, what it pulled would sit in it unspent, so it stays in link by itself. Sent by hand it goes anywhere (G lets it go again). | |
+| T10 | **What flying nodes hold is spent first,** the nearest of them; then the printer's own store; then the nearest node. | |
+| T11 | **A node that flies out of link by itself hasn't split the network.** The note is for two standing nodes parting, as before. | |
+| T12 | **The king has eight tractor pixels,** a ring round its middle core in place of hull: a pixel a second, where a side's first miners unload. | |
+| T13 | **The starter deck's factories:** the OUTPOST has four tractor pixels where it had factory pixels (24 factory pixels now, builds up to 240 px), the SHIPYARD eight (110, up to 1,100 px). Same size, power and price. The teams' NEST has two (10 factory pixels) and the DOCK six (66). **This changes Henry's drawings.** A saved starter outpost or shipyard that was never edited is swapped for the new one, and a team saved with seven cards gets the collector in slot 8. | |
+| T14 | **The AI prints collectors:** when its tractors can't pull as fast as two thirds of its miners bite, its king prints a collector before another miner. Every ready-made team has the collector on the end of its cards. (`--off 8` switches the rule off for measuring.) A raider near one of its collectors turns its guards out, as one near a miner does. | |
+| T15 | **What the match shows.** A dotted pink line from a miner to the tractor emptying it, with a bright pixel running along it for each pixel that crosses. A tractor's reach, for the ship under the pointer and the ones selected: one pink dot that goes once round it at that distance in 4 s, clockwise from the top, and rests 3 s before the next lap. (A dotted circle for the first evening. Henry, 2026-11-17: "can we have the circle showing the tractor's range just be one pink dot that goes around in a circle occasionally. I think it's too loud right now.") The bar: "TRACTOR: 1 PX A SECOND, 46 PX REACH. 3 MINERS WITH A LOAD." A gold note when four or more of your miners stand waiting on a tractor. | |
+| T16 | **E selects your miners and collectors in view,** Ctrl+E every one (Henry: "E selects economy units just like Q selects combat units"). Q, and a box, leave collectors with the miners. | |
+| T17 | **The arena is as it was:** its stations take a load at once. Tractors work only in a match. Wire version 19. | |
+
+**The same four matches** (the AI against itself on the starter deck, seeds 1 to 4). The first column is from before straight flight and hasn't been played again on it, so some of the difference is flight.
+
+| | Before (flight in legs) | Tractors, AI never prints a collector | Tractors, AI prints collectors |
+|---|---|---|---|
+| Mined by 4:00 (seed 1, blue and red) | 414, 432 | 242, 244 | 299, 298 |
+| by 8:00 | 1638, 1284 | 649, 693 | 944, 1152 |
+| by 12:00 | 3429, 2991 | 1121, 1247 | 1961, 2454 |
+| by 16:00 | 5586, 4558 | 1601, 1847 | 3781, 4306 |
+| How the four ended | 17:50, 21:27, 19:43, 21:54 | a draw at 40:00, 37:14, a draw, a draw | 30:20, 21:15, 22:36, 20:49 |
+| Collectors a side made | none | none | 9 to 27 |
+| Miners a side made | 82 to 101 | 93 to 152 | 60 to 151 |
+
+- **With collectors the AI mines about two thirds of what it did by the same minute.** Three of the four matches ended within three minutes of where they had (two of them sooner), and seed 1 ran twelve minutes longer. Without collectors the AI lives on what its king and factories take in, about 2 px a second, and three matches in four run out the clock.
+- **The numbers are a first guess and Henry's to tune:** 8 s a pixel for each tractor pixel, the reach, how many tractor pixels the king and each factory have, and the collector's price.
+
+**Proofs** (`sim/eco.rs` unless said):
+- A full miner 30 px from its king loses a pixel every 15 ticks, nine in all, never two in a tick; the bank gains exactly the load and what the king made; the miner goes back to work.
+- The outpost as it was drawn before tractors takes nothing in: the miner beside it flies 300 px to the king.
+- A full miner takes the nearer of two outposts with nobody waiting, and the further one with five loads waiting at the nearer; it doesn't change its mind on the way.
+- Three miners at one tractor are emptied in the order T6 says, pull by pull.
+- A collector flies out to four miners at a rock, stands with all four in reach, in link with its king, and banks 60 to 72 px a minute from them; none of them carries anything home.
+- With the rock out of link, it stands 176 to 200 px from its king on the way there (it links at 200), in link, and the miners unload at it.
+- The king prints a fighter with 100 px of its own and 20 on a collector in link: the collector pays.
+- A collector sent out of link and back is never called a split.
+- The AI with twelve tractor pixels prints no collector with seven miners, one with eight, and none with the rule off.
+- The picture (`play.rs`): the pull is drawn across the gap between the king and the miner it's emptying, the reach only with the pointer on the king, and the bar's words.
+
+**Not done, and known:**
+- **Henry's own team had no tractor but the king's** (he drew eight tractor pixels on his OUTPOST the next morning; his SHIPYARD has none and his nine slots hold no collector). His OUTPOST and SHIPYARD are his drawings and aren't touched. As it was that evening, his miners unloaded only at his king, at a pixel a second. Played by the AI against the starter deck (seed 1), his team mined 1,005 px to 5,740 and lost at 18:06.
+- **Docking ports** (wishlist).
+- **A tractor doesn't pick up loose pixels itself.** Miners scoop them, as before.
+- **The whole-map view draws no pull lines and no reach.**
+- **The teams' strategies weren't looked at again,** nor was `--teams` played: SWARM's nest takes in a pixel every 4 s, which may or may not suit a rush.
+- **The cost of a tick wasn't measured:** the matches above were timed with other work running.
+- **The numbers table's prices and print times** for the starter deck now go with 24 and 110 factory pixels.
+- The suite is 317 and passes, ten of them new, with the same four tests switched off.
+
+*Henry's first match on it (2026-11-17, seed 60921, his deck against SWARM).* He had redrawn his OUTPOST with eight tractor pixels (144 px). "i have a bug with a seed that won't grow", with a screenshot of the seed sitting at the top edge of his home rock. The match log: planted 0 at 1:00, and his king slowed for having under 40 px standing.
+- **The cause was straight flight, not the tractor.** A seed came down when it was within 2 px of the pixel it was sent to. Since ships fly straight, a ship stops as near its spot as it can place itself (3 px for a seed) and, stopped that near, flies no further. A seed that stopped exactly 3 px off sat there for good.
+- **How often:** on his map, of 135 seeds sent to every third pixel of his home rock, 4 never came down, each stopped 3 px from its pixel.
+- **Mended by the same rule flight uses:** a seed has reached its pixel when it's within 2 px of it, or has come to rest as near it as it can place itself. It still comes down on the pixel it was sent to, not where it stopped. Proof: every third pixel of the home rock on his map and on another, each seed down within a minute with its factory's core on the pixel sent to (`a_seed_sent_to_any_pixel_of_a_rock_comes_down_on_it`); with the old rule it fails on those four.
+- **Nothing else in the game waits on a fixed 2 px.** The one other place was the small cross that marks where a sent ship is going, which stayed under a ship resting 3 px or more off its spot: it goes now when the ship has come to rest as near as it can.
+- The suite is 318 and passes, with the same four tests switched off.
+
+*His second match that morning (seed 28259).* "did something change with build speeds? this outpost seems very slow to build", with a screenshot at 1:40 of the outpost a third grown at the edge of its rock.
+- **Nothing changed in how fast anything builds.** His outpost was growing out of his bank and not out of the rock. The log: bank 0 at 1:00 and at 2:00, 58 px standing at 1:00 and 80 at 2:00, and no ship from a king told to print miners at 0:13. Every pixel he had, and every one his king made, went into the outpost as it came.
+- **The cause: a rock was counted edge to edge.** A factory eats the rock its core lands on, and that rock was the pixels touching the core's pixel edge to edge, and so on outward. A rock's ragged outline has pixels that hang on by a corner only, and each of those counted as a rock of its own: 278 of the 22,496 rock pixels on his map, a few on every one of its 53 rocks, 9 on the 471 px rock he planted on. His core came down on one. It ate that one pixel, and the rest was the rule for a rock that has run out: the bank pays.
+- **It was always so,** and nothing to do with tractors or flight. A click from outside a rock picks the nearest pixel of its outline, which is where those pixels are.
+- **Measured on his deck and map:** his outpost sent to such a pixel of a 95 px rock had 54 px after 20 s (the whole bank) and then 5 px more every 20 s, which is what a king makes by itself. Sent to any other pixel of that rock it was whole, 144 px, in under 40 s.
+- **Mended by what a rock is:** every rock pixel that touches, edge to edge or corner to corner. What looks like one rock is one rock. The bar's "ROCK: N PX LEFT" and the box and warning shown while planting use the same rule, so they said 1 px for those pixels too.
+- **And rocks are made as one body.** Twelve pixels on his map stood clear of their rock altogether, a pixel or more of space between: the map leaves those out now. So every map has a few rock pixels fewer, and every match plays out a little differently from the same seed.
+- **Proofs:** on four maps, whichever pixel of a rock is asked, the rock is all of that rock's pixels. And a seed sent to every pixel of the home rock on three maps comes down within a minute, on the pixel it was sent to, with the whole rock to eat. Counting edge to edge again fails both; leaving the specks in fails the first; the seed's old 2 px fails the second.
+- The suite is 319 and passes, with the same four tests switched off.
+
 ## Wishlist (Henry's, for later; none of it is a work order)
+
+- **Docking ports** (Henry, 2026-11-16, with the tractor): "The other thing I considered is docking ports rather than tractor beams. Maybe if we create distinct part collections in the future that can be an alternative to this. Or both can just coexist. I think it will be fun to have both. They serve different purposes too because one reaches out to the miners a little bit and the other has miners doing more flying. We can have the docking station be good because it drains the miner's whole cargo instantly, but it needs to be large enough for the miner to fit on it."
+- **A counter to SWARM** (Henry, 2026-11-16): "an easy way to counter swarm is to put a tracker on your outpost." His own OUTPOST has one.
 
 - **A king that's upgraded twice.** Henry, 2026-11-14: "Once we eventually get to king design, I want to have people optionally design two upgrades to their king where you pay the price upfront and it grows into a bigger, more consequential mothership/king. (twice. so you draw your starter king and then two bigger versions)." So three drawings of a king: the starter and two bigger ones, each upgrade paid for in full before it grows.
 - **Campaign levels where you fly the king by hand:** the old WASD king. Henry, 2026-11-13: "We can think about direct flight as a special level in the campaign, perhaps." And 2026-11-14: "I'm thinking of having special manual-king-flying levels in the campaign. (our old WASD kings)". The code that flew the king from the keys is kept, unused, for this (`Cmd::Steer`, `Link::steer`).

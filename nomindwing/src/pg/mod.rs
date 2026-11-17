@@ -212,6 +212,48 @@ pub fn parts_library() -> Vec<Design> {
     lib
 }
 
+/// The ships drawn for nose-first flight (`--nose`), and two of the starter deck's to set them
+/// against. Slots: 0 arrow (one engine astern, two rotation engines: quick to turn), 1 skater
+/// (an engine astern and one on each flank: it can slide), 2 braker (an engine astern and one
+/// on its prow: it stops without turning), 3 lancet (a lance, one engine, two rotation
+/// engines), 4 the starter fighter and 5 the starter frigate (drawn before any of this: engines
+/// on their stern corners and no rotation engines).
+pub fn flight_library() -> Vec<Design> {
+    let deck = starter_deck();
+    vec![
+        Design::from_rows("ARROW", &["g.g", "ycy", "hhh", ".e."]),
+        Design::from_rows("SKATER", &["g.g", "dhw", "hch", ".e."]),
+        Design::from_rows("BRAKER", &[".q.", "gcg", "heh"]),
+        Design::from_rows("LANCET", &[".l.", "ycy", "heh"]),
+        deck[0].clone(),
+        deck[2].clone(),
+        // The two turrets, for ships to get round: a cannon, which turns slowly, on the
+        // smallest hull that feeds it (its core and eight hull make the twelve power the
+        // cannon, two rotation engines and two engines use), and SIEGE's tracker ship.
+        Design::from_rows("GUNBOAT", &[".nnn.", ".nnn.", ".nnn.", "hhchh", "yhhhy", "e.h.e"]),
+        teams::sentinel(),
+        // A hull in a shell of plate, which flak can't break: the only way in is astern,
+        // past its engines. For guns to aim at what they can break, and ships to fly round
+        // to where they can.
+        Design::from_rows("TURTLE", &["ppppp", "pgcgp", "phhhp", "pe.ep"]),
+    ]
+}
+
+/// The ready-made fights for `flight_library`.
+pub fn flight_tests() -> Vec<Test> {
+    vec![
+        vs("6 ARROWS VS 6 FIGHTERS", block(0, 0, 6, 110, 180, 10), block(1, 4, 6, 370, 180, 10)),
+        vs("6 SKATERS VS 6 ARROWS", block(0, 1, 6, 110, 180, 10), block(1, 0, 6, 370, 180, 10)),
+        vs("6 BRAKERS VS 6 SKATERS", block(0, 2, 6, 110, 180, 10), block(1, 1, 6, 370, 180, 10)),
+        vs("6 LANCETS VS 1 FRIGATE", block(0, 3, 6, 110, 180, 10), block(1, 5, 1, 370, 180, 0)),
+        vs("6 ARROWS VS 1 FRIGATE", block(0, 0, 6, 110, 180, 10), block(1, 5, 1, 370, 180, 0)),
+        vs("6 SKATERS VS 1 FRIGATE", block(0, 1, 6, 110, 180, 10), block(1, 5, 1, 370, 180, 0)),
+        vs("6 ARROWS VS 2 GUNBOATS", block(0, 0, 6, 110, 180, 10), block(1, 6, 2, 370, 180, 40)),
+        vs("6 ARROWS VS 1 SENTINEL", block(0, 0, 6, 110, 180, 10), block(1, 7, 1, 370, 180, 0)),
+        vs("6 ARROWS VS 1 TURTLE", block(0, 0, 6, 110, 180, 10), block(1, 8, 1, 370, 180, 0)),
+    ]
+}
+
 /// The ready-made fights for `parts_library`. The beam against what can't get out of its way,
 /// what can, and what holds off at range; a shield under lances, under flak, and under a beam.
 pub fn part_tests() -> Vec<Test> {
@@ -261,20 +303,10 @@ fn help_body() -> Vec<(&'static str, String)> {
         ("SHIPS", "DRAW A SHIP IN THE YARD. EVERY COLOUR IS A PART AND UP IS THE FRONT. IT NEEDS A CORE, EVERY PIXEL JOINED EDGE TO EDGE, AND A STRAIGHT 3-WIDE WAY OUT FOR EVERY ENGINE.".into()),
         ("POWER", format!("MADE PER PIXEL: {}. EVERYTHING ELSE THAT WORKS USES IT: A PART'S HOVER IN THE YARD SAYS HOW MUCH. SHORT OF POWER, GUNS RELOAD SLOWER AND ENGINES PUSH LESS, IN STEP.", Part::power_list(true))),
         ("YARD", format!("SHIPS UP TO {GRID}X{GRID}. 1-6 PICK A PART CATEGORY, TAB ITS NEXT PART. P PENCIL, R RECTANGLE, F FILL, C STAMP, T TURN IT, U UNDO. Q/E OR THE WHEEL ZOOM.")),
-        ("FLYING", "SHIPS CHOOSE HOW TO FLY: THEIR SIDE PLAYS A FIGHT FORWARD EACH WAY (RUNS, KITE, ORBIT) AND KEEPS THE BEST. HEAVIER SHIPS TURN SLOWER.".into()),
+        ("FLYING", "A SHIP THAT FIGHTS HOLDS AT THE REACH OF ITS GUNS. HEAVIER SHIPS TURN SLOWER.".into()),
         ("ARENA", "PICK A TEAM AND A DESIGN, CLICK TO PLACE, RIGHT-CLICK TO REMOVE. SPACE RUNS, R REPLAYS. WASD, ARROWS OR THE MINIMAP SCROLL THE VIEW.".into()),
         ("KEYS", "ENTER YARD/ARENA  L LIBRARY  N NEXT TEST  F SPEED  T TEAM  F2 SCANLINES  F1 HELP  ESC QUIT".into()),
     ]
-}
-
-/// What a side's brain button says when pointed at.
-fn brain_tip(team: usize, b: Brain) -> String {
-    let key = ["B", "V"][team];
-    let now = match b.ways {
-        Ways::Drawn => "PLAIN: NO PLANNER. EACH SHIP GOES FOR THE NEAREST ENEMY AND FLIES AT IT AS ITS DRAWING SUGGESTS.".to_string(),
-        Ways::Plan => format!("ARCH: ONE PLANNER FOR THE SIDE. WHILE THERE'S A FIGHT IT PLAYS IT FORWARD {} S FOR EACH WAY EACH SHIP COULD FLY (EACH GROUP, IN A BIG FIGHT) AND KEEPS WHAT COMES OUT BEST.", ARCH_AHEAD / 15),
-    };
-    format!("[{key}] HOW {}'S SHIPS CHOOSE. {now} CLICK FOR THE NEXT; THE FIGHT STARTS AGAIN.", team_name(team))
 }
 
 
@@ -292,8 +324,6 @@ const BTN_SPEED: Rect = Rect::new(352, 165, 44, 15);
 const BTN_TEST: Rect = Rect::new(306, 181, 90, 15);
 const BTN_EMPTY: Rect = Rect::new(306, 197, 44, 15);
 const BTN_YARD: Rect = Rect::new(352, 197, 44, 15);
-/// Each side's brain, on the field's top edge under the fight's name.
-const BTN_BRAIN: [Rect; 2] = [Rect::new(2, 13, 88, 11), Rect::new(92, 13, 88, 11)];
 /// The minimap: the whole arena at exactly 1/6 scale.
 const MINI_SCALE: i32 = 6;
 const MINI: Rect = Rect::new(310, 213, AW / MINI_SCALE + 2, AH / MINI_SCALE + 2);
@@ -445,8 +475,6 @@ pub struct Pg {
     naming: bool,
     pub arena: Arena,
     pub setup: Vec<Placement>,
-    /// How each side's ships choose what to go for and how to fly at it, in the arena.
-    pub brains: [Brain; 2],
     pub test: Option<usize>,
     tests: Vec<Test>,
     /// The two teams of the ready-made fight that's loaded (None: your team, on both sides).
@@ -516,6 +544,14 @@ impl Pg {
         Pg::with(parts_library(), part_tests(), None, None)
     }
 
+    /// Nose-first flight to watch (`--nose`): the ships drawn for it and their fights, flown
+    /// with engines that push the ways they're drawn to. Nothing is saved or logged.
+    pub fn flight() -> Pg {
+        let mut pg = Pg::with(flight_library(), flight_tests(), None, None);
+        pg.reset();
+        pg
+    }
+
 
     fn with(lib: Vec<Design>, tests: Vec<Test>, save_path: Option<PathBuf>, log_path: Option<PathBuf>) -> Pg {
         // A team is nine slots: what it starts with, and empty ones after. A save from when a
@@ -562,7 +598,6 @@ impl Pg {
             naming: false,
             arena: Arena::new(),
             setup: Vec::new(),
-            brains: [Brain::ARCH; 2],
             test: None,
             tests,
             sides: None,
@@ -670,15 +705,6 @@ impl Pg {
         self.running = false;
         self.logged_run = false;
         self.logged_over = false;
-        self.arena.brain = self.brains;
-    }
-
-    /// The next brain for a side. The fight starts again, so what's watched is one brain's fight
-    /// from the first tick.
-    fn next_brain(&mut self, team: usize) {
-        let k = BRAINS.iter().position(|b| *b == self.brains[team]).map_or(0, |k| (k + 1) % BRAINS.len());
-        self.brains[team] = BRAINS[k];
-        self.reset();
     }
 
     fn test_name(&self) -> String {
@@ -702,8 +728,7 @@ impl Pg {
                 }
                 counts.iter().map(|(s, n)| format!("{n} {}", self.side(t)[*s].name)).collect::<Vec<_>>().join(", ")
             };
-            let brains = if self.brains == [Brain::ARCH; 2] { String::new() } else { format!(" | BRAINS {} V {}", self.brains[0].name(), self.brains[1].name()) };
-            let line = format!("RUN {}: BLUE {} | RED {}{brains}", self.test_name(), side(0), side(1));
+            let line = format!("RUN {}: BLUE {} | RED {}", self.test_name(), side(0), side(1));
             self.log(&line);
             let mut slots: Vec<(usize, usize)> = self.setup.iter().map(|p| (p.team, p.slot)).collect();
             slots.sort();
@@ -774,8 +799,6 @@ impl Pg {
             (Screen::Arena, Key::Letter('F')) => self.cycle_speed(),
             (Screen::Arena, Key::Letter('N')) => self.next_test(),
             (Screen::Arena, Key::Letter('T')) => self.team = 1 - self.team,
-            (Screen::Arena, Key::Letter('B')) => self.next_brain(0),
-            (Screen::Arena, Key::Letter('V')) => self.next_brain(1),
             _ => {}
         }
     }
@@ -887,12 +910,6 @@ impl Pg {
     }
 
     fn press_arena(&mut self, x: i32, y: i32, right: bool) {
-        if let Some(t) = (0..2).find(|&t| BTN_BRAIN[t].contains(x, y)) {
-            if !right {
-                self.next_brain(t);
-            }
-            return;
-        }
         if FIELD.contains(x, y) {
             if self.arena.tick > 0 {
                 self.say("PRESS R TO RESET, THEN PLACE");
@@ -1086,8 +1103,7 @@ impl Pg {
         }
         scene::drift(fb, f, a, self.cam);
         let (wx, wy) = self.to_world(m.0, m.1);
-        let on_brain = (0..2).find(|&t| BTN_BRAIN[t].contains(m.0, m.1));
-        let hovered = if f.contains(m.0, m.1) && on_brain.is_none() { a.ship_at(wx, wy) } else { None };
+        let hovered = if f.contains(m.0, m.1) { a.ship_at(wx, wy) } else { None };
         if let Some(i) = hovered {
             let s = &a.ships[i];
             if let Some(t) = s.target.filter(|&t| a.ships[t].alive) {
@@ -1108,7 +1124,7 @@ impl Pg {
         }
         scene::fire(fb, f, a, self.cam);
         // Where a click would place the selected design.
-        if a.tick == 0 && hovered.is_none() && on_brain.is_none() && f.contains(m.0, m.1) && !self.help {
+        if a.tick == 0 && hovered.is_none() && f.contains(m.0, m.1) && !self.help {
             let sh = self.side(self.team)[self.slot].shape();
             draw_shape(fb, f, &sh, m.0, m.1, if self.team == 0 { 1 } else { 3 }, self.team, &|_| true, true);
         }
@@ -1116,14 +1132,9 @@ impl Pg {
         let t = a.tick / 15;
         let clock = format!("{}:{:02}", t / 60, t % 60);
         fb.text(&clock, f.w - 4 - Framebuffer::text_width(&clock, 1), 3, TEXT_DIM, Some(OUTLINE), 1);
-        for t in 0..2 {
-            ui::button(fb, BTN_BRAIN[t], &format!("{} {}", team_name(t), self.brains[t].short()), on_brain == Some(t), self.brains[t] != Brain::ARCH);
-        }
 
         // Inspector.
-        let bar: Option<Vec<String>> = if let Some(t) = on_brain {
-            Some(wrap(&brain_tip(t, self.brains[t]), 49))
-        } else if let Some(i) = hovered {
+        let bar: Option<Vec<String>> = if let Some(i) = hovered {
             let s = &a.ships[i];
             let mut parts = vec![format!("{} PX/S", s.speed_px_s()), format!("{}/{} PX", s.px_now(), s.px_full())];
             if s.st.power_pct() < 100 {
@@ -1141,14 +1152,7 @@ impl Pg {
             if s.carry > 0 {
                 parts.push(format!("CARRYING {}", s.carry));
             }
-            let mut lines = vec![format!("{} {} - {}", team_name(s.team), s.name, s.doing.name()), parts.join("  ")];
-            // What its side's planner has decided for it.
-            if a.brain[s.team].ways == Ways::Plan {
-                if let Some(style) = a.planned(i) {
-                    lines.push(chosen_line(style));
-                }
-            }
-            Some(lines)
+            Some(vec![format!("{} {} - {}", team_name(s.team), s.name, s.doing.name()), parts.join("  ")])
         } else if a.tick == 0 && f.contains(m.0, m.1) {
             Some(vec![format!("CLICK PLACES A {} {}. RIGHT-CLICK REMOVES.", team_name(self.team), self.side(self.team)[self.slot].name), "SPACE RUNS THE FIGHT. WASD SCROLLS.".into()])
         } else {
@@ -1440,14 +1444,14 @@ mod tests {
 
     #[test]
     fn the_game_starts_with_a_deck_that_plays_a_match() {
-        // A fresh team is the starter deck and two empty slots: every design legal, a seeded
+        // A fresh team is the starter deck and an empty slot: every design legal, a seeded
         // factory to plant, a miner on a build order, and nothing on any build order that could
         // never be built.
         let pg = Pg::new(None, None);
         assert_eq!(pg.lib.len(), SLOTS);
-        assert_eq!(pg.lib[..7].iter().map(|d| d.to_line()).collect::<Vec<_>>(), starter_deck().iter().map(|d| d.to_line()).collect::<Vec<_>>());
-        assert!(pg.lib[..7].iter().all(|d| d.check().ok()));
-        assert!(pg.lib[7..].iter().all(|d| d.is_empty()));
+        assert_eq!(pg.lib[..8].iter().map(|d| d.to_line()).collect::<Vec<_>>(), starter_deck().iter().map(|d| d.to_line()).collect::<Vec<_>>());
+        assert!(pg.lib[..8].iter().all(|d| d.check().ok()));
+        assert!(pg.lib[8..].iter().all(|d| d.is_empty()));
         assert!(pg.lib.iter().any(|d| d.seeded && d.stats().factory > 0));
         assert!(pg.lib.iter().filter(|d| d.seeded).any(|d| d.build.iter().any(|&b| pg.lib[b].stats().scoops > 0)));
         for d in &pg.lib {
@@ -1526,41 +1530,6 @@ mod tests {
     }
 
     #[test]
-    fn a_sides_brain_button_steps_through_the_brains() {
-        let mut pg = Pg::starter_fights();
-        pg.help = false;
-        // 6 FIGHTERS VS 1 FRIGATE: slots 0 and 2, with one team on both sides.
-        pg.load_test(0);
-        // Both sides start with a planner, as a match's sides do.
-        assert_eq!((pg.brains, pg.arena.brain), ([Brain::ARCH; 2], [Brain::ARCH; 2]));
-        // Each side's key takes its brain to the next, and a click on its button does the same.
-        pg.key(Key::Letter('B'));
-        pg.key(Key::Letter('V'));
-        assert_eq!((pg.brains, pg.arena.brain), ([BRAINS[1]; 2], [BRAINS[1]; 2]));
-        let r = BTN_BRAIN[0];
-        pg.event(Ev::Press { x: r.x + 3, y: r.y + 3, right: false });
-        assert_eq!(pg.brains, [BRAINS[0], BRAINS[1]]);
-        assert!(pg.setup.len() == 7, "a click on the button places nothing");
-        // Two brains, and round again: the planner and the plain one.
-        assert_eq!(BRAINS, [Brain::ARCH, Brain::PLAIN]);
-        // A new brain starts the fight again, from the first tick.
-        pg.key(Key::Space);
-        pg.tick();
-        assert!(pg.arena.tick > 0);
-        pg.key(Key::Letter('B'));
-        assert_eq!((pg.arena.tick, pg.arena.brain[0]), (0, Brain::PLAIN));
-        // Every label fits its button, and every tip fits the bar.
-        for t in 0..2 {
-            for b in BRAINS {
-                let label = format!("{} {}", team_name(t), b.short());
-                assert!(Framebuffer::text_width(&label, 1) + 4 <= BTN_BRAIN[t].w, "{label}");
-                assert!(wrap(&brain_tip(t, b), 49).len() <= 7, "{}", brain_tip(t, b));
-            }
-        }
-        assert!(BTN_BRAIN[1].x + BTN_BRAIN[1].w <= FIELD.w && BTN_BRAIN[0].x + BTN_BRAIN[0].w <= BTN_BRAIN[1].x);
-    }
-
-    #[test]
     fn every_problem_message_fits_where_it_is_shown() {
         // Worst cases: every cell of the grid loose or buried, and the longest name a design can have.
         let n = (GRID * GRID) as usize;
@@ -1577,7 +1546,7 @@ mod tests {
             for (armed, power) in [(false, 100), (true, 100), (true, 99), (false, 1)] {
                 for &order in &ORDERS {
                     // The yard's status line, one line inside its box.
-                    let (status, _) = yard_status(c, armed, power, order);
+                    let (status, _) = yard_status(c, armed, power, order, false);
                     assert!(Framebuffer::text_width(&status, 1) <= STATUS_RECT.w - 2, "the yard's status line overflows: {status}");
                 }
             }
@@ -1632,11 +1601,13 @@ mod tests {
     #[test]
     fn a_team_saved_when_it_was_seven_opens_as_nine() {
         let path = std::env::temp_dir().join(format!("nmw_seven_{}.txt", std::process::id()));
-        let seven: String = std::iter::once(SAVE_HEADER.to_string()).chain(starter_deck().iter().map(|d| d.to_line())).collect::<Vec<_>>().join("\n");
+        let seven: String = std::iter::once(SAVE_HEADER.to_string()).chain(starter_deck().iter().take(7).map(|d| d.to_line())).collect::<Vec<_>>().join("\n");
         std::fs::write(&path, seven).unwrap();
         let mut pg = Pg::new(Some(path.clone()), None);
         assert_eq!(pg.lib.len(), SLOTS);
-        assert!(pg.lib[..7].iter().all(|d| !d.is_empty()) && pg.lib[7..].iter().all(|d| d.is_empty()));
+        // Its seven, the eighth as a fresh team has it (the collector, since 2026-11-16: a
+        // team saved before tractors gets one), and the ninth empty.
+        assert!(pg.lib[..7].iter().all(|d| !d.is_empty()) && pg.lib[7].to_line() == starter_deck()[7].to_line() && pg.lib[8].is_empty());
         // Filling the ninth and saving writes nine lines, which read back the same.
         pg.lib[8] = starter_deck()[1].clone();
         pg.save();

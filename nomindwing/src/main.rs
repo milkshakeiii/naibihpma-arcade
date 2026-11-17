@@ -45,13 +45,24 @@ static WHEEL: AtomicI32 = AtomicI32::new(0);
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let arg = |name: &str| args.iter().position(|a| a == name).map(|i| args.get(i + 1).cloned());
-    // --grain design: with any tool, each side's planner thinks a whole design at a time.
-    if arg("--grain").flatten().as_deref() == Some("design") {
-        export::COARSE.store(true, Ordering::Relaxed);
+    if let Some(n) = arg("--nose-referee") {
+        // `--nose-referee [N] [parts]`: the rollout pilot against the plain pilot, in the flight
+        // toy's fights, or the parts toy's.
+        export::nose_referee(n.and_then(|s| s.parse().ok()).unwrap_or(16), args.iter().any(|a| a == "parts"));
+        return;
     }
-    // --workers N: the planners' worker threads, for measuring a machine with fewer cores.
-    if let Some(n) = arg("--workers").flatten().and_then(|s| s.parse::<u64>().ok()) {
-        pg::sim::pool::WORKERS.store(n, Ordering::Relaxed);
+    if let Some(dir) = arg("--nose-trails") {
+        // `--nose-trails [DIR]`: where every ship went in each of the flight toy's fights.
+        export::nose_trails(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/nose-trails".into())));
+        return;
+    }
+    if let Some(dir) = arg("--tractor-screenshots") {
+        export::tractor_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/tractor".into())));
+        return;
+    }
+    if let Some(dir) = arg("--nose-screenshots") {
+        export::nose_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/nose".into())));
+        return;
     }
     if let Some(dir) = arg("--export-screenshots") {
         export::pg_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots".into())));
@@ -117,21 +128,6 @@ fn main() {
         );
         return;
     }
-    if let Some(i) = args.iter().position(|a| a == "--ways") {
-        // --ways N: which ways of flying the planner keeps, design by design, in matches between
-        // the ready-made teams (N seeds a pairing) and in the team fights.
-        export::ways(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(1));
-        return;
-    }
-    if args.iter().any(|a| a == "--plan-cost") {
-        export::plan_cost();
-        return;
-    }
-    if let Some(i) = args.iter().position(|a| a == "--frame-cost") {
-        // --frame-cost N: what a frame of a match costs, part by part, over N seeds a deck.
-        export::frame_cost(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(3));
-        return;
-    }
     if let Some(i) = args.iter().position(|a| a == "--pace") {
         export::pace(args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(10));
         return;
@@ -141,12 +137,6 @@ fn main() {
         // `--pg-sim parts`: the beam and shield examples (see `--parts`).
         // `--pg-sim mine`: your own saved team, with the orders and styles your cards carry.
         export::pg_sim(which.as_deref().unwrap_or(""));
-        return;
-    }
-    if let Some(which) = arg("--flight") {
-        // `--flight [starter|parts|old|mine]`: ships that choose how they fly against ships
-        // that fly as drawn, and against each other.
-        export::flight(which.as_deref().unwrap_or(""));
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--trace") {
@@ -164,6 +154,11 @@ fn main() {
         let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1);
         let mut game = Game::new(seed, Some(PathBuf::from("nomindwing_playtest.log")));
         run_window(&mut game, windowed, "NO MIND WING - TOY 1 [400x300 64-COLOR VGA | 15 FPS]");
+    } else if args.iter().any(|a| a == "--nose") {
+        // Nose-first flight to watch: ships drawn for it, flown with engines that push the ways
+        // they're drawn to. Nothing is loaded or saved, so your own designs are untouched.
+        let mut pg = pg::Pg::flight();
+        run_window(&mut pg, windowed, "NO MIND WING - NOSE-FIRST FLIGHT, NOTHING SAVED [400x300 64-COLOR VGA | 15 FPS]");
     } else if args.iter().any(|a| a == "--parts") {
         // The beam and the shield at work: three example ships and the fights that show what
         // the parts do. Nothing is loaded or saved, so your own designs are untouched.

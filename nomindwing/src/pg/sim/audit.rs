@@ -202,7 +202,7 @@ mod tests {
     fn soak(a: &mut Arena, ticks: u32, mut drive: impl FnMut(&mut Arena)) -> u32 {
         let mut run: Vec<u32> = Vec::new();
         let mut warp = Vec::new();
-        let mut was: Vec<Option<(i32, i32)>> = Vec::new();
+        let mut was: Vec<Option<((i32, i32), (i32, i32))>> = Vec::new();
         let mut longest = 0;
         for _ in 0..ticks {
             if a.over.is_some() {
@@ -218,11 +218,21 @@ mod tests {
             was.resize(a.ships.len(), None);
             for i in 0..a.ships.len() {
                 let s = &a.ships[i];
-                let still = s.alive && s.role == Role::Ship && s.warp == 0 && s.maker.is_none() && (s.grow.is_some() || s.st.thrust == 0);
-                if let (true, Some(at)) = (still, was[i]) {
-                    assert_eq!((s.x, s.y), at, "tick {}: {} has no thrust but moved", a.tick, s.name);
+                // What's growing stays where it is. What has no engine left drifts on at the
+                // speed it had, and never gains any (the edge of the map, or something solid,
+                // may stop it).
+                let whole = s.alive && s.role == Role::Ship && s.warp == 0 && s.maker.is_none();
+                let (growing, adrift) = (whole && s.grow.is_some(), whole && s.grow.is_none() && s.st.thrust == 0);
+                if let Some((at, v)) = was[i] {
+                    if growing {
+                        assert_eq!((s.x, s.y), at, "tick {}: {} is growing but moved", a.tick, s.name);
+                    }
+                    if adrift {
+                        let no_faster = |now: i32, then: i32| now == 0 || (now.signum() == then.signum() && now.abs() <= then.abs());
+                        assert!(no_faster(s.vx, v.0) && no_faster(s.vy, v.1), "tick {}: {} has no thrust but its speed went from {v:?} to {:?}", a.tick, s.name, (s.vx, s.vy));
+                    }
                 }
-                was[i] = if still { Some((s.x, s.y)) } else { None };
+                was[i] = if growing || adrift { Some(((s.x, s.y), (s.vx, s.vy))) } else { None };
             }
             for i in 0..a.ships.len() {
                 let s = &a.ships[i];

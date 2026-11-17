@@ -44,6 +44,27 @@ pub const OLD_SAVE_HEADER: &str = "#ROUND2";
 pub const PRINT_TICKS: i32 = 400;
 /// Ship pixels a factory can build per factory pixel: the biggest ship it can make.
 pub const FACTORY_REACH: i32 = 10;
+/// The tractor (2026-11-16; Henry: "pixel tractors. Pixels don't get dropped off instantly for
+/// free any more"). In a match a miner's load isn't banked the moment it gets home: a ship with
+/// tractor pixels pulls it out of the miners in its reach, one pixel every `TRACTOR_TICKS` for
+/// each tractor pixel it has (8 s: eight of them pull a pixel a second), into its own store.
+/// A ship with tractor pixels is a node.
+pub const TRACTOR_TICKS: i32 = 120;
+/// How far past its ship's edge a tractor reaches: `TRACTOR_REACH0`, and `TRACTOR_REACH` more
+/// for each pixel along the side of the square its pixels would make.
+pub const TRACTOR_REACH0: i32 = 30;
+pub const TRACTOR_REACH: i32 = 4;
+/// How far past its ship's edge `px` tractor pixels reach (0: it has none).
+pub fn tractor_reach(px: i32) -> i32 {
+    if px <= 0 {
+        return 0;
+    }
+    let mut r = 0;
+    while (r + 1) * (r + 1) <= px {
+        r += 1;
+    }
+    TRACTOR_REACH0 + TRACTOR_REACH * r
+}
 /// What the second core costs on top of the ship's pixels. Each core after that costs twice the
 /// one before: +8, +16, +32 and so on.
 pub const CORE_EXTRA: i32 = 8;
@@ -249,10 +270,28 @@ pub enum Part {
     Piercer,
     /// A 3x3 turret that turns fast and goes for the small ships in reach.
     Tracker,
+    /// A rotation engine: it turns the ship, harder the further from the ship's middle it sits.
+    /// (Nose-first flight, 2026-11-16: it comes last so the older parts keep their numbers.)
+    Gyro,
+    /// An engine turned to push the ship to its right, astern, or to its left. (`Engine` is
+    /// one that pushes it ahead. The yard has one ENGINE button and [T] turns what it paints,
+    /// so these three aren't in `PARTS`.)
+    EngineRight,
+    EngineAstern,
+    EngineLeft,
+    /// Pulls what miners in reach are carrying into its ship's store, a pixel at a time
+    /// (match only), and makes its ship a node. (2026-11-16: last, so the older parts keep
+    /// their numbers.)
+    Tractor,
 }
 
+/// The engines that aren't `Part::Engine`: the ones turned to push some other way than ahead.
+pub const TURNED_ENGINES: [Part; 3] = [Part::EngineRight, Part::EngineAstern, Part::EngineLeft];
+/// The ways an engine can push, as the ship is drawn, for the yard to say.
+pub const WAYS: [&str; 4] = ["AHEAD", "TO ITS RIGHT", "ASTERN", "TO ITS LEFT"];
+
 /// The parts in the order the yard shows them.
-pub const PARTS: [Part; 17] = [
+pub const PARTS: [Part; 19] = [
     Part::Hull,
     Part::Plate,
     Part::HeavyPlate,
@@ -267,7 +306,9 @@ pub const PARTS: [Part; 17] = [
     Part::Repeater,
     Part::Piercer,
     Part::Engine,
+    Part::Gyro,
     Part::Scoop,
+    Part::Tractor,
     Part::Factory,
     Part::Core,
 ];
@@ -349,7 +390,7 @@ pub fn secs(ticks: i32) -> String {
 }
 
 /// One row per part, in the order of the `Part` enum.
-pub const PART_INFO: [PartInfo; 17] = [
+pub const PART_INFO: [PartInfo; 22] = [
     PartInfo {
         ch: 'h',
         name: "HULL",
@@ -432,7 +473,7 @@ pub const PART_INFO: [PartInfo; 17] = [
         colour: Some(pal::ENGINE),
         rank: 3,
         glyph: ["#.....#", ".#...#.", "..#.#..", "#..#..#", ".#...#.", "..#.#..", "...#..."],
-        about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER AND QUICKER TO TURN. ITS EXHAUST NEEDS A STRAIGHT WAY OUT, 3 WIDE, IN ONE OF THE FOUR DIRECTIONS. A BURIED ENGINE SHOWS RED.".into(),
+about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER. IT PUSHES THE SHIP ONE WAY, AHEAD UNLESS [T] TURNS IT, AND ITS EXHAUST GOES OUT THE OTHER: THAT NEEDS A STRAIGHT WAY OUT OF THE SHIP, 3 WIDE. A BURIED ENGINE SHOWS RED.".into(),
     },
     PartInfo {
         ch: 's',
@@ -446,7 +487,7 @@ pub const PART_INFO: [PartInfo; 17] = [
         colour: Some(pal::SCOOP),
         rank: 2,
         glyph: [".......", ".#...#.", ".#...#.", ".#...#.", "..###..", ".......", "......."],
-        about: || format!("MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES {SCOOP_CARRY}."),
+        about: || format!("MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES {SCOOP_CARRY}. IN A MATCH A TRACTOR TAKES THE LOAD OFF IT."),
     },
     PartInfo {
         ch: 'c',
@@ -595,6 +636,76 @@ pub const PART_INFO: [PartInfo; 17] = [
         glyph: [".......", "#.....#", "#.....#", ".#...#.", "..###..", "...#...", "..###.."],
         about: || format!("A BIG 3X3 TURRET, {TRACKER_RANGE} PX, THAT TURNS FAST AND GOES FOR THE SMALL SHIPS IN RANGE, PUTTING QUICK SHOTS INTO THE MIDDLE OF ONE. THEY PIERCE {TRACKER_PIERCE}, SO PLATE TURNS THEM. ONE SHOT EVERY {} S.", secs(TRACKER_PERIOD)),
     },
+    PartInfo {
+        ch: 'y',
+        name: "GYRO",
+        cat: Cat::Drive,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::GYRO),
+        rank: 3,
+        glyph: ["..###..", ".#...#.", "#..#..#", "#.###.#", "#..#..#", ".#...#.", "..###.."],
+        about: || "A ROTATION ENGINE: IT TURNS THE SHIP. IT TURNS IT HARDER THE FURTHER FROM THE SHIP'S MIDDLE IT SITS, AND A COMPACT SHIP TURNS FASTER THAN A LONG ONE.".into(),
+    },
+    PartInfo {
+        ch: 'd',
+        name: "ENGINE",
+        cat: Cat::Drive,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::ENGINE),
+        rank: 3,
+        glyph: ["...#..#", "..#..#.", ".#..#..", "#..#...", ".#..#..", "..#..#.", "...#..#"],
+        about: || "AN ENGINE TURNED TO PUSH THE SHIP TO ITS RIGHT.".into(),
+    },
+    PartInfo {
+        ch: 'q',
+        name: "ENGINE",
+        cat: Cat::Drive,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::ENGINE),
+        rank: 3,
+        glyph: ["...#...", "..#.#..", ".#...#.", "#..#..#", "..#.#..", ".#...#.", "#.....#"],
+        about: || "AN ENGINE TURNED TO PUSH THE SHIP ASTERN.".into(),
+    },
+    PartInfo {
+        ch: 'w',
+        name: "ENGINE",
+        cat: Cat::Drive,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::ENGINE),
+        rank: 3,
+        glyph: ["#..#...", ".#..#..", "..#..#.", "...#..#", "..#..#.", ".#..#..", "#..#..."],
+        about: || "AN ENGINE TURNED TO PUSH THE SHIP TO ITS LEFT.".into(),
+    },
+    PartInfo {
+        ch: 'u',
+        name: "TRACTOR",
+        cat: Cat::Industry,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 2,
+        block: 1,
+        colour: Some(pal::TRACTOR),
+        rank: 6,
+        glyph: ["#.....#", ".#...#.", "..#.#..", "...#...", "..###..", ".#####.", "......."],
+        about: || format!("IN A MATCH, PULLS WHAT YOUR MINERS CARRY INTO YOUR BANK: 1 PIXEL EVERY {} S EACH, FROM MINERS IN ITS REACH (8 REACH {} PX PAST ITS SHIP'S EDGE, 64 REACH {}). ITS SHIP IS A NODE. ONE THAT FLIES FOLLOWS YOUR MINERS.", secs(TRACTOR_TICKS), tractor_reach(8), tractor_reach(64)),
+    },
 ];
 
 impl Part {
@@ -612,7 +723,43 @@ impl Part {
         self.info().ch
     }
     pub fn from_ch(c: char) -> Option<Part> {
-        PARTS.iter().copied().find(|p| p.ch() == c)
+        PARTS.iter().chain(&TURNED_ENGINES).copied().find(|p| p.ch() == c)
+    }
+    /// The way an engine pushes its ship, as the ship is drawn: 0 ahead, 1 to its right,
+    /// 2 astern, 3 to its left. None: it isn't an engine.
+    pub fn pushes(self) -> Option<usize> {
+        match self {
+            Part::Engine => Some(0),
+            Part::EngineRight => Some(1),
+            Part::EngineAstern => Some(2),
+            Part::EngineLeft => Some(3),
+            _ => None,
+        }
+    }
+    /// The engine that pushes a ship that way.
+    pub fn engine(way: usize) -> Part {
+        [Part::Engine, Part::EngineRight, Part::EngineAstern, Part::EngineLeft][way & 3]
+    }
+    /// The part as the yard counts and lists it: an engine, whichever way it's turned, is an
+    /// ENGINE.
+    pub fn kind(self) -> Part {
+        if self.pushes().is_some() {
+            Part::Engine
+        } else {
+            self
+        }
+    }
+    /// The part a quarter turn clockwise: an engine pushes the next way round.
+    pub fn turned(self) -> Part {
+        self.pushes().map_or(self, |way| Part::engine(way + 1))
+    }
+    /// The part mirrored left to right: an engine that pushed to the right pushes to the left.
+    pub fn mirrored(self) -> Part {
+        match self {
+            Part::EngineRight => Part::EngineLeft,
+            Part::EngineLeft => Part::EngineRight,
+            other => other,
+        }
     }
     pub fn name(self) -> &'static str {
         self.info().name
@@ -682,9 +829,9 @@ impl Order {
 /// How a ship flies, which follows from its drawing alone.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Flight {
-    /// At least 1 thrust per weight: dives through the target and loops back.
+    /// At least 1 thrust per weight. (It flew attack runs, until the three ways went.)
     Runs,
-    /// Heavier: holds at weapon range, lined up so its lances bear.
+    /// Heavier.
     StandOff,
     /// No engines: stays put and can't turn.
     Still,
@@ -693,35 +840,9 @@ pub enum Flight {
 impl Flight {
     pub fn name(self) -> &'static str {
         match self {
-            Flight::Runs => "ATTACK RUNS",
-            Flight::StandOff => "STAND-OFF",
+            Flight::Runs => "QUICK",
+            Flight::StandOff => "HEAVY",
             Flight::Still => "STAYS PUT",
-        }
-    }
-}
-
-/// How a ship flies at what it's fighting. It's set on the design in the yard and fixed for a
-/// match. Until it's set the drawing decides: enough thrust for the weight runs, less kites.
-/// Either way the drawing decides how well it works.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum Style {
-    /// Dives through the target and loops back.
-    Runs,
-    /// Holds at weapon range, and backs away from whatever comes closer.
-    Kite,
-    /// Circles the target at weapon range, flat out.
-    Orbit,
-}
-
-pub const STYLES: [Style; 3] = [Style::Runs, Style::Kite, Style::Orbit];
-
-impl Style {
-    /// What a drawing flies as when nothing was chosen for it. None: it has no engines.
-    pub fn of(f: Flight) -> Option<Style> {
-        match f {
-            Flight::Runs => Some(Style::Runs),
-            Flight::StandOff => Some(Style::Kite),
-            Flight::Still => None,
         }
     }
 }
@@ -752,6 +873,8 @@ pub struct Stats {
     pub projector: i32,
     pub scoops: i32,
     pub factory: i32,
+    /// Tractor pixels.
+    pub tractor: i32,
     /// Power made (hull and cores) and used (engines and guns).
     pub made: i32,
     pub used: i32,
@@ -762,6 +885,15 @@ pub struct Stats {
     /// Ticks per quarter turn (0 = can't turn).
     pub turn: i32,
     pub flight: Flight,
+    /// Nose-first flight (2026-11-16). What its engines push it with each way, as the ship is
+    /// drawn: ahead, to its right, astern, to its left (`engine_exits`), after any power
+    /// shortage.
+    pub push: [i32; 4],
+    /// Working rotation engines.
+    pub gyros: i32,
+    /// Ticks per quarter turn under nose-first flight (0: it can't turn): how spread out its
+    /// weight is, over what its cores and rotation engines turn it with.
+    pub quarter: i32,
 }
 
 impl Stats {
@@ -781,6 +913,20 @@ impl Stats {
     }
     pub fn armed(&self) -> bool {
         self.flak + self.lance + self.cannon + self.tracker + self.beam + self.missile + self.repeater > 0
+    }
+    /// A collector: it flies, it has a tractor, and it has no scoop of its own. In a match it
+    /// follows its side's miners instead of fighting or standing guard.
+    pub fn collector(&self) -> bool {
+        self.thrust > 0 && self.tractor > 0 && self.scoops == 0
+    }
+    /// How far from its middle a ship of this drawing's tractor reaches, given how far its
+    /// edge is from its middle (0: it has no tractor).
+    pub fn tractor_reach(&self, half: i32) -> i32 {
+        if self.tractor > 0 {
+            half + tractor_reach(self.tractor)
+        } else {
+            0
+        }
     }
     /// Whether it has a gun that fires straight ahead only, which the whole ship lines up.
     pub fn aims(&self) -> bool {
@@ -834,8 +980,9 @@ impl Stats {
 /// Stats from a set of cells. `cannons` and `trackers` are how many working turrets of each there
 /// are (a turret is a block, so the cells alone can't say), and `beam_len` the length of the
 /// longest beam gun (a column, which a list of cells can't say either).
-pub fn stats_of(cells: &[Option<Part>], cannons: i32, trackers: i32, beam_len: i32, rep_len: i32) -> Stats {
-    let n = |p: Part| cells.iter().filter(|c| **c == Some(p)).count() as i32;
+pub fn stats_of(w: i32, cells: &[Option<Part>], cannons: i32, trackers: i32, beam_len: i32, rep_len: i32) -> Stats {
+    // (An engine counts as an engine whichever way it's turned.)
+    let n = |p: Part| cells.iter().filter(|c| c.map(Part::kind) == Some(p)).count() as i32;
     let count = cells.iter().flatten().count() as i32;
     let mass: i32 = cells.iter().flatten().map(|p| p.mass()).sum();
     let engines = n(Part::Engine);
@@ -867,7 +1014,54 @@ pub fn stats_of(cells: &[Option<Part>], cannons: i32, trackers: i32, beam_len: i
         Flight::StandOff
     };
     let cost = count + core_cost(cores);
-    Stats { count, cores, cost, mass, engines, flak, lance, cannon: cannons, tracker: trackers, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, made, used, thrust, vmax, turn, flight }
+    // Nose-first flight: where the pixels are says which way each engine pushes and how hard
+    // the ship is to turn.
+    let w = w.max(1);
+    let h = cells.len() as i32 / w;
+    let filled = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && cells[(y * w + x) as usize].is_some();
+    let at = |c: usize| (c as i32 % w, c as i32 / w);
+    let drawn: Vec<usize> = (0..cells.len()).filter(|&c| cells[c].is_some()).collect();
+    let mut push = [0i32; 4];
+    for &c in &drawn {
+        // An engine pushes the one way it's turned to, if its exhaust can get out the other.
+        if let Some(way) = cells[c].and_then(Part::pushes) {
+            if exhaust_clear(at(c), way, (0, 0, w - 1, h - 1), &filled) {
+                push[way] += ENGINE_PUSH;
+            }
+        }
+    }
+    if used > made {
+        // Short of power, engines push in proportion to what they get.
+        push = push.map(|p| p * made / used);
+    }
+    // How hard it is to turn: each pixel's weight, times one plus the square of how far it is
+    // from the middle of the ship. Distances are doubled so that a ship an even number of
+    // pixels across has a middle too.
+    let (x0, x1) = (drawn.iter().map(|&c| at(c).0).min().unwrap_or(0), drawn.iter().map(|&c| at(c).0).max().unwrap_or(0));
+    let (y0, y1) = (drawn.iter().map(|&c| at(c).1).min().unwrap_or(0), drawn.iter().map(|&c| at(c).1).max().unwrap_or(0));
+    let far2 = |c: usize| {
+        let (x, y) = at(c);
+        let (dx, dy) = (2 * x - (x0 + x1), 2 * y - (y0 + y1));
+        dx * dx + dy * dy
+    };
+    let spread: i64 = drawn.iter().map(|&c| cells[c].unwrap().mass() as i64 * (4 + far2(c)) as i64).sum::<i64>() / 4;
+    let gyros = n(Part::Gyro);
+    let turning: i64 = (CORE_TURN * cores) as i64 + drawn.iter().filter(|&&c| cells[c] == Some(Part::Gyro)).map(|&c| GYRO_TURN as i64 * (2 + isqrt_i64(far2(c) as i64)) / 2).sum::<i64>();
+    let turning = if used > made { turning * made as i64 / used as i64 } else { turning };
+    let quarter = if push == [0; 4] || turning == 0 { 0 } else { ((spread + turning - 1) / turning).clamp(1, SLOWEST_TURN as i64) as i32 };
+    Stats { push, gyros, quarter, count, cores, cost, mass, engines, flak, lance, cannon: cannons, tracker: trackers, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, tractor: n(Part::Tractor), made, used, thrust, vmax, turn, flight }
+}
+
+/// The whole part of a square root.
+fn isqrt_i64(n: i64) -> i64 {
+    let mut r = (n as f64).sqrt() as i64;
+    while r * r > n {
+        r -= 1;
+    }
+    while (r + 1) * (r + 1) <= n {
+        r += 1;
+    }
+    r
 }
 
 /// Which of a w x h grid's cells connect to `start` edge to edge, through cells where `on` holds.
@@ -1003,18 +1197,40 @@ impl Check {
 /// the way out past the edge of the ship's bounding box. So there's always a straight line of
 /// fire to every engine; plate can't fold round it. `filled` says whether a cell holds a pixel
 /// (anything outside the drawing is empty).
-pub fn buried_engines(engines: &[(i32, i32)], bbox: (i32, i32, i32, i32), filled: impl Fn(i32, i32) -> bool) -> Vec<(i32, i32)> {
-    let (x0, y0, x1, y1) = bbox;
-    let clear = |(ex, ey): (i32, i32), (dx, dy): (i32, i32)| {
-        // Sideways from the line of the exhaust.
-        let (sx, sy) = (dy.abs(), dx.abs());
-        (1..)
-            .map(|k| (ex + dx * k, ey + dy * k))
-            .take_while(|&(x, y)| (x0..=x1).contains(&x) && (y0..=y1).contains(&y))
-            .all(|(x, y)| (-1..=1).all(|s| !filled(x + sx * s, y + sy * s)))
-    };
-    engines.iter().copied().filter(|&e| ![(0, 1), (0, -1), (1, 0), (-1, 0)].iter().any(|&d| clear(e, d))).collect()
+pub fn buried_engines(engines: &[((i32, i32), usize)], bbox: (i32, i32, i32, i32), filled: impl Fn(i32, i32) -> bool) -> Vec<(i32, i32)> {
+    engines.iter().copied().filter(|&(e, way)| !exhaust_clear(e, way, bbox, &filled)).map(|(e, _)| e).collect()
 }
+
+/// Whether the exhaust of an engine that pushes its ship `way` (as the ship is drawn: 0 ahead,
+/// 1 to its right, 2 astern, 3 to its left) has its straight way out. The exhaust goes the
+/// other way from the push: astern, down the drawing, for a push ahead. A way out is as
+/// `buried_engines` says: the engine's own column (or row) and the ones either side of it,
+/// empty all the way out of the ship. (Until 2026-11-16 an engine was legal with a way out in
+/// any of the four directions, and for a day it pushed away from every one it had, sharing
+/// its push between them. Now it pushes one way, the way it's turned.)
+pub fn exhaust_clear(engine: (i32, i32), way: usize, bbox: (i32, i32, i32, i32), filled: &impl Fn(i32, i32) -> bool) -> bool {
+    let (x0, y0, x1, y1) = bbox;
+    let (dx, dy): (i32, i32) = [(0, 1), (-1, 0), (0, -1), (1, 0)][way & 3];
+    // Sideways from the line of the exhaust.
+    let (sx, sy) = (dy.abs(), dx.abs());
+    (1..)
+        .map(|k| (engine.0 + dx * k, engine.1 + dy * k))
+        .take_while(|&(x, y)| (x0..=x1).contains(&x) && (y0..=y1).contains(&y))
+        .all(|(x, y)| (-1..=1).all(|s| !filled(x + sx * s, y + sy * s)))
+}
+
+/// What one engine pushes with, the one way it's turned to.
+pub const ENGINE_PUSH: i32 = 12;
+/// A ship's speed changes by its push over this many times its weight, in quarter-pixels a
+/// tick, each tick. Two engines astern on a 9-weight fighter: 24 / (4 x 9), two thirds of a
+/// quarter-pixel a tick each tick, a second from standing to its top speed.
+pub const PUSH_PER_WEIGHT: i32 = 4;
+/// What a core turns its ship with, and what a rotation engine does for each pixel it sits
+/// from the ship's middle (plus one).
+pub const CORE_TURN: i32 = 2;
+pub const GYRO_TURN: i32 = 3;
+/// The slowest quarter turn, in ticks: 3 seconds.
+pub const SLOWEST_TURN: i32 = 45;
 
 #[derive(Clone, Debug, Hash)]
 pub struct Design {
@@ -1323,7 +1539,7 @@ impl Design {
         c.loose.extend(self.dominoes().1);
         if let Some(bbox) = self.used_box() {
             let (x0, y0, x1, y1) = bbox;
-            let engines: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| self.get(x, y) == Some(Part::Engine)).collect();
+            let engines: Vec<((i32, i32), usize)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter_map(|(x, y)| self.get(x, y).and_then(Part::pushes).map(|way| ((x, y), way))).collect();
             c.buried = buried_engines(&engines, bbox, |x, y| self.get(x, y).is_some());
             (c.hemmed, c.thin) = hemmed_projectors(bbox, |x, y| self.get(x, y));
         }
@@ -1332,7 +1548,7 @@ impl Design {
 
     pub fn stats(&self) -> Stats {
         let longest = |p: Part| beam_guns(GRID, GRID, |i| self.cells[i] == Some(p)).iter().map(|g| g.1).max().unwrap_or(0);
-        stats_of(&self.cells, self.blocks(Part::Cannon).0.len() as i32, self.blocks(Part::Tracker).0.len() as i32, longest(Part::Beam), longest(Part::Repeater))
+        stats_of(GRID, &self.cells, self.blocks(Part::Cannon).0.len() as i32, self.blocks(Part::Tracker).0.len() as i32, longest(Part::Beam), longest(Part::Repeater))
     }
 
     /// What its ships do, in a word or two, for a list. It follows from the drawing.
@@ -1341,21 +1557,9 @@ impl Design {
         match st.order() {
             Order::Harvest => "MINES",
             Order::Hold => "STAYS PUT",
+            _ if st.collector() => "COLLECTS",
             _ if st.armed() => "FIGHTS",
             _ => "FLIES, NO GUNS",
-        }
-    }
-
-    /// How it flies at what it's fighting until its side has thought about it: what its
-    /// drawing suggests. None: it has no engines, and stays put. (A design carried a way of
-    /// flying chosen in the yard, and a group size, until 2026-11-14. Now ships choose.)
-    #[cfg(test)]
-    pub fn flies(&self) -> Option<Style> {
-        let st = self.stats();
-        if st.thrust == 0 {
-            None
-        } else {
-            Style::of(st.flight)
         }
     }
 
@@ -1681,12 +1885,13 @@ impl Stamp {
     /// A quarter turn clockwise.
     pub fn turned(&self) -> Stamp {
         let (w, h) = (self.h, self.w);
-        let cells = (0..w * h).map(|i| self.get(i / w, self.h - 1 - i % w)).collect();
+        // (An engine turns with the drawing: one that pushed ahead now pushes to the right.)
+        let cells = (0..w * h).map(|i| self.get(i / w, self.h - 1 - i % w).map(Part::turned)).collect();
         Stamp { w, h, cells }
     }
     /// Mirrored left to right.
     pub fn flipped(&self) -> Stamp {
-        let cells = (0..self.w * self.h).map(|i| self.get(self.w - 1 - i % self.w, i / self.w)).collect();
+        let cells = (0..self.w * self.h).map(|i| self.get(self.w - 1 - i % self.w, i / self.w).map(Part::mirrored)).collect();
         Stamp { w: self.w, h: self.h, cells }
     }
     pub fn is_empty(&self) -> bool {
@@ -1824,7 +2029,8 @@ fn titan() -> Design {
 }
 
 /// The king (match only): a fixed design for now. It flies like Toy 1's (straight from the keys,
-/// no inertia), prints anything in the deck, and is the root node of its network.
+/// no inertia), prints anything in the deck, and is the root node of its network. The eight
+/// tractor pixels round its middle core (2026-11-16) are where a side's first miners unload.
 pub fn king() -> Design {
     Design::from_rows(
         "KING",
@@ -1836,9 +2042,9 @@ pub fn king() -> Design {
             ".phhhhhhhhhhhhhp.",
             ".phhhchhhhhchhhp.",
             "gphhhhhhhhhhhhhpg",
-            "phhhhhhhhhhhhhhhp",
-            "phhhhhhhchhhhhhhp",
-            "phhhhhhhhhhhhhhhp",
+            "phhhhhhuuuhhhhhhp",
+            "phhhhhhuchuhhhhhp",
+            "phhhhhhuuuhhhhhhp",
             "gphhhhhhhhhhhhhpg",
             ".phhhhhhhhhhhhhp.",
             ".phhhhhhhhhhhhhp.",
@@ -1941,8 +2147,8 @@ pub fn part_examples() -> Vec<Design> {
                 ".ahhhhllhhhha.",
                 ".attthiihttta.",
                 ".attthllhttta.",
-                "eattthhhhtttae",
-                "eaghhhhhhhhgae",
+                "dattthhhhtttaw",
+                "daghhhhhhhhgaw",
                 ".ahhhhhhhhhha.",
                 ".ahhchhhhchha.",
                 ".aghhhhhhhhga.",
@@ -1998,9 +2204,11 @@ pub fn starter_deck() -> Vec<Design> {
         // an engine, costs 9 px and flies at 30 px/s. Nobody has played drawings against each
         // other for it under these costs.
         drawn("MINER", (48, 47), &[".g.", "sss", "hch", "e.e"], None),
-        // Twenty-eight factory pixels inside the plate, so it builds anything up to 280 px.
-        // (Forty-two until a factory pixel went from 1 power to 2: the same size and price,
-        // with a third of its factory turned to the hull the rest needs.)
+        // Twenty-four factory pixels inside the plate, so it builds anything up to 240 px, and
+        // four tractor pixels, one in each arm, that take in a pixel every 2 s from miners
+        // within 34 px of its middle. (Twenty-eight factory pixels until 2026-11-16, when
+        // miners began to unload at tractors: four of them are the tractor now, at the same
+        // power, size and price. Forty-two until a factory pixel went from 1 power to 2.)
         drawn(
             "OUTPOST",
             (43, 43),
@@ -2009,11 +2217,11 @@ pub fn starter_deck() -> Vec<Design> {
                 "...pphhhpp...",
                 "..phhhghhhp..",
                 ".phhhhhhhhhp.",
-                ".phhfffffhhp.",
+                ".phhffuffhhp.",
                 "phfffhhhfffhp",
-                "pgfffhchfffgp",
+                "pgfufhchfufgp",
                 "phfffhhhfffhp",
-                ".phhfffffhhp.",
+                ".phhffuffhhp.",
                 ".phhhhhhhhhp.",
                 "..phhhghhhp..",
                 "...pphhhpp...",
@@ -2021,8 +2229,9 @@ pub fn starter_deck() -> Vec<Design> {
             ],
             Some(&[3, 3, 0, 0, 1, 2]),
         ),
-        // A plated block, 118 factory pixels in a ring and a heart, flak and lances on all four
-        // sides. (184 in two rings until 2026-11-11: the outer ring is one pixel thick now, and
+        // A plated block, 110 factory pixels in a ring and a heart, eight tractor pixels round
+        // its core (118 factory pixels and no tractor until 2026-11-16), flak and lances on all
+        // four sides. (184 in two rings until 2026-11-11: the outer ring is one pixel thick now, and
         // the rest of it is the hull that what's left needs.)
         drawn(
             "SHIPYARD",
@@ -2040,9 +2249,9 @@ pub fn starter_deck() -> Vec<Design> {
                 "pphhhhfhhhhhhhhhhhhhfhhhhpp",
                 "pphhhhfhhfffffffffhhfhhhhpp",
                 "pphhhhfhhfffffffffhhfhhhhpp",
-                "pplhhhfhhfffffffffhhfhhhlpp",
-                "pplghhfhhffffcffffhhfhhglpp",
-                "pplhhhfhhfffffffffhhfhhhlpp",
+                "pplhhhfhhfffuuufffhhfhhhlpp",
+                "pplghhfhhfffucufffhhfhhglpp",
+                "pplhhhfhhfffuuufffhhfhhhlpp",
                 "pphhhhfhhfffffffffhhfhhhhpp",
                 "pphhhhfhhfffffffffhhfhhhhpp",
                 "pphhhhfhhhhhhhhhhhhhfhhhhpp",
@@ -2103,6 +2312,10 @@ pub fn starter_deck() -> Vec<Design> {
             ],
             None,
         ),
+        // Eight tractor pixels round the core, fifteen hull to power them and its three
+        // engines: it takes in a pixel a second from miners within 31 px of its middle, and
+        // every pixel of power it makes is spent. (2026-11-16, with the tractor.)
+        drawn("COLLECTOR", (46, 47), &["..uuu..", "hhucuhh", "hhuuuhh", "hhhhhhh", "e..e..e"], None),
     ]
 }
 
@@ -2118,7 +2331,76 @@ pub fn retired_starters() -> Vec<(usize, Design)> {
     // the same day at Henry's request.
     v.push((3, drawn("MINER", (48, 45), &[".g.", "ggg", "sss", "sgs", "hch", ".e."], None)));
     v.extend(cheap_parts_deck());
+    v.extend(no_tractor_deck());
     v
+}
+
+/// The starter deck's two factories as they were until 2026-11-16, when miners began to
+/// unload at tractors and each had some of its factory pixels turned into one. Kept for saves
+/// that still hold them: without a tractor a factory takes nothing in.
+fn no_tractor_deck() -> Vec<(usize, Design)> {
+    vec![
+        (
+            4,
+            drawn(
+                "OUTPOST",
+                (43, 43),
+                &[
+                    ".....ppp.....",
+                    "...pphhhpp...",
+                    "..phhhghhhp..",
+                    ".phhhhhhhhhp.",
+                    ".phhfffffhhp.",
+                    "phfffhhhfffhp",
+                    "pgfffhchfffgp",
+                    "phfffhhhfffhp",
+                    ".phhfffffhhp.",
+                    ".phhhhhhhhhp.",
+                    "..phhhghhhp..",
+                    "...pphhhpp...",
+                    ".....ppp.....",
+                ],
+                Some(&[3, 3, 0, 0, 1, 2]),
+            ),
+        ),
+        (
+            5,
+            drawn(
+                "SHIPYARD",
+                (36, 36),
+                &[
+                    "...ppppppppppppppppppppp...",
+                    "...ppppppppppppppppppppp...",
+                    "...ppppphhhhlllhhhhppppp...",
+                    "ppppppphhhggggggghhhppppppp",
+                    "pppppphhhhhhhghhhhhhhpppppp",
+                    "ppppphhhhhhhhhhhhhhhhhppppp",
+                    "pppphhfffffffffffffffhhpppp",
+                    "ppphhhfghhhhhhhhhhhgfhhhppp",
+                    "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                    "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                    "pphhhhfhhfffffffffhhfhhhhpp",
+                    "pphhhhfhhfffffffffhhfhhhhpp",
+                    "pplhhhfhhfffffffffhhfhhhlpp",
+                    "pplghhfhhffffcffffhhfhhglpp",
+                    "pplhhhfhhfffffffffhhfhhhlpp",
+                    "pphhhhfhhfffffffffhhfhhhhpp",
+                    "pphhhhfhhfffffffffhhfhhhhpp",
+                    "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                    "pphhhhfhhhhhhhhhhhhhfhhhhpp",
+                    "ppphhhfghhhhhhhhhhhgfhhhppp",
+                    "pppphhfffffffffffffffhhpppp",
+                    "ppppphhhhhhhhhhhhhhhhhppppp",
+                    "pppppphhhhhhhhhhhhhhhpppppp",
+                    "ppppppphhggggggggghhppppppp",
+                    "...ppppphhhhlllhhhhppppp...",
+                    "...ppppppppppppppppppppp...",
+                    "...ppppppppppppppppppppp...",
+                ],
+                Some(&[3, 2, 2, 6]),
+            ),
+        ),
+    ]
 }
 
 /// The five starter cards that the costs of 2026-11-11 left short of power (a lance at 3, a
@@ -2329,14 +2611,6 @@ mod tests {
     }
 
     #[test]
-    fn a_design_flies_as_its_drawing_suggests_until_its_side_decides() {
-        let d = defaults();
-        assert_eq!((d[0].flies(), d[4].flies()), (Some(Style::Runs), Some(Style::Kite)));
-        // No engines: it stays put.
-        assert_eq!(Design::from_rows("POST", &["ggg", "hch"]).flies(), None);
-    }
-
-    #[test]
     fn the_defaults_fly_the_way_their_drawings_suggest() {
         let d = defaults();
         assert_eq!(d[0].stats().flight, Flight::Runs, "fighter");
@@ -2401,10 +2675,15 @@ mod tests {
         let src = Design::from_rows("T", &["g.g", "hch", "e.e"]);
         let st = src.as_stamp();
         assert_eq!((st.w, st.h), (3, 3));
-        // Four quarter turns come back to the start; one turn puts the engines on the left.
+        // Four quarter turns come back to the start. One turn puts the engines on the left, and
+        // turns them with the drawing: they pushed ahead, and now push to the right.
         assert_eq!(st.turned().turned().turned().turned(), st);
-        assert_eq!(st.turned().get(0, 0), Some(Part::Engine));
+        assert_eq!(st.turned().get(0, 0), Some(Part::EngineRight));
         assert_eq!(st.flipped().flipped(), st);
+        // Mirrored, an engine that pushes across pushes the other way; one that pushes ahead
+        // or astern is as it was.
+        let across = Design::from_rows("T", &["dcq", "e.."]).as_stamp().flipped();
+        assert_eq!((across.get(2, 0), across.get(0, 0), across.get(2, 1)), (Some(Part::EngineLeft), Some(Part::EngineAstern), Some(Part::Engine)));
         let mut d = Design::blank("T");
         assert!(d.paste(&st, (5, 5)));
         assert_eq!(d.get(6, 6), Some(Part::Core));
@@ -2455,9 +2734,18 @@ mod tests {
     #[test]
     fn engines_need_a_straight_three_wide_way_out() {
         let buried = |rows: &[&str]| Design::from_rows("T", rows).check().buried.len();
-        // Straight out the back, or out the side.
+        // Straight out the back, for an engine that pushes ahead (the letter e). One on a flank
+        // with hull astern of it can't: it has to be turned to push across (d to the right, w
+        // to the left), and then its exhaust goes out the side.
         assert_eq!(buried(&["hch", "e.e"]), 0);
-        assert_eq!(buried(&["hhh", "ech", "hhh"]), 0);
+        assert_eq!(buried(&["hhh", "ech", "hhh"]), 1);
+        assert_eq!(buried(&["hhh", "dch", "hhh"]), 0);
+        assert_eq!(buried(&["hhh", "hcw", "hhh"]), 0);
+        // Turned the wrong way for where it sits, it's buried: its exhaust would go into the hull.
+        assert_eq!(buried(&["hhh", "wch", "hhh"]), 1);
+        // One turned to push astern sits on the prow, its exhaust going out ahead.
+        assert_eq!(buried(&[".q.", "hch"]), 0);
+        assert_eq!(buried(&["hch", ".q."]), 1);
         // A pixel diagonally behind is in the way: the line either side of the engine must be clear.
         assert_eq!(buried(&["hchh", "hhe.", "hh.."]), 1);
         // An engine stacked behind another is buried; the one at the back isn't.
@@ -2617,7 +2905,7 @@ mod tests {
         assert!(king().check().ok(), "{:?}", king().check());
         assert!(seed().check().ok());
         let deck = starter_deck();
-        assert_eq!(deck.len(), 7);
+        assert_eq!(deck.len(), 8);
         for d in &deck {
             assert!(d.check().ok(), "{}: {:?}", d.name, d.check());
             assert!(d.stats().power_pct() == 100, "{} is short of power", d.name);
@@ -2630,7 +2918,13 @@ mod tests {
                 assert!(!deck[b].seeded && deck[b].stats().count <= d.stats().max_build(), "{} can't build {}", d.name, deck[b].name);
             }
         }
-        assert_eq!(deck[5].stats().factory, 118);
+        // The two factories' pixels, and everyone's tractor pixels: the king's eight, four in
+        // the outpost, eight in the shipyard and eight on the collector.
+        assert_eq!((deck[4].stats().factory, deck[5].stats().factory), (24, 110));
+        assert_eq!([king().stats().tractor, deck[4].stats().tractor, deck[5].stats().tractor, deck[7].stats().tractor], [8, 4, 8, 8]);
+        assert!(deck[7].stats().collector() && !deck[3].stats().collector() && !deck[4].stats().collector());
+        // Their cost is what it was: a tractor pixel took a factory pixel's place.
+        assert_eq!((deck[4].stats().cost, deck[5].stats().cost, deck[7].stats().cost), (121, 693, 27));
     }
 
     #[test]
@@ -2670,16 +2964,26 @@ mod tests {
     #[test]
     fn the_part_table_lines_up_with_the_parts() {
         // Every part finds its own row: the table is in the order of the enum.
-        assert_eq!(PARTS.len(), PART_INFO.len());
+        assert_eq!(PARTS.len() + TURNED_ENGINES.len(), PART_INFO.len());
         for p in PARTS {
             let info = p.info();
             assert_eq!(format!("{p:?}").to_uppercase(), info.name.replace(' ', ""), "{:?} got {}'s row", p, info.name);
             assert_eq!(Part::from_ch(info.ch), Some(p));
             assert!(info.glyph.iter().all(|r| r.chars().count() == 7), "{}'s shape isn't 7x7", info.name);
         }
-        // No two parts share a letter or a name.
+        // An engine turned to push another way has a row and a letter of its own, and is an
+        // ENGINE to the yard.
+        for p in TURNED_ENGINES {
+            assert_eq!((Part::from_ch(p.info().ch), p.kind(), p.info().name), (Some(p), Part::Engine, "ENGINE"));
+            assert!(p.info().glyph.iter().all(|r| r.chars().count() == 7));
+        }
+        assert_eq!([Part::Engine, Part::EngineRight, Part::EngineAstern, Part::EngineLeft].map(|p| p.pushes()), [Some(0), Some(1), Some(2), Some(3)]);
+        // No two parts share a letter, and no two of the yard's a name.
         for a in &PART_INFO {
-            assert_eq!(PART_INFO.iter().filter(|b| b.ch == a.ch || b.name == a.name).count(), 1, "{}", a.name);
+            assert_eq!(PART_INFO.iter().filter(|b| b.ch == a.ch).count(), 1, "{}", a.name);
+        }
+        for a in PARTS {
+            assert_eq!(PARTS.iter().filter(|b| b.name() == a.name()).count(), 1, "{}", a.name());
         }
         assert_eq!(Part::Cannon.blurb().matches("WEIGHS 18.").count(), 1);
         assert_eq!(Part::power_list(true), "HULL 1, CORE 4");
@@ -2736,7 +3040,7 @@ mod tests {
         // A team is nine slots, and a list of any length makes one.
         assert_eq!(team_of(Vec::new()).len(), SLOTS);
         assert_eq!(team_of(starter_deck()).len(), SLOTS);
-        assert!(team_of(starter_deck())[7].is_empty());
+        assert!(!team_of(starter_deck())[7].is_empty() && team_of(starter_deck())[8].is_empty());
         let many: Vec<Design> = (0..12).flat_map(|_| starter_deck()).collect();
         assert_eq!(team_of(many).len(), SLOTS);
     }

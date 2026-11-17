@@ -37,8 +37,12 @@ use std::time::Duration;
 /// 12: nor an order, and a card's own order is an AI's to give. 13: an AI's plan is part of the
 /// match. 14: heavy plate, the piercer and the tracker, in designs and in the state. 15: each
 /// ship has a way of flying of its own, and a think is used on the tick it's due. 16: each ship
-/// rolls its own dice, so every fight falls out another way.)
-pub const PROTO: u32 = 16;
+/// rolls its own dice, so every fight falls out another way. 17: the planner and its ways of
+/// flying are gone, a rotation engine is a part, and a ship carries what nose-first flight
+/// needs. 18: every ship in a match flies nose-first, a lance leads its target, and a gun
+/// aims at what it can break. 19: the tractor is a part, miners unload at tractors a pixel
+/// at a time, and a collector follows them.)
+pub const PROTO: u32 = 19;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.
@@ -1002,7 +1006,7 @@ pub mod tests {
         }
         let [h, j] = met.map(|m| m.unwrap());
         assert!(h.host && !j.host && (h.seed, j.seed) == (77, 77), "the host's seed is the match's");
-        assert_eq!(j.deck.len(), 7);
+        assert_eq!(j.deck.len(), 8);
         let mut arena = [0, 1].map(|_| Arena::for_match(77, [starter_deck(), starter_deck()], [false, false]));
         let mut link = [Link::net(0, Box::new(h.wire), h.backlog), Link::net(1, Box::new(j.wire), j.backlog)];
         link[1].give(&arena[1], Cmd::Print { team: 1, slot: 0, target: None });

@@ -30,7 +30,8 @@ pub(super) const MATCH_KEYS: &[Row] = &[
     ("R", "THE LAST JOB ASKED FOR REPEATS, OR STOPS"),
     ("BACKSPACE", "DROP WHAT YOUR KING IS PRINTING"),
     ("Q", "SELECT YOUR WARSHIPS IN VIEW"),
-    ("CTRL+Q", "SELECT EVERY WARSHIP YOU HAVE"),
+    ("E", "YOUR MINERS AND COLLECTORS IN VIEW"),
+    ("CTRL+Q CTRL+E", "EVERY ONE YOU HAVE, WHEREVER IT IS"),
     ("1-9", "THAT GROUP. TWICE: THE VIEW GOES TO IT"),
     ("CTRL+1-9", "MAKE THAT GROUP OF WHAT'S SELECTED"),
     ("SHIFT+1-9", "ADD WHAT'S SELECTED TO THAT GROUP"),
@@ -56,7 +57,7 @@ pub(super) const YARD_KEYS: &[Row] = &[
     ("1-6", "A CATEGORY OF PARTS"),
     ("TAB", "THE NEXT PART IN THE CATEGORY"),
     ("P R F C", "PENCIL, RECTANGLE, FILL, COPY"),
-    ("T", "TURN WHAT YOU'VE COPIED, OR HEAVY PLATE"),
+    ("T", "TURN A COPY, HEAVY PLATE OR ENGINES"),
     ("U", "UNDO"),
     ("M", "MIRROR, ON AND OFF"),
     ("L", "THE LIBRARY"),
@@ -77,7 +78,6 @@ pub(super) const ARENA_KEYS: &[Row] = &[
     ("R", "THE FIGHT STARTS AGAIN"),
     ("F", "SPEED: 1X, 2X, 4X"),
     ("N", "THE NEXT READY-MADE FIGHT"),
-    ("B V", "BLUE'S BRAIN, RED'S BRAIN"),
     ("TAB ENTER", "BACK TO THE YARD"),
     ("ESC", "QUIT"),
     ("F1 F2 F3", "THE RULES. SCANLINES. THIS PAGE"),
@@ -221,7 +221,7 @@ mod tests {
                 .join("\n")
         };
         let (arena, shared) = (taken(&arms("(Screen::Arena,")), taken(&arms("(_,")));
-        assert!(arena.len() >= 8 && shared == ["ESC", "F1", "F3", "ENTER"], "the arena takes {arena:?} and every screen {shared:?}");
+        assert!(arena.len() >= 7 && shared == ["ESC", "F1", "F3", "ENTER"], "the arena takes {arena:?} and every screen {shared:?}");
         let mut checks: Vec<(&str, &[Row], Vec<String>)> = vec![
             ("the match", MATCH_KEYS, taken(body(&play, "key_match"))),
             ("the yard", YARD_KEYS, taken(body(&yard, "key_yard"))),

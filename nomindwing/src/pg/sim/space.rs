@@ -78,6 +78,7 @@ impl Arena {
 
     /// `clash` under the moving rule: pixels that would be inside enemies solid to ship `i`
     /// (bigger ones, and anything planted).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn overlap(&self, i: usize, x: i32, y: i32, facing: u8) -> (i32, Option<usize>) {
         self.clash(i, x, y, facing, Solid::Moving)
     }

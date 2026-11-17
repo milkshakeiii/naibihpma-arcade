@@ -32,13 +32,14 @@ fn example(name: &str) -> Design {
 /// The fastest ship a drawing can make, with a three-pixel repeater: 84 px of reach and two shots
 /// a second, and nothing but hull round its core.
 pub fn wasp() -> Design {
-    drawn("WASP", (48, 46), &[".r.", ".r.", "hrh", "hch", "ehe", ".e."], None)
+    drawn("WASP", (48, 46), &[".r.", ".r.", "hrh", "hch", "dhw", ".e."], None)
 }
 
-/// The cheapest factory worth planting: twelve factory pixels round the core and a flak gun on each
-/// side, with no plate. It builds anything up to 120 px, a fighter in 20 s.
+/// The cheapest factory worth planting: ten factory pixels round the core, two tractor pixels
+/// and a flak gun on each side, with no plate. It builds anything up to 100 px. (Twelve factory
+/// pixels and no tractor until 2026-11-16.)
 pub fn nest(build: &[usize]) -> Design {
-    drawn("NEST", (46, 46), &[".hhghh.", ".hhfhh.", "hhfffhh", "gffcffg", "hhfffhh", ".hhfhh.", ".hhghh."], Some(build))
+    drawn("NEST", (46, 46), &[".hhghh.", ".hhuhh.", "hhfffhh", "gffcffg", "hhfffhh", ".hhuhh.", ".hhghh."], Some(build))
 }
 
 /// Three lances in a column behind a nose of heavy plate (a domino two tall, 2026-11-15; it was
@@ -119,7 +120,8 @@ pub fn battleship() -> Design {
 }
 
 /// A mid-sized factory between the outpost and the shipyard: two rings of factory pixels and a
-/// cross, 72 in all, inside a thin plate. It builds anything up to 720 px.
+/// cross, 66 in all, with six tractor pixels in the cross, inside a thin plate. It builds anything
+/// up to 660 px. (72 factory pixels and no tractor until 2026-11-16.)
 pub fn dock(build: &[usize]) -> Design {
     drawn(
         "DOCK",
@@ -131,13 +133,13 @@ pub fn dock(build: &[usize]) -> Design {
             "...phhhhhhhhhhhp...",
             "..phfffffffffffhp..",
             ".phhfhhhhfhhhhfhhp.",
-            ".phhfhfffffffhfhhp.",
+            ".phhfhfffufffhfhhp.",
             "phhhfhfhhhhhfhfhhhp",
-            "phhhfhfhhfhhfhfhhhp",
-            "pghhffffhchffffhhgp",
-            "phhhfhfhhfhhfhfhhhp",
+            "phhhfhfhhuhhfhfhhhp",
+            "pghhfffuhchufffhhgp",
+            "phhhfhfhhuhhfhfhhhp",
             "phhhfhfhhhhhfhfhhhp",
-            ".phhfhfffffffhfhhp.",
+            ".phhfhfffufffhfhhp.",
             ".phhfhhhhfhhhhfhhp.",
             "..phfffffffffffhp..",
             "...phhhhhhhhhhhp...",
@@ -193,6 +195,9 @@ pub fn ready_teams() -> Vec<Ready> {
     let s = starter_deck();
     let card = |i: usize| s[i].clone();
     let (fighter, lancer, frigate, miner, outpost, shipyard, capital) = (card(0), card(1), card(2), card(3), card(4), card(5), card(6));
+    // Every team has the starter deck's collector on the end of its cards (2026-11-16): its
+    // king prints one when its miners bite faster than its tractors pull.
+    let collector = card(7);
     vec![
         Ready { name: "STARTER DECK", about: "TWO OUTPOSTS, THEN SHIPYARDS. IT PRINTS WHAT BEATS YOUR FLEET AND ATTACKS WHEN IT HAS THE EDGE.", designs: s.clone(), strategy: None },
         // A rush. Slots: 0 fighter, 1 lancer, 2 miner, 3 nest, 4 outpost, 5 AP lancer (2026-11-15:
@@ -200,14 +205,14 @@ pub fn ready_teams() -> Vec<Ready> {
         Ready {
             name: "SWARM",
             about: "A RUSH: NESTS AND A KING PRINTING FIGHTERS AND LANCERS, AN ATTACK AT 2:30. THEN A BOOM, WITH AP LANCERS.",
-            designs: vec![fighter.clone(), lancer, miner.clone(), nest(&[2, 0, 1, 0, 1]), builds(outpost.clone(), &[2, 2, 0, 1, 5, 0, 1, 5]), example("AP LANCER")],
+            designs: vec![fighter.clone(), lancer, miner.clone(), nest(&[2, 0, 1, 0, 1]), builds(outpost.clone(), &[2, 2, 0, 1, 5, 0, 1, 5]), example("AP LANCER"), collector.clone()],
             strategy: Some(Strategy { plant: &[(3, 0), (3, 100), (3, 200), (4, 330)], most: 6, lean: 150, prints: &[0, 1], keep: 0, first: 150, wave: 54, bold: true, raid: &[] }),
         },
         // A timing attack. Slots: 0 fighter, 1 corvette, 2 cruiser, 3 miner, 4 outpost, 5 dock.
         Ready {
             name: "LANCE LINE",
             about: "A TIMING ATTACK. OUTPOSTS AND A DOCK MASS CORVETTES AND CRUISERS FOR ONE BIG PUSH AT 7:00.",
-            designs: vec![fighter.clone(), corvette(), cruiser(), miner.clone(), builds(outpost.clone(), &[3, 3, 0, 1, 1, 2]), dock(&[3, 2, 1, 2])],
+            designs: vec![fighter.clone(), corvette(), cruiser(), miner.clone(), builds(outpost.clone(), &[3, 3, 0, 1, 1, 2]), dock(&[3, 2, 1, 2]), collector.clone()],
             strategy: Some(Strategy { plant: &[(4, 0), (4, 0), (5, 0), (4, 0)], most: 5, lean: 0, prints: &[1], keep: 60, first: 420, wave: 400, bold: true, raid: &[] }),
         },
         // A boom into big ships. Slots: 0 fighter, 1 frigate, 2 miner, 3 outpost, 4 shipyard,
@@ -215,14 +220,14 @@ pub fn ready_teams() -> Vec<Ready> {
         Ready {
             name: "BIG GUNS",
             about: "A BOOM. FOUR OUTPOSTS AND MANY MINERS, THEN BATTLESHIPS AND CAPITALS FROM A SHIPYARD. IT ATTACKS LATE.",
-            designs: vec![fighter, frigate, miner.clone(), builds(outpost.clone(), &[2, 2, 2, 0, 0, 1]), builds(shipyard.clone(), &[2, 5, 6, 1]), battleship(), capital],
+            designs: vec![fighter, frigate, miner.clone(), builds(outpost.clone(), &[2, 2, 2, 0, 0, 1]), builds(shipyard.clone(), &[2, 5, 6, 1]), battleship(), capital, collector.clone()],
             strategy: Some(Strategy { plant: &[(3, 0), (3, 0), (3, 0), (3, 0), (4, 0), (3, 0)], most: 7, lean: 0, prints: &[1, 0, 0], keep: 120, first: 720, wave: 900, bold: false, raid: &[] }),
         },
         // Harassment. Slots: 0 wasp, 1 archer, 2 raker, 3 miner, 4 outpost.
         Ready {
             name: "RAIDERS",
             about: "HARASSMENT. FAST WASPS GO FOR YOUR MINERS AND FACTORIES FROM THE START. ARCHERS AND RAKERS FOLLOW.",
-            designs: vec![wasp(), example("ARCHER"), example("RAKER"), miner.clone(), builds(outpost.clone(), &[3, 3, 0, 1, 0, 2])],
+            designs: vec![wasp(), example("ARCHER"), example("RAKER"), miner.clone(), builds(outpost.clone(), &[3, 3, 0, 1, 0, 2]), collector.clone()],
             strategy: Some(Strategy { plant: &[(4, 0)], most: 5, lean: 0, prints: &[0, 0, 1, 2], keep: 40, first: 300, wave: 150, bold: false, raid: &[0] }),
         },
         // A turtle. Slots: 0 beamer, 1 warden, 2 aegis, 3 miner, 4 outpost, 5 shipyard, 6 lancet,
@@ -230,7 +235,7 @@ pub fn ready_teams() -> Vec<Ready> {
         Ready {
             name: "SIEGE",
             about: "A TURTLE. BEAMERS, WARDENS AND SENTINELS HOLD HOME, THEN LANCETS THAT OUTRANGE EVERYTHING PUSH SLOWLY.",
-            designs: vec![example("BEAMER"), example("WARDEN"), example("AEGIS"), miner, builds(outpost, &[3, 3, 7, 1, 0]), builds(shipyard, &[3, 6, 2, 1, 0]), lancet(), sentinel()],
+            designs: vec![example("BEAMER"), example("WARDEN"), example("AEGIS"), miner, builds(outpost, &[3, 3, 7, 1, 0]), builds(shipyard, &[3, 6, 2, 1, 0]), lancet(), sentinel(), collector],
             strategy: Some(Strategy { plant: &[(4, 0), (4, 0), (5, 0), (4, 0)], most: 5, lean: 0, prints: &[1, 7, 0], keep: 120, first: 540, wave: 700, bold: false, raid: &[] }),
         },
     ]
