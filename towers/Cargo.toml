@@ -1,0 +1,14 @@
+[package]
+name = "towers"
+version = "0.1.0"
+edition = "2021"
+description = "CITADEL GRID - Retro MS-DOS asymmetric strategic tower-building RTS"
+
+[dependencies]
+
+[profile.dev]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"
