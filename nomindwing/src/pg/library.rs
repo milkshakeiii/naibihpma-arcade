@@ -143,6 +143,8 @@ impl Library {
         let strategy = crate::pg::teams::ready_teams();
         let mut ready_teams: Vec<Team> = strategy.iter().map(|t| Team { name: t.name.into(), designs: team_of(t.designs.clone()) }).collect();
         ready_teams.push(Team { name: "NEW PARTS".into(), designs: team_of(parts_library()) });
+        // A team drawn for a person to play, with the parts of 2026-11-17 and 18.
+        ready_teams.push(Team { name: crate::pg::teams::SCAVENGERS.into(), designs: team_of(crate::pg::teams::scavengers()) });
         ready_teams.push(Team { name: "REF FLEET".into(), designs: team_of(defaults()) });
         let mut ready_ships: Vec<(Shelf, Design)> = Vec::new();
         // A team's own copy of a card that's on a shelf already, with only its build order
@@ -150,9 +152,10 @@ impl Library {
         let drawing = |d: &Design| {
             let mut d = d.clone();
             d.build.clear();
+            d.first.clear();
             d.to_line()
         };
-        let teams_ships: Vec<Design> = strategy.into_iter().skip(1).flat_map(|t| t.designs).collect();
+        let teams_ships: Vec<Design> = strategy.into_iter().skip(1).flat_map(|t| t.designs).chain(crate::pg::teams::scavengers()).collect();
         for (shelf, designs) in [(Shelf::Parts, part_examples()), (Shelf::Starter, starter_deck()), (Shelf::Teams, teams_ships), (Shelf::Reference, defaults())] {
             for d in designs {
                 if !ready_ships.iter().any(|(_, o)| o.to_line() == d.to_line() || (shelf == Shelf::Teams && drawing(o) == drawing(&d))) {
@@ -1004,7 +1007,7 @@ mod tests {
         let mine = lines(&pg.lib);
         key(&mut pg, Key::Letter('L'));
         key(&mut pg, Key::Tab);
-        assert_eq!((pg.library.teams.len(), pg.library.team_count()), (0, crate::pg::teams::ready_teams().len() + 2));
+        assert_eq!((pg.library.teams.len(), pg.library.team_count()), (0, crate::pg::teams::ready_teams().len() + 3));
         // After the starter deck and the teams with a strategy come the new parts' examples.
         for _ in 0..crate::pg::teams::ready_teams().len() {
             key(&mut pg, Key::Letter('S'));

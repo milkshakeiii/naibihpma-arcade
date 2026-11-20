@@ -42,15 +42,16 @@ pub fn nest(build: &[usize]) -> Design {
     drawn("NEST", (46, 46), &[".hhghh.", ".hhuhh.", "hhfffhh", "gffcffg", "hhfffhh", ".hhuhh.", ".hhghh."], Some(build))
 }
 
-/// Three lances in a column behind a nose of heavy plate (a domino two tall, 2026-11-15; it was
-/// plate), plate cheeks, four flak and four engines.
+/// Three lances in a column behind a nose of heavy plate, three wide and two thick, four flak
+/// and four engines. (The nose was a domino of heavy plate between plate cheeks until
+/// 2026-11-17, when heavy plate had to be two thick; plate before 2026-11-15.)
 pub fn corvette() -> Design {
     drawn(
         "CORVETTE",
         (47, 45),
         &[
-            "..a..",
-            ".pap.",
+            ".aaa.",
+            ".aaa.",
             "hhlhh",
             "ghlhg",
             "hhchh",
@@ -158,26 +159,30 @@ pub fn dock(build: &[usize]) -> Design {
 pub fn lancet() -> Design {
     drawn(
         "LANCET",
-        (43, 40),
+        (42, 40),
+        // (Its heavy plate is two thick since 2026-11-17, down both sides and across the
+        // stern: 74 pixels of it where it had 32 in a skin one pixel thick. The hull pixel
+        // that sat in the old stern is between its prongs now.)
         &[
-            "...b.....b...",
-            "..pbp...pbp..",
-            "..hbh...hbh..",
-            ".phbhp.phbhp.",
-            ".ahbhhphhbha.",
-            ".ahbhhhhhbha.",
-            "gahbhhhhhbhag",
-            ".ahbhhhhhbha.",
-            ".ahbhhhhhbha.",
-            ".ahbhhhhhbha.",
-            "gahbhhchhbhag",
-            ".ahbhhhhhbha.",
-            ".ahbhhhhhbha.",
-            ".ahbhhhhhbha.",
-            "gahhhhhhhhhag",
-            ".ahhhhhhhhha.",
-            "..aaaahaaaa..",
-            "..eeeeeeeee..",
+            "....b.....b....",
+            "...pbp...pbp...",
+            "...hbh...hbh...",
+            "..phbhphphbhp..",
+            ".aahbhhphhbhaa.",
+            ".aahbhhhhhbhaa.",
+            "gaahbhhhhhbhaag",
+            ".aahbhhhhhbhaa.",
+            ".aahbhhhhhbhaa.",
+            ".aahbhhhhhbhaa.",
+            "gaahbhhchhbhaag",
+            ".aahbhhhhhbhaa.",
+            ".aahbhhhhhbhaa.",
+            ".aahbhhhhhbhaa.",
+            "gaahhhhhhhhhaag",
+            ".aahhhhhhhhhaa.",
+            ".aaaaaaaaaaaaa.",
+            ".aaaaaaaaaaaaa.",
+            "...eeeeeeeee...",
         ],
         None,
     )
@@ -187,6 +192,122 @@ pub fn lancet() -> Design {
 /// down its flanks, two flak and five engines. Plate turns flak and trackers, whatever pierces 1.
 pub fn sentinel() -> Design {
     drawn("SENTINEL", (45, 46), &["...ppp...", "..ptttp..", ".hhttthh.", "phhttthhp", "pghhchhgp", "phhhhhhhp", "e.e.e.e.e"], None)
+}
+
+/// A team for a person to play, which no AI plays (Henry, 2026-11-18, before a playtest of the
+/// stasis lattice, the slipstream and the vacuum: "can you create an all-new team for me that
+/// includes a variety of these new parts?"). Every card is a new drawing, and every one spends
+/// all the power its hull makes. Slots:
+/// - 0 DART: a fighter. A repeater two long and two flak; 11 px, 30 px/s.
+/// - 1 PULSAR: an energy ball gun of six, for shields, and two flak; 39 px, 18 px/s.
+/// - 2 MAUL: two cannons, a tracker and two flak in a whole skin of plate, which turns flak;
+///   110 px, 7.5 px/s. Only its engines and rotation engines are outside the plate. (As first
+///   drawn it had a bow of heavy plate and bare flanks, and lost to its cost in starter
+///   fighters every time; and with the plate open over the outer corners of its cannons, most
+///   times. See MATCH.md.)
+/// - 3 SNARE: a stasis lattice in an H, 15 by 15, that reaches 60 px, with a tracker and four
+///   flak of its own, which the field doesn't hold; 175 px, 7.5 px/s.
+/// - 4 HERALD: a pace ship (OUTRIDER until it met a yard tab, which holds seven letters). A slipstream lump of 28 across its bow, no guns, 30 px/s: every
+///   other card but the DART flies a step faster beside it. 93 px.
+/// - 5 DIGGER: a miner with four scoops, 5 by 4; 19 px, 22 px/s.
+/// - 6 GLEANER: a vacuum lump of 12 that reaches 12 px past its edge, a hold of 36, 6 by 6;
+///   35 px, 22 px/s.
+/// - 7 PORT: the factory. Twenty factory pixels, so it builds every card here (the biggest
+///   is 175 px), four flak, and a dock pad 6 by 9 on its flank: a GLEANER lands on it, or
+///   two DIGGERs at once. It has no tractor. 135 px, so the bank a king starts with plants one.
+/// - 8 BARGE: a dock pad 6 by 6 that flies. It's a collector: it goes out to where the miners
+///   and the GLEANERs work, and they land on it. 47 px, 18 px/s.
+///
+/// (2026-11-19, after Henry's first match with it: "The digger behavior seemed less
+/// predictable than I expected." As first drawn the PULSAR, HERALD, DIGGER, GLEANER and BARGE
+/// had no rotation engines, or two for a ship 19 across, and took the full 3 s to a quarter
+/// turn: a DIGGER is five across where the starter miner is three. Each has rotation
+/// engines at its stern corners now, and turns a quarter in a third of a second to a second
+/// and a half. The MAUL and the SNARE still take 3 s: they're the heavy ones.)
+pub const SCAVENGERS: &str = "SCAVENGERS";
+
+pub fn scavengers() -> Vec<Design> {
+    let mut port = drawn(
+        "PORT",
+        (45, 45),
+        &[
+            "pphhghhppkkkkkk",
+            "pphhhhhppkkkkkk",
+            "hfffffffhkkkkkk",
+            "hfhhhhhfhkkkkkk",
+            "gfhhchhfgkkkkkk",
+            "hfhhhhhfhkkkkkk",
+            "hfffffffhkkkkkk",
+            "pphhhhhppkkkkkk",
+            "pphhghhppkkkkkk",
+        ],
+        Some(&[0, 0, 1, 5]),
+    );
+    // Its first prints: four miners and a vacuum ship. Then two fighters, a PULSAR and a
+    // miner, round and round. The big ships are for whoever plays it to ask for. (Three
+    // miners first mined 369 px by 8:00 with nothing else done, and four 436.)
+    port.first = vec![5, 5, 5, 5, 6];
+    vec![
+        drawn("DART", (48, 47), &["grg", "hrh", "hch", "e.e"], None),
+        drawn("PULSAR", (46, 46), &["..zzz..", "..zzz..", "ghhhhhg", "hhhchhh", "hhhhhhh", "yhhhhhy", ".eeeee."], None),
+        drawn(
+            "MAUL",
+            (44, 44),
+            &[
+                "..ppppppp..",
+                ".ppphhhppp.",
+                "pnnntttnnnp",
+                "pnnntttnnnp",
+                "pnnntttnnnp",
+                "phhhhchhhhp",
+                "phhhhhhhhhp",
+                "phhhhhhhhhp",
+                "pghhhhhhhgp",
+                "ppppppppppp",
+                "y.e.e.e.e.y",
+            ],
+            None,
+        ),
+        drawn(
+            "SNARE",
+            (42, 42),
+            &[
+                "x.............x",
+                "x.hhhhhhhhhhh.x",
+                "x.hhhhttthhhh.x",
+                "x.ghhhttthhhg.x",
+                "x.hhhhttthhhh.x",
+                "x.hhhhhhhhhhh.x",
+                "x.hhhhhhhhhhh.x",
+                "xxxxxxxxxxxxxxx",
+                "x.hhhhhhhhhhh.x",
+                "x.hhhhhchhhhh.x",
+                "x.ghhhhhhhhhg.x",
+                "x.hhhhhhhhhhh.x",
+                "x.hhhhhhhhhhh.x",
+                "x.yeeheheheey.x",
+                "x.............x",
+            ],
+            None,
+        ),
+        drawn(
+            "HERALD",
+            (40, 46),
+            &[
+                ".......vvvvv.......",
+                "...vvvvvvvvvvvvv...",
+                "vvvvvhhhhhhhhhvvvvv",
+                "hhhhhhhhhchhhhhhhhh",
+                "yhhhhhhhhhhhhhhhhhy",
+                "yeeeeeeee.eeeeeeeey",
+            ],
+            None,
+        ),
+        drawn("DIGGER", (47, 47), &["ss.ss", "hhchh", "hhhhh", "yeeey"], None),
+        drawn("GLEANER", (47, 46), &["VVVVVV", "VVVVVV", "hhhhhh", "hhchhh", "yhhhhy", "eee.ee"], None),
+        port,
+        drawn("BARGE", (47, 45), &["kkkkkk", "kkkkkk", "kkkkkk", "kkkkkk", "kkkkkk", "kkkkkk", "yhhchy", "eee.ee"], None),
+    ]
 }
 
 /// Every ready-made team with a strategy, the starter deck first. The match menu offers them in
@@ -310,12 +431,15 @@ fn fight(name: &'static str, blue: (&'static str, &[(&str, i32)]), red: (&'stati
 /// The side the 2026-11-15 parts' example ships fight on. It's no team the AI plays.
 pub const NEW_PARTS: &str = "NEW PARTS";
 
-/// The example ships for the tracker, heavy plate and the piercer (`part_examples`), with the
-/// starter deck's fighter and lancer to set beside them.
+/// The example ships for the tracker, heavy plate, the piercer and the stasis lattice
+/// (`part_examples`), with the starter deck's fighter, lancer and frigate to set beside them.
 pub fn new_part_ships() -> Vec<Design> {
     let ex = part_examples();
     let mut ships: Vec<Design> = ["PICKET", "BULWARK", "AP LANCER", "IRONLANCER", "BASTION"].iter().map(|n| ex.iter().find(|d| d.name == *n).unwrap_or_else(|| panic!("no example called {n}")).clone()).collect();
     ships.extend([0, 1].map(|s| starter_deck()[s].clone()));
+    // The stasis lattice's example, and the starter frigate to stand behind it: a ninth card.
+    ships.push(ex.iter().find(|d| d.name == "ANCHOR").expect("no example called ANCHOR").clone());
+    ships.push(starter_deck()[2].clone());
     ships
 }
 
@@ -334,9 +458,14 @@ pub fn new_part_fights() -> Vec<Test> {
         fight("2 BULWARKS VS 9 LANCERS", (new, &[("BULWARK", 2)]), (start, &[("LANCER", 9)])),
         fight("2 BULWARKS VS 7 AP LANCERS", (new, &[("BULWARK", 2)]), (new, &[("AP LANCER", 7)])),
         fight("7 AP LANCERS VS 9 LANCERS", (new, &[("AP LANCER", 7)]), (start, &[("LANCER", 9)])),
-        fight("1 BASTION VS 17 LANCERS", (new, &[("BASTION", 1)]), (start, &[("LANCER", 17)])),
-        fight("1 BASTION VS 17 FIGHTERS", (new, &[("BASTION", 1)]), (start, &[("FIGHTER", 17)])),
-        fight("1 BASTION VS 13 AP LANCERS", (new, &[("BASTION", 1)]), (new, &[("AP LANCER", 13)])),
+        // (17, 17 and 13 until 2026-11-17: a bastion in a skin two thick is 206 px, not 156.)
+        fight("1 BASTION VS 23 LANCERS", (new, &[("BASTION", 1)]), (start, &[("LANCER", 23)])),
+        fight("1 BASTION VS 23 FIGHTERS", (new, &[("BASTION", 1)]), (start, &[("FIGHTER", 23)])),
+        fight("1 BASTION VS 17 AP LANCERS", (new, &[("BASTION", 1)]), (new, &[("AP LANCER", 17)])),
+        // The stasis lattice at work, and the same pixels as guns beside it. (It loses both
+        // ways: see MATCH.md, Q9. They're here to be watched, not to make a case.)
+        fight("1 ANCHOR + 4 FRIGATES VS 48 FIGHTERS", (new, &[("ANCHOR", 1), ("FRIGATE", 4)]), (start, &[("FIGHTER", 48)])),
+        fight("8 FRIGATES VS 48 FIGHTERS", (new, &[("FRIGATE", 8)]), (start, &[("FIGHTER", 48)])),
     ]
 }
 
@@ -358,11 +487,13 @@ pub fn team_fights() -> Vec<Test> {
         armies(guns, start, "BIG GUNS VS STARTER DECK"),
         fight("1 BATTLESHIP VS 23 LANCERS", (guns, &[("BATTLESHIP", 1)]), (start, &[("LANCER", 23)])),
         armies(raid, start, "RAIDERS VS STARTER DECK"),
-        fight("8 WASPS VS 10 MINERS", (raid, &[("WASP", 8)]), (start, &[("MINER", 10)])),
+        // (Ten miners until 2026-11-17: a miner is 12 px now, not 9.)
+        fight("8 WASPS VS 8 MINERS", (raid, &[("WASP", 8)]), (start, &[("MINER", 8)])),
         fight("8 WASPS VS 10 FIGHTERS", (raid, &[("WASP", 8)]), (start, &[("FIGHTER", 10)])),
         armies(siege, start, "SIEGE VS STARTER DECK"),
         fight("1 LANCET VS 1 BATTLESHIP", (siege, &[("LANCET", 1)]), (guns, &[("BATTLESHIP", 1)])),
-        fight("2 LANCETS VS 40 FIGHTERS", (siege, &[("LANCET", 2)]), (swarm, &[("FIGHTER", 40)])),
+        // (Forty fighters until 2026-11-17: a lancet in heavy plate two thick is 222 px, not 180.)
+        fight("2 LANCETS VS 48 FIGHTERS", (siege, &[("LANCET", 2)]), (swarm, &[("FIGHTER", 48)])),
         fight("2 SENTINELS VS 10 FIGHTERS", (siege, &[("SENTINEL", 2)]), (swarm, &[("FIGHTER", 10)])),
         fight("2 SENTINELS VS 10 LANCERS", (siege, &[("SENTINEL", 2)]), (swarm, &[("LANCER", 10)])),
     ];
@@ -387,6 +518,48 @@ pub fn team_fights() -> Vec<Test> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_scavengers_are_nine_new_cards_that_fly_spend_their_power_and_come_out_of_their_own_port() {
+        let team = scavengers();
+        assert_eq!(team.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["DART", "PULSAR", "MAUL", "SNARE", "HERALD", "DIGGER", "GLEANER", "PORT", "BARGE"]);
+        assert_eq!(team.len(), SLOTS);
+        // No card is a drawing the game had already.
+        let old: Vec<Design> = ready_teams().into_iter().flat_map(|t| t.designs).chain(part_examples()).collect();
+        for d in &team {
+            let st = d.stats();
+            assert!(d.check().ok(), "{}: {:?}", d.name, d.check().problem());
+            assert_eq!((st.made, st.power_pct()), (st.used, 100), "{} wastes or lacks power", d.name);
+            assert!(!old.iter().any(|o| o.shape().cells == d.shape().cells), "{} is an old drawing", d.name);
+        }
+        let st = |name: &str| team.iter().find(|d| d.name == name).unwrap().stats();
+        // What each is for.
+        assert_eq!((st("DART").repeater, st("DART").flak, st("DART").count, st("DART").top_speed_px_s()), (2, 2, 11, 30));
+        assert_eq!((st("PULSAR").ball, st("PULSAR").count, st("PULSAR").top_speed_px_s()), (6, 39, 18));
+        assert_eq!((st("MAUL").cannon, st("MAUL").tracker, st("MAUL").flak, st("MAUL").count, st("MAUL").vmax), (2, 1, 2, 110, 2));
+        assert_eq!((st("SNARE").stasis, st("SNARE").stasis_reach(), st("SNARE").tracker, st("SNARE").flak, st("SNARE").count, st("SNARE").vmax), (43, 60, 1, 4, 175, 2));
+        assert_eq!((st("HERALD").slip_reach(), st("HERALD").armed(), st("HERALD").count, st("HERALD").vmax), (28, false, 93, 8));
+        assert_eq!((st("DIGGER").scoops, st("DIGGER").hold(), st("DIGGER").count, st("DIGGER").vmax), (4, 12, 19, 6));
+        assert_eq!((st("GLEANER").vacuum, st("GLEANER").vac_past(), st("GLEANER").hold(), st("GLEANER").count, st("GLEANER").vmax), (12, 12, 36, 35, 6));
+        assert_eq!((st("PORT").factory, st("PORT").dock, st("PORT").tractor, st("PORT").count, st("PORT").max_build()), (20, 54, 0, 135, 200));
+        assert_eq!((st("BARGE").dock, st("BARGE").collector(), st("BARGE").count, st("BARGE").vmax), (36, true, 47, 5));
+        // The small ones turn: a quarter turn in a second and a half at most, where each took
+        // the full three seconds as first drawn. The two heavy ones still do.
+        assert_eq!(["DART", "PULSAR", "HERALD", "DIGGER", "GLEANER", "BARGE"].map(|n| st(n).quarter), [16, 13, 23, 5, 11, 16]);
+        assert_eq!((st("MAUL").quarter, st("SNARE").quarter), (SLOWEST_TURN, SLOWEST_TURN));
+        // The pace ship is faster than every other card but the fighter, so it speeds them.
+        for d in &team {
+            assert!(d.stats().vmax < st("HERALD").vmax || ["DART", "HERALD"].contains(&d.name.as_str()), "{}", d.name);
+        }
+        // The port is its only factory, and builds every card that's built. It's a seed, with
+        // its core where a seed's is, and the bank a king starts with pays for one.
+        let port = team.iter().find(|d| d.name == "PORT").unwrap();
+        assert!(port.seeded && team.iter().filter(|d| d.seeded).count() == 1 && port.stats().cost <= crate::pg::sim::START_BANK);
+        for d in team.iter().filter(|d| !d.seeded) {
+            assert!(d.stats().count <= port.stats().max_build(), "the PORT can't build the {}", d.name);
+        }
+        assert!(port.first.iter().chain(&port.build).all(|&s| s < team.len() && !team[s].seeded));
+    }
     use crate::pg::sim::{Arena, Card, START_BANK};
 
     #[test]
@@ -431,7 +604,11 @@ mod tests {
         for t in &teams[1..] {
             let p = t.strategy.unwrap();
             let run = || {
-                let mut a = Arena::for_match(3, [t.designs.clone(), starter_deck()], [true, true]);
+                // (Seed 3 until 2026-11-19, when ships with no guns stopped picking courses
+                // of their own. SIEGE's match on it had been a red win at 23:27 and became a
+                // draw at the 40-minute limit, both sides still mining and fighting. On seeds
+                // 1 and 2 all five end with a winner.)
+                let mut a = Arena::for_match(1, [t.designs.clone(), starter_deck()], [true, true]);
                 a.eco.as_mut().unwrap().strategy[0] = t.strategy;
                 while a.over.is_none() {
                     a.step();
@@ -494,7 +671,7 @@ mod fight_tests {
         }
         // Every new drawing is in a fight, and every team's army; and blue is each new team in
         // a fight of its own, so its whole team is seen.
-        for name in ["WASP", "NEST", "CORVETTE", "CRUISER", "BATTLESHIP", "DOCK", "LANCET", "SENTINEL", "PICKET", "BULWARK", "AP LANCER", "IRONLANCER", "BASTION"] {
+        for name in ["WASP", "NEST", "CORVETTE", "CRUISER", "BATTLESHIP", "DOCK", "LANCET", "SENTINEL", "PICKET", "BULWARK", "AP LANCER", "IRONLANCER", "BASTION", "ANCHOR"] {
             assert!(fights.iter().any(|t| t.place.iter().any(|p| t.ships.as_ref().unwrap().teams[p.0][p.1].name == name)), "no fight has a {name}");
         }
         for name in &teams[1..] {

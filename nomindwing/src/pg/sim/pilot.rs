@@ -89,11 +89,13 @@ pub(super) struct Flyer {
     acc2: (i32, i32),
     pub burn: [bool; 4],
     pub want: (i32, i32),
+    /// How near a point it has to get, when that's nearer than `near_enough` (0: it isn't).
+    pub fine: i32,
 }
 
 impl Flyer {
     pub fn of(s: &Ship) -> Flyer {
-        Flyer { x: s.x, y: s.y, sx: s.sx, sy: s.sy, vx: s.vx, vy: s.vy, facing: s.facing, turn_t: s.turn_t, acc2: s.acc2, burn: s.burn, want: s.want }
+        Flyer { x: s.x, y: s.y, sx: s.sx, sy: s.sy, vx: s.vx, vy: s.vy, facing: s.facing, turn_t: s.turn_t, acc2: s.acc2, burn: s.burn, want: s.want, fine: s.fine }
     }
 
     /// Gives a ship what steering changed: its speed, how far through a turn and a burn it is,
@@ -227,7 +229,10 @@ impl Flyer {
         // On the point it stops. Stopped as near it as a ship of its sort can be sure of
         // placing itself (`near_enough`: 3 px for one with rotation engines, 6 for the starter
         // fighter, 14 for a frigate with none), it stays.
-        let (near, stopped, off) = (near_enough(st), (s.vx, s.vy) == (0, 0), cheb(s.x, s.y, gx, gy));
+        // (A ship asked to place itself finer than that, as a miner is at the rock, stays only
+        // when it's that near.)
+        let fine = s.fine > 0 && s.fine < near_enough(st);
+        let (near, stopped, off) = (if fine { s.fine } else { near_enough(st) }, (s.vx, s.vy) == (0, 0), cheb(s.x, s.y, gx, gy));
         if off <= 2 || (off <= near && stopped) {
             return (0, 0);
         }
@@ -247,7 +252,14 @@ impl Flyer {
         // it happened to face, which way looked better changed with every turn it made
         // to set off, and it turned on the spot for ever.)
         if stopped && off <= 2 * hop {
-            return if d[0].abs() >= d[1].abs() { (d[0].signum(), 0) } else { (0, d[1].signum()) };
+            // Asked to place itself finely, and nearer the point than it can stop on: it
+            // sets off the other way. Turning about to come back carries it a hop further
+            // off, and from there it can come in and stop on the point. (Setting off towards
+            // it, it would be carried as far past as it began short, and so on for good.
+            // Henry, 2026-11-17: "Ships should be able to fly short distances, the flying
+            // algorithm might need to be improved if they can't.")
+            let way = if fine && off < hop { -1 } else { 1 };
+            return if d[0].abs() >= d[1].abs() { (way * d[0].signum(), 0) } else { (0, way * d[1].signum()) };
         }
         // Its speed towards the point each way (less than nothing: it's going the wrong way).
         let tv = [v[0] * d[0].signum(), v[1] * d[1].signum()];
@@ -262,15 +274,15 @@ impl Flyer {
                 2
             }
         };
-        // The engine it would stop its way along axis `a` with if it faced `f`, and the
+        // The engine it would push towards a side of the map with if it faced `f`, and the
         // quarter turns that bring that engine to bear: of its engines with a fair share of
         // its strongest's push (`WEAK`), the one needing fewest turns, the stronger of two
         // as near. (One that can't turn has only what already points there.)
-        let brake = |a: usize, f: u8| -> Option<(usize, i64)> {
+        let gear = |side: usize, f: u8| -> Option<(usize, i64)> {
             (0..4usize)
                 .filter(|&way| st.push[way] > 0 && st.push[way] * WEAK >= top)
                 .map(|way| {
-                    (way, match (back(a) + 8 - way - f as usize) & 3 {
+                    (way, match (side + 8 - way - f as usize) & 3 {
                         0 => 0i64,
                         2 => 2,
                         _ => 1,
@@ -279,16 +291,62 @@ impl Flyer {
                 .filter(|&(_, turns)| turns == 0 || quarter > 0)
                 .min_by_key(|&(way, turns)| (turns, -st.push[way]))
         };
+        // The one it would stop its way along axis `a` with.
+        let brake = |a: usize, f: u8| gear(back(a), f);
+        // Going away from the point one way, and the other way too fast to stop in the room
+        // it has once that's been turned round: it stops dead first, and sets off again from
+        // rest. It has been sent somewhere else while it was at speed, or been carried past.
+        // (Steering for the point from here, a ship with one engine turned the one way's
+        // speed round while the other way's carried it past, and then the same the other way
+        // about, round and round the point for good: of 416 starts at speed, Henry's fighter
+        // never came to rest from 11, and from 17 at the speed it had the day before. Found
+        // 2026-11-17 by a fighter in a match, sent to a spot 18 px behind it. From rest every
+        // ship gets there. A ship only going away, with room the other way, turns round as
+        // it always did: a ship holding its range from something that moves does that all
+        // the time.)
+        for a in 0..2 {
+            let b = 1 - a;
+            if !(tv[a] < 0 && d[a].abs() > 2 && tv[b] > 0) {
+                continue;
+            }
+            // Turning the one way's speed round: the turns to the engine, and the burn.
+            let Some((way, turns)) = gear((back(a) + 2) & 3, s.facing) else { continue };
+            let round = turns * quarter + (-tv[a]) as i64 * rate / st.push[way] as i64 + 1;
+            let facing_after = if turns > 0 { (((back(a) + 2) & 3) + 4 - way) as u8 & 3 } else { s.facing };
+            // Then the other way's stop: what it covers meanwhile, and stopping.
+            let Some((stopper, more)) = brake(b, facing_after) else { continue };
+            let (vb, room) = (tv[b] as i64, ((d[b].abs() - 2).max(0) * 4) as i64);
+            if vb * (round + more * quarter) + vb * vb * rate / (2 * st.push[stopper] as i64) > room {
+                return (0, 0);
+            }
+        }
         // The shorter way and the longer.
         let (short, long) = if d[0].abs() <= d[1].abs() { (0, 1) } else { (1, 0) };
         let hyp = isqrt(d[0] * d[0] + d[1] * d[1]).max(1);
-        // Each way's share of its top speed, flying straight at the point.
-        let share = [(st.vmax * d[0].abs() / hyp).max(1), (st.vmax * d[1].abs() / hyp).max(1)];
+        // A stretch too short to stop on is left until the other way is flown: begun first,
+        // it would be overshot and come back over, again and again.
+        let later = |a: usize| d[a].abs() > 2 && d[a].abs() <= hop && d[1 - a].abs() > hop && v[a] == 0;
+        // Each way's share of its top speed, flying straight at the point. With the shorter
+        // way left till later, the longer has all of it. (Until 2026-11-17 it had only its
+        // share, rounded down: Henry's miner of that day, with three steps of speed, flew
+        // 200 px across and 23 along at two of them.)
+        let mut share = [(st.vmax * d[0].abs() / hyp).max(1), (st.vmax * d[1].abs() / hyp).max(1)];
+        if later(short) {
+            share[long] = st.vmax.max(1);
+        }
         // The shorter way's stop: its engine, the turns to it as the ship faces, and how the
-        // ship will face when it's done. Then the longer way's, from there.
+        // ship will face when it's done. Then the longer way's, from there. (With the shorter
+        // way left till later there's no such stop before the longer's, and the longer's
+        // turns are counted from the way the ship faces now. Until 2026-11-17 they were
+        // counted as if that stop had been made: a quarter turn too few for a ship with one
+        // engine, which ran past the end of the longer way by what it flies in a quarter
+        // turn. Henry's miner, 22 px. The same goes when both ways are too short to stop on
+        // and it's flying only the longer: a collector coming in to a spot it had backed
+        // off from ran 10 px past it, backed off the other way, and so on for good.)
         let first = brake(short, s.facing);
+        let unflown = v[short] == 0 && d[short].abs() <= hop;
         let facing_then = match first {
-            Some((way, turns)) if turns > 0 && d[short].abs() > 2 => ((back(short) + 4 - way) & 3) as u8,
+            Some((way, turns)) if turns > 0 && d[short].abs() > 2 && !unflown => ((back(short) + 4 - way) & 3) as u8,
             _ => s.facing,
         };
         let second = brake(long, facing_then);
@@ -336,10 +394,9 @@ impl Flyer {
         let mut dv = [0, 0];
         for a in 0..2 {
             let far = d[a].abs();
-            // On its line that way: no speed wanted (and any it has, to be lost). A stretch
-            // too short to stop on is left until the other way is flown: begun first, it
-            // would be overshot and come back over, again and again.
-            if far <= 2 || (far <= hop && d[1 - a].abs() > hop && v[a] == 0) {
+            // On its line that way: no speed wanted (and any it has, to be lost). Nor for a
+            // stretch that's left until the other way is flown.
+            if far <= 2 || later(a) {
                 continue;
             }
             if stop[a] {

@@ -1152,6 +1152,21 @@ impl Pg {
             if s.carry > 0 {
                 parts.push(format!("CARRYING {}", s.carry));
             }
+            if s.slowed {
+                parts.push("HELD BY STASIS".to_string());
+            }
+            if let Some(line) = a.stasis_line(i) {
+                parts.push(line);
+            }
+            if s.sped {
+                parts.push("IN A SLIPSTREAM".to_string());
+            }
+            if let Some(line) = a.slip_line(i) {
+                parts.push(line);
+            }
+            if let Some(line) = a.vac_line(i) {
+                parts.push(line);
+            }
             Some(vec![format!("{} {} - {}", team_name(s.team), s.name, s.doing.name()), parts.join("  ")])
         } else if a.tick == 0 && f.contains(m.0, m.1) {
             Some(vec![format!("CLICK PLACES A {} {}. RIGHT-CLICK REMOVES.", team_name(self.team), self.side(self.team)[self.slot].name), "SPACE RUNS THE FIGHT. WASD SCROLLS.".into()])
@@ -1541,13 +1556,19 @@ mod tests {
             Check { cores: 1, buried: vec![(0, 0); n], ..Check::default() },
             Check { cores: 1, hemmed: vec![(0, 0)], ..Check::default() },
             Check { cores: 1, hemmed: vec![(0, 0); n], ..Check::default() },
+            Check { cores: 1, slight: vec![(0, 0); n], ..Check::default() },
+            Check { cores: 1, scant: vec![(0, 0); n], ..Check::default() },
         ];
         for c in checks.iter().chain([&Check { cores: 1, ..Check::default() }]) {
             for (armed, power) in [(false, 100), (true, 100), (true, 99), (false, 1)] {
                 for &order in &ORDERS {
-                    // The yard's status line, one line inside its box.
-                    let (status, _) = yard_status(c, armed, power, order, false);
-                    assert!(Framebuffer::text_width(&status, 1) <= STATUS_RECT.w - 2, "the yard's status line overflows: {status}");
+                    // The yard's status line, one line inside its box: a collector's too.
+                    for collects in [false, true] {
+                        for field in [None, Some(("STASIS", 84)), Some(("STASIS", crate::pg::design::STASIS_REACH_MAX)), Some(("SLIPSTREAM", 42)), Some(("SLIPSTREAM", crate::pg::design::SLIP_REACH_MAX)), Some(("VACUUM", crate::pg::design::VAC_REACH_MAX))] {
+                            let (status, _) = yard_status(c, armed, power, order, collects, field);
+                            assert!(Framebuffer::text_width(&status, 1) <= STATUS_RECT.w - 2, "the yard's status line overflows: {status}");
+                        }
+                    }
                 }
             }
             // The arena's notice, wrapped inside the field.

@@ -37,7 +37,7 @@ The fight is over when a king dies.
 - **Each design is either built or seeded.**
   - A **built** design is printed by a factory or the king.
   - A **seeded** design is grown from a seed on a rock. The yard locks the seed's core at the centre of the grid and shows how big a rock the design needs (its pixel count).
-- **A design with factory pixels has a build order:** a looping list of built designs from the deck, set in the yard and fixed for the match. Any entry the full-grown design could never build is flagged.
+- **A design with factory pixels has a build order:** built designs from the deck, set in the yard and fixed for the match. It has two rows of up to sixteen: a START it prints once, in order, and a REPEAT it prints round and round after that (2026-11-17; one looping list of twelve until then). Any entry the full-grown design could never build is flagged.
 
 ### The king
 - **You fly it** with WASD.
@@ -46,7 +46,7 @@ The fight is over when a king dies.
   - Seeded designs come out as a seed, and then you click a rock.
 - **Its queue shows under the cards** (M2.17, 2026-11-11): each job as its card's icon, the one being printed first. A job can be dropped or set repeating there.
 - **It's a network node:** it stores pixels and links to your other nodes. Flying it away can split your own network.
-- **A beaten king is slow** (M2.10, added 2026-11-10). After the first minute, a king whose side has under 40 px of ships and factories standing flies at a sixth of its speed, slower than anything that flies.
+- **A beaten king is slow** (M2.10, added 2026-11-10). After the first minute, a king whose side has under 40 px of ships and factories standing flies at a tenth of its speed (3.75 px/s since 2026-11-17; 7.5 until then), slower than anything that flies.
 - **For now, the king is a fixed design.** Designing your own king "could be quite fun" (Henry), so it's a feature for later.
 
 ### Seeds and growing factories
@@ -100,7 +100,7 @@ The fight is over when a king dies.
 
 | What | Number | Why |
 |---|---|---|
-| Map | 1400 x 1050, with 22 pairs of small rocks (1200 x 900 with 16 until 2026-11-11) | Toy 1 was 960x720; slower pace, bigger ships. Rocks as thick on the ground as before |
+| Map | 1400 x 1050. Its rocks are laid out one of four ways, as the seed falls (2026-11-17): scattered, with 22 pairs of small rocks, as every map was; or strung along an S, a ring or two triangles, with open space everywhere else. About 25,000 px of rock either way (1200 x 900 with 16 pairs until 2026-11-11) | Toy 1 was 960x720; slower pace, bigger ships. Rocks as thick on the ground as before |
 | Starting bank | 190 px at the king (300) | An outpost and two miners, with 51 px left to print with |
 | King's print rate | 0.6 px/s, as if it had 16 factory pixels (6 px/s) | A fighter in 15 s, a frigate in 92 s, a 687 px capital in 19 minutes |
 | King's own pixels | 1 every 4 s (none) | A miner's worth every 36 s: enough to restart, too little to live on |
@@ -113,10 +113,12 @@ The fight is over when a king dies.
 | Factory size limit | 10 px per factory pixel | Its biggest ship takes 4½ minutes (40 s) |
 | Factory pixel | weight 1, uses 2 power (1 until 2026-11-11) | Two hull pixels to feed each one: a factory the same size prints two thirds as fast |
 | Lance | weight 2, uses 3 power (2 until 2026-11-11) | A two-lance lancer is 9 px, not 7 |
-| Scoop | weight 2, uses 1 power (weight 1 and free until 2026-11-11) | The starter miner is 9 px at 30 px/s, where it was 8 px at 45 |
+| Scoop | weight 2, uses 2 power (1 until 2026-11-17; weight 1 and free until 2026-11-11) | The starter miner is 12 px at 22 px/s, where it was 9 px at 30, and 8 px at 45 before that |
 | Link range | 80 px per node (king 120) | Links span about one rock gap |
 | Scoop mining | A pixel every 3.3 s with two or more scoops, 6.7 s with one (2.7 s and 5.3 s until 2026-11-11; round 1's 0.2 s and 0.4 s) | A 3-scoop miner fills its 9 px in 30 s. More scoops carry more and bite no faster |
-| Beaten king | Its side under 40 px standing, after the first minute: 7.5 px/s, from 37.5 (no such rule) | The slowest ship a drawing can make flies at 11 px/s, so anything with an engine catches it |
+| Beaten king | Its side under 40 px standing, after the first minute: 3.75 px/s, from 37.5 (7.5 until 2026-11-17; no such rule in round 1) | The slowest ship a drawing can make flies at 7.5 px/s (11 until 2026-11-17), so anything with an engine catches it |
+| Top speed | 22.5 px/s for each thrust per weight, from 7.5 to 45 (until 2026-11-17: 7.5 px/s, and 18.75 more for each thrust per weight, never under 11) | The starter fighter does 37.5, the miner 30, a frigate 11, a capital 7.5 |
+| Scoop | Every scoop bites a pixel every 10 s (until 2026-11-17: two or more bit one every 3.3 s between them, however many) | The starter miner's three still bite one every 3.3 s; six bite twice as fast |
 | Guard and escort | Fights within 160 px of where it was built; within 110 px of its king | Guard outreaches every gun, so nothing shells a factory unanswered |
 | Posts | First ring 16 px outside the builder; rings and posts about 16 px apart; a summoned ship joins rings within 24 px; giving way, it looks up to 64 px from its post for the nearest clear place (none: every guard flew to the one spot it was printed on) | Eight guards stand all round an outpost before a second ring starts, clear of what it prints next |
 | Toy 1, for comparison | 15 px/s per factory; matches lasted 3½–6½ minutes | Too fast |
@@ -2889,7 +2891,7 @@ Built the same evening. Docking ports, the other half of the idea, are in the wi
 | T12 | **The king has eight tractor pixels,** a ring round its middle core in place of hull: a pixel a second, where a side's first miners unload. | |
 | T13 | **The starter deck's factories:** the OUTPOST has four tractor pixels where it had factory pixels (24 factory pixels now, builds up to 240 px), the SHIPYARD eight (110, up to 1,100 px). Same size, power and price. The teams' NEST has two (10 factory pixels) and the DOCK six (66). **This changes Henry's drawings.** A saved starter outpost or shipyard that was never edited is swapped for the new one, and a team saved with seven cards gets the collector in slot 8. | |
 | T14 | **The AI prints collectors:** when its tractors can't pull as fast as two thirds of its miners bite, its king prints a collector before another miner. Every ready-made team has the collector on the end of its cards. (`--off 8` switches the rule off for measuring.) A raider near one of its collectors turns its guards out, as one near a miner does. | |
-| T15 | **What the match shows.** A dotted pink line from a miner to the tractor emptying it, with a bright pixel running along it for each pixel that crosses. A tractor's reach, for the ship under the pointer and the ones selected: one pink dot that goes once round it at that distance in 4 s, clockwise from the top, and rests 3 s before the next lap. (A dotted circle for the first evening. Henry, 2026-11-17: "can we have the circle showing the tractor's range just be one pink dot that goes around in a circle occasionally. I think it's too loud right now.") The bar: "TRACTOR: 1 PX A SECOND, 46 PX REACH. 3 MINERS WITH A LOAD." A gold note when four or more of your miners stand waiting on a tractor. | |
+| T15 | **What the match shows.** A dotted pink line from a miner to the tractor emptying it, with a bright pixel running along it for each pixel that crosses. A tractor's reach, for the ship under the pointer and the ones selected: one pink dot that goes once round it at that distance in 4 s, clockwise from the top, and rests 3 s before the next lap. (A dotted circle for the first evening. Henry, 2026-11-17: "can we have the circle showing the tractor's range just be one pink dot that goes around in a circle occasionally. I think it's too loud right now.") The bar: "TRACTOR: 1 PX A SECOND, 46 PX REACH. 3 MINERS WITH A LOAD." When four or more of your miners stand waiting on a tractor, a small mark at the top of the field: a warning triangle with a pink square in it, and the number (a line of gold words for the first day; see Z1). | |
 | T16 | **E selects your miners and collectors in view,** Ctrl+E every one (Henry: "E selects economy units just like Q selects combat units"). Q, and a box, leave collectors with the miners. | |
 | T17 | **The arena is as it was:** its stations take a load at once. Tractors work only in a match. Wire version 19. | |
 
@@ -2947,9 +2949,678 @@ Built the same evening. Docking ports, the other half of the idea, are in the wi
 - **Proofs:** on four maps, whichever pixel of a rock is asked, the rock is all of that rock's pixels. And a seed sent to every pixel of the home rock on three maps comes down within a minute, on the pixel it was sent to, with the whole rock to eat. Counting edge to edge again fails both; leaving the specks in fails the first; the seed's old 2 px fails the second.
 - The suite is 319 and passes, with the same four tests switched off.
 
+## After Henry's first whole tractor matches (2026-11-17)
+
+Henry: "Overall, I think pixel tractors are the right decision for slowing down the game. I do think we want a little more mining complexity. I'd like to provide alternatives to swarms of tiny miners. I'm also wondering if we should just make the map a tiny bit bigger and/or have the asteroids show up in a more geometric design, like an S, a donut, or two triangles, chosen randomly. I'm trying to making everything less blobby and make it feel more like each decision matters rather than just a mess of ships. Some of our decisions have already been good for that like how tracker is an effective swarm counter."
+
+**So T1, the tractor itself: keep.** The rest of the T rows have no verdict of their own yet.
+
+Two things he asked for, built:
+
+| # | What | Henry's verdict |
+|---|---|---|
+| Z1 | **The waiting mark.** "I think the miners missing tractor message is a bit too big. Maybe just like [! pink square] in a warning triangle with a number of miners?" The line of words is gone. In its place, top middle of the field: a gold warning triangle 11 px wide with a pink square in it, and the number of miners waiting. With the pointer on it the bar says what it means. | |
+| Z2 | **A build order has a START and a REPEAT.** "I think we need to split the builds cycle into a fixed start and then a repeat sequence. We should allow both to be pretty long." A factory prints its START row once, in order, then its REPEAT row round and round. | |
+| Z3 | **Sixteen in each row** (one row of twelve before). The yard shows the two rows one over the other, with the ADD buttons under them, in room taken from the text box, which never used it. A click on a row's name lights that row, and ADD puts designs on the lit one; a right-click on an entry takes it off. REPEAT is lit to begin with. | |
+| Z4 | **What it's too small for is passed over in the start too,** and doesn't come round again. **With an empty REPEAT a factory prints its start and stops.** A piece cut off a factory that still prints goes on with the round. | |
+| Z5 | **Saved as `3,3,7>0,1`:** the start, a `>`, the repeat. With no start the line is what it always was, so nothing saved before has changed. A card's tip in a match says both rows, the same design several times running said once ("3 MINER, FIGHTER"). Wire version 20. | |
+
+**Engine against weight** ("We should also check engine vs. weight design because currently ships all feel pretty samey to me in terms of speed, except for fighters being faster"). Every ship of the starter deck and of his own:
+
+| Ship | Pixels | Weight | Engines | Top speed | Time to top speed | A quarter turn |
+|---|---|---|---|---|---|---|
+| FIGHTER (starter) | 9 | 9 | 2 | 37 px/s | 1.0 s | 0.8 s |
+| LANCER | 9 | 11 | 2 | 33 | 1.1 | 0.9 |
+| MINER | 9 | 12 | 2 | 30 | 1.1 | 1.0 |
+| FIGHTER (his) | 13 | 13 | 2 | 30 | 1.2 | 1.5 |
+| PICKET (his) | 46 | 55 | 10 | 33 | 1.1 | 3.0 |
+| COLLECTOR | 27 | 27 | 3 | 22 | 1.2 | 3.0 |
+| FRIGATE (starter) | 55 | 79 | 5 | 15 | 1.4 | 3.0 |
+| FRIGATE (his) | 59 | 87 | 5 | 15 | 1.5 | 3.0 |
+| BATTLESHIP (his) | 188 | 271 | 15 | 15 | 1.6 | 3.0 |
+| BASTION (his) | 157 | 295 | 14 | 11 | 1.4 | 3.0 |
+| CAPITAL | 663 | 1028 | 31 | 11 | 2.2 | 3.0 |
+
+- **He's right, and it's three rules flattening it.**
+- **Top speed has a floor.** It's 2 plus five times thrust over weight (in quarter pixels a tick), and never under 3. So anything with an engine does 11 px/s, and everything from a frigate to a capital lands on 11 or 15. The capital's 31 engines buy it the same top speed one engine would.
+- **Everything gets up to speed in a second or two.** Weight is felt in how long that takes, and the drawings all carry engines enough that it's never long. With one engine the capital would still do 11 px/s, and take 68 s to get there.
+- **A quarter turn is never slower than 3 s.** Every ship over about 30 px with no rotation engine sits on that limit, so a frigate turns like a capital.
+- Nothing changed: it's Henry's to rule (below).
+
+**Put to Henry, not built:**
+1. **Heavy plate.** "The 2x1 isn't a real restriction, just an annoyance. Your original 2x2 was better but it didn't play well with the symmetrical building mode. Maybe 3x3?" What a domino doesn't stop is a skin one pixel thick, which is the thing worth stopping. Proposed: no blocks at all, and a rule of thickness: every heavy plate pixel has to be part of some full 2x2 square of heavy plate, the squares overlapping as they like. Any shape two thick or more is legal, a wall three wide sits across the mirror's centre column, [T] and the dominoes go, and a pixel too thin shows red as a thin projector does. The stricter version is the same rule with 3x3. Either makes the heavy plate on his OUTPOST, SHIPYARD and BASTION illegal as drawn, and the teams' ships need redrawing.
+2. **Alternatives to swarms of tiny miners.** The swarm is what the rule asks for: a miner bites a pixel every 3.3 s however many scoops it has past two, so the cheapest fast miner earns the most. Proposed: every scoop bites (a six-scoop miner bites three times as fast as a two-scoop one). A big miner is then several small ones in one hull with one core and one set of engines: cheaper for what it bites, slower, a fatter target, and best parked beside a collector. Small ones stay best for far rocks.
+3. **Rocks in shapes.** Now that a tractor has a reach, a rock's shape is a decision: a long S wants collectors along it, a donut has an inside. Proposed: fewer rocks, each one of a handful of shapes (S, donut, two triangles, bar, cross), mirrored for the other side as now, and the map's size left alone until that's been seen. Rocks still stop nothing.
+4. **Speed.** In the order I'd try them: take the floor off top speed, so it's thrust over weight and nothing else and an under-engined ship crawls (the beaten-king rule leans on that floor and would need its own number); then let a quarter turn be slower than 3 s for the heaviest.
+
+- The suite is 322 and passes, with the same four tests switched off.
+
+*Henry's rulings on those four, the same day:*
+- Rocks: "When I was talking about the S I meant the asteroids make a big S on the map, and there's empty space otherwise." So not rocks shaped like letters: the whole field of rocks laid out as one big figure. Not built; planned below.
+- "Two-thick rule makes sense."
+- "I agree we should make every scoop bite. What happens when tracktor and scoop is on the same ship?"
+- "I think we need to make those speed numbers a lot more variable."
+
+| # | What | Henry's verdict |
+|---|---|---|
+| Z6 | **Heavy plate has to be two thick.** Every heavy plate pixel has to be part of some full 2x2 square of heavy plate; the squares overlap as they like, so a wall three wide, an L or a slab is fine and a skin one pixel thick isn't. It's painted a pixel at a time like plate. A pixel that's too thin shows red, and the status line says how many ("14 HEAVY PLATE PX NOT 2 THICK"). The dominoes, and [T] turning them, are gone. | |
+| Z7 | **Three ready-made ships redrawn** for it, the only three that wore it one thick. CORVETTE: a nose three wide and two thick (it costs 31 px where it cost 29). LANCET: sides and stern two thick, 74 pixels of heavy plate where it had 32 (222 px where it cost 180, and more than twice the weight). The example BASTION: its skin two thick (206 px where it cost 156). The fights that set them against a swarm are levelled on cost again (48 fighters against two lancets, 23 lancers or fighters or 17 AP lancers against a bastion). | |
+| Z8 | **Every scoop bites:** one scoop bites a pixel every 10 s, and a ship's scoops between them bite one every 10 s over their number. The starter miner's three bite as they did, one every 3.3 s. Six bite twice as fast. (Two scoops bit one every 3.3 s and any more bit no faster, so the cheapest fast miner earned the most and a swarm of them was the best mining there was.) The AI's rule for collectors and a collector's room both count scoops now, not miners. | |
+| Z9 | **A ship with a scoop and a tractor** is a miner: it goes to the rock and works. Its tractor reaches its own hold, so what it bites is banked in itself as it bites; it never fills and never carries a load anywhere. It's a node, so within link of its side's network what it holds can be spent, and out of link it sits in the ship. Nothing brings it home. Its tractor empties other miners in its reach too, and a collector doesn't come to a miner whose own tractor keeps up with it. Nothing new was built for this: it's what the tractor's rules already did, now with a test. | |
+| Z10 | **Top speed is thrust over weight, and nothing else:** 22.5 px/s for each thrust per weight, from 7.5 to 45. The 2 it started from is gone, and the least is 7.5 where it was 11. The number is the one that leaves the starter fighter at the king's pace (37.5), the miner at 30 and the wasp at 45. | |
+| Z11 | **A beaten king flies at a tenth of its speed, 3.75 px/s.** **This changes M2.10's number** (7.5 px/s, a fifth), because the slowest ship is now 7.5 and the rule is that a beaten king is slower than anything that flies. | |
+| Z12 | **The yard's turning gauge and its time to top speed were the old flight's.** They show what a match flies now: seconds for a quarter turn, and the time to top speed on the engines that push hardest. | |
+
+**What Z10 does to every ready-made ship** (px/s, before and after):
+
+| | Before | After |
+|---|---|---|
+| WASP | 45 | 45 |
+| FIGHTER | 37 | 37 |
+| LANCER, ARCHER | 33 | 30 |
+| MINER | 30 | 30 |
+| AP LANCER | 26 | 22 |
+| COLLECTOR, RAKER | 22 | 18 |
+| AEGIS | 18 | 15 |
+| CORVETTE, WARDEN, SENTINEL | 15 | 11 |
+| FRIGATE | 15 | 11 |
+| BEAMER | 11 | 7 |
+| CRUISER, BATTLESHIP | 15 | 7 |
+| CAPITAL, LANCET | 11 | 7 |
+
+And Henry's own: FIGHTER 30 to 26, PICKET 33 to 30, FRIGATE and BATTLESHIP 15 to 7, BASTION 11 to 7; LANCER and MINER as the starter's.
+
+- **Nine speeds where there were six, and the big ships are a class of their own:** a frigate is now a third as fast as a fighter where it was two fifths, and a capital a fifth.
+- **Still the same among themselves, at the bottom:** cruiser, battleship, capital, lancet and bastion all sit on the least, 7.5. A big ship can't carry engines enough to leave it: engines go along one edge and weight goes by the area, and a capital with engines right across its stern has a quarter of a thrust per weight. What would let a big ship buy speed is a bigger engine, which is a part to draw, not a number. Not built.
+- **Turning is untouched.** Every ship over about 30 px still takes exactly 3 s a quarter turn.
+- **What it did to a fight:** the example beamer (7.5 px/s now) against the example warden (11). The warden takes two cuts on its circles, reaches its lances' distance in 7 s and kills the beamer, which is too slow to get off a lance's line. Before, that fight ran past forty seconds with the beamer alive. Slow ships are easier for lances.
+
+**Henry's own team under Z6:** his OUTPOST (44 px too thin), SHIPYARD (36) and BASTION (38) are not legal as drawn and can't be printed until their heavy plate is two thick. They aren't touched.
+
+**The rock field as one big figure: the plan, not built.**
+- A map's rocks are strung along a figure that fills the map: an S, a ring, or two triangles, chosen by the map's seed. Open space everywhere else.
+- Every figure is the same turned half round about the map's middle, as maps are now, so neither side has the better of it. An S is that already; so is a ring; the two triangles are one each side.
+- The figure passes within about 150 px of where each king starts (an S's two tails end there), so a first factory has a rock in reach.
+- About as much rock as now (22,000 px a map), in the same rough discs, each one body.
+- What has to be looked at: the AI plants on the rock nearest its king that links, and a good many tests stand a rock a set distance from a king.
+
+**The same four matches again** (the AI against itself on the starter deck, seeds 1 to 4), with Z6 to Z11 in: they ended at 26:58, 26:05, 23:04 and 22:14, where with tractors alone they had ended at 30:20, 21:15, 22:36 and 20:49. Mined by 8:00 on seed 1: 1,138 and 1,045 (944 and 1,152 before); by 16:00: 4,279 and 3,959 (3,781 and 4,306). Mining is where it was, as it should be with every miner in these decks having three scoops. The matches ran 50 s longer on average, with frigates at 11 px/s where they flew at 15. Four matches is too few to say more than that nothing broke.
+- The suite is 324 and passes, with the same four tests switched off: 323 in one run of the whole suite, and one more run by itself afterwards, the cannon fight whose plain-pilot baseline I re-recorded (the ARROWS flying straight in won 15 of 20 or more; they win 11).
+
+*Henry, later the same day:* "Yes, but let's keep the existing map style as a fourth option. Additionally, let's bump the hull cost of a scoop up by one. New mining wishlist item: a scoop with a range. Question: Should we rename "tractor" to something like "processor" or "integrator?" After this, let's implement some new parts. I don't want to get stuck tweaking gameplay while not all the content is there yet."
+
+| # | What | Henry's verdict |
+|---|---|---|
+| Z13 | **A map's rocks are laid out one of four ways, as its seed falls:** scattered all over, as every map was; or strung along one big figure with open space everywhere else: an S across the map with a big rock where its curves meet, a ring round an empty middle, or two triangles, one each side, their long sides facing across an open middle. Both machines of a linked match have the seed, so both lay out the same map. | |
+| Z14 | **Every layout is a fair map:** the same turned half round about its middle. No rock is nearer a king's start than 84 px, and on every layout there's rock within 180 px of it, in reach of a first factory (an S's tails end by the two kings). A figure's rocks are the same rough discs, most 7 to 13 px in radius and one in seven 18 to 24, with 16 to 44 px of open space between one and the next. | |
+| Z15 | **A scoop uses 2 power, where it used 1.** A ship short of power bites slower in step, as its guns reload slower, so a miner drawn without the hull doesn't bite as fast as one with it. | |
+| Z16 | **The starter MINER has a row of three more hull pixels** for its scoops: 12 px where it was 9, 22 px/s where it flew at 30, a quarter turn in 1.5 s where it took 1. **This changes Henry's drawing,** which the scoop's new cost left a third short of power. His own saved MINER is the old drawing: it still flies, at two thirds of its power, 18 px/s, biting a pixel every 5 s where it bit one every 3.3. | |
+| Z17 | **A ship that's going away from the spot it's sent to, and too fast across to stop there, stops dead first and sets off again from rest.** A fault in straight flight, a day old, found on the way: a ship with one engine, steering for a spot while it was going away from it (sent somewhere else at speed, or carried past), turned the one way's speed round while the other way's carried it past, then the same the other way about, and could go round and round the spot for good. In a match a fighter sent to a spot 18 px behind it was still circling 15 s later. A ship that's only going away, with room the other way, turns round as it always did. | |
+
+**Measured, on eight maps of each layout** (seeds 1 to 8):
+
+| | Scattered | An S | A ring | Two triangles |
+|---|---|---|---|---|
+| Rock, least to most | 21,484 to 28,216 px | 19,760 to 32,614 | 17,792 to 30,640 | 17,792 to 31,206 |
+| Rock, average | 24,626 px | 26,640 | 24,573 | 25,023 |
+| Of the map, how much is over 110 px from any rock | 17 to 26% | 48 to 49% | 51 to 52% | 53 to 56% |
+| The AI against itself by 8:00 (seed 1): factories planted | 2 and 2 | 2 and 2 | 3 and 3 | 3 and 3 |
+| and pixels mined | 916 and 945 | 946 and 1,042 | 1,117 and 1,118 | 976 and 1,074 |
+| That match ended | 22:29 | 28:08 | 28:51 | 26:26 |
+
+- **A figure's rock varies more from map to map than a scattered map's,** because one rock in seven is big and there are only fifty or sixty of them. The averages are within a tenth of each other.
+- **Z17, measured.** Henry's fighter alone, sent to eight spots near and far from every speed it can have and every way it can face, 416 starts: before, it never came to rest from 11 of them (17 at the speed it had the day before), and the slowest that did took 38 s. Now it comes to rest from all of them, the slowest in 31 s. So do the seven other ships tried, from every start; the slowest of each: the starter fighter 23 s, lancer 19, miner 30, wasp 44, collector 50, corvette 55 and frigate 72 (the last two fly at 11 px/s, and were tried from 672 starts each). From rest every ship got there already.
+- **The first cut of Z17 was blunter, and wrong:** stop dead whenever the ship is going away from its spot, either way. It cured the circling, but a ship holding its range from an enemy that moves is going away from its spot half the time, and it kept stopping: five tests failed with it (a stance sending ships home, a ship getting onto a near spot, ships dodging shells, ships holding range in a losing fight, ARROWS flying round armour). The rule as built stops a ship only in the state that circles: going away one way, and the other way too fast to stop in the room it has by the time the first is turned round. All five pass with it. In the match test the longest any ship goes without getting nearer its spot is 11 s, where it was 9 before the fix (17 with the blunt one).
+- **Two tests re-recorded for Z17.** Eight seconds into the SKATERS' fight every one of them had an enemy within 130 px; in one roll of forty one is now 132 px off at that moment, and the bound is 140. And the collector that stands at the end of its link was judged at one instant, a minute and a half in; it happened to be shifting 20 px to a new stand at that instant, so it's judged over the half minute after (at rest 431 ticks of 450, never out of link).
+- **Seen in that trace, not touched:** a collector shifting 20 px creeps there at 4 px/s and runs a few px past before it settles, because with one engine it needs two quarter turns to brake. It's the same inexact stop the straight flight has had since it was built.
+- **That match test read Henry's saved team from its file,** so what it tested changed with whatever he'd drawn last. It has his warships of 2026-11-16 written into it now, with the starter deck's miner and factories.
+- **The tests' maps are scattered,** as every one was, so nothing they measure moved for this. Three new tests are about the layouts: each seed falls on one of the four and always the same; every layout is fair, in one body rock by rock, with rock in reach of both kings and its figure where it should be; and the AI plants and mines on every one.
+- **For the tools:** `--map scatter|s|ring|triangles` plays the headless matches on that layout; without it each match's is picked by its seed, as the game's are. `--map-screenshots` writes a picture of the whole map for each.
+
+**Five matches on the build as it stands** (the AI against itself on the starter deck, seeds 1 to 5, each on the layout its seed picks):
+
+| Seed | Rocks | Won by | At |
+|---|---|---|---|
+| 1 | two triangles | RED | 26:26 |
+| 2 | an S | BLUE | 26:05 |
+| 3 | two triangles | RED | 21:08 |
+| 4 | scattered | BLUE | 23:17 |
+| 5 | a ring | RED | 27:04 |
+
+- Every one ended with a king killed, none in a draw. The four before (all scattered, before the scoop's cost) ended at 26:58, 26:05, 23:04 and 22:14. These aren't the same maps, so the lengths don't compare match for match: five matches on four layouts say that nothing broke, and no more.
+- Mined on seed 1 by 8:00: 976 and 1,074 (1,138 and 1,045 before, on its scattered map with the miner at 9 px and 30 px/s); by 16:00: 4,042 and 4,278 (4,279 and 3,959).
+- `--match-sim` names each seed's layout on its line now.
+
+**"Should we rename tractor to something like processor or integrator?"** My answer: keep TRACTOR for this part. What a player plans round is its reach and its pull at a distance, and that's what a tractor is: the dot going round it, the line to the miner. PROCESSOR says something else, that a load has to be worked on before it counts, and that fits a part a miner has to touch, which is nearer the docking port. If the wish is for a word for the whole job (taking loads in at a rate), that's the name of the pair, tractor and dock, not of this one. Not renamed; Henry's to say.
+
+- The suite is 328 and passes, with the same four tests switched off. Four are new: the ship sent somewhere at speed, and the three about the layouts.
+
+---
+
+## Dock pads, the energy ball, and a king that runs (2026-11-17, night)
+
+*Henry, after a match on an S map (seed 33943, the AI on SWARM; he won at 15:49):* "MINERS text just barely got cut off. Why does every combat ship say "HOLDING AT RANGE?" Do they ever say anythign else? I played a game on an S map. I think we definitely want to keep a map variety, it was a good change of pace. Whether or not we need some minor edits to the plain shapes is TBD. Seemed good from my game. What determines the length of a node connection? My game ended a little early when the enemy king didn't seem to run away correctly. Docking port and energy ball next are good and what about a speed-up field and a stasis field? Those seem among the riskier additions that would be good to get in earlier. I'm also interested in the ranged scoop. I want to add a way to get a burst of resources to encourage building big ships. What about a phase-harvester that builds up a charge on an entire asteroid and harvests the entire asteroid at once once the bar reaches the amount of pixels remaining on the asteroid? Another wishlist item: a repair array that uses banked pixels to repair damaged ships (this could even indirectly build two full ships out of one if a ship got split brained and then repaired). If we implement those plus maybe a couple of my other wishlist items I think we're getting close to some sort of "full set" of part content, although I haven't decided exactly how we want to handle building sets."
+
+**His verdict on the layouts (Z13, Z14): keep.** "We definitely want to keep a map variety." Whether the plain shapes want small edits is open.
+
+**The two questions.**
+- *"Why does every combat ship say HOLDING AT RANGE?"* Because that's the one thing a ship with engines says from the moment it has a target, whether it's still 400 px off and flying in or already at its guns' distance and firing. In a fight every warship has a target, so that's what they all say. The others it can say: IDLE (no enemy, at its post), ON GUARD, SENT TO A PLACE, ESCORTING THE KING, DODGING A BEAM, HOLDING (it has no engines), FLEEING HOME (unarmed and hit), and a miner's and a collector's own. Not changed. It could say which it is (closing, or at its range) and what it's after.
+- *"What determines the length of a node connection?"* Two fixed numbers and nothing else. Every node reaches 80 px from its middle, and a king 120. Two of a side's nodes are linked when their reaches touch: two factories with their middles up to 160 px apart, a king and a factory up to 200. A node's size, its parts and what it holds don't come into it.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| W1 | **The yard's line for a collector reads COLLECTOR: FOLLOWS YOUR MINERS.** It was two letters longer and its last letter was cut off. The test of what fits the line never asked for this one; it does now. | |
+| W2 | **A bot's king keeps clear of the reach of an enemy's guns:** of the gun of that enemy's that reaches furthest, and 30 px besides. It backed away only from an armed enemy within 90 px, whatever its guns, and a cannon or a tracker reaches 130 and a missile 200: it stood still while it was shelled. | |
+| W3 | **It doesn't fly back to a post that's in reach of guns that outweigh it.** With the enemy on its post and itself clear, it waits where it is. It used to go back the moment the enemy was 90 px off, into the guns. | |
+| W4 | **Once it has lost a quarter of its pixels the AI's king stops trusting that it outweighs what's shooting it,** and keeps clear of every gun. The weighing is by the pixel, and counts fighters against armour they can't break. (The rushing opening's king turns for home at the same loss.) The weighing itself is as it was. | |
+| W5 | **It falls back on a factory only if it's nearer that factory than the enemy is,** not one it would have to pass the enemy to reach. With none, it takes whichever of the eight ways leaves it safest 120 px on: straight away unless another way is better, as along the map's edge is for a king with its back to it. | |
+| W6 | **DOCK PAD** (INDUSTRY, weight 1, no power, letter `k`): a lump of them is a landing pad, and its ship is a node. A miner of its side flies onto a pad that fits it and comes to rest there, and everything it carries goes into that ship's store at once. Miners choose between tractors and pads by where they'd be empty soonest. | |
+| W7 | **A miner fits a pad that holds a square as wide as the miner is long,** so it can come down on it turned any way. *This is narrower than "large enough for the miner to fit on it":* a starter miner, 3 by 5, needs 5 by 5. A pad with a pixel shot out of it holds a smaller square. | Replaced the same night by W13: "I don't think the miner should need to be able to fit any direction." |
+| W8 | **A pad takes one load every 3 s.** *My departure:* I first built one miner on a pad at a time, the others waiting a little way off. A ship's own side flies over it freely, so nothing but a rule kept them off; and the short hop from the waiting place took a starter miner 12 s (a ship with one engine creeps on a short hop). So miners waiting for a pad wait on it, and the turn-round is what one pad can do. | Replaced the same night by W14 to W16: miners tile the pad, and the rest is counted "per pixel". |
+| W9 | **A ship that flies with a pad and no scoop is a collector,** like one with a tractor: it goes and stands on its miners' place of work, as far out as still links, and they land on it. | |
+| W10 | **ENERGY BALL** (HEAVY WEAPONS, weight 2, uses 3, letter `z`): each lump of them is one gun, and a lump has to be two thick like heavy plate. It throws a 2x2 ball at 30 px/s, 130 px, any way. The shield circle or projector that stops a ball loses 20 charges (a circle holds 4). A ball that reaches a ship breaks only the bare hull of the 2x2 it lands on. A gun of 4 px fires every 4 s, and a bigger one sooner in proportion. It goes for a ship with shield pixels standing or a projector over it, whether the shield is up at that moment or not. | |
+| W11 | **A seventh category of parts, HEAVY WEAPONS, key 7:** the cannon, the tracker, the missile and the energy ball. Eight weapons' names don't fit the two rows of buttons a category has. It's last so the other categories keep their keys; the category buttons are 27 px wide where they were 32. | |
+| W12 | **The yard's "N HEAVY PLATE PX NOT 2 THICK" lost its "PX".** With a thousand such pixels the line was a letter too long. The energy ball's line is worded the same. | |
+
+*Henry, of the pad's line in the yard (W7):* "What does the "it fits a pad that holds a square..." sentence mean". It meant: take the miner's longer side, and somewhere on the pad there must be a solid block of dock pixels that many wide and that many tall. I reworded it, and Henry gave it better: "How about "the pad has to be big enough for the miner to land facing any direction?"" The line reads that now. The rule is as it was.
+
+**The king, measured.** Henry's log holds no positions, so his match can't be played again. What I could do was send two of his own BATTLESHIPS (cannon, armour the starter ships can't break, 7.5 px/s) at an AI king four minutes into a match of its own:
+- As it was: the king stood at its post and lost 45 px to shells from 130 px down to 90; backed off 100 px; came back to its post as soon as the battleships were 90 px away again; and so on. Dead in 144 s.
+- Now: it stands by its fleet until it has lost a quarter of itself (W4), then keeps clear. Alive two and a half minutes on with 163 px of 218.
+- **Five matches, the AI against itself on the starter deck (seeds 1 to 5, each on its seed's layout):**
+
+| Seed | Rocks | Before W2 to W5 | Now |
+|---|---|---|---|
+| 1 | two triangles | RED at 26:26, blue beaten (under 40 px standing) | RED at 25:23, blue's king lost with 52 px standing |
+| 2 | an S | BLUE at 26:05, **red's king lost with 1,436 px standing** | BLUE at 29:44, red beaten |
+| 3 | two triangles | RED at 21:08, **blue's king lost with 2,288 px standing** | RED at 24:52, blue beaten |
+| 4 | scattered | BLUE at 23:17, red beaten | BLUE at 23:33, red beaten |
+| 5 | a ring | RED at 27:04, blue beaten | RED at 26:58, blue beaten |
+
+- Two kings of five used to die with a healthy side behind them, which is what Henry saw. None does now. The same sides win; the matches are 78 s longer on average (24:48 to 26:06), most of it in the two that used to end early. Mining on seed 1 is the same to the pixel at 8:00 and 16:00.
+- **Not looked at:** a king against ships faster than it is, which no rule here helps; and `--teams`.
+
+**The pad as first built, measured** (W7 and W8; the pad as rebuilt is below). Three example drawings are on the library's PARTS shelf: PADPOST (the starter outpost with a pad six wide on its flank, 157 px where the outpost is 121), HAULER (six scoops, six long, 23 px, 22 px/s, carries 18) and SAPPER (an energy ball gun of eight, two flak, 43 px).
+- **A starter miner 80 px from a pad** is down and empty in 13 s. A second miner, bound for the same pad from much the same place, in 20 s. Most of that is coming to rest on an exact spot: straight flight stops a ship within 3 px, and the pad draws it the rest.
+- **A carrier** (a pad five wide, hull and three engines) sent out with three miners on a rock beyond its side's link: in two and a half minutes it's standing 195 px out and holds 45 of the 63 px they mined.
+- **The starter deck with PADPOST for its outpost, the AI playing it against the starter deck** (seeds 1 to 3): it lost at 26:09, won at 27:00, won at 23:11. Its miners unloaded 1,831 of 8,189 px on pads, 2,120 of 9,680, and 1,506 of 10,529: about a fifth, the rest through its tractors. Mined on seed 1 by 8:00: 1,099 to the starter deck's 1,046; by 16:00: 4,736 to 4,604.
+- **The same with HAULER for its miner as well** (seeds 1 to 3): it won at 22:15, lost at 13:30, lost at 19:35. On pads: 1,652 of 11,434 px, 114 of 788, and 490 of 5,002. Its first fighter is out at 2:28 where the starter deck's is out at 1:08: a miner of 23 px and an outpost of 157 make a slow start, and the two it lost it lost early. Mined on seed 1 by 8:00: 958 to 1,048; by 16:00: 5,095 to 4,275.
+- Three matches each, one deck, one AI: this says pads work in a whole match and miners use them. It says nothing about what a pad is worth.
+- **Not done:** the AI doesn't count its pads when it decides whether it needs another collector, and no deck the game ships with has a pad in it.
+
+**The energy ball, measured** (in the tests; nobody has played it):
+- One ball takes a shield's circle from 4 charges to none, and a projector's pool of 12 to none. A flak shot takes one.
+- A gun of four against a post with one shield, a minute: fifteen balls, every one stopped at the circle, the post untouched. A circle is back 3 s after the last shot it stopped, and four pixels fire every 4 s.
+- A gun of eight: thirty balls. The circle never comes back, the second ball lands on the hull, and the post's core is gone inside ten seconds.
+- A ball on a slab of bare hull breaks 1 to 4 px. On plate, none.
+- Ships see a ball coming as they see any shot, and the ones that pick their own courses fly round it. Not measured.
+
+**The pad, rebuilt the same night.**
+
+*Henry, of the pad as first built:* "There should be a pink animation when a miner offloads at a pad. I don't think the miner should need to be able to fit any direction. Actually I think it should just need to fit on an exact match of its profile and if there's extra room it would be cool if the miners tiled it and multiple could offload at the same time. Miners should clear the area of the pad once they're done offloading. I believe you have a scripted docking that takes over so they don't have to carefully fly themselves onto the pad right? It's like they're being tractored in? We can keep that and just use it for the full on->tile->off sequence. The three second cooldown can be counted per pixel or you can just fake that with a variable speed combined cooldown. Make sense?"
+
+What I had was less than he took it for: the pad drew a miner only the last pixel or two, after it had flown itself to a stop on the spot. The pad does the whole of it now.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| W13 | **A miner fits a pad that has a pad pixel under every pixel of the miner,** turned whichever of the four ways. *This replaces W7.* A starter miner needs thirteen pad pixels in its own shape, or any block 3 by 5 either way up. A pad pixel missing where the miner has no pixel doesn't matter. | |
+| W14 | **A pad with room takes several miners at once, side by side.** Places are taken by rows, so miners of a size tile the pad, and a miner is turned the way that lets the pad hold most. A block 6 by 5 holds two starter miners, 9 by 5 three, 6 by 10 four. | |
+| W15 | **The pad moves the miner all the way: on, down, off.** A full miner flies up to the pad's ship and waits 5 px clear of it. The pad takes hold of one that's within 12 px of there and going no faster than the pad moves it, when there's a place for it; turns it; moves it on at 15 px/s; and when its load has gone moves it off again, 5 px clear of the ship on the side of the rock it's working, and lets go. In the pad's hands a miner doesn't fly. *This replaces* the miner flying itself onto its place. | |
+| W16 | **Where a miner sat, the pad rests 3 s:** the pad pixels under it, from the moment its load goes. *This replaces W8.* | |
+| W17 | **A pink line sweeps the miner from nose to tail while its load goes,** half a second. The load itself is banked at once, the moment the miner is down. | |
+
+- **What's mine in that, to flag:** "its profile" I took as the miner's pixels as they stand, so a miner with pixels shot off fits a smaller place, and the pad may be bigger than the miner or any shape. The pad turns a miner when that's what makes it fit, or what makes the pad hold more. The numbers (5 px clear, 12 px to take hold, 15 px/s, half a second of sweep) are first guesses.
+- **The pad's line in the yard** now reads: THE MINER HAS TO FIT ON THE PAD. A BIG PAD TAKES SEVERAL AT ONCE. WHERE ONE SAT RESTS 3 S. His to reword.
+- **A starter miner 80 px from a pad 3 by 5:** the pad has hold of it at 6.4 s, it's down and empty at 7.6 s, and it's let go clear of the station at 8.8 s. As first built it was down at 13 s: the difference is the miner no longer has to bring itself to rest on an exact spot.
+- **A pad 6 by 5 and three full miners:** two are down side by side a fifth of a second apart, and the third 3.6 s after them, when a place had rested.
+- **The carrier** holds 54 of the 72 px its three miners mined in two and a half minutes (45 of 63 before).
+- **The starter deck with PADPOST for its outpost, the AI playing it against the starter deck** (seeds 1 to 3): it won at 20:55, lost at 26:00, lost at 23:20. On pads: 2,241 of 7,746 px, 2,061 of 6,174, and 2,170 of 6,240: about a third, where it was a fifth. Mined on seed 1 by 8:00: 1,177 to the starter deck's 1,056; by 16:00: 4,451 to 4,497.
+- **With HAULER for its miner as well:** it lost at 20:10, 14:30 and 15:03. On pads: 1,613 of 5,072 px, 460 of 1,458, and 454 of 2,231. Mined on seed 1 by 8:00: 1,018 to 1,048; by 16:00: 4,267 to 4,633.
+- **Found on the way: Henry's new miner took 50 s over a trip that should take 30.** (Mended since: W18, below.) A flight test read his saved team from its file, so it tested whatever he'd drawn last; it has his fighter and his miner of that afternoon written in now. The miner he drew late on 2026-11-17 (24 px weighing 31, seven scoops, two engines that push one way, 11 px/s, 3 s a quarter turn) failed it: a spot 200 px across and 23 along takes it 50 s to come to rest on, where the 200 alone takes 19. Traced, second by second: 26 s along the long leg at 7.5 px/s, not its 11; 6 s turning about and braking, by which time it's 22 px past; 10 s for the 23 px leg (a turn, a creep at 4 px/s, an about-turn, a stop); and 8 s going back for the 22 px. Eight quarter turns, 24 s of the 50. *Henry: "is it a bug?"* Partly. The turning is the drawing: engines that push one way and the slowest quarter turn there is make every stop a 6 s about-turn, and this trip can't be done with fewer than five quarter turns. The 22 px overrun and the slow long leg are the pilot's, and are worth about 15 s. (I had first written that the last 23 px took half a minute, and that the ship was 31 px. Neither was right.) At a pad the last hop is the pad's now. Going to a rock it's still the miner's own.
+- Three matches each, one deck, one AI, as before: it says the rebuilt pad works in a whole match.
+- The suite is 336 and passes, with the same four tests switched off. One more is new (the pad's three became four).
+
+**The miner that overran, and how far its scoops reach.**
+
+*Henry:* "Fix the overrun. Also, I'm noticing that my miner's range seems longer than I expect?" Then, with a picture of his miner biting a rock from well off: "image of the very long range". And of a test run I'd told him was still going: "it's not stuck, is it?" It was.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| W18 | **A ship that leaves a short leg till last flies the long leg at its full speed, and counts the whole of its about-turn.** Two faults in the pilot, both in the one case: a leg of the trip too short to stop on (24 px or less for his miner) is left until the other is flown. The long leg had only its share of the ship's speed, rounded down, though nothing else was being flown: two steps of his miner's three. And its stop was planned a quarter turn short, as if the short leg's stop had already turned the ship part of the way round: 22 px of overrun, and a leg to go back for it. | |
+
+- **His miner's trip** (200 px across, 23 along): 50 s and eight quarter turns before, 29 s and five now. That's 19 s for the long leg, as when it's flown alone, and 10 s for the short one, which is what a ship that takes 3 s to a quarter turn needs for it.
+- **Every flier, twenty trips each.** Only a trip with a short leg left till last changes: the SKATER's twenty take 201 s where they took 204, the BRAKER's 234 (238), the starter fighter's 185 (188), the collector's 397 (406). The other ten ships' are the same to the second, his new miner's among them (none of the twenty has such a leg). None is slower. 6,698 s over all 320 trips, where it was 6,718.
+- **What I tried first, and took back.** Rounding every ship's share of its speed to the nearest step, not down, on every trip: a ship a little off its line flies a step slower than it can, and for one with two or three steps of speed that's a third of it. The 320 trips were 11% quicker for it (the capital's twenty: 708 s, from 990). But the example BEAMER, with two steps of speed and 3 s to a quarter turn, then came in on both legs at once faster than it can stop, slid past its place and drifted away up the map without ever firing. So slow ships are still a step slow off their line. Recorded, not mended: it wants the two legs' stops planned together.
+- **The run that hung.** That beamer's test loops until the arena's clock reaches seventy seconds. An arena whose fight has been called over doesn't advance its clock, so the loop span for good, and I reported the suite as still running for half an hour. Fourteen test loops of that kind end when the fight does now, and the suite runs under a time limit. A second test moved for the mirror of that reason: in one roll of forty the SKATERS, sent away from a fight, shot down the last of the ARROWS as they left; the fight was won and the clock stopped with five of them still on their way. They were counted as never arriving. They aren't now.
+- **"My miner's range seems longer than I expect."** It is long: 28 px from the miner's middle. A scoop reaches 8 px, or twice as near as its ship can be sure of placing itself, whichever is more; and a ship that takes 3 s to a quarter turn can't place itself nearer than 14 px, which is what it drifts while it turns to stop. The starter miner, at 1.5 s a quarter turn, reaches 16. A miner with a rotation engine reaches 8. The rule is mine, of 2026-11-16, and it's there so that a clumsy miner isn't left sitting just out of reach of a rock with no hop short enough to close the gap. What it does is backwards: the clumsier the miner, the further its scoops reach, and it leaves little for a scoop with a range to add. Not changed. What I'd do: once as near as it can place itself, not twice (his miner 14 px, the starter 8), and a miner carried past the pixel it was after takes the nearest rock where it stops. A clumsy miner would then shift more often, at 10 s a shift for his. His to say.
+- The suite is 336 and passes, with the same four tests switched off.
+
+**A scoop reaches 8 px, and a miner gets itself that near.**
+
+*Henry, of the reach:* "Let's just give scoops a short, fixed range of 8 px. This isn't a place that it makes sense to have a complicated rule. Ships should be able to fly short distances, the flying algorithm might need to be improved if they can't."
+
+| # | What | Henry's verdict |
+|---|---|---|
+| W19 | **A scoop reaches 8 px from its ship's middle, whatever the ship.** *This replaces my rule of 2026-11-16* (8 px, or twice as near as its ship could place itself: 16 for the starter miner, 28 for his miner of that night). The scoop's text in the yard says so: MINES ROCK WITHIN 8 PX. | His ruling. |
+| W20 | **A miner gets itself that near.** At the rock it places itself within 6 px of the pixel it's after, where a slow ship settles for 14 on any other errand. With rock in reach it stays where it is and bites. With none in reach it goes for the nearest rock it can fly to and stop on. With nothing left but rock too near to stop on, a last crumb, it backs off a hop and comes in again. | |
+| W21 | **The AI's king doesn't fly to its post, or to a factory, through guns that outweigh it.** It looks 120 px along its way and waits where it is if the way isn't clear. *This mends W3,* which asked only whether the post itself was safe: a hurt king up the map's edge from its post, with a battleship half way between, flew past the battleship to get home. | |
+
+- **How short a ship can fly.** A ship stops by turning its engines about. His miner of that night takes 6 s over that, and at the slowest speed there is, 3.75 px/s, that's 22 px: it can't stop on anything nearer than 24 px. That's the drawing, and no flying mends it; an engine astern or a rotation engine does. What the pilot can do is not leave such a ship standing short. Asked to place itself finely, one that's too near its point to stop on it sets off the other way, turns about a hop further off, and comes in. (Setting off towards the point, as it did, it's carried as far past as it began short, and so on.)
+- **Measured, from rest to a point 7 to 60 px off, each of four ways, 216 trips a ship:** his miner comes to rest within 6 px every time, the slowest in 25 s, with six quarter turns at most. The starter miner: 12 s. The starter frigate: 25 s.
+- **Each miner alone at its king's home rock for four minutes** (its loads go to the king's tractor, 80 px off, so the bites include the trips):
+
+| Miner | Scoops | A quarter turn | First bite | Bites in 4 min | Furthest bite |
+|---|---|---|---|---|---|
+| Starter | 3 | 1.5 s | 10 s | 36 | 8 px |
+| The starter's before a scoop used power | 3 | 1.8 s | 12 s | 36 | 8 px |
+| Henry's, that afternoon | 3 | 1.6 s | 10 s | 37 | 8 px |
+| Henry's, that night | 7 | 3 s | 18 s | 67 | 8 px |
+| HAULER | 6 | 3 s | 17 s | 50 | 8 px |
+| One with a rotation engine and an engine astern | 3 | 0.5 s | 12 s | 36 | 7 px |
+
+- **Only a miner is asked to place itself finely,** at the rock and after loose pixels. A ship sent to a spot still settles for as near as it places itself as a rule, 14 px for a slow one. Whether a sent ship should get onto its spot the same way is Henry's to say: it would cost a slow ship up to 25 s of backing and turning for a move of 10 px.
+- **W21 was found by the king's own test of that morning,** when the change to mining left the AI a little less standing at four minutes. The king, hurt, sat safe up the map's edge; the battleship came between it and its post; the post was 211 px from the battleship and so "safe"; the king flew home past it and was shot from 125 px to 33. That test was also asking something it shouldn't: with its one outpost dead the AI's side was beaten, and a beaten side's king flies at a tenth of its speed and is meant to be caught. It has a station far off now, so the side isn't beaten. And a second test stages the thing itself: a hurt king, its post, a battleship parked between. With the rule the king is never nearer the battleship than 172 px of the 180 it began at; with the rule taken out again it comes within 65.
+- **Five matches on the build as it stands** (the AI against itself on the starter deck, seeds 1 to 5):
+
+| Seed | Rocks | Before W19 to W21 | Now |
+|---|---|---|---|
+| 1 | two triangles | RED at 25:23 | BLUE at 29:23, red's king lost with 80 px standing |
+| 2 | an S | BLUE at 29:44 | BLUE at 34:43, red beaten |
+| 3 | two triangles | RED at 24:52 | BLUE at 27:10, red beaten |
+| 4 | scattered | BLUE at 23:33 | RED at 33:31, blue beaten |
+| 5 | a ring | RED at 26:58 | BLUE at 35:19, red beaten |
+
+- **Mining is where it was.** On seed 1 the two sides had mined 1,018 and 911 px by 8:00 (976 and 1,074 before), 4,449 and 3,983 by 16:00 (4,042 and 4,278), and 12,679 between them by 20:00 (11,981).
+- **The matches are six minutes longer, 32:01 on average from 26:06, and four of the five have a different winner.** Nearly all of that came with the reach and the miner's placing: a run with W19 and W20 and without W21 averaged 31:37. In it seed 2 ended at 32:35 with red's king lost and 1,196 px of its side still standing, which is the fault W21 mends; with W21 red is beaten first, two minutes later. Why the same mining makes a longer match I haven't found out: on seed 1 the two sides are simply closer at 20:00 (3,586 px standing against 3,267, where it was 2,410 against 3,471). Five matches say nothing broke, and no more.
+- The suite is 339 and passes, with the same four tests switched off. Three are new: the scoop's reach, a ship closing a short gap, and the hurt king's way home.
+
+**Kings, and ships sent to a spot (2026-11-18).**
+
+*Henry, of my report that "the king flew home through guns":* "I don't think we want kings to behave autonomously, they should probably follow a different movement logic from all other ships and just go exactly where and when they're told to go." And then: "Oh, you were just talking about the AI's king. That's fine then." So, as a rule of the game: **a king does nothing of its own accord.** It's as built: a king is kept out of the ships' brain and their pilot, and moves only on its keys or when it's sent, at a fixed pace, stopping within a pixel of where it was sent. The AI's king is moved by the AI giving that same steer command once a second, and W2 to W5 and W21 are about what the AI tells it.
+
+*Asked whether a ship he sends should get onto its spot as a miner does onto its rock:* "Yes, sent ships too".
+
+| # | What | Henry's verdict |
+|---|---|---|
+| W22 | **A ship sent to a spot comes to rest within 3 px of it,** however slow it is to turn. Too near the spot to stop on it, it backs off and comes in. It used to settle for as near as a ship of its sort places itself, 14 px for the slowest, and sent a shorter way than that it didn't move at all. Kings aren't touched. | His ruling. |
+| W23 | **The stop that was planned a quarter turn short (W18), mended in a third place:** when both legs of a move are too short to stop on and only the longer is being flown. A collector that had backed off from its spot came in 10 px past it, backed off the other way, and so on for good. | |
+
+- **Seventeen ships, 68 trips each** (twenty long, and forty-eight of 5 to 60 px, from rest): every trip ends at rest within 3 px of its spot, with fifteen quarter turns at most. All of them together take 15,276 s, where they took 13,001 settling for as near as each ship places itself: the short ones are flown now, where a slow ship used to stay put and call it done. The slowest single trip is the same one, the capital's, at 86 s.
+- **What a short move costs a slow ship,** from the same trips: the starter frigate's 68 take 1,336 s where they took 1,078, and a move of 10 px takes it about 25 s of backing off and turning. That's W20's arithmetic: it can't stop in less than 24 px. It's the price of the order being obeyed.
+- **Five matches** (the AI against itself, seeds 1 to 5; the AI sends its fleets with the same order, so its ships land on their spots too): BLUE at 24:35, BLUE at 26:50, RED at 26:48, RED at 24:46, RED at 23:49. Four losers beaten, and one king lost with 35 px of its side standing. The average is 25:22. With W19 to W21 and without this it was 32:01, and before those 26:06, with mining the same in all three (on seed 1 here: 968 and 924 px by 8:00, 3,961 and 4,103 by 16:00). So the six minutes I reported with the scoop's reach came and went with the next change: five matches' lengths move that much on their own, and I shouldn't have read anything into them.
+- **Two tests moved, both on the test's side.** The one that plays a ship's flight forward and compares it with the game's hadn't been told that a sent ship places itself finely. And the king's whole-match test allowed a hurt king 3 s in a battleship's reach; in this build's version of that fight it's there 3.1 s (and keeps 151 px of 218), so it allows 6: the king as first built stood there 17 s and 22.
+- The suite is 339 and passes, with the same four tests switched off.
+
+**The parts Henry asked about, not built. What I think of each:**
+- **A speed-up field and a stasis field.** (The stasis field is built: see "The stasis lattice", below. The speed-up field is measured there and not built.) As I put it on 2026-11-17: they're one part with two signs: a lump that changes how fast things near it fly. What makes them more than "pixels for a bonus" (his words of 2026-11-11) is who they touch. I'd have a field touch everything in its reach, friend and enemy alike, so a speed-up ship has to be flown ahead of its own fleet and a stasis ship into the enemy's, and each is a thing to shoot first. The risk he names is real: ships choose courses by looking ahead at their own speed, and a field changes it under them. The stasis lattice (his shape, 2026-11-13) is the natural drawing.
+- **A scoop with a range.** A mining beam: a column of them, like a beam gun, bites the rock in line with it up to a reach its length sets. It lets a big miner sit off a rock instead of nosing into the heap, and it gives a miner a facing that matters.
+- **A phase-harvester.** I like it for the reason he gives: it's the one way of mining that pays a big ship and can't be done by a swarm. It also makes a rock a thing to fight over for a known time, which scattered miners never do. What needs settling: whether rivals' charges on one rock race or cancel, whether miners biting the rock meanwhile help it (less left to charge) or are locked out, and whether the charge is lost when the harvester is driven off. **Henry, 2026-11-18:** "rival charges cancel. miners can "help" by reducing the rock size. no opinion on item 3." So rivals' charges cancel, miners biting the rock help (there's less left to charge to), and whether a harvester driven off keeps its charge is mine to propose. Not built yet: "before building phase harvester, we'll do a playtest".
+- **A repair array.** It makes damage something a side can undo by holding ground, which nothing does today. Paying for it from the bank keeps it honest. His point about a ship cut in two and both halves repaired is right, and I'd let it stand: it costs the pixels either way.
+- **A full set, and building sets.** With those five the list covers each job at least twice over (two ways to unload, three to mine, two to stop shots, two to undo them). That's when sets start to mean something: a set is a choice between answers to the same job.
+
+- The suite is 335 and passes, with the same four tests switched off. Seven are new: the king and the battleships, three about the pad, and three about the energy ball.
+
+---
+
+## The stasis lattice (2026-11-18)
+
+*Henry, asked whether a field should touch every ship in its reach or one side's:* "Tough call. Both sides might in some ways be the more interesting design, yeah, at least for stasis. That way the effect can be very pronounced and you build your army composition around it. There would need to be some logic around turning it on and off though, I think. Maybe the speed-up field should just be a small always-on buff to your team's engines though?"
+
+So stasis is built, as a bare toy: the part, one example ship, and two fights to watch. No ready team has it and the AI doesn't know it exists. The speed-up field is measured below and not built.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| Q1 | **STASIS, a part** (DRIVE, key 3; violet). Stasis pixels joined edge to edge are one lattice. A pixel weighs 1 and uses 2 power. | |
+| Q2 | **It holds every other ship in its reach, friend or enemy. A held ship flies and fires at a quarter of its speed:** its pilot and its guns get one tick in four. Never the lattice's own ship. Mining, unloading and printing go on as ever. Two fields hold a ship no harder than one. | Both sides: his. The quarter, and that guns are held too, are mine: see Q9. |
+| Q3 | **Its reach is 2 px for each pixel of its width plus its height,** from the lattice's box, 150 at most. Reach comes from how far it spreads and not from how many pixels are in it: 25 px in a block reach 20, the same 25 as two arms reach 52. Shot through, it reaches as far as what's left of it spreads. Short of power it reaches less in proportion. A ship is in reach if any part of its box is, as a projector counts it. | |
+| Q4 | **On and off, the first half: it works only while its ship is still.** The field is set 2 s after its ship stops and drops the tick it moves. Turning on the spot is still. So where you park it and when you move it is the switch, and there's no new key. | Mine. He asked for some logic; this is my answer, and a switch on the card is the other one. |
+| Q5 | **The second half: it's up only while an enemy is in its reach.** With no enemy in it, it holds no friend. Otherwise a lattice waiting at its post by the shipyard held its own side's miners and new ships all day. | Mine. |
+| Q6 | **Kings aren't held.** | Mine, and his to rule: it follows from "a king goes exactly where and when it's told", and it keeps a lattice from pinning a king for the guns. |
+| Q7 | **A ship with a lattice stays on the spot it's sent to,** guns or no, and doesn't step aside for shots. One with no guns, on ATTACK, takes itself to the nearest enemy and stops when that's in reach, or will be by the time the field is set. An armed one that hasn't been sent flies by its guns, so its field is up only when it happens to stand still. | |
+| Q8 | **How it shows.** A lattice whose ship is moving shows nothing. Set, its reach is a sparse dotted violet line. Up, the line is twice as close and every other pixel of the lattice turns white. The inspector says "STASIS: 84 PX REACH, UP." (or WAITING FOR AN ENEMY, or DOWN UNTIL ITS SHIP IS STILL), and of a held ship "HELD BY STASIS". | |
+| Q9 | **Guns are held as well as flight.** As first built a held ship only flew slower. That lost every fight I ran (the first table below), for a plain reason: a ship at a quarter of its speed shoots as fast as ever, so your own ships lose nothing by standing in your field and the enemy loses little. "Both sides" only shapes an army if being in the field costs. | Mine. |
+| Q10 | **The ANCHOR,** on the library's parts shelf: 212 px, an H of lattice 21 across (two rails standing clear of the hull on a bar through its middle) that reaches 84 px. No guns. Five engines turned astern, so it stops without turning about. Cut the bar and it's two lattices that reach 62. | |
+| Q11 | **Two fights to watch** in the arena's list: ANCHOR + 4 FRIGATES against 48 FIGHTERS, and 8 FRIGATES against the same. | |
+| Q12 | The core's white is now the palette's white (it was a second entry of the same colour), which frees an entry for the lattice: the palette was full. Nothing looks different. The network protocol is 22. | |
+
+**What I measured.**
+
+- **Flight, held, is the same flight at a quarter of the speed, exactly.** Seventeen drawings, each sent five ways from rest beside an enemy's lattice, and again with the lattice shot away: after every fourth tick the held ship is on the same pixel, facing the same way, at the same speed as the free one after one tick, for 40 s of its own time. So no stop or turn the pilot plans goes wrong in a field; it comes out late. That was the risk I named on 2026-11-17, and it's why the slow is done by giving the pilot one tick in four and not by dividing its speed.
+- **Fire, held, is a quarter:** a starter fighter fires 159 flak shots in a minute free and 40 held, either side's.
+- **Twelve fights each, level on cost, blue the side with the lattice.** All of these are head-on: both fleets start 180 px apart and go for each other.
+
+| Fight (432 px a side) | Flight held only | Flight and guns held |
+|---|---|---|
+| 8 FRIGATES v 48 LANCERS (no lattice) | 3 won, 9 lost | the same fight |
+| ANCHOR + 4 FRIGATES v 48 LANCERS | 0, 12 | 0, 12 |
+| 8 FRIGATES v 48 FIGHTERS (no lattice) | not run | 1 won, 5 lost, 6 drawn |
+| ANCHOR + 4 FRIGATES v 48 FIGHTERS | 0, 12 | 0, 12 |
+| ANCHOR + 24 LANCERS v 48 LANCERS | 0, 12 | 0, 12 |
+| ANCHOR + 24 FIGHTERS v 48 FIGHTERS | 0, 12 | 0, 12 |
+| 12 PICKETS v 48 LANCERS (no lattice) | 12, 0 | the same fight |
+| ANCHOR + 6 PICKETS v 48 LANCERS | 4, 8 | 1, 11 |
+| 12 PICKETS v 48 FIGHTERS (no lattice) | not run | 0, 12 |
+| ANCHOR + 6 PICKETS v 48 FIGHTERS | not run | 0, 12 |
+
+- **So the side that spent half its pixels on an ANCHOR lost every time, under either rule,** and holding guns as well changed no result. In these fights the field is up 6 to 24 s and does hold the enemy (against 48 fighters, 447 enemy ship-seconds of a possible 770 or so), and the fleet behind it is half the size and loses anyway.
+- **What I take from it, and what I don't.** It's one drawing, one kind of fight and one AI, so it's no verdict on the numbers ("no numbers from one deck and one AI"). What it does say is that the lattice as built is not yet the thing an army gets built around: a quarter isn't pronounced enough to be worth half a fleet in a rush. And a rush is the worst case for it, since it has to stop and stand 2 s with the enemy already on it. A match has prepared positions, which the arena hasn't: a lattice parked beside guns before the enemy comes is set when they arrive. Nobody has played that.
+- **Ten faults put in on purpose, each caught by a test:** a held ship flying at full speed; firing at full rate; a field that holds only the enemy; one that's set while its ship moves; one set the tick its ship stops; one up with no enemy in it; a king held; a lattice's own ship held; a field reaching a third further than it says; and a lattice ship picking its own courses again. That last one got past the first version of its test: the fault only shows against an enemy that's manoeuvring, and the test's enemy sat still.
+- The suite is 347 and passes, with the same four tests switched off. Eight are new: seven about the lattice, and one that a king in a field flies as fast as ever. An AI match on seed 1 comes out as it did before the part went in, state line for state line (BLUE at 24:35), so nothing in play without a lattice has moved.
+
+**Not done.** The AI doesn't build a lattice, keep out of one, or shoot one from outside its reach. Ships don't keep out of a friend's field. A ship weighing its courses doesn't know a held enemy's guns are slow. No ready team has the part. Nobody has played it.
+
+**The levers, if it wants to be stronger** (rule by rule, none of them touched): how hard it holds (a quarter; all the way to stopped); what it holds (flight and guns now; mining and printing too would make it a siege piece); its 2 s to set; its reach for its spread; and what a lattice pixel costs in power, which is most of the ANCHOR's size: 134 of its 212 px are hull to feed 61 px of lattice.
+
+**The speed-up field, measured and not built.** His suggestion is "a small always-on buff to your team's engines". Speeds here are whole steps, 2 to 12, each 3.75 px/s, so I tried a buff to engines on the 31 drawings that ship (the teams', the examples', the flight toy's):
+
+| Engines stronger by | Faster, by one step or more | Just as fast as before |
+|---|---|---|
+| 10% | 12 | 19 |
+| 20% | 19 | 12 |
+| 25% | 23 | 8 |
+| 33% | 25 | 6 |
+| 50% | 25 | 6 |
+
+- The six that never gain are the three already at the top speed (WASP, SKATER, BRAKER) and the three so heavy that they're under the slowest (CAPITAL, the big LANCET, BASTION).
+- So there's no small buff on this grid: a percentage is nothing for most ships and a whole step for the rest, and the biggest ships get nothing at any size.
+- **What I'd build instead: one step for every friend in its reach.** That's 3.75 px/s for each: half as fast again for a capital (7.5 to 11), a tenth for a fighter (37.5 to 41). Always on and its own side only, as he says. It's small, it's the same for every ship, and by its arithmetic it's a part for big ships. Not built until he says.
+
+**Henry's two questions about it, the same day, and what I answered.**
+
+- *"So the field activates whenever any enemy ship flies into it, right?"* Yes: once its ship has been still 2 s, the field is up the tick any part of an enemy ship is inside its reach, and down the tick the last one leaves or dies. An enemy ship here is anything of theirs but a king, a seed still growing, and a ship still being printed or arriving, so a miner or a finished building counts, and a lattice parked in reach of an enemy outpost is up for good. Once up it holds everything in reach, his ships too.
+- **What follows from that, which I hadn't said and haven't tested:** the enemy can fly one cheap ship in to turn the field on over his fleet, and stand the rest of theirs outside its reach to shoot in at full rate. That's the weak side of Q5. A switch on the card (the other answer to Q4) would put the choice back with the lattice's owner.
+- *"But they're only slowed by 25% you said? I think it should be at least 50"* I'd written "at a quarter of its speed", which reads either way. It's the strong one: a held ship flies and fires at a quarter of its rate, 75% slower, so it's past his 50 as built. The part's own text says "FLIES AND FIRES AT A QUARTER SPEED"; I offered "FOUR TIMES SLOWER" if that reads as ambiguous too, and he hasn't said.
+
+---
+
+## The slipstream (2026-11-18)
+
+*Henry, asked whether to build the speed-up field as one speed step for every friend in its reach:* "Yes to speed up Fields bumping one speed step. Instead of a ranged scoop, which naively is pretty redundant with a regular scoop, what if we have a vacuum that is specialized in picking up loose debris pixels but is less efficient when used on asteroids?"
+
+So the speed-up field is built, as a bare toy: the part and one example ship. No ready team has it and the AI doesn't know it exists. The vacuum is thought through below and not built.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| SL1 | **SLIPSTREAM, a part** (DRIVE, key 3; green). Slipstream pixels joined edge to edge are one lump. A pixel weighs 1 and uses 1 power, as an engine does. | |
+| SL2 | **Ships of its side in its reach fly one step faster:** 3.75 px/s more than their own engines give them. It's always on, and nothing switches it. | His: one step, always on, his own side's. |
+| SL3 | **Only ships slower than the ship that carries it.** So it never speeds its own ship, two ships as fast as each other don't speed each other, and the ship that carries it can always keep up with what it speeds. | **Mine, and it narrows what he agreed to** ("every friend in its reach"). The reason: without it, one pixel of this on every ship of a fleet speeds the whole fleet, each ship in its neighbours' reach. That's "put pixels down, get bonuses" (his words of 2026-11-11), and nothing to decide. With it a slipstream belongs to a fast ship, and what it does for a fleet depends on what's flying with what. |
+| SL4 | **It reaches a pixel for each pixel of the lump,** from the lump's box, 150 at most. Any shape. Short of power it reaches less in proportion. Shot through, each piece reaches what it has left. A ship is in reach if any part of its box is, as a projector and a lattice count it. | Mine. Twice the pixels cover four times the ground, so one big lump beats two small ones. |
+| SL5 | **Kings aren't sped.** A king that carries a slipstream counts as fast as it flies (37.5 px/s; 3.75 once it's beaten), whatever engines are drawn on it. | Mine, for Q6's reason: a king goes exactly where and when it's told. |
+| SL6 | **Two slipstreams speed a ship no more than one.** A ship that carries one can be in a faster ship's, and goes on speeding only what's slower than its own engines make it. | |
+| SL7 | **How it shows.** A ship in a slipstream leaves a green dot astern every third of a second while it's under way, and its exhaust is green. The slipstream's reach is one green dot that goes once round it and rests, as a tractor's reach is shown. The inspector says "IN A SLIPSTREAM" of a ship that's sped, and of the carrier "SLIPSTREAM: 42 PX REACH, SPEEDING 3 SHIPS." The yard's status line for one with no guns: "SLIPSTREAM: REACHES 42 PX". | |
+| SL8 | **A group sent together keeps the pace of its slowest ship as it stands when it's sent** (C-rows: that's unchanged). Ships already in a slipstream count at their faster speed, so a fleet gathered round its pace ship and sent off flies a step faster all the way. Sent from apart, it keeps the slower pace. | |
+| SL9 | **The PACER,** on the library's parts shelf: 129 px, a lump of 42 across its bow that reaches 42 px, and the engines for 30 px/s. That's faster than the starter deck's frigate (11 px/s), miner (22) and capital (7.5). Its lancer is as fast and its fighter faster, so those it doesn't speed. No guns: left to itself it stays beside the nearest friend that has some. | |
+| SL10 | The part's green is the green that says "good" in the panels (the palette is full, and no part had a plain green). The network protocol is 23. | |
+
+**What I measured.**
+
+- **A trip.** Three 25-pixel blocks that do 7.5 px/s, sent 400 px together: 54.6 s alone and 37.5 s with the PACER sent along (in its slipstream 99% of the way, at 11.25 px/s). With the PACER lost ten seconds in, 50.5 s: the tick after it's gone they're back on their own engines.
+- **A match the part isn't in is unchanged:** the AI against itself on seed 1 comes out state line for state line as the build before (BLUE at 24:35, bank 346, 197 ships, mined 10,069).
+- **Faults put in on purpose:** sixteen, each caught by a test. An enemy sped; a ship no slower than the carrier sped, and one just as fast; a reach a third too far, and one a pixel too far; a reach with square corners; a king sped; a step of two; a ship that stays sped out of reach; a sped ship that loses its step when it's hit; a king's slipstream going by the engines drawn on it; a sped carrier counted as fast as its slipstream makes it; a lump reaching by all its ship's slipstream pixels; a reach that takes no notice of a power shortage; a dead ship's slipstream going on; and a slipstream that speeds nothing. The reach that ignores a power shortage got past the tests as first written (they checked the drawing's reach and not the field's on the map). And one clause couldn't be caught because it was dead: "never its own ship" needs no rule of its own once only slower ships are sped, so I took it out of the code.
+- The suite is 352 and passes, with the same four tests switched off. Five are new: four about the slipstream and one about a king in one.
+
+**What a step costs without it, for scale** (arithmetic from the speed rule, and no tuning): top speed is 6 quarter-pixels a tick for each thrust per weight, and an engine gives 8 thrust and needs a pixel of hull to power it. On its own engines one more step would cost the starter frigate about 4 px, and the starter capital about 76: its engines give it less than the slowest speed there is, so it has a long way to the next step. A PACER is 129 px. Beside two capitals it has paid for itself, and beside frigates it takes over thirty of them. So it's a piece for a fleet of big ships, which is what I said it would be.
+
+**Not done.** The AI doesn't build one or fly beside one, and no ready team has the part. A pace ship left to itself stands by the nearest armed friend, not the slowest. A formation doesn't put the pace ship in its middle. There's no arena fight for it: a head-on fight doesn't show a speed field. Nobody has played it.
+
+**The vacuum, thought through.** (Built later the same day, with rule 3 as it first stood: see "The vacuum", below.) His idea: "a vacuum that is specialized in picking up loose debris pixels but is less efficient when used on asteroids", in place of the scoop with a range.
+
+- **What there is today.** Every pixel shot off a ship, every pixel of a ship that dies and a destroyed node's stock become loose pixels. They drift a few ticks and then lie where they are for good (past 3,000 on the map the oldest vanish). Any scoop takes every loose pixel within 8 px of its ship at once, with no biting, up to what it carries, and a miner turns aside for one within 30 px. Nothing goes to a battlefield on purpose.
+- **How much lies there.** Three matches of the AI against itself with the starter deck (seeds 1 to 3, 24:37 to 27:01 long): 8,191, 5,302 and 8,496 px were shot off ships or lost with them, against 12,954, 10,397 and 14,753 brought home by miners. So wreckage is half to two thirds the size of everything that's mined. At 20:00, before the 3,000 limit starts dropping the oldest, 62%, 62% and 76% of all the wreckage made so far was still lying where it fell. All three matches reached the limit. One AI and one deck, so it's a size and not a balance figure.
+- **So a scoop is already the better tool for a loose pixel it's next to.** What a vacuum can add is reach, the pull, and a ship that goes to the wreckage. What I'd build:
+  1. **VACUUM, a part** (INDUSTRY). Pixels joined edge to edge are one lump, and it reaches a pixel for each of its pixels, as a slipstream does.
+  2. **It pulls every loose pixel in its reach to it,** 2 px a tick, and takes each as it arrives. You see the wreckage stream in. A pixel in two vacuums' reach goes to the nearer.
+  3. **It carries 3 for each of its pixels,** as a scoop does, and unloads at a tractor or a pad as a miner does.
+  4. **On rock a lump bites as one scoop, however big it is.** That's his "less efficient on asteroids": thirty pixels of vacuum mine like one scoop.
+  5. **A ship with a vacuum goes to the biggest heap of loose pixels there is,** as a miner goes to rock, fills, and takes it home. With none, it waits with the fleet.
+  6. **Scoops go on taking the loose pixels beside them,** as now. Nothing he has agreed changes.
+- **Why I'd rather have it than the scoop with a range.** It makes a fight leave a prize. Whoever holds the ground afterwards banks both sides' losses, so there's a reason to fight near your own tractors, a reason to send a ship in behind a push, and a ship worth killing first. It also pays for a fight the winner didn't want to take. The scoop with a range only made the mining there already is more comfortable.
+- **Henry, the same day: "how does storage and adding the vacuumed pixels to the network work?"** As rule 3 has it, like a miner: what it takes is cargo on the ship and no part of the bank until a tractor pulls it off (a pixel every 8 s for each tractor pixel, so 1 px/s at a king) or the whole ship lands on a pad. Looking at it again for his question, that doesn't fit a ship that takes in hundreds: a 30-pixel vacuum's 90 px take a minute and a half to empty at a king, and a pad has to be as big as the ship. **What I'd build instead of rule 3: the vacuum's ship is a node, as a tractor's is, and what it takes goes straight into its own store.** Then the rules there already are do the rest. Within link range of the network (200 px of the king, 160 of another node) it's in the bank as it's taken. Out of range it's a pool of its own, and can't be spent until the ship flies back. Shot down, it spills what it holds as loose pixels for anyone, 300 at most, and the rest is lost. Printing spends what flying nodes hold first. No ruling yet.
+- **The one thing I'd ask him before building:** whether it takes pixels out of a fight as they're shot off, his own ships' included. I'd say yes (a loose pixel is anyone's, and it makes a vacuum behind your line a thing to shoot), but it does mean a side fighting beside its vacuum gets some of its losses back as it takes them.
+
+---
+
+## The vacuum (2026-11-18)
+
+*Henry, offered a vacuum whose ship would be a node and bank what it took:* "I kind of like having the offloading as a problem that needs to be solved. Seems boring and frictionless if it's just automatically a node?"
+
+So it's built with what it takes as cargo, as a bare toy: the part and two example ships. No ready team has it and the AI doesn't know it exists.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| VA1 | **VACUUM, a part** (INDUSTRY, key 5; deep green). Vacuum pixels joined edge to edge are one lump. A pixel weighs 1 and uses 1 power. | The part is his idea. |
+| VA2 | **A ship's vacuum pulls every loose pixel in its reach to its vacuum pixels,** 2 px a tick, and takes each as it gets there. They can be seen streaming in. It pulls whatever its ship is doing, sent somewhere or left to itself. | |
+| VA3 | **It reaches, past its ship's edge, a pixel for each pixel of its biggest lump,** 150 at most, less in proportion when short of power, and never less than a scoop's 8 px. It's measured from the ship's middle, as a tractor's reach is, so where the lump sits on the ship and which way the ship is turned don't matter. | Mine. (For an hour it reached from the lump's own box, as a slipstream does. A ship gets no nearer its spot than a few pixels, so one with a small lump sat with the last of a heap just out of its reach, and stayed.) |
+| VA4 | **Its ship carries 3 for each vacuum pixel,** as for each scoop. With no room it pulls nothing. | Mine. |
+| VA5 | **What it carries is cargo. Nothing is banked until a tractor pulls it off, a pixel at a time, or the ship lands on a pad it fits:** a miner's rules, unchanged. | His: offloading is "a problem that needs to be solved". |
+| VA6 | **On rock a lump is one scoop, however big it is.** It bites as one, a pixel every 10 s, and takes home what one carries, 3. | "less efficient when used on asteroids" is his. That it also carries home only a scoop's load from rock is mine: otherwise it sat on a rock for twelve minutes filling 72. |
+| VA7 | **A ship with a vacuum goes to the loose pixels.** It goes for the nearest heap that would fill the room it has, or with none that big the biggest. It flies to the middle of the heap and sits there till it's full, takes the load wherever it would be empty soonest (as a miner chooses), and comes back. It keeps to a heap while anything is left of it: at rest with nothing of its heap in reach, it moves to the middle of what's left, or to the nearest pixel if that middle is already in its reach. Only with nothing loose anywhere does it mine rock, and a part load goes home first. A heap is what lies in one 32 px square of the map. | Mine. |
+| VA8 | **A loose pixel in reach of two ships' vacuums goes to the nearer ship, whoever's it is.** | Mine: loose pixels are anyone's. |
+| VA9 | **It takes pixels out of a fight as they're shot off,** its own side's ships' included: a pixel is loose from the tick it's knocked off, and one still drifting is pulled like any other. | **Keep** (2026-11-18, asked whether it should or should take only pixels that have come to rest: "Yes, keep it"). The rule was mine. |
+| VA10 | **Scoops are as they were:** a scoop takes the loose pixels within 8 px of its ship at once. A ship with scoops and a vacuum has one hold for both. | |
+| VA11 | **A collector comes to a vacuum ship at work,** as to a miner. A ship with a vacuum and tractor pixels of its own is no collector: it goes for wreckage, and its own tractor empties it. | Follows from the tractor's rules as they stand. |
+| VA12 | **How it shows.** The loose pixels stream in. Its reach is one dot, the colour of loose pixels, that goes once round its ship and rests, as a tractor's does. Its vacuum pixels turn that colour as it fills, one for every 3 aboard, as scoops do. The inspector says "VACUUM: 28 PX REACH. IT HOLDS 72." under what it's carrying (from the ship's middle, as a tractor's line says), and the yard's status line for one with no guns "VACUUM: REACHES 24 PX" (past its edge). On a heap the inspector calls it MINING. | |
+| VA13 | **Two examples** on the library's parts shelf. The SWEEPER: 63 px, a lump of 24 with an open mouth that reaches 24 px past its edge, a hold of 72, a miner's 22 px/s. It's 9 by 8, so no pad that ships today takes it. The DUSTER: 25 px, a lump of 10, a hold of 30, 26 px/s, and 5 by 5, so it fits the PADPOST's pad as the HAULER does. Neither has guns. | |
+| VA14 | The vacuum's green takes the palette entry that was a projector lump's pale middle, which is now the panels' bright accent, a shade different. Its letter in a saved design is a capital V: every small letter is some part's. The network protocol is 24. | |
+
+**What I measured.**
+
+- **Two heaps, one SWEEPER, and a king's tractor.** Twenty loose pixels 160 px from blue's king and two hundred 330 px off. It went for the far one, the only one that would fill it, and was full 28 s after setting off. The first pixel came off it at 43 s and the last at 114 s: of the 114 s its first load took, 71 were the king's eight tractor pixels emptying it at a pixel a second. All 220 px were home at 6:23, in four loads.
+- **With the starter collector** printed beside the king and two hundred loose pixels 150 px off: the collector came and stood by the heap, the SWEEPER never went home, and the collector banked 60 px in a minute with the SWEEPER's hold at 71 of 72 all the while.
+- **A pad.** The DUSTER, full, lands on a pad 6 by 6 and all 30 are in that station's store at once. The SWEEPER doesn't fit it, and would fit one 9 by 8.
+- **Rock.** The SWEEPER's lump of 24 bites a pixel every 10 s, and a ship with two lumps of four every 5.
+- **A vacuum ship with one tractor pixel of its own,** out of every other tractor's reach, is emptied by it, a pixel every 8 s, into its own store.
+- **No ship is left beside pixels it can't reach.** A ship with three vacuum pixels, the DUSTER and the SWEEPER, each sent at four awkward heaps in one square of the map (three pixels in each of two opposite corners, a line along one edge, one pixel in a corner, a ring): every pixel taken within a minute and a half. That sweep is what found two faults in the first version: the reach measured from the lump (VA3), and a ship slow to turn going back and forth for good between the middle of a heap and a corner of it.
+- **A match the part isn't in is unchanged:** the AI against itself on seed 1 comes out state line for state line as before (BLUE at 24:35, bank 346, 197 ships, mined 10,069).
+- **Faults put in on purpose:** twenty-six, each caught by a test. In the pull: twice as fast; a reach a third too far, and one a pixel too far; a square reach; pulling with no room left; taking a pixel before it arrives; a contested pixel going to the first ship and not the nearer, and a tie going to the later ship; a drifting pixel that goes on drifting; a dead ship's vacuum going on. In what it holds and reaches: one a pixel; every vacuum pixel biting rock; a reach by all its vacuum pixels and not its biggest lump; a reach that takes no notice of a power shortage; a reach from its middle no further than its lump's pixels; a small one reaching less than a scoop. In where it goes: the nearest heap whatever its size; the biggest however far; not keeping to its heap; never flying to the nearest pixel; choosing its spot again whenever it stands still; keeping a part load when nothing loose is left; not going to wreckage at all. And in what it is: a collector when it has a tractor; no miner by its order; no collector coming to it. Three got past the tests as first written, and each got a test: two lumps on one ship, the nearer of two heaps that would both fill it, and keeping to a heap. (The computer crashed while these were running and left one of them in the source, the reach that ignores a power shortage. I found it by checking that every fault's original text was back in place, put it back, and reran every fault after it and the whole suite.)
+- The suite is 362 and passes, with the same four tests switched off. Ten are new, all about the vacuum.
+
+**The offloading problem, as it stands for whoever draws one.** A hold fills in seconds and empties at the pace of whatever takes it, so what a vacuum earns is what its side can take off it. The ways there are today: more tractor pixels where it comes home (each pulls a pixel every 8 s); a pad big enough for it to land on, which takes the lot at once; a collector sent out with it, which banks as it works if it's in link; tractor pixels on the vacuum ship itself; or small vacuum ships that fit a small pad. None of these is tuned.
+
+**Not done.** The AI doesn't build one or go for wreckage, and no ready team has the part. A vacuum ship doesn't keep out of a fight: it goes where the pixels are and runs when it's hit, as an unarmed miner does. Past 3,000 loose pixels on the map the oldest still vanish. Nobody has played it.
+
+---
+
+## The SCAVENGERS, a team for the playtest (2026-11-19)
+
+*Henry:* "before building phase harvester, we'll do a playtest. can you create an all-new team for me that includes a variety of these new parts? do a little testing of the team yourself before handing it over, but no need for any deep optimization."
+
+**Where it is.** In the library: L in the yard, Tab for whole teams, SCAVENGERS, Enter. That loads it into the nine slots and keeps the team it replaces as one of his own. No AI plays it, so it isn't in the match menu's list of opponents. Its cards are also on the library's TEAMS shelf singly.
+
+| Slot (key) | Card | Px | Speed | What it is |
+|---|---|---|---|---|
+| 1 (Z) | DART | 11 | 30 px/s | A fighter: a repeater two long and two flak. |
+| 2 (X) | PULSAR | 39 | 18 | An energy ball gun of six pixels, and two flak. |
+| 3 (C) | MAUL | 110 | 7.5 | Two cannons, a tracker and two flak in a whole skin of plate. Only its engines are outside it. |
+| 4 (V) | SNARE | 175 | 7.5 | A stasis lattice in an H, 15 by 15, that reaches 60 px, with a tracker and four flak of its own. |
+| 5 (B) | HERALD | 93 | 30 | A pace ship: a slipstream lump of 28 across its bow, and no guns. Every other card but the DART is slower, so it speeds them. |
+| 6 (N) | DIGGER | 19 | 22 | A miner with four scoops, 5 by 4. It carries 12. |
+| 7 (M) | GLEANER | 35 | 22 | A vacuum lump of 12 that reaches 12 px past its edge, 6 by 6. It carries 36. |
+| 8 (,) | PORT | 135 | planted | The factory: twenty factory pixels, four flak, and a dock pad 6 by 9 on its flank. No tractor. It builds every card here. |
+| 9 (.) | BARGE | 47 | 18 | A dock pad 6 by 6 that flies. It's a collector: it goes out to the miners and the GLEANERs, and they land on it. |
+
+(The PULSAR, HERALD, DIGGER, GLEANER and BARGE were redrawn with rotation engines on 2026-11-19, after his first match: see the next section. The numbers here are measured on the cards as they are now.) Every card is a new drawing and spends all the power its hull makes. The parts of 2026-11-17 and 18 are all in it: the dock pad (PORT, BARGE), the energy ball (PULSAR), stasis (SNARE), the slipstream (HERALD) and the vacuum (GLEANER).
+
+**How it's meant to be played.**
+
+- **A PORT first.** It's 135 px of the 190 a king starts with. It prints four DIGGERs and a GLEANER, then two DARTs, a PULSAR and a DIGGER round and round. Miners land on its pad: a GLEANER, or two DIGGERs at once.
+- **Each warship answers one of the starter deck's.** MAULs for fighters, DARTs for lancers, PULSARs for frigates (the table below). Nothing here but the MAUL beats fighters.
+- **The SNARE is sent to a spot and left there.** Parked, with an enemy within 60 px, it holds everything in its reach, his own ships too. Its own tracker and flak aren't held.
+- **The HERALD flies with the slow ships.** A MAUL or a SNARE beside it does 11 px/s for 7.5.
+- **GLEANERs go to wreckage by themselves,** and a BARGE goes out to wherever the miners and GLEANERs are working.
+
+**What I tested.** A little, as he asked, and none of it is a balance verdict: one AI, one opposing deck, twelve fights a line.
+
+- **The cards.** All nine are legal, spend their power exactly, and are no drawing the game had; the PORT builds every one of them and the starting bank plants it. (A test.)
+- **The pads.** The PORT's pad has two places for a DIGGER and one for a GLEANER; the BARGE's has one for either. Full, from 70 px off, a DIGGER was unloaded 5 s on and a GLEANER 9 s on. On the BARGE, with the PORT gone, a GLEANER was unloaded within 36 s.
+- **The opening, with nothing done but planting the factory at once:**
+
+| | Mined by 4:00 | By 8:00 | By 10:00 | Warships standing at 8:00 | Bank at 8:00 |
+|---|---|---|---|---|---|
+| Starter deck | 112 | 323 | 484 | 369 px | 109 |
+| SCAVENGERS as it ships (four miners first) | 195 | 522 | 747 | 183 px | 364 |
+
+- So it earns more than the starter deck and spends it slower: one PORT's twenty factory pixels print less than the team mines. A second PORT, or ships asked of the king, is where the bank should go.
+- **Wreckage.** In that opening, 150 loose pixels strewn 130 px from the PORT at 5:00 were all taken 26 s later, and landed on the pad.
+- **The small warships, head on and level on cost (about 440 px a side), against the starter deck's** (won, lost, drawn of 12):
+
+| | v 48 FIGHTERS | v 48 LANCERS | v 8 FRIGATES |
+|---|---|---|---|
+| 40 DARTS | 0, 12, 0 | 12, 0, 0 | 0, 9, 3 |
+| 11 PULSARS | 0, 12, 0 | 2, 6, 4 | 12, 0, 0 |
+| 4 MAULS | 12, 0, 0 | 0, 12, 0 | 0, 12, 0 |
+
+- **The MAUL was drawn three times.** With a bow of heavy plate and bare flanks, a SNARE and two of them lost to their cost in fighters 12 times of 12. In a skin of plate left open over the outer corners of its cannons, four beat 48 fighters 3 times, lost 5 and drew 4. Sealed, 12 of 12. Flak doesn't break plate, so against fighters a ship is as good as its skin is whole.
+- **The line: a SNARE parked in front and two MAULs parked with it (383 px), against about their cost coming for them** (won, lost, drawn of 12):
+
+| | v 42 FIGHTERS | v 42 LANCERS | v 7 FRIGATES |
+|---|---|---|---|
+| The MAULs 90 px back, outside the field | 6, 0, 6 | 0, 12, 0 | 2, 8, 2 |
+| The MAULs beside the SNARE, inside it | 4, 0, 8 | 0, 12, 0 | 7, 5, 0 |
+| The same with hull for the SNARE's lattice | 3, 0, 9 | 0, 12, 0 | 3, 8, 1 |
+
+- **A SNARE by itself is no fortress.** Against 12 fighters (108 px, three fifths of its cost) it won 2 of 12 and killed 7.2 a fight; with hull for its lattice it won none and killed 2.5. Most of its pixels are lattice and the hull to power it.
+- **Lancers are the hole.** They outrange the SNARE's field (a lancer stands 75 px off what it shoots, and the field reaches 60), they break plate, and only the DARTs beat them.
+- **The AI can't play it.** Ten matches of the AI on this team against the AI on the starter deck, and ten with the sides changed: it lost all twenty, between 9:31 and 17:32. It prints GLEANERs as if they were miners and sends SNAREs to hunt. That says the AI doesn't know these parts, which was known. Its miners bank on the pads (565 of the 646 px it mined in the first of them). The AI on this team against itself, six matches: all six ran to a king's death, 18:00 to 31:02. (Three matches was what I ran before handing the team over. The fourth, on the redrawn cards, was the one that crashed: see the next section.)
+- The suite is 366 and passes, with the same four tests switched off. Four are new: one about the cards and three about how the team plays.
+
+---
+
+## Henry's first match with the SCAVENGERS (2026-11-19)
+
+*Henry, with a screenshot of a hurt DART alone in the top left corner of the map at 9:49:* "The energy ball looks good. The port seems to work well with two diggers offloading at the same time. The digger behavior seemed less predictable than I expected. They went far away it seemed like when there was rock right near the port. One even went off on a fast orbit? And one just ran away to the top fo the map? And there's a dart up there too?" *And a few minutes on, with a screenshot of his base beside a field of loose pixels:* "It almost seems like diggers are prioritizing debris over regular rock".
+
+The match (from his log): seed 48925, the AI on SWARM, rocks in an S. SWARM is the rush, fighters and lancers from 2:30, and from 4:00 he was losing ships steadily (7 lost by 4:00, 28 by 10:00). So his miners were being shot at for most of the match, which is where three of the four things below come from.
+
+| What he saw | What it was | What I did |
+|---|---|---|
+| Diggers leaving rock that was right there | **They do put loose pixels before rock.** An old rule, every miner's: one with a loose pixel within 30 px of it goes for that, each time it looks. In a field of wreckage each pixel it takes puts another in reach, so it walks off along the wreckage. Reproduced: at a rock face a DIGGER bit 12 px in a minute; with a trail of loose pixels leading away, one every 25 px, it bit none. The starter miner bit 9 and then none, took six of the trail, and ended 152 px off. | **Nothing yet: it's his to rule.** What I'd do is below. |
+| "a fast orbit", and "ran away" | **A miner with no gun that's hit runs home, and it never braked.** It made for the middle of its nearest node flat out, flew through, and went on. Hit once a second for 20 s from 120 px off, a DIGGER was at its port at 8 s, 234 px out the far side at 20 s and 368 px off before it turned back. Nobody had seen it because the starter miner has a flak gun, and a ship with a gun doesn't run. | **Fixed.** It runs to the node and stops beside it. A test hits a DIGGER, a GLEANER and a BARGE once a second for 20 s: each is beside the port from 10 s on and all but still, and goes back to work when it's left alone. |
+| A DART in the top corner of the map, and a digger gone to the top | **A ship with its engines shot off drifts on until the edge of the map stops it.** That's the nose-first flight's rule (2026-11-16, unjudged): a ship keeps the speed it has. His DART had 9 of 11 px, and its two engines are its stern corners. Reproduced: a DART doing 30 px/s that loses both engines is at the top edge two minutes on, at rest, and the inspector still says ON GUARD. A ship running from fighters shows them its engines. | **Nothing yet: it's his to rule.** |
+| Diggers clumsier than he expected | **My drawing.** The DIGGER is five across with one core and had no rotation engine: 3 s to a quarter turn, the slowest there is, where the starter miner takes 1.5. The PULSAR, HERALD, GLEANER and BARGE were as slow. I hadn't looked at turn times when I tested the team. | **Redrawn,** each with rotation engines at its stern corners: a quarter turn in 0.3 s for the DIGGER, 0.7 the GLEANER, 0.9 the PULSAR, 1.1 the BARGE, 1.5 the HERALD. The DIGGER is 19 px for 15 and does 22 px/s for 26; the GLEANER's lump is 12 for 14. |
+
+**What the redrawn cards changed, measured the same way as before.** A full DIGGER 70 px from the port is unloaded 5 s on, where it took 17, and a GLEANER 9 s on for 21. The opening with nothing done but planting the PORT mines 522 px by 8:00 where it mined 436 (the starter deck: 323). The 150 loose pixels strewn at 5:00 are home 26 s later, where they took 88. So most of what looked like a slow pad was miners taking three seconds to turn round.
+
+**What he said that needs nothing done.** "The energy ball looks good." "The port seems to work well with two diggers offloading at the same time." (In his match 160 of the 297 px he'd mined by 4:00 came in on the pad and the rest through his king's tractor, which he kept beside the port: a miner goes wherever it would be empty soonest.)
+
+**The two that are his to rule.**
+
+- **Loose pixels before rock.** With a vacuum in the game I'd have miners keep to rock: a scoop still takes whatever loose pixel comes within its 8 px as it works, but a miner doesn't turn aside for one. Wreckage is then the vacuum's job, and a miner is where you expect it. With no rock left anywhere a miner would go for the nearest loose pixel, so a side without vacuums can still live on wreckage at the end. It changes every deck's income a little (in three AI matches about a third of all wreckage was picked up, all of it by miners), so it isn't mine to make on my own. **Ruled the same day, and built: "Rock first", below.**
+- **Ships with no engines.** They drift to the edge of the map and sit there, still counted as ships and still said to be on guard. The choices I see: leave it, and have the inspector say ADRIFT, NO ENGINES; or have a ship with no engine left come to rest where it is; or have it break up. I'd take the first: it's what the flight rules say happens, and the fault is that nothing tells him. **(Changed my mind the same day: I'd take the second. See "No guns, no course", below.)** **Henry ruled, 2026-11-19: "Leave the drift."**
+
+**A crash found on the way, and fixed.** The tick a ship's last vacuum pixel was shot off, the game stopped: the vacuum looked for the box its pixels lie in, and there were none (a ship's stats are worked out at the end of a tick, and loose pixels are pulled before that). It was in the build he played, and his match didn't meet it. An AI match on the redrawn team did, on its second seed. A test now shoots a vacuum off in the middle of a tick, and 26 AI matches with the team on one side, the other and both ran to their ends.
+
+**What the fixes moved.** Running home touches one starter card, the collector, which has no guns. So the AI against itself on seed 1 is the same to 6:00 and differs from 8:00 on. BLUE still wins it (at 25:30 where it was 24:35, which is one match's length and says nothing).
+
+- The suite is 367 and passes, with the same four tests switched off. One is new, a miner with no guns that's hit, and the vacuum's pull test now shoots a vacuum off in the middle of a tick.
+
+## Rock first (2026-11-19)
+
+*Henry, asked whether miners should keep to rock and leave loose pixels to vacuums:* "They should prioritize rock and only mine loose pixels when there is no rock anywhere near (within approx 1/3rd or 1/4th the map?)"
+
+Built as he said. The old rule, a loose pixel within 30 px before any rock, is gone.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| RF1 | **A miner goes for rock while there's rock near it,** and for loose pixels only with none near. | His ruling. |
+| RF2 | **Near is 350 px:** a quarter of the map's width, which is a third of its height. (In the proving ground's arena, 120 px.) | His range ("approx 1/3rd or 1/4th the map?"). Where in it is mine. |
+| RF3 | **Near is measured from the miner,** where it is at that moment, as the crow flies: not from its port or its king. So a miner whose rock runs out moves on to rock up to 350 px off before it looks at wreckage. | Mine. |
+| RF4 | **With no rock near, it goes for the nearest loose pixel that's nearer than the nearest rock.** It goes no further for a loose pixel than it would for rock: with rock 400 px off and wreckage 450 px off, it flies to the rock. | Mine. |
+| RF5 | **With no rock left on the map it takes loose pixels wherever they lie,** the nearest first. | Mine (what I'd proposed). |
+| RF6 | **Off after loose pixels, it turns to rock as soon as some is near.** It looks once a second. | Mine. |
+| RF7 | **Its scoops still take any loose pixel that comes within their 8 px,** at the rock or flying past. Unchanged. | |
+| RF8 | **A ship with a vacuum is unchanged:** loose pixels first, and rock when nothing is loose. | |
+
+**The scene he saw, both ways.** Three starter MINERs and two DIGGERs at blue's home rock, 200 loose pixels strewn within 120 px of its face, three minutes, on four maps (the last is the map of his match). What the five took between them:
+
+| Map | No wreckage: rock | Old rule: rock, loose, left lying | New rule: rock, loose, left lying |
+|---|---|---|---|
+| 1 | 152 | 47, 119, 81 | 146, 26, 174 |
+| 2 | 146 | 40, 148, 52 | 120, 50, 150 |
+| 28259 | 154 | 44, 147, 53 | 124, 66, 134 |
+| 48925 | 151 | 39, 131, 69 | 142, 25, 175 |
+
+- Under the old rule the miners all but left the rock: about a quarter of the rock they bite when there's no wreckage. Now they bite most of it, and the loose pixels they take are the ones their scoops pass within 8 px of.
+- **It doesn't bring more in.** Rock and loose together come to 166, 188, 191 and 170 px under the old rule and 172, 170, 190 and 167 under the new: the same, give or take. What changes is where the miners are, and that two thirds to seven eighths of the wreckage now lies there until a vacuum comes, where a quarter to two fifths did. A deck with no vacuum leaves most of a battlefield beside its rock.
+
+**What it moved.** No test had to be re-recorded: the 367 passed as they stood. The AI against itself on seed 1 is the same to 6:00 and differs from 8:00 on, which is when the first wreckage lies (mined by 8:00: 968 and 933 px, where it was 968 and 914). Four AI matches on the starter deck and six with the SCAVENGERS on one side or the other ran to their ends.
+
+**Tested.** Three new tests. One puts a single rock pixel exactly 350 px from a miner and then 351, and again on the diagonal, with a loose pixel the other way; then rock 400 px off with a loose pixel 450 off; then no rock at all; then the last rock pixel bitten and a loose pixel 300 px off, which it fetches and takes home. One sends a miner after loose pixels towards far rock and has it turn to the rock when that comes near, leaving a loose pixel 150 px to the side. One is the scene above with the rule checked every tick for every miner: what it's making for was rock when the tick began, or it's staying where it is. Twelve deliberate faults (the old rule back, the line a pixel out, near as a third or a fifth of the width or a quarter of the height, near measured square and not round, never looking again, and so on) each fail one of them.
+
+- The scoop's line in the yard still says "MINES ROCK WITHIN 8 PX AND PICKS UP LOOSE PIXELS", which is still so. Not touched.
+- **Still his to rule:** ships with no engines (above). (Ruled later the same day: "Leave the drift.")
+- The suite is 370 and passes, with the same four tests switched off.
+
+## No guns, no course (2026-11-19)
+
+*Henry, with a screenshot of two whole DIGGERs alone in open space:* "my miners are running off the map when enemies came"
+
+**His match** (from his log): seed 4258, the AI on SWARM, two triangles. He stopped at 4:00, eight ships down. He was playing TEAM 7, not SCAVENGERS. When he loaded another team the library kept the cards he had in his slots as TEAM 7, and those were the SCAVENGERS as I first drew them, before five were redrawn to turn: his DIGGER took 3 s a quarter turn and flew at 26 px/s. He loaded TEAM 7 back and played it. The redrawn cards are the team called SCAVENGERS on the TEAMS list.
+
+**What it was.** A ship with an enemy within 240 px picks its own course (H1): it plays its next four seconds forward some thirty ways and takes the cheapest. A ship takes up to three seconds to turn a quarter. One that can't turn about and stop inside the four seconds it looks at sees nothing gained by beginning to: the turn costs it a little, and the stop is out of sight. So having once taken up a speed to get clear of a gun, it kept that speed for as long as an enemy was in sight, and the edge of the map stopped it.
+
+Reproduced on his map with his cards: a PORT at blue's home rock, four DIGGERs and a GLEANER at work, two DARTs and a PULSAR, nobody playing blue, and the SWARM raiding from 3:00. A GLEANER 65 px from its PORT, taking its load in, passed the PORT at 22 px/s and stopped against the left edge of the map 184 px on, with 35 of its 36 px. A DIGGER making for rock 50 px off flew by it at 19 px/s and in among the fighters.
+
+**Not what I said the first time.** After his first match I put "a fast orbit" and "ran away" down to a miner running home and never braking, and tested the mend with nothing shooting. That fault was real. This one was beside it, and no test I ran had an enemy in sight.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| NC1 | **A ship with no guns doesn't pick a course of its own.** It flies as its plan says, whatever is in sight. A miner works, and with a load it goes to its node and stops there; hit, it runs home and stops there; a collector follows the miners; a ship with no guns that's with the fleet keeps its place by it; sent somewhere, it goes. It still gets off the line of a warming beam, which every ship's plan has it do. **This narrows H1** (every ship in a fight picks its own course), which he hasn't ruled on. | Mine. |
+| NC2 | **A ship whose last gun is shot off drops the course it was on,** and flies as its plan says from then. | Mine. |
+| NC3 | **Armed ships are as they were, and the same blind spot is there for them.** They still weigh four seconds, and most of the big warships take three to turn a quarter (the FRIGATE, CORVETTE, CRUISER, BATTLESHIP, CAPITAL, MAUL, SNARE, RAKER and the SIEGE team's five). They fly at 7 to 19 px/s and their plans hold them at a range from a target, which may be why it hasn't shown as this did; his kept PULSAR, at 22 px/s and 3 s, is the likeliest to. Not measured. What would mend it for every ship is a look-ahead as long as the ship takes to turn about and stop, which changes how every warship flies and has the slow ones fly themselves forward more than twice as far each time they think. | Not built: for the talk on ship AI. |
+
+**Why this and not the look-ahead.** A ship with no guns has no gun to bring to bear, and what it does about an enemy is already its plan's to say (the yard says NO GUNS: RUNS HOME WHEN HIT). Twice now he has said of miners that they weren't where he expected them. The look-ahead is the wider mend and it moves every fight.
+
+**Measured, the old rule and the new.** The scene above on six maps, his the first, six minutes each. For blue's five miners while they had an engine left: the furthest any got from a blue node, how many of them touched the edge of the map, and the longest any flew away from the place it was making for.
+
+| Map | His kept cards, old rule | His kept cards, new rule | Redrawn cards, old rule | Redrawn cards, new rule |
+|---|---|---|---|---|
+| 4258, two triangles | 172 px, 1, 8 s | 96 px, 0, 2 s | 115 px, 0, 2 s | 95 px, 0, 2 s |
+| 1, scattered | 154 px, 1, 28 s | 123 px, 0, 5 s | 93 px, 0, 2 s | 140 px, 0, 5 s |
+| 2, an S | 684 px, 1, 28 s | 90 px, 0, 3 s | 143 px, 0, 3 s | 96 px, 0, 2 s |
+| 48925, an S | 208 px, 2, 21 s | 111 px, 0, 3 s | 101 px, 0, 5 s | 97 px, 0, 2 s |
+| 7, a ring | 270 px, 1, 11 s | 124 px, 0, 4 s | 143 px, 0, 2 s | 122 px, 0, 2 s |
+| 606, scattered | 135 px, 0, 6 s | 71 px, 0, 2 s | 134 px, 0, 1 s | 171 px, 0, 6 s |
+
+- With his kept cards a miner reached the edge of the map on five maps of six under the old rule, and on none under the new.
+- The redrawn cards never reached it under either: they turn about inside the four seconds. So he wouldn't have met this on the team as it's listed, and any card of his own that's slow to turn and has no guns would have.
+
+**What else moved in those scenes.** Nobody plays blue in them, so they aren't matches, and this is what I saw and no more.
+
+| | His kept cards, old rule | new rule | Redrawn cards, old rule | new rule |
+|---|---|---|---|---|
+| Miners alive at 4:00, of 30 over the six maps | 9 | 8 | 16 | 13 |
+| Maps where red had won by 6:00, of 6 | 1 | 5 | 3 | 2 |
+| Mined by 5:00, on the maps still going under both rules | 276, 316, 312 | 330, 343, 330 | 447, 440, 519, 473 | 512, 471, 614, 523 |
+
+Miners that keep to their work bring more in. With his kept cards red won sooner on four maps more; it may be that raiders went after miners that ran and now find them at the PORT and go on to the king. I haven't tested that, and it's one team against one AI.
+
+**Tested.** Four new tests. One is the scene above with his kept cards on five maps: no miner with an engine left ever touches the edge of the map, and none flies away from where it's going for longer than it takes it to turn about (three quarter turns, and a burn to stop and a burn to get going for each of across and along). One is the rule itself: for a side with no gun on anything that flies (both HERALDs, both BARGEs, both DIGGERs, both GLEANERs and the starter COLLECTOR, one of them sent somewhere), the match with the SWARM raiding is the same match, tick for tick by the number two machines compare, as the match with that side set to the plain pilot. One shoots the guns off a FIGHTER that's on a course of its own. One sends a SNARE, which has guns and a lattice, to a spot with three fighters coming for it: it picks no course, and once stopped it doesn't move. (That rule is from the stasis round, Q-rows, and had no test: I found that out by breaking it.) Twelve deliberate faults each fail one of them or one of the old tests of armed ships: the old rule back; only miners, only ships that aren't miners, only the slow, only the quick; a sent ship, a ship running home or a ship taking its load in still picking a course; no ship at all picking one; a sent lattice picking one; and the course kept when the last gun goes.
+
+**Three old tests moved, and why.**
+
+- **A gun aims at a pixel it can break.** Its target is a plated shell with no guns that "the tests have hold where it's put". It hadn't been holding: it was picking courses under the gun. Now that it holds still, on one roll in ten a flak shot and a tracker shot were in the air together and the second bounced off what was behind the pixel the first broke. The test's tracker was SIEGE's SENTINEL, which has two flak guns that reach at 40 px. It's now the SENTINEL with those two taken off, which is what the test's own note says it meant (one gun at a time). Passes on all ten rolls.
+- **Matches driven by random commands stay sound.** Its limit on how long a ship that can fly may sit inside a bigger enemy went from 20 ticks to 30. A FRIGATE at the map's left edge, with a king flying up the edge over it, took 21 to get out, where the most seen had been 15: the nearest way out was ahead of the king, and a ship gets out at 2 px a tick where a king flies at 2.5. That's the way-out rule, which is older and which I haven't touched; the FRIGATE has guns and flies as it did. Random commands make a match where one ship flying differently moves everything after it. **Not mended:** a ship under a bigger one should pick a way out the bigger one isn't flying towards.
+- **Every strategy plays a match and replays it.** Seed 3 became seed 1. SIEGE against the starter AI on seed 3 had been a red win at 23:27 and is now a draw at the 40-minute limit, with both sides mining and fighting at the end. On seeds 1 and 2 all five strategies' matches end with a winner.
+
+**A second way a miner leaves, and it isn't mended: no engines.** In the same scene on his map a DIGGER whose three engines were shot off while it was doing 7 px/s drifted 855 px, the length of the map, in two minutes and stopped against the top edge. That's the ruling still open from his first match (above), where I said I'd leave the drift and have the inspector say so. **I'd now have such a ship come to rest, which reverses what I recommended.** A pixel knocked off a ship stops within 2 to 7 px; a ship that loses some of its engines is held at once to its lower top speed; only one that loses them all keeps the speed it had. And a repair array, when there is one, could do nothing for a hulk at the far edge. It needs his word: it changes a flight rule (2026-11-16, unjudged), and the gunnery tests that use a drifting hulk as their target would be rebuilt.
+
+**Henry's ruling, 2026-11-19: "Leave the drift."** So it stays as the flight rules have it: a ship that loses every engine keeps the speed it had until the edge of the map stops it. Nothing was built for it, and nothing in the match says a ship is adrift (the inspector line I first suggested wasn't asked for and isn't there).
+
+**What the fix moved.** It touches one starter card, the collector, so AI matches change from the first time a collector has an enemy within 240 px. Ten AI matches on this build ran to their ends: four on the starter deck, and six with the SCAVENGERS on one side or the other.
+
+- The yard's line for a miner with no guns already says NO GUNS: RUNS HOME WHEN HIT. Not touched.
+- The suite is 374 and passes, with the same four tests switched off.
+
+---
+
 ## Wishlist (Henry's, for later; none of it is a work order)
 
-- **Docking ports** (Henry, 2026-11-16, with the tractor): "The other thing I considered is docking ports rather than tractor beams. Maybe if we create distinct part collections in the future that can be an alternative to this. Or both can just coexist. I think it will be fun to have both. They serve different purposes too because one reaches out to the miners a little bit and the other has miners doing more flying. We can have the docking station be good because it drains the miner's whole cargo instantly, but it needs to be large enough for the miner to fit on it."
+- **2026-11-18, later: the vacuum is built too (see "The vacuum").** Next in his queue: the phase-harvester and the repair array.
+- **2026-11-18: the speed-up field is built (see "The slipstream"), and the scoop with a range is out of the queue.** Henry: "Instead of a ranged scoop, which naively is pretty redundant with a regular scoop, what if we have a vacuum that is specialized in picking up loose debris pixels but is less efficient when used on asteroids?" The vacuum is thought through in that section and not built.
+- **The part queue as Henry left it on 2026-11-17** (this one is a work order): a speed-up field and a stasis field ("among the riskier additions that would be good to get in earlier"), the ranged scoop, a phase-harvester ("builds up a charge on an entire asteroid and harvests the entire asteroid at once once the bar reaches the amount of pixels remaining on the asteroid"), and a repair array ("uses banked pixels to repair damaged ships"). Then "we're getting close to some sort of 'full set' of part content, although I haven't decided exactly how we want to handle building sets."
+- **A scoop with a range** (Henry, 2026-11-17: "New mining wishlist item: a scoop with a range."). A scoop takes rock within 8 px of its ship's middle (W19).
+- **Docking ports**, built 2026-11-17 as the DOCK PAD (W6 to W9). (Henry, 2026-11-16, with the tractor): "The other thing I considered is docking ports rather than tractor beams. Maybe if we create distinct part collections in the future that can be an alternative to this. Or both can just coexist. I think it will be fun to have both. They serve different purposes too because one reaches out to the miners a little bit and the other has miners doing more flying. We can have the docking station be good because it drains the miner's whole cargo instantly, but it needs to be large enough for the miner to fit on it."
 - **A counter to SWARM** (Henry, 2026-11-16): "an easy way to counter swarm is to put a tracker on your outpost." His own OUTPOST has one.
 
 - **A king that's upgraded twice.** Henry, 2026-11-14: "Once we eventually get to king design, I want to have people optionally design two upgrades to their king where you pay the price upfront and it grows into a bigger, more consequential mothership/king. (twice. so you draw your starter king and then two bigger versions)." So three drawings of a king: the starter and two bigger ones, each upgrade paid for in full before it grows.
@@ -2958,7 +3629,7 @@ Built the same evening. Docking ports, the other half of the idea, are in the wi
 - **A theme:** the game as a galaxy-wide sport played over a 64-bit link, the player climbing to Wingleader (2026-11-10, in the round 2 notes).
 - **A reactionless drive that works inside armour,** as something a campaign could offer (ROUNDS.md).
 - **Part ideas (Henry, 2026-11-15, "some parts brainstorming"):** ideas for parts, not a work order. My notes in brackets are only what each meets in today's rules.
-  - **An energy-ball gun:** it launches a 2x2 energy ball that moves slowly and brings shields down in one or two hits. (Today a shield stops four shots and is full again 3 s after the last.)
+  - **An energy-ball gun:** it launches a 2x2 energy ball that moves slowly and brings shields down in one or two hits. (Today a shield stops four shots and is full again 3 s after the last.) (Built 2026-11-17 as the ENERGY BALL: W10.)
   - **A phase-blade gun:** it launches an L-shaped phase blade that moves slowly and destroys armour. (Today plate shrugs off any hit no stronger than it, and a lance uses up two of its punch on a plate pixel.)
   - **A projectile-speed upgrader:** you put it next to weapons and it speeds up their projectiles.
   - **An armour-penetration upgrade** for weapons.

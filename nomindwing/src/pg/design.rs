@@ -34,6 +34,17 @@ pub const LANCE_DEPTH: i32 = 6;
 /// Ticks a ship with two or more scoops takes to bite a pixel out of a rock (one scoop takes
 /// twice as long). 40 until 2026-11-11.
 pub const CHEW_TICKS: i32 = 50;
+/// Ticks one scoop takes to bite a pixel out of a rock (10 s). Every scoop bites (2026-11-17):
+/// a ship's scoops between them bite a pixel every `SCOOP_TICKS` over their number, so the
+/// starter miner's three bite one every `CHEW_TICKS`, as they did, and six bite twice as
+/// fast. (Until then two scoops bit a pixel every `CHEW_TICKS`, one took twice that, and any
+/// more bit no faster: the cheapest miner that flew fast earned the most, and a side's best
+/// mining was a swarm of them. Henry: "I'd like to provide alternatives to swarms of tiny
+/// miners", and "I agree we should make every scoop bite.")
+pub const SCOOP_TICKS: i32 = 3 * CHEW_TICKS;
+// (A scoop uses 2 power since 2026-11-17, where it used 1. Henry: "let's bump the hull cost of a
+// scoop up by one." And a ship short of power bites slower in step, as its guns reload slower:
+// otherwise a miner drawn without the hull would bite as fast as one with it.)
 /// Pixels each scoop carries.
 pub const SCOOP_CARRY: i32 = 3;
 /// The first line of a save file. Round 4 saves each design trimmed to its drawing, with where it
@@ -65,6 +76,16 @@ pub fn tractor_reach(px: i32) -> i32 {
     }
     TRACTOR_REACH0 + TRACTOR_REACH * r
 }
+/// Top speed, in quarter pixels a tick, for each thrust per weight a ship has: 6, which is
+/// 22.5 px/s. It leaves three things where they were: the starter fighter (16 thrust for 9
+/// weight) at the king's pace, the starter miner at 30 px/s, and the wasp (2 thrust per
+/// weight) as fast as anything flies. Everything heavier for its engines is slower than it
+/// was.
+pub const SPEED_PER_THRUST: (i32, i32) = (6, 1);
+/// The slowest and the fastest a ship with an engine flies, in quarter pixels a tick: 7.5 and
+/// 45 px/s. (The least is 2 and not 1 so that a beaten king, at 1, is slower than anything.)
+pub const SPEED_LEAST: i32 = 2;
+pub const SPEED_MOST: i32 = 12;
 /// What the second core costs on top of the ship's pixels. Each core after that costs twice the
 /// one before: +8, +16, +32 and so on.
 pub const CORE_EXTRA: i32 = 8;
@@ -86,6 +107,142 @@ pub const BEAM_PERIOD: i32 = 75;
 pub const SHIELD_R: i32 = 10;
 pub const SHIELD_CHARGES: u8 = 4;
 pub const SHIELD_REST: i32 = 45;
+
+/// The energy ball (2026-11-17, Henry's: "it launches a 2x2 energy ball that moves slowly and
+/// brings shields down in one or two hits"). A lump of ball pixels is one gun. It throws a ball
+/// at an enemy within `BALL_RANGE` px, in any direction, `BALL_SPEED` px a tick; a lump of 4
+/// fires every `BALL_PERIOD` ticks, and a bigger one sooner in proportion. The shield circle or
+/// projector that stops a ball loses `BALL_DRAIN` charges. A ball that reaches a ship breaks
+/// what `BALL_PIERCE` breaks of the 2x2 it lands on: bare hull, and no armour.
+pub const BALL_RANGE: i32 = 130;
+pub const BALL_SPEED: i32 = 2;
+pub const BALL_PERIOD: i32 = 60;
+pub const BALL_DRAIN: i32 = 20;
+pub const BALL_PIERCE: i32 = 1;
+/// The stasis lattice (2026-11-18; Henry, asked whether a field should touch both sides:
+/// "Both sides might in some ways be the more interesting design, yeah, at least for stasis.
+/// That way the effect can be very pronounced and you build your army composition around it.
+/// There would need to be some logic around turning it on and off though"). Stasis pixels
+/// joined edge to edge are one lattice. While its ship is still and an enemy is in its reach,
+/// every other ship any part of whose box is within the lattice's reach of the lattice's box,
+/// friend or enemy, flies and fires at one `STASIS_SLOW`th of its speed: its pilot and its
+/// guns get one tick in so many. Its scoops and factories work as ever. A lattice reaches
+/// `STASIS_REACH` px for each pixel of its width plus its height, `STASIS_REACH_MAX` at most:
+/// reach comes from how far it spreads, and not from how many pixels are in it. The field is
+/// set `STASIS_RISE` ticks after its ship stops and drops the tick it moves, so where the ship
+/// is parked and when it's moved is the switch; and with no enemy in it, it holds no friend.
+/// Kings aren't held.
+///
+/// (As first built it slowed flight and nothing else. In twelve fights each of six, level on
+/// cost, the side with a lattice lost every one, 0 to 12 five times and 4 to 8: a ship held
+/// to a quarter of its speed shoots as fast as ever, so its own side loses nothing by being
+/// in the field and the enemy loses little. Both sides in it matters only if being in it
+/// costs.)
+pub const STASIS_SLOW: i32 = 4;
+pub const STASIS_REACH: i32 = 2;
+pub const STASIS_REACH_MAX: i32 = 150;
+pub const STASIS_RISE: i32 = 30;
+/// How far a lattice whose width plus height is `span` reaches, from its box.
+pub fn stasis_reach(span: i32) -> i32 {
+    (span * STASIS_REACH).min(STASIS_REACH_MAX)
+}
+/// The lattices among a w-wide grid's cells: the cells of each, joined edge to edge, and the
+/// width plus the height of its box.
+pub fn lattices(w: i32, cells: &[Option<Part>]) -> Vec<(Vec<usize>, i32)> {
+    lumps_of(w, cells, Part::Stasis)
+        .into_iter()
+        .map(|got| {
+            let xs = || got.iter().map(|&k| k as i32 % w);
+            let ys = || got.iter().map(|&k| k as i32 / w);
+            let span = xs().max().unwrap() - xs().min().unwrap() + 1 + ys().max().unwrap() - ys().min().unwrap() + 1;
+            (got, span)
+        })
+        .collect()
+}
+/// The lumps of one part among a w-wide grid's cells: the cells of each, joined edge to edge.
+pub fn lumps_of(w: i32, cells: &[Option<Part>], part: Part) -> Vec<Vec<usize>> {
+    let h = cells.len() as i32 / w.max(1);
+    let on = |c: usize| cells[c] == Some(part);
+    let mut seen = vec![false; cells.len()];
+    let mut out = Vec::new();
+    for c in 0..cells.len() {
+        if on(c) && !seen[c] {
+            let got: Vec<usize> = reach(w, h, c, on).iter().enumerate().filter(|(_, g)| **g).map(|(k, _)| k).collect();
+            for &k in &got {
+                seen[k] = true;
+            }
+            out.push(got);
+        }
+    }
+    out
+}
+/// The slipstream (2026-11-18). Henry, of a speed-up field: "Maybe the speed-up field should
+/// just be a small always-on buff to your team's engines"; and, shown that speeds go in whole
+/// steps, so that no percentage is small: "Yes to speed up Fields bumping one speed step".
+/// Slipstream pixels joined edge to edge are one lump. Every ship of its side any part of
+/// whose box is within the lump's reach of the lump's box, and that's slower than the lump's
+/// own ship, has a top speed `SLIP_STEP` more (a quarter-pixel a tick: 3.75 px/s). It's always
+/// on. A lump reaches a pixel for each of its pixels, `SLIP_REACH_MAX` at most. Kings aren't
+/// sped, and two slipstreams speed a ship no more than one.
+///
+/// (Slower than its own ship: that part is mine. Without it, a pixel of this on every ship of
+/// a fleet speeds the whole fleet, each ship in its neighbours' reach, which is pixels for a
+/// bonus and nothing to decide. With it, what's sped is what flies with something faster: a
+/// slipstream is a fast ship's, the ship that carries it is never sped by its own, and it can
+/// always keep up with what it speeds.)
+pub const SLIP_STEP: i32 = 1;
+pub const SLIP_REACH_MAX: i32 = 150;
+/// How far a lump of `px` slipstream pixels reaches, from its box.
+pub fn slip_reach(px: i32) -> i32 {
+    px.clamp(0, SLIP_REACH_MAX)
+}
+/// The vacuum (2026-11-18). Henry, in place of a scoop with a range: "what if we have a
+/// vacuum that is specialized in picking up loose debris pixels but is less efficient when
+/// used on asteroids?" And, offered a vacuum whose ship banked what it took: "I kind of like
+/// having the offloading as a problem that needs to be solved. Seems boring and frictionless
+/// if it's just automatically a node".
+///
+/// Vacuum pixels joined edge to edge are one lump. A ship's vacuum pulls every loose pixel in
+/// its reach to its vacuum pixels, `VAC_PULL` px a tick, and takes each as it arrives, while
+/// the ship has room. A ship carries `SCOOP_CARRY` for each vacuum pixel, as for each scoop,
+/// and what it carries is cargo: a tractor or a pad has to take it, as a miner's. It reaches,
+/// past its ship's edge, a pixel for each pixel of its biggest lump, `VAC_REACH_MAX` at most
+/// (and from its ship's middle, as a tractor's reach is measured, so it doesn't matter where
+/// on the ship the lump is or which way the ship is turned); and never less than a scoop
+/// does. On rock a lump bites as one scoop, however big it is. A loose pixel in reach of two
+/// ships' vacuums goes to the nearer, whoever's.
+///
+/// (For an hour it reached from the lump's own box, as a slipstream does. A ship gets no
+/// nearer the spot it's flying to than a few pixels, turned whichever way it came, so one
+/// with a small lump sat with the last of its heap just outside its reach, and stayed.)
+pub const VAC_PULL: i32 = 2;
+pub const VAC_REACH_MAX: i32 = 150;
+/// How far past its ship's edge a lump of `px` vacuum pixels reaches.
+pub fn vac_reach(px: i32) -> i32 {
+    px.clamp(0, VAC_REACH_MAX)
+}
+/// How far (px) a scoop reaches from its ship's middle: 8, whatever the ship (Henry,
+/// 2026-11-17: "Let's just give scoops a short, fixed range of 8 px").
+pub const SCOOP_REACH: i32 = 8;
+/// The dock pad (2026-11-17, Henry's: "it drains the miner's whole cargo instantly, but it
+/// needs to be large enough for the miner to fit on it"; and 2026-11-17, of how it's to work:
+/// "it should just need to fit on an exact match of its profile and if there's extra room it
+/// would be cool if the miners tiled it and multiple could offload at the same time. Miners
+/// should clear the area of the pad once they're done offloading ... It's like they're being
+/// tractored in ... The three second cooldown can be counted per pixel").
+///
+/// A pad pixel that has had a miner unload on it rests this many ticks before another can.
+pub const DOCK_TURN: i32 = 45;
+/// A pad takes hold of a miner of its side that's within this of where it waits by the pad's
+/// ship, and going no faster than the pad moves it.
+pub const DOCK_GRAB: i32 = 12;
+/// A miner waits for a pad this far clear of the pad's ship, edge to edge, and is put down
+/// there again afterwards.
+pub const DOCK_CLEAR: i32 = 5;
+/// How fast a pad moves a miner it has hold of, in pixels a tick.
+pub const DOCK_SPEED: i32 = 1;
+/// How long a miner sits on its place while its load goes: the length of the pink sweep.
+pub const DOCK_SHOW: i32 = 8;
 
 /// The missile (2026-11-12). A launcher pixel sends one at the nearest enemy within
 /// `MISSILE_RANGE` px, in any direction, every `MISSILE_PERIOD` ticks. It flies `MISSILE_SPEED`
@@ -263,7 +420,7 @@ pub enum Part {
     /// A lump of these stops shots at every friend in reach. Never at its own ship, and never
     /// at a projector pixel.
     Projector,
-    /// Armour 2, in dominoes two wide or two tall: only shots that pierce 3 break it. (The parts
+    /// Armour 2, and two thick wherever it is: only shots that pierce 3 break it. (The parts
     /// of 2026-11-15 come last so the older parts keep their numbers.)
     HeavyPlate,
     /// A gun touching it fires heavier rounds: one level more piercing, a quarter slower.
@@ -283,6 +440,21 @@ pub enum Part {
     /// (match only), and makes its ship a node. (2026-11-16: last, so the older parts keep
     /// their numbers.)
     Tractor,
+    /// A landing pad: a miner of its side that comes down wholly on a lump of these unloads
+    /// all it carries at once (match only), and its ship is a node. (2026-11-17.)
+    DockPad,
+    /// A lump of these is one gun: it throws a slow 2x2 ball that empties the shield that
+    /// stops it. (2026-11-17.)
+    EnergyBall,
+    /// A lattice of these slows every other ship in its reach, friend or enemy, while its own
+    /// ship is still. (2026-11-18.)
+    Stasis,
+    /// A lump of these makes the slower ships of its side in its reach fly a step faster.
+    /// (2026-11-18.)
+    Slipstream,
+    /// A lump of these pulls in the loose pixels in its reach, and its ship carries them.
+    /// (2026-11-18.)
+    Vacuum,
 }
 
 /// The engines that aren't `Part::Engine`: the ones turned to push some other way than ahead.
@@ -291,7 +463,7 @@ pub const TURNED_ENGINES: [Part; 3] = [Part::EngineRight, Part::EngineAstern, Pa
 pub const WAYS: [&str; 4] = ["AHEAD", "TO ITS RIGHT", "ASTERN", "TO ITS LEFT"];
 
 /// The parts in the order the yard shows them.
-pub const PARTS: [Part; 19] = [
+pub const PARTS: [Part; 24] = [
     Part::Hull,
     Part::Plate,
     Part::HeavyPlate,
@@ -303,18 +475,23 @@ pub const PARTS: [Part; 19] = [
     Part::Cannon,
     Part::Tracker,
     Part::Missile,
+    Part::EnergyBall,
     Part::Repeater,
     Part::Piercer,
     Part::Engine,
     Part::Gyro,
+    Part::Stasis,
+    Part::Slipstream,
     Part::Scoop,
+    Part::Vacuum,
     Part::Tractor,
+    Part::DockPad,
     Part::Factory,
     Part::Core,
 ];
 
 /// The parts that come in square blocks, which the editor only ever puts down or takes away
-/// whole: the 3x3 cannon and tracker. (Heavy plate comes in dominoes: `Design::dominoes`.)
+/// whole: the 3x3 cannon and tracker.
 pub const BLOCK_PARTS: [Part; 2] = [Part::Cannon, Part::Tracker];
 
 /// The yard's part categories, keys 1-6. UPGRADES (key 4) was POWER, which stayed empty (hull
@@ -328,9 +505,13 @@ pub enum Cat {
     Upgrades,
     Industry,
     Command,
+    /// The weapons that are a block or a lump and not a pixel or a column: cannon, tracker,
+    /// missile, energy ball. (2026-11-17: an eighth weapon's name doesn't fit the two rows of
+    /// buttons a category has. It's the last category, key 7, so the others keep their keys.)
+    Heavy,
 }
 
-pub const CATS: [Cat; 6] = [Cat::Armor, Cat::Weapons, Cat::Drive, Cat::Upgrades, Cat::Industry, Cat::Command];
+pub const CATS: [Cat; 7] = [Cat::Armor, Cat::Weapons, Cat::Drive, Cat::Upgrades, Cat::Industry, Cat::Command, Cat::Heavy];
 
 impl Cat {
     pub fn name(self) -> &'static str {
@@ -341,6 +522,7 @@ impl Cat {
             Cat::Upgrades => "UPGRADES",
             Cat::Industry => "INDUSTRY",
             Cat::Command => "COMMAND",
+            Cat::Heavy => "HEAVY WEAPONS",
         }
     }
     /// The category's parts, in the yard's order.
@@ -367,7 +549,7 @@ pub struct PartInfo {
     /// Power one pixel makes, and what one uses (round 5). A cannon's is for the whole block.
     pub makes: i32,
     pub uses: i32,
-    /// Pixels in one of it: 9 for a 3x3 turret, 2 for heavy plate's domino, 1 for everything else.
+    /// Pixels in one of it: 9 for a 3x3 turret, 1 for everything else.
     pub block: i32,
     /// Its palette colour. None is the team's own colour (hull).
     pub colour: Option<u8>,
@@ -390,7 +572,7 @@ pub fn secs(ticks: i32) -> String {
 }
 
 /// One row per part, in the order of the `Part` enum.
-pub const PART_INFO: [PartInfo; 22] = [
+pub const PART_INFO: [PartInfo; 27] = [
     PartInfo {
         ch: 'h',
         name: "HULL",
@@ -450,7 +632,7 @@ pub const PART_INFO: [PartInfo; 22] = [
     PartInfo {
         ch: 'n',
         name: "CANNON",
-        cat: Cat::Weapons,
+        cat: Cat::Heavy,
         mass: 2,
         armor: 0,
         makes: 0,
@@ -482,12 +664,12 @@ about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER. IT PUSHES THE SHIP ON
         mass: 2,
         armor: 0,
         makes: 0,
-        uses: 1,
+        uses: 2,
         block: 1,
         colour: Some(pal::SCOOP),
         rank: 2,
         glyph: [".......", ".#...#.", ".#...#.", ".#...#.", "..###..", ".......", "......."],
-        about: || format!("MINES ROCK AND PICKS UP LOOSE PIXELS. EACH SCOOP CARRIES {SCOOP_CARRY}. IN A MATCH A TRACTOR TAKES THE LOAD OFF IT."),
+        about: || format!("MINES ROCK WITHIN {SCOOP_REACH} PX AND PICKS UP LOOSE PIXELS. EVERY SCOOP BITES A PIXEL EVERY {} S AND CARRIES {SCOOP_CARRY}, SO MORE SCOOPS MINE FASTER. IN A MATCH A TRACTOR OR A PAD TAKES THE LOAD OFF IT.", secs(SCOOP_TICKS)),
     },
     PartInfo {
         ch: 'c',
@@ -555,7 +737,7 @@ about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER. IT PUSHES THE SHIP ON
     PartInfo {
         ch: 'm',
         name: "MISSILE",
-        cat: Cat::Weapons,
+        cat: Cat::Heavy,
         mass: 2,
         armor: 0,
         makes: 0,
@@ -602,11 +784,11 @@ about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER. IT PUSHES THE SHIP ON
         armor: 2,
         makes: 0,
         uses: 0,
-        block: 2,
+        block: 1,
         colour: Some(pal::HEAVY),
         rank: 1,
         glyph: [".......", ".##.##.", ".##.##.", ".......", ".##.##.", ".##.##.", "......."],
-        about: || format!("ARMOR 2, IN DOMINOES 2 WIDE OR 2 TALL ([T] TURNS IT): ONLY A SHOT THAT PIERCES {PIERCE_TOP} BREAKS IT (CANNONS, BEAMS, AND A LANCE OR MISSILE BESIDE A PIERCER). A LANCE OR BEAM USES UP 3 OF ITS DEPTH BREAKING IT."),
+        about: || format!("ARMOR 2: ONLY A SHOT THAT PIERCES {PIERCE_TOP} BREAKS IT (CANNONS, BEAMS, AND A LANCE OR MISSILE BESIDE A PIERCER). IT HAS TO BE 2 THICK: EVERY PIXEL OF IT PART OF A 2X2 SQUARE OF HEAVY PLATE. A LANCE OR BEAM USES UP 3 OF ITS DEPTH BREAKING A PIXEL."),
     },
     PartInfo {
         ch: 'i',
@@ -625,7 +807,7 @@ about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER. IT PUSHES THE SHIP ON
     PartInfo {
         ch: 't',
         name: "TRACKER",
-        cat: Cat::Weapons,
+        cat: Cat::Heavy,
         mass: 2,
         armor: 0,
         makes: 0,
@@ -706,6 +888,77 @@ about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER. IT PUSHES THE SHIP ON
         glyph: ["#.....#", ".#...#.", "..#.#..", "...#...", "..###..", ".#####.", "......."],
         about: || format!("IN A MATCH, PULLS WHAT YOUR MINERS CARRY INTO YOUR BANK: 1 PIXEL EVERY {} S EACH, FROM MINERS IN ITS REACH (8 REACH {} PX PAST ITS SHIP'S EDGE, 64 REACH {}). ITS SHIP IS A NODE. ONE THAT FLIES FOLLOWS YOUR MINERS.", secs(TRACTOR_TICKS), tractor_reach(8), tractor_reach(64)),
     },
+    PartInfo {
+        ch: 'k',
+        name: "DOCK PAD",
+        cat: Cat::Industry,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 0,
+        block: 1,
+        colour: Some(pal::DOCK),
+        rank: 5,
+        glyph: ["#######", "#.....#", "#.#.#.#", "#.###.#", "#.#.#.#", "#.....#", "#######"],
+        about: || format!("IN A MATCH A MINER THAT LANDS ON IT UNLOADS ALL IT CARRIES AT ONCE. THE MINER HAS TO FIT ON THE PAD. A BIG PAD TAKES SEVERAL AT ONCE. WHERE ONE SAT RESTS {} S. ITS SHIP IS A NODE.", secs(DOCK_TURN)),
+    },
+    PartInfo {
+        ch: 'z',
+        name: "ENERGY BALL",
+        cat: Cat::Heavy,
+        mass: 2,
+        armor: 0,
+        makes: 0,
+        uses: 3,
+        block: 1,
+        colour: Some(pal::BALL),
+        rank: 6,
+        glyph: ["..###..", ".#...#.", "#..#..#", "#.###.#", "#..#..#", ".#...#.", "..###.."],
+        about: || format!("A LUMP OF THESE, 2 THICK, IS ONE GUN. IT THROWS A SLOW BALL {BALL_RANGE} PX, ANY WAY. THE SHIELD OR PROJECTOR THAT STOPS IT LOSES {BALL_DRAIN} CHARGES. ON A SHIP IT BREAKS ONLY BARE HULL. 4 PX FIRE EVERY {} S, MORE SOONER.", secs(BALL_PERIOD)),
+    },
+    PartInfo {
+        ch: 'x',
+        name: "STASIS",
+        cat: Cat::Drive,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 2,
+        block: 1,
+        colour: Some(pal::STASIS),
+        rank: 4,
+        glyph: [".#...#.", "#######", ".#...#.", ".#...#.", ".#...#.", "#######", ".#...#."],
+        about: || format!("WHILE ITS SHIP IS STILL AND AN ENEMY IS IN ITS REACH, EVERY OTHER SHIP IN ITS REACH FLIES AND FIRES AT A QUARTER SPEED, FRIEND OR ENEMY. NOT KINGS. IT REACHES {STASIS_REACH} PX FOR EACH PIXEL OF ITS WIDTH PLUS ITS HEIGHT."),
+    },
+    PartInfo {
+        ch: 'v',
+        name: "SLIPSTREAM",
+        cat: Cat::Drive,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::SLIP),
+        rank: 4,
+        glyph: ["#..#..#", "#..#..#", "#.....#", "...#...", "#..#..#", "#.....#", "...#..."],
+        about: || format!("SHIPS OF ITS SIDE IN ITS REACH THAT ARE SLOWER THAN ITS OWN SHIP FLY 4 PX/S FASTER. ALWAYS ON. NOT KINGS. A LUMP REACHES 1 PX FOR EACH OF ITS PIXELS, {SLIP_REACH_MAX} AT MOST."),
+    },
+    PartInfo {
+        // (Every small letter is some part's: this one's is a capital.)
+        ch: 'V',
+        name: "VACUUM",
+        cat: Cat::Industry,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::VACUUM),
+        rank: 5,
+        glyph: ["######.", "#....#.", "#.##.#.", "#.#..#.", "#.####.", "#......", "#######"],
+        about: || format!("PULLS IN THE LOOSE PIXELS IN ITS REACH AND CARRIES {SCOOP_CARRY} A PIXEL. A TRACTOR OR PAD HAS TO TAKE THE LOAD. A LUMP REACHES 1 PX PAST ITS SHIP FOR EACH OF ITS PIXELS, {VAC_REACH_MAX} AT MOST. ON ROCK A LUMP BITES AS ONE SCOOP."),
+    },
 ];
 
 impl Part {
@@ -765,7 +1018,7 @@ impl Part {
         self.info().name
     }
     /// The side of the square it comes in: 3 for a turret, 1 for everything else (heavy plate
-    /// comes in dominoes, not squares).
+    /// is painted a pixel at a time, and has only to be two thick).
     pub fn side(self) -> i32 {
         if self.info().block == 9 {
             3
@@ -875,6 +1128,19 @@ pub struct Stats {
     pub factory: i32,
     /// Tractor pixels.
     pub tractor: i32,
+    /// Dock pad pixels, and energy ball pixels.
+    pub dock: i32,
+    pub ball: i32,
+    /// Stasis pixels, and the width plus the height of its widest lattice.
+    pub stasis: i32,
+    pub stasis_span: i32,
+    /// Slipstream pixels, and the pixels in its biggest lump.
+    pub slip: i32,
+    pub slip_lump: i32,
+    /// Vacuum pixels, the pixels in its biggest lump, and how many lumps they make.
+    pub vacuum: i32,
+    pub vac_lump: i32,
+    pub vac_lumps: i32,
     /// Power made (hull and cores) and used (engines and guns).
     pub made: i32,
     pub used: i32,
@@ -905,19 +1171,46 @@ impl Stats {
     pub fn order(&self) -> Order {
         if self.thrust == 0 {
             Order::Hold
-        } else if self.scoops > 0 {
+        } else if self.gathers() {
             Order::Harvest
         } else {
             Order::Hunt
         }
     }
     pub fn armed(&self) -> bool {
-        self.flak + self.lance + self.cannon + self.tracker + self.beam + self.missile + self.repeater > 0
+        self.flak + self.lance + self.cannon + self.tracker + self.beam + self.missile + self.repeater + self.ball > 0
     }
-    /// A collector: it flies, it has a tractor, and it has no scoop of its own. In a match it
-    /// follows its side's miners instead of fighting or standing guard.
+    /// A collector: it flies, it has a tractor or a dock pad, and it has no scoop of its own.
+    /// In a match it follows its side's miners instead of fighting or standing guard.
     pub fn collector(&self) -> bool {
-        self.thrust > 0 && self.tractor > 0 && self.scoops == 0
+        self.thrust > 0 && self.tractor + self.dock > 0 && !self.gathers()
+    }
+    /// Whether it has mining equipment: a scoop or a vacuum.
+    pub fn gathers(&self) -> bool {
+        self.scoops + self.vacuum > 0
+    }
+    /// How many pixels it carries: `SCOOP_CARRY` for each scoop and each vacuum pixel.
+    pub fn hold(&self) -> i32 {
+        (self.scoops + self.vacuum) * SCOOP_CARRY
+    }
+    /// How many scoops' worth it bites rock with: its scoops, and one for each lump of vacuum
+    /// pixels, however big.
+    pub fn biters(&self) -> i32 {
+        self.scoops + self.vac_lumps
+    }
+    /// How far past its ship's edge its vacuum reaches (0: it has none): a pixel for each
+    /// pixel of its biggest lump. Short of power, it reaches less in proportion.
+    pub fn vac_past(&self) -> i32 {
+        vac_reach(self.vac_lump) * self.power_pct() / 100
+    }
+    /// How far from its middle a ship of this drawing's vacuum reaches, given how far its
+    /// edge is from its middle (0: it has no vacuum). Never less than a scoop reaches.
+    pub fn vac_reach(&self, half: i32) -> i32 {
+        if self.vacuum > 0 {
+            (half + self.vac_past()).max(SCOOP_REACH)
+        } else {
+            0
+        }
     }
     /// How far from its middle a ship of this drawing's tractor reaches, given how far its
     /// edge is from its middle (0: it has no tractor).
@@ -932,9 +1225,27 @@ impl Stats {
     pub fn aims(&self) -> bool {
         self.lance + self.beam + self.repeater > 0
     }
+    /// How far its widest stasis lattice reaches from its box (0: it has none). Short of
+    /// power, it reaches less in proportion.
+    pub fn stasis_reach(&self) -> i32 {
+        stasis_reach(self.stasis_span) * self.power_pct() / 100
+    }
+    /// How far its biggest slipstream lump reaches from its box (0: it has none). Short of
+    /// power, it reaches less in proportion.
+    pub fn slip_reach(&self) -> i32 {
+        slip_reach(self.slip_lump) * self.power_pct() / 100
+    }
     /// How far its longest beam gun reaches (0: it has none).
     pub fn beam_reach(&self) -> i32 {
         beam_reach(self.beam_len)
+    }
+    /// How far the gun of its that reaches furthest reaches (0: it has no gun).
+    pub fn gun_far(&self) -> i32 {
+        [(self.flak, FLAK_RANGE), (self.cannon, CANNON_RANGE), (self.tracker, TRACKER_RANGE), (self.missile, MISSILE_RANGE), (self.ball, BALL_RANGE)]
+            .iter()
+            .filter(|g| g.0 > 0)
+            .map(|g| g.1)
+            .fold(self.fwd_reach(), i32::max)
     }
     /// The reach of the gun it lines up: its longest beam or a lance, whichever reaches further.
     pub fn fwd_reach(&self) -> i32 {
@@ -963,17 +1274,19 @@ impl Stats {
     pub fn top_speed_px_s(&self) -> i32 {
         self.vmax * 15 / 4
     }
-    /// Tenths of a second from standing still to top speed.
+    /// Tenths of a second from standing still to top speed, on the engines that push it the
+    /// way it's strongest.
     pub fn zero_to_top_ds(&self) -> i32 {
-        if self.thrust == 0 {
+        let push = *self.push.iter().max().unwrap();
+        if push == 0 {
             0
         } else {
-            self.vmax * self.mass * 10 / (self.thrust * 15)
+            self.vmax * PUSH_PER_WEIGHT * self.mass * 10 / (push * 15)
         }
     }
-    /// Tenths of a second per quarter turn.
+    /// Tenths of a second per quarter turn (0: it can't turn).
     pub fn turn_ds(&self) -> i32 {
-        self.turn * 10 / 15
+        self.quarter * 10 / 15
     }
 }
 
@@ -1004,7 +1317,14 @@ pub fn stats_of(w: i32, cells: &[Option<Part>], cannons: i32, trackers: i32, bea
     // Engines push in proportion to the power they get.
     let full = engines * 8;
     let thrust = if used > made { full * made / used } else { full };
-    let vmax = if thrust == 0 { 0 } else { (thrust * 5 / mass.max(1) + 2).clamp(3, 12) };
+    // Top speed is thrust over weight and nothing else: twice the engines for the weight, twice
+    // the speed, from `SPEED_LEAST` to `SPEED_MOST`. (Until 2026-11-17 it was 2 and five times
+    // thrust over weight, and never under 3: anything with an engine did 11 px/s, everything
+    // from a frigate to a capital came out at 11 or 15, and a capital's 31 engines bought it
+    // the top speed one engine would. Henry: "ships all feel pretty samey to me in terms of
+    // speed, except for fighters being faster ... we need to make those speed numbers a lot
+    // more variable.")
+    let vmax = if thrust == 0 { 0 } else { (thrust * SPEED_PER_THRUST.0 / (mass.max(1) * SPEED_PER_THRUST.1)).clamp(SPEED_LEAST, SPEED_MOST) };
     let turn = if thrust == 0 { 0 } else { (mass * 2 / thrust).clamp(1, 24) };
     let flight = if thrust == 0 {
         Flight::Still
@@ -1049,7 +1369,7 @@ pub fn stats_of(w: i32, cells: &[Option<Part>], cannons: i32, trackers: i32, bea
     let turning: i64 = (CORE_TURN * cores) as i64 + drawn.iter().filter(|&&c| cells[c] == Some(Part::Gyro)).map(|&c| GYRO_TURN as i64 * (2 + isqrt_i64(far2(c) as i64)) / 2).sum::<i64>();
     let turning = if used > made { turning * made as i64 / used as i64 } else { turning };
     let quarter = if push == [0; 4] || turning == 0 { 0 } else { ((spread + turning - 1) / turning).clamp(1, SLOWEST_TURN as i64) as i32 };
-    Stats { push, gyros, quarter, count, cores, cost, mass, engines, flak, lance, cannon: cannons, tracker: trackers, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, tractor: n(Part::Tractor), made, used, thrust, vmax, turn, flight }
+    Stats { push, gyros, quarter, count, cores, cost, mass, engines, flak, lance, cannon: cannons, tracker: trackers, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, tractor: n(Part::Tractor), dock: n(Part::DockPad), ball: n(Part::EnergyBall), stasis: n(Part::Stasis), stasis_span: lattices(w, cells).iter().map(|l| l.1).max().unwrap_or(0), slip: n(Part::Slipstream), slip_lump: lumps_of(w, cells, Part::Slipstream).iter().map(|l| l.len() as i32).max().unwrap_or(0), vacuum: n(Part::Vacuum), vac_lump: lumps_of(w, cells, Part::Vacuum).iter().map(|l| l.len() as i32).max().unwrap_or(0), vac_lumps: lumps_of(w, cells, Part::Vacuum).len() as i32, made, used, thrust, vmax, turn, flight }
 }
 
 /// The whole part of a square root.
@@ -1161,11 +1481,15 @@ pub struct Check {
     pub hemmed: Vec<(i32, i32)>,
     /// How many of those are too thin. The rest are only hemmed in.
     pub thin: usize,
+    /// Heavy plate pixels that aren't two thick (`Design::thin_plate`).
+    pub slight: Vec<(i32, i32)>,
+    /// Energy ball pixels that aren't two thick (`Design::thin`).
+    pub scant: Vec<(i32, i32)>,
 }
 
 impl Check {
     pub fn ok(&self) -> bool {
-        self.cores >= 1 && self.loose.is_empty() && self.buried.is_empty() && self.hemmed.is_empty() && !self.no_seed
+        self.cores >= 1 && self.loose.is_empty() && self.buried.is_empty() && self.hemmed.is_empty() && self.slight.is_empty() && self.scant.is_empty() && !self.no_seed
     }
     pub fn problem(&self) -> Option<String> {
         let s = |n: usize| if n == 1 { "" } else { "S" };
@@ -1186,6 +1510,12 @@ impl Check {
             } else {
                 Some(format!("{} PROJECTOR PX SHUT IN", self.hemmed.len()))
             }
+        } else if !self.slight.is_empty() {
+            // (No "PX" in these two since 2026-11-17: with a thousand of them the line was a
+            // letter too long for its box.)
+            Some(format!("{} HEAVY PLATE NOT 2 THICK", self.slight.len()))
+        } else if !self.scant.is_empty() {
+            Some(format!("{} ENERGY BALL NOT 2 THICK", self.scant.len()))
         } else {
             None
         }
@@ -1240,14 +1570,20 @@ pub struct Design {
     /// Grown from a seed on a rock (match only), rather than printed by a factory or the king.
     /// Its seed is a core at the grid's centre, which the yard keeps there.
     pub seeded: bool,
-    /// What its factory pixels print, by deck slot, round and round (match only).
+    /// What its factory pixels print, by deck slot, round and round (match only): the build
+    /// order's REPEAT row.
     pub build: Vec<usize>,
+    /// What they print first, once, before the round: the START row. (2026-11-17. Henry: "I
+    /// think we need to split the builds cycle into a fixed start and then a repeat sequence.
+    /// We should allow both to be pretty long.")
+    pub first: Vec<usize>,
 }
 
 /// Where a seeded design's seed core sits on the grid.
 pub const SEED_CELL: (i32, i32) = (GRID / 2, GRID / 2);
-/// The longest build order the yard allows.
-pub const BUILD_MAX: usize = 12;
+/// The longest either row of a build order may be, the start or the repeat. (One row of 12
+/// until 2026-11-17.)
+pub const BUILD_MAX: usize = 16;
 /// How many designs a team holds (Henry, 2026-11-12: "Nine for now"). The yard's tabs, the
 /// arena's roster and the match's cards are all laid out for this many.
 pub const SLOTS: usize = 9;
@@ -1263,7 +1599,7 @@ pub fn team_of(mut designs: Vec<Design>) -> Vec<Design> {
 
 impl Design {
     pub fn blank(name: &str) -> Design {
-        Design { name: name.into(), cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new() }
+        Design { name: name.into(), cells: vec![None; (GRID * GRID) as usize], seeded: false, build: Vec::new(), first: Vec::new() }
     }
 
     /// Nothing drawn yet: an empty slot.
@@ -1352,118 +1688,33 @@ impl Design {
         self.all_blocks().into_iter().find(|&(p, (bx, by))| (bx..bx + p.side()).contains(&x) && (by..by + p.side()).contains(&y))
     }
 
-    /// Heavy plate's dominoes: its pixels in pairs side by side, two wide or two tall, as many
-    /// pairs as the drawing can be cut into, and the heavy pixels left over (loose). Any cut
-    /// that leaves nothing over will do, since the pixels are the same whichever way it's cut, so
-    /// this finds the most pairs there can be: a first pass in reading order, then each pixel
-    /// left over on a chessboard's dark squares passes pairs along until one frees up (an
-    /// augmenting path).
-    pub fn dominoes(&self) -> (Vec<((i32, i32), (i32, i32))>, Vec<(i32, i32)>) {
-        const NONE: usize = usize::MAX;
-        let cells: Vec<(i32, i32)> = (0..GRID * GRID).map(|i| (i % GRID, i / GRID)).filter(|&(x, y)| self.get(x, y) == Some(Part::HeavyPlate)).collect();
-        let mut id = vec![NONE; (GRID * GRID) as usize];
-        for (k, &(x, y)) in cells.iter().enumerate() {
-            id[(y * GRID + x) as usize] = k;
-        }
-        let near = |k: usize| -> Vec<usize> {
-            let (x, y) = cells[k];
-            [(1, 0), (0, 1), (-1, 0), (0, -1)]
-                .iter()
-                .map(|&(dx, dy)| (x + dx, y + dy))
-                .filter(|&(nx, ny)| (0..GRID).contains(&nx) && (0..GRID).contains(&ny))
-                .map(|(nx, ny)| id[(ny * GRID + nx) as usize])
-                .filter(|&j| j != NONE)
-                .collect()
-        };
-        let mut mate = vec![NONE; cells.len()];
-        for k in 0..cells.len() {
-            if mate[k] == NONE {
-                if let Some(j) = near(k).into_iter().find(|&j| mate[j] == NONE) {
-                    (mate[k], mate[j]) = (j, k);
-                }
-            }
-        }
-        for s in 0..cells.len() {
-            if mate[s] != NONE || (cells[s].0 + cells[s].1) % 2 != 0 {
-                continue;
-            }
-            // Breadth first from s: a light square is reached from a dark one, and goes on to
-            // the dark one it's paired with, until a light square that's free turns up.
-            let mut from = vec![NONE; cells.len()];
-            let mut queued = vec![false; cells.len()];
-            let mut queue = std::collections::VecDeque::from([s]);
-            queued[s] = true;
-            let mut free = NONE;
-            'search: while let Some(b) = queue.pop_front() {
-                for v in near(b) {
-                    if from[v] != NONE {
-                        continue;
-                    }
-                    from[v] = b;
-                    if mate[v] == NONE {
-                        free = v;
-                        break 'search;
-                    }
-                    if !queued[mate[v]] {
-                        queued[mate[v]] = true;
-                        queue.push_back(mate[v]);
-                    }
-                }
-            }
-            // Pass the pairs along the path, back to s.
-            let mut v = free;
-            while v != NONE {
-                let b = from[v];
-                let next = mate[b];
-                (mate[b], mate[v]) = (v, b);
-                v = next;
-            }
-        }
-        let pairs = (0..cells.len()).filter(|&k| mate[k] != NONE && mate[k] > k).map(|k| (cells[k], cells[mate[k]])).collect();
-        let loose = (0..cells.len()).filter(|&k| mate[k] == NONE).map(|k| cells[k]).collect();
-        (pairs, loose)
+    /// Heavy plate that's too thin: its pixels that aren't part of any full 2x2 square of heavy
+    /// plate. Heavy plate has to be two thick, in whatever shape: the squares overlap as they
+    /// like, so a wall three wide or an L is fine, and a skin one pixel thick isn't. (It came
+    /// in dominoes, two wide or two tall, from 2026-11-15 to 2026-11-17. Henry: "The 2x1
+    /// isn't a real restriction, just an annoyance", and of this: "Two-thick rule makes
+    /// sense.")
+    pub fn thin_plate(&self) -> Vec<(i32, i32)> {
+        self.thin(Part::HeavyPlate)
     }
 
-    /// The domino a heavy pixel is half of, if it's paired.
-    pub fn domino_at(&self, x: i32, y: i32) -> Option<((i32, i32), (i32, i32))> {
-        self.dominoes().0.into_iter().find(|&(a, b)| a == (x, y) || b == (x, y))
+    /// The pixels of a part that aren't in any full 2x2 square of that part: heavy plate is
+    /// two thick wherever it is, and so is an energy ball gun.
+    pub fn thin(&self, part: Part) -> Vec<(i32, i32)> {
+        let heavy = |x: i32, y: i32| self.get(x, y) == Some(part);
+        let square = |x: i32, y: i32| heavy(x, y) && heavy(x + 1, y) && heavy(x, y + 1) && heavy(x + 1, y + 1);
+        (0..GRID * GRID).map(|i| (i % GRID, i / GRID)).filter(|&(x, y)| heavy(x, y) && !(square(x - 1, y - 1) || square(x, y - 1) || square(x - 1, y) || square(x, y))).collect()
     }
 
-    /// Empties a cell, and the rest of the block or domino it's part of.
+    /// Empties a cell, and the rest of the block it's part of.
     pub fn clear_at(&mut self, (x, y): (i32, i32)) {
         match self.get(x, y) {
-            Some(Part::HeavyPlate) => match self.domino_at(x, y) {
-                Some((a, b)) => {
-                    self.set(a.0, a.1, None);
-                    self.set(b.0, b.1, None);
-                }
-                None => self.set(x, y, None),
-            },
             Some(q) if q.side() > 1 => match self.block_at(x, y) {
                 Some((bp, b)) => self.clear_block(bp, b),
                 None => self.set(x, y, None),
             },
             _ => self.set(x, y, None),
         }
-    }
-
-    /// The editor's paint for heavy plate: a domino with its top-left on the cell, two wide, or
-    /// two tall when `upright`. Whatever it lands on goes first, whole if it's a block or another
-    /// domino. Returns whether anything changed.
-    pub fn put_domino(&mut self, x: i32, y: i32, upright: bool) -> bool {
-        let (x1, y1) = if upright { (x, y + 1) } else { (x + 1, y) };
-        if x < 0 || y < 0 || x1 >= GRID || y1 >= GRID {
-            return false;
-        }
-        if self.domino_at(x, y).is_some_and(|(a, b)| [a, b] == [(x, y), (x1, y1)] || [b, a] == [(x, y), (x1, y1)]) {
-            return false;
-        }
-        for c in [(x, y), (x1, y1)] {
-            self.clear_at(c);
-        }
-        self.set(x, y, Some(Part::HeavyPlate));
-        self.set(x1, y1, Some(Part::HeavyPlate));
-        true
     }
 
     fn clear_block(&mut self, p: Part, (bx, by): (i32, i32)) {
@@ -1474,16 +1725,12 @@ impl Design {
         }
     }
 
-    /// The editor's paint: a block's or a domino's cell is only ever removed with the whole of
-    /// it, and a turret stamps a whole 3x3 block centred on the cell (refused if it doesn't fit).
-    /// Heavy plate puts down a domino two wide (`put_domino` turns it). Returns whether anything
-    /// changed.
+    /// The editor's paint: a block's cell is only ever removed with the whole of it, and a
+    /// turret stamps a whole 3x3 block centred on the cell (refused if it doesn't fit). Returns
+    /// whether anything changed.
     pub fn put(&mut self, x: i32, y: i32, p: Option<Part>) -> bool {
         if !(0..GRID).contains(&x) || !(0..GRID).contains(&y) {
             return false;
-        }
-        if p == Some(Part::HeavyPlate) {
-            return self.put_domino(x, y, false);
         }
         if let Some(q) = p.filter(|q| q.side() > 1) {
             let n = q.side();
@@ -1500,13 +1747,6 @@ impl Design {
             }
             for dy in 0..n {
                 for dx in 0..n {
-                    if self.get(x0 + dx, y0 + dy) == Some(Part::HeavyPlate) {
-                        self.clear_at((x0 + dx, y0 + dy));
-                    }
-                }
-            }
-            for dy in 0..n {
-                for dx in 0..n {
                     self.set(x0 + dx, y0 + dy, Some(q));
                 }
             }
@@ -1515,7 +1755,7 @@ impl Design {
         if self.get(x, y) == p {
             return false;
         }
-        if self.get(x, y).is_some_and(|q| q.side() > 1 || q == Part::HeavyPlate) {
+        if self.get(x, y).is_some_and(|q| q.side() > 1) {
             self.clear_at((x, y));
         }
         self.set(x, y, p);
@@ -1523,8 +1763,8 @@ impl Design {
     }
 
     /// A design is legal with at least one core, every pixel joined into one piece edge to edge
-    /// (so all its cores are joined too), whole blocks, heavy plate in whole dominoes, and no
-    /// buried engines.
+    /// (so all its cores are joined too), whole blocks, heavy plate two thick, and no buried
+    /// engines.
     pub fn check(&self) -> Check {
         let cores: Vec<usize> = (0..self.cells.len()).filter(|&i| self.cells[i] == Some(Part::Core)).collect();
         let mut c = Check { cores: cores.len() as i32, no_seed: self.seeded && self.get(SEED_CELL.0, SEED_CELL.1) != Some(Part::Core), ..Default::default() };
@@ -1536,7 +1776,8 @@ impl Design {
         for p in BLOCK_PARTS {
             c.loose.extend(self.blocks(p).1);
         }
-        c.loose.extend(self.dominoes().1);
+        c.slight = self.thin_plate();
+        c.scant = self.thin(Part::EnergyBall);
         if let Some(bbox) = self.used_box() {
             let (x0, y0, x1, y1) = bbox;
             let engines: Vec<((i32, i32), usize)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter_map(|(x, y)| self.get(x, y).and_then(Part::pushes).map(|way| ((x, y), way))).collect();
@@ -1595,14 +1836,12 @@ impl Design {
     }
 
     /// The cells in a box (corners inclusive, either order) as a stamp, trimmed to what's drawn.
-    /// A block or domino the box cuts through is left out, so a stamp never holds part of one.
+    /// A block the box cuts through is left out, so a stamp never holds part of one.
     pub fn copy_box(&self, a: (i32, i32), b: (i32, i32)) -> Stamp {
         let (x0, x1, y0, y1) = (a.0.min(b.0), a.0.max(b.0), a.1.min(b.1), a.1.max(b.1));
         let inside = |x: i32, y: i32| (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
         let blocks = self.all_blocks();
-        let pairs = self.dominoes().0;
         let keep = |x: i32, y: i32| match self.get(x, y) {
-            Some(Part::HeavyPlate) => pairs.iter().any(|&(a, b)| (a == (x, y) || b == (x, y)) && inside(a.0, a.1) && inside(b.0, b.1)),
             Some(q) if q.side() > 1 => {
                 let n = q.side();
                 blocks.iter().any(|&(bp, (bx, by))| bp == q && (bx..bx + n).contains(&x) && (by..by + n).contains(&y) && inside(bx, by) && inside(bx + n - 1, by + n - 1))
@@ -1630,17 +1869,10 @@ impl Design {
     }
 
     /// Writes a stamp's pixels with its top-left at (x, y); its empty cells leave what's there,
-    /// and anything off the grid is dropped. A block or domino the stamp lands on is removed
-    /// whole first, so no scraps are left. Returns whether anything changed.
+    /// and anything off the grid is dropped. A block the stamp lands on is removed whole first,
+    /// so no scraps are left. Returns whether anything changed.
     pub fn paste(&mut self, st: &Stamp, (x, y): (i32, i32)) -> bool {
         let mut changed = false;
-        for (a, b) in self.dominoes().0 {
-            if st.get(a.0 - x, a.1 - y).is_some() || st.get(b.0 - x, b.1 - y).is_some() {
-                self.set(a.0, a.1, None);
-                self.set(b.0, b.1, None);
-                changed = true;
-            }
-        }
         for (bp, (bx, by)) in self.all_blocks() {
             let n = bp.side();
             if (0..n * n).any(|k| st.get(bx + k % n - x, by + k / n - y).is_some()) {
@@ -1664,9 +1896,7 @@ impl Design {
 
     /// Fills a box (corners inclusive, either order) with a part, or empties it. A part that comes
     /// in blocks tiles the box in whole ones from its top-left corner, leaving any strip too thin
-    /// for one; heavy plate fills a box with an even number of cells, leaving out the right-hand
-    /// column (or, one column wide, the bottom row) of an odd one. A block or domino the box
-    /// touches is removed whole. Returns whether anything changed.
+    /// for one. A block the box touches is removed whole. Returns whether anything changed.
     pub fn fill_box(&mut self, a: (i32, i32), b: (i32, i32), p: Option<Part>) -> bool {
         let (x0, x1) = (a.0.min(b.0).max(0), a.0.max(b.0).min(GRID - 1));
         let (y0, y1) = (a.1.min(b.1).max(0), a.1.max(b.1).min(GRID - 1));
@@ -1680,15 +1910,6 @@ impl Design {
                 return false;
             }
         }
-        if p == Some(Part::HeavyPlate) && w * h % 2 == 1 {
-            if w > 1 {
-                w -= 1;
-            } else if h > 1 {
-                h -= 1;
-            } else {
-                return false;
-            }
-        }
         match p {
             Some(_) => self.paste(&Stamp { w, h, cells: vec![p; (w * h) as usize] }, (x0, y0)),
             None => {
@@ -1697,14 +1918,6 @@ impl Design {
                     let n = bp.side();
                     if bx + n - 1 >= x0 && bx <= x1 && by + n - 1 >= y0 && by <= y1 {
                         self.clear_block(bp, (bx, by));
-                        changed = true;
-                    }
-                }
-                let inside = |(x, y): (i32, i32)| (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
-                for (a, b) in self.dominoes().0 {
-                    if inside(a) || inside(b) {
-                        self.set(a.0, a.1, None);
-                        self.set(b.0, b.1, None);
                         changed = true;
                     }
                 }
@@ -1722,8 +1935,7 @@ impl Design {
     /// Flood-fills the patch joined edge to edge that matches the cell at (x, y): an empty hole,
     /// or a patch of one part, which this swaps for another part or erases. An empty area that
     /// reaches the edge of the grid isn't a hole, so it's refused, and so are turrets (the
-    /// rectangle tiles them), and heavy plate where what it fills can't be cut into dominoes.
-    /// Returns whether anything changed.
+    /// rectangle tiles them). Returns whether anything changed.
     pub fn flood(&mut self, (x, y): (i32, i32), p: Option<Part>) -> Result<bool, &'static str> {
         if !(0..GRID).contains(&x) || !(0..GRID).contains(&y) {
             return Ok(false);
@@ -1733,19 +1945,10 @@ impl Design {
             Some(Part::Tracker) => return Err("TRACKERS DON'T FILL: USE THE RECTANGLE"),
             _ => {}
         }
-        if p == Some(Part::HeavyPlate) {
-            let before = self.cells.clone();
-            let filled = self.flood_patch((x, y), p)?;
-            if !self.dominoes().1.is_empty() {
-                self.cells = before;
-                return Err("HEAVY PLATE COMES IN DOMINOES: THAT AREA DOESN'T CUT INTO THEM");
-            }
-            return Ok(filled);
-        }
         self.flood_patch((x, y), p)
     }
 
-    /// `flood` without the rules about blocks and dominoes.
+    /// `flood` without the rule about blocks.
     fn flood_patch(&mut self, (x, y): (i32, i32), p: Option<Part>) -> Result<bool, &'static str> {
         let was = self.get(x, y);
         if was == p {
@@ -1764,18 +1967,22 @@ impl Design {
 
     /// One line for the save file: `NAME|X,Y|row/row/...|KIND|BUILD`. The drawing is trimmed to
     /// its box with the box's top-left on the grid and `.` for empty cells; KIND is BUILT or
-    /// SEEDED, and BUILD the build order as deck slots. A design carries nothing else: what its
+    /// SEEDED, and BUILD the build order as deck slots: the ones it prints round and round,
+    /// and before them, with a `>` between, any it prints once first (`3,3>0,1`). A design carries nothing else: what its
     /// ships do follows from the drawing (`Design::order`). Lines saved before 2026-11-14 have
     /// the order a design used to carry as their second field, and may end `|STYLE|GROUP`, the
     /// way of flying and the group size it carried too: all three are read past.
     pub fn to_line(&self) -> String {
         let kind = if self.seeded { "SEEDED" } else { "BUILT" };
-        let build: Vec<String> = self.build.iter().map(|b| b.to_string()).collect();
+        // The build order: the repeat row's slots, with the start row's before them and a `>`
+        // between if there's a start. With none it's the one list it always was.
+        let slots = |list: &[usize]| list.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(",");
+        let build = if self.first.is_empty() { slots(&self.build) } else { format!("{}>{}", slots(&self.first), slots(&self.build)) };
         let Some((x0, y0, x1, y1)) = self.used_box() else {
-            return format!("{}|0,0|.|{kind}|{}", self.name, build.join(","));
+            return format!("{}|0,0|.|{kind}|{build}", self.name);
         };
         let rows: Vec<String> = (y0..=y1).map(|y| (x0..=x1).map(|x| self.get(x, y).map_or('.', |p| p.ch())).collect()).collect();
-        format!("{}|{x0},{y0}|{}|{kind}|{}", self.name, rows.join("/"), build.join(","))
+        format!("{}|{x0},{y0}|{}|{kind}|{build}", self.name, rows.join("/"))
     }
 
     /// Reads a save line, today's or an older one. A round 2 or 3 line (the whole 41x41 grid,
@@ -1820,7 +2027,11 @@ impl Design {
         }
         if f.len() >= 5 {
             d.seeded = f[3] == "SEEDED";
-            d.build = f[4].split(',').filter_map(|b| b.trim().parse().ok()).take(BUILD_MAX).collect();
+            let slots = |list: &str| -> Vec<usize> { list.split(',').filter_map(|b| b.trim().parse().ok()).take(BUILD_MAX).collect() };
+            match f[4].split_once('>') {
+                Some((first, round)) => (d.first, d.build) = (slots(first), slots(round)),
+                None => d.build = slots(f[4]),
+            }
         }
         Some(d)
     }
@@ -1980,7 +2191,8 @@ pub fn defaults() -> Vec<Design> {
                 "...e.e.e.e.e.e.e.e...",
             ],
         ),
-        Design::from_rows("GUNMINER", &["s.s", "sgs", "hch", ".e."]),
+        // (Seven hull pixels since 2026-11-17, when a scoop went from 1 power to 2: it had two.)
+        Design::from_rows("GUNMINER", &["s.s", "sgs", "hch", "hhh", "heh"]),
         titan(),
     ]
 }
@@ -2134,30 +2346,125 @@ pub fn part_examples() -> Vec<Design> {
         drawn("IRONLANCER", (48, 47), &[".p.", "plp", "hlh", "hch", "e.e"], None),
         // All three on one big ship, redrawn (Henry, 2026-11-15: "redraw the bastion") after the
         // first, with heavy plate on its prow only, lost to lancers like the battleship: now a
-        // skin of heavy plate a pixel thick all round, with everything inside it. Its guns fire
+        // skin of heavy plate all round, two thick since 2026-11-17 (it was a pixel thick, which
+        // heavy plate can't be any more), with everything inside it. Its guns fire
         // through it: a tracker on each flank, four lances with piercers between them, four flak.
         // Two cores, apart, so a cut down the middle leaves both halves flying. The engines sit
         // outside the skin, along the stern and two on each flank, the only thing a plain lance
         // or flak can break.
         drawn(
             "BASTION",
-            (42, 43),
+            (41, 42),
             &[
-                ".aaaaaaaaaaaa.",
-                ".ahhhhllhhhha.",
-                ".attthiihttta.",
-                ".attthllhttta.",
-                "dattthhhhtttaw",
-                "daghhhhhhhhgaw",
-                ".ahhhhhhhhhha.",
-                ".ahhchhhhchha.",
-                ".aghhhhhhhhga.",
-                ".ahhhhhhhhhha.",
-                ".aaaaaaaaaaaa.",
-                ".eeeeeeeeeeee.",
+                ".aaaaaaaaaaaaaa.",
+                ".aaaaaaaaaaaaaa.",
+                ".aahhhhllhhhhaa.",
+                ".aattthiihtttaa.",
+                ".aattthllhtttaa.",
+                "daattthhhhtttaaw",
+                "daaghhhhhhhhgaaw",
+                ".aahhhhhhhhhhaa.",
+                ".aahhchhhhchhaa.",
+                ".aaghhhhhhhhgaa.",
+                ".aahhhhhhhhhhaa.",
+                ".aaaaaaaaaaaaaa.",
+                ".aaaaaaaaaaaaaa.",
+                "..eeeeeeeeeeee..",
             ],
             None,
         ),
+        // The parts of 2026-11-17. The starter outpost with a dock pad six wide on its flank:
+        // a miner up to six long comes down on it and unloads everything at once.
+        drawn(
+            "PADPOST",
+            (43, 43),
+            &[
+                ".....ppp.....",
+                "...pphhhpp...",
+                "..phhhghhhp..",
+                ".phhhhhhhhhp.",
+                ".phhffuffhhp.kkkkkk",
+                "phfffhhhfffhpkkkkkk",
+                "pgfufhchfufgpkkkkkk",
+                "phfffhhhfffhpkkkkkk",
+                ".phhffuffhhp.kkkkkk",
+                ".phhhhhhhhhp.kkkkkk",
+                "..phhhghhhp..",
+                "...pphhhpp...",
+                ".....ppp.....",
+            ],
+            Some(&[3, 3, 0, 0, 1, 2]),
+        ),
+        // A miner for a pad: six scoops, so it bites twice as fast as the starter miner and
+        // carries eighteen, and it's six long, so it needs a pad six wide. Every pixel of
+        // power its hull makes is spent: twelve on the scoops, four on the engines.
+        drawn("HAULER", (47, 46), &[".sss.", ".sss.", ".hch.", "hhhhh", "hhhhh", "ee.ee"], None),
+        // An energy ball gun of eight pixels, which throws a ball every two seconds: often
+        // enough to keep a shield's circle down, since a circle is back three seconds after
+        // the last shot it stopped. Two flak on its shoulders, and all its power spent.
+        drawn("SAPPER", (47, 45), &[".zzzz.", ".zzzz.", "ghhhhg", "hhhhhh", "hhchhh", "hhhhhh", "hhhhhh", "ee.eee"], None),
+        // A stasis lattice in an H, 21 wide and 21 tall: two rails standing clear of the hull
+        // on a bar that runs through its middle. It reaches 84 px from its box, which takes in
+        // a lancer standing off to shoot at it (75 px from its edge). No guns: it's what its
+        // side's guns stand behind. It has to stand still to work, so it has five engines
+        // turned astern to stop it without turning about, and a rotation engine at each end of
+        // its stern. The bar is the way to hurt it: cut, it's two lattices that reach 62, and
+        // the bow half of the ship hangs on what's left. All its power is spent.
+        drawn(
+            "ANCHOR",
+            (39, 39),
+            &[
+                "x...................x",
+                "x.....q.q.q.q.q.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "xxxxxxxxxxxxxxxxxxxxx",
+                "x.....hhhhchhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x.....hhhhhhhhh.....x",
+                "x....yeeeeeeeeey....x",
+                "x...................x",
+                "x...................x",
+            ],
+            None,
+        ),
+        // A pace ship: a slipstream lump of 42 pixels across its bow, which reaches 42 px from
+        // the lump's box, on a hull with the engines to do 30 px/s. That's faster than the
+        // starter deck's frigate, miner and capital (not its fighter, and its lancer is as
+        // fast), so a frigate or a capital flying beside it flies a step faster than its own
+        // engines take it. No guns: it stays with the fleet. Twenty-two engines and a rotation engine at each end of its stern. All
+        // its power is spent.
+        drawn(
+            "PACER",
+            (37, 46),
+            &[
+                ".....vvvvvvvvvvvvvvv.....",
+                "..vvvvvvvvvvvvvvvvvvvvv..",
+                "vvvhhhhhhhhhhhhhhhhhhhvvv",
+                "hhhhhhhhhhhhchhhhhhhhhhhh",
+                "...hhhhhhhhhhhhhhhhhhh...",
+                "yeeeeeeeeeee.eeeeeeeeeeey",
+            ],
+            None,
+        ),
+        // A ship for wreckage: a vacuum lump of 24 with an open mouth, which reaches 24 px
+        // from the lump's box, and holds 72. Nine engines for 22 px/s, a miner's speed. No
+        // guns. It's 9 across and 8 long, so it wants a pad that big, or a tractor and a
+        // minute and more to spare. All its power is spent.
+        drawn("SWEEPER", (45, 45), &["VVV...VVV", "VVVVVVVVV", "VVVVVVVVV", "hhhhhhhhh", "hhhhchhhh", "hhhhhhhhh", "...hhh...", "eeeeeeeee"], None),
+        // A small one that fits the PADPOST's pad, as the HAULER does: a lump of 10 that
+        // reaches 10 px and holds 30, and 26 px/s. All its power is spent.
+        drawn("DUSTER", (47, 47), &["VVVVV", "VVVVV", "hhchh", "hhhhh", "eehee"], None),
     ]
 }
 
@@ -2203,7 +2510,10 @@ pub fn starter_deck() -> Vec<Design> {
         // 2026-11-11: scoops use power and weigh 2, so it carries two hull pixels where it had
         // an engine, costs 9 px and flies at 30 px/s. Nobody has played drawings against each
         // other for it under these costs.
-        drawn("MINER", (48, 47), &[".g.", "sss", "hch", "e.e"], None),
+        //
+        // 2026-11-17: a scoop uses 2 power, so it carries a row of three more hull pixels under
+        // its core: 12 px where it was 9, and slower for the weight.
+        drawn("MINER", (48, 46), &[".g.", "sss", "hch", "hhh", "e.e"], None),
         // Twenty-four factory pixels inside the plate, so it builds anything up to 240 px, and
         // four tractor pixels, one in each arm, that take in a pixel every 2 s from miners
         // within 34 px of its middle. (Twenty-eight factory pixels until 2026-11-16, when
@@ -2332,6 +2642,8 @@ pub fn retired_starters() -> Vec<(usize, Design)> {
     v.push((3, drawn("MINER", (48, 45), &[".g.", "ggg", "sss", "sgs", "hch", ".e."], None)));
     v.extend(cheap_parts_deck());
     v.extend(no_tractor_deck());
+    // The miner while a scoop used 1 power (until 2026-11-17).
+    v.push((3, drawn("MINER", (48, 47), &[".g.", "sss", "hch", "e.e"], None)));
     v
 }
 
@@ -2551,7 +2863,8 @@ pub fn retired_defaults() -> Vec<(usize, Design)> {
     for row in [10, 26] {
         capital.set(cx, top + row, Some(Part::Hull));
     }
-    vec![(3, destroyer), (4, capital)]
+    // The gunminer while a scoop used 1 power (until 2026-11-17).
+    vec![(3, destroyer), (4, capital), (5, Design::from_rows("GUNMINER", &["s.s", "sgs", "hch", ".e."]))]
 }
 
 #[cfg(test)]
@@ -2790,23 +3103,39 @@ mod tests {
     }
 
     #[test]
-    fn heavy_plate_and_trackers_go_down_and_come_up_whole() {
+    fn heavy_plate_has_to_be_two_thick_and_trackers_go_down_and_come_up_whole() {
         let mut d = Design::blank("T");
-        // Heavy plate is a domino with its top-left on the cell, two wide or two tall.
+        // Heavy plate goes down a pixel at a time, like plate: one pixel, weight 4.
         assert!(d.put(10, 10, Some(Part::HeavyPlate)));
-        assert_eq!((d.dominoes(), d.stats().count, d.stats().mass), ((vec![((10, 10), (11, 10))], vec![]), 2, 8));
-        assert!(d.put_domino(10, 11, true));
-        assert_eq!(d.dominoes(), (vec![((10, 10), (11, 10)), ((10, 11), (10, 12))], vec![]));
-        assert!(!d.put_domino(10, 11, true), "the same domino again changed something");
-        // A tracker stamped over one of the first domino's pixels takes that domino up whole,
-        // and leaves the other.
-        assert!(d.put(12, 9, Some(Part::Tracker)));
-        assert_eq!((d.dominoes(), d.blocks(Part::Tracker).0), ((vec![((10, 11), (10, 12))], vec![]), vec![(11, 8)]));
-        // Painting over a domino's pixel takes it up whole.
-        assert!(d.put(10, 12, Some(Part::Hull)));
-        assert_eq!((d.dominoes().0.len(), d.get(10, 11), d.stats().count), (0, None, 10));
-        assert!(d.put(12, 9, Some(Part::Hull)));
-        assert_eq!(d.stats().count, 2);
+        assert_eq!((d.stats().count, d.stats().mass, d.get(11, 10)), (1, 4, None));
+        assert!(!d.put(10, 10, Some(Part::HeavyPlate)), "the same pixel again changed something");
+        // Alone it's too thin. Three more make a 2x2 square, and none of them is.
+        assert_eq!(d.thin_plate(), vec![(10, 10)]);
+        for (x, y) in [(11, 10), (10, 11), (11, 11)] {
+            assert!(d.put(x, y, Some(Part::HeavyPlate)));
+        }
+        assert!(d.thin_plate().is_empty());
+        // The squares overlap as they like: a wall two thick and five long, an L, a T.
+        assert!(Design::from_rows("WALL", &["aaaaa", "aaaaa", "hhchh"]).check().ok());
+        assert!(Design::from_rows("L", &["aa..", "aa..", "aaaa", "aaaa", "hhch"]).check().ok());
+        assert!(Design::from_rows("T", &["aaaaaa", "aaaaaa", "..aa..", "..aa..", "..hc.."]).check().ok());
+        // Three wide is two thick: every pixel of it is in some square.
+        assert!(Design::from_rows("SLAB", &["aaa", "aaa", "aaa", "hch"]).check().ok());
+        // A skin one pixel thick isn't, whichever way it runs, nor a pixel stuck on a slab's
+        // corner; and the drawing says how many pixels are wrong and isn't legal.
+        let skin = Design::from_rows("SKIN", &["aaaaa", "ahhha", "ahcha", "aaaaa"]).check();
+        assert_eq!((skin.slight.len(), skin.ok()), (14, false));
+        assert_eq!(skin.problem().as_deref(), Some("14 HEAVY PLATE NOT 2 THICK"));
+        let knob = Design::from_rows("KNOB", &["aa.", "aa.", "..a", "hch"]);
+        assert_eq!(knob.thin_plate().len(), 1);
+        // A domino, which was the rule for two days, isn't two thick.
+        assert_eq!(Design::from_rows("DOMINO", &["aa", "hc"]).thin_plate().len(), 2);
+        // A tracker stamped over part of a slab takes just the pixels it lands on.
+        let mut d = Design::blank("T");
+        assert!(d.fill_box((10, 10), (13, 13), Some(Part::HeavyPlate)));
+        assert_eq!(d.stats().count, 16);
+        assert!(d.put(14, 11, Some(Part::Tracker)));
+        assert_eq!((d.blocks(Part::Tracker).0, d.stats().count), (vec![(13, 10)], 16 - 3 + 9));
         let mut d = Design::blank("T");
         assert!(d.put(12, 12, Some(Part::Tracker)));
         assert_eq!(d.stats().count, 9);
@@ -2816,33 +3145,24 @@ mod tests {
         // Painting over any pixel of it takes it up whole.
         assert!(d.put(13, 13, Some(Part::Hull)));
         assert_eq!((d.blocks(Part::Tracker).0.len(), d.stats().count), (0, 1));
-        // Too near the edge to fit.
-        assert!(!d.put(GRID - 1, 5, Some(Part::HeavyPlate)) && !d.put_domino(5, GRID - 1, true) && !d.put(0, 5, Some(Part::Tracker)));
-        // The rectangle fills a box of an even number of cells, and leaves the last column of
-        // an odd one out.
+        // Too near the edge to fit. (A pixel of heavy plate fits anywhere on the grid.)
+        assert!(d.put(GRID - 1, 5, Some(Part::HeavyPlate)) && !d.put(0, 5, Some(Part::Tracker)));
+        // The rectangle fills its whole box, odd or even, and erasing takes only what's in
+        // the box.
         let mut e = Design::blank("R");
         assert!(e.fill_box((20, 20), (22, 22), Some(Part::HeavyPlate)));
-        assert_eq!((e.dominoes().0.len(), e.dominoes().1.len(), e.get(22, 20)), (3, 0, None));
-        // Erasing a box that touches a domino takes it up whole.
+        assert_eq!((e.stats().count, e.get(22, 20), e.thin_plate().len()), (9, Some(Part::HeavyPlate), 0));
         assert!(e.fill_box((21, 22), (21, 22), None));
-        assert_eq!(e.dominoes().1.len(), 0);
-        // Fill refuses a tracker, and heavy plate where it wouldn't cut into dominoes; it fills
-        // a hole it does cut into.
+        assert_eq!((e.stats().count, e.get(20, 22), e.get(21, 22)), (8, Some(Part::HeavyPlate), None));
+        // Fill refuses a tracker, and fills any closed hole with heavy plate: too thin or
+        // not is for the check to say.
         let mut ring = Design::from_rows("RING", &["hhhh", "h..h", "hhch"]);
         let (l, t, _, _) = ring.used_box().unwrap();
         assert!(ring.flood((l + 1, t + 1), Some(Part::Tracker)).is_err());
         assert_eq!(ring.flood((l + 1, t + 1), Some(Part::HeavyPlate)), Ok(true));
-        assert_eq!(ring.dominoes().0.len(), 1);
-        let mut odd = Design::from_rows("ODD", &["hhhhh", "h...h", "hhchh"]);
-        let (l, t, _, _) = odd.used_box().unwrap();
-        let before = odd.cells.clone();
-        assert!(odd.flood((l + 1, t + 1), Some(Part::HeavyPlate)).is_err());
-        assert_eq!(odd.cells, before, "a refused fill changed the drawing");
-        // A heavy pixel left over (say, from a file) is loose; a shape a first pass in reading
-        // order would cut wrong still cuts into dominoes.
-        assert_eq!(Design::from_rows("F", &["aah", "aac", "ahh"]).check().loose.len(), 1);
-        assert!(Design::from_rows("L", &["aaa", "ahc"]).check().ok());
-        assert!(Design::from_rows("S", &["haah", "aaac", "ahhh"]).check().ok());
+        assert_eq!(ring.thin_plate().len(), 2);
+        // The part's own words say the rule, and it weighs 4 a pixel.
+        assert!(Part::HeavyPlate.blurb().contains("IT HAS TO BE 2 THICK") && Part::HeavyPlate.blurb().ends_with("WEIGHS 4."), "{}", Part::HeavyPlate.blurb());
     }
 
     #[test]
@@ -2935,6 +3255,22 @@ mod tests {
             assert_eq!((back.seeded, &back.build), (d.seeded, &d.build));
             assert_eq!(back.to_line(), d.to_line());
         }
+        // A start row goes out before the repeat row with a `>` between, and comes back. With
+        // no start the line is what it always was, so nothing saved before has changed.
+        let mut both = deck[4].clone();
+        (both.first, both.build) = (vec![3, 3, 7], vec![0, 1]);
+        assert!(both.to_line().ends_with("|SEEDED|3,3,7>0,1"), "{}", both.to_line());
+        let back = Design::from_line(&both.to_line()).unwrap();
+        assert_eq!((back.first, back.build), (vec![3, 3, 7], vec![0, 1]));
+        assert!(deck[4].first.is_empty() && deck[4].to_line().ends_with("|SEEDED|3,3,0,0,1,2"));
+        // A start with nothing after it: it prints those and stops.
+        both.build.clear();
+        let back = Design::from_line(&both.to_line()).unwrap();
+        assert!(both.to_line().ends_with("|3,3,7>") && back.first == vec![3, 3, 7] && back.build.is_empty());
+        // Each row holds sixteen.
+        let long = format!("X|40,40|c|BUILT|{}>{}", vec!["1"; 20].join(","), vec!["2"; 20].join(","));
+        let back = Design::from_line(&long).unwrap();
+        assert_eq!((back.first.len(), back.build.len(), BUILD_MAX), (16, 16, 16));
         // A seeded design whose seed cell isn't a core can't fly.
         let mut d = deck[4].clone();
         d.set(SEED_CELL.0, SEED_CELL.1, Some(Part::Hull));
@@ -3093,10 +3429,13 @@ mod tests {
         let (raker, aegis) = (ex.iter().find(|d| d.name == "RAKER").unwrap().stats(), ex.iter().find(|d| d.name == "AEGIS").unwrap().stats());
         assert_eq!((raker.rep_len, raker.fwd_reach()), (10, 140));
         assert_eq!((aegis.projector, proj_reach(aegis.projector)), (38, 60));
-        // The AEGIS has no guns and keeps up with the big ships it's drawn to fly beside.
+        // The AEGIS has no guns and keeps up with the big ships it flies beside in SIEGE: the
+        // beamer, the warden and the lancet. (The RAKER was on this list until 2026-11-17. It's
+        // RAIDERS' ship, and now that top speed is thrust over weight its four engines on 35
+        // of weight make it the quicker of the two, 18 px/s to the AEGIS's 15.)
         assert!(!aegis.armed());
-        for big in ["BEAMER", "WARDEN", "RAKER"] {
-            let st = ex.iter().find(|d| d.name == big).unwrap().stats();
+        let lancet = crate::pg::teams::lancet().stats();
+        for (big, st) in [("BEAMER", ex.iter().find(|d| d.name == "BEAMER").unwrap().stats()), ("WARDEN", ex.iter().find(|d| d.name == "WARDEN").unwrap().stats()), ("LANCET", lancet)] {
             assert!(aegis.vmax >= st.vmax, "the AEGIS ({}) can't keep up with the {big} ({})", aegis.vmax, st.vmax);
         }
     }

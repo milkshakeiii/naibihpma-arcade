@@ -36,8 +36,10 @@ pub fn drift(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
     for d in &a.debris {
         pc(fb, f, d.x - cx, d.y - cy, LOOSE);
     }
+    // (A ship in a slipstream leaves green exhaust, and a green pixel in its wake every few
+    // ticks while it's under way: that's how it shows.)
     for p in &a.exhaust {
-        pc(fb, f, p.x - cx, p.y - cy, team_col(p.team, 0));
+        pc(fb, f, p.x - cx, p.y - cy, if p.fast { SLIP } else { team_col(p.team, 0) });
     }
 }
 
@@ -45,26 +47,6 @@ pub fn drift(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
 /// (15 a second) a lap takes, and the frames before the next.
 pub const RING_LAP: u32 = 60;
 pub const RING_REST: u32 = 45;
-
-/// The pixels of a circle of radius `r` round (0, 0), in order once round from the top,
-/// clockwise: each eighth walked along the way it runs flatter, so they're evenly apart.
-pub fn circle_round(r: i32) -> Vec<(i32, i32)> {
-    let k1 = r * 181 / 256;
-    let far = |k: i32| isqrt(r * r - k * k);
-    let up: Vec<i32> = (0..=k1).collect();
-    let down: Vec<i32> = (0..=k1).rev().collect();
-    let mut round = Vec::new();
-    round.extend(up.iter().map(|&k| (k, -far(k))));
-    round.extend(down.iter().map(|&k| (far(k), -k)));
-    round.extend(up.iter().map(|&k| (far(k), k)));
-    round.extend(down.iter().map(|&k| (k, far(k))));
-    round.extend(up.iter().map(|&k| (-k, far(k))));
-    round.extend(down.iter().map(|&k| (-far(k), k)));
-    round.extend(up.iter().map(|&k| (-far(k), -k)));
-    round.extend(down.iter().map(|&k| (-k, -far(k))));
-    round.dedup();
-    round
-}
 
 /// A tractor's reach: one pink dot going round its ship's middle at that distance, a lap
 /// every so often. Drawn for the tractor ship under the pointer and the ones selected.
@@ -116,6 +98,30 @@ pub fn tractors(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) 
     }
 }
 
+/// A miner's load going at a dock pad: a pink line that sweeps the miner from nose to tail
+/// while it sits on its place. (Henry, 2026-11-17: "There should be a pink animation when a
+/// miner offloads at a pad.")
+pub fn docking(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    for m in a.ships.iter().filter(|m| m.alive) {
+        let Some(b) = m.berth.filter(|b| b.phase == 1) else { continue };
+        let (l, t, r, bt) = m.bbox();
+        // How far the sweep has got: from the end it faces to the other.
+        use crate::pg::design::DOCK_SHOW;
+        let done = (DOCK_SHOW - b.t).clamp(0, DOCK_SHOW);
+        let (along, across) = if m.facing & 1 == 0 { (bt - t + 1, (l, r)) } else { (r - l + 1, (t, bt)) };
+        let k = (along - 1) * done / DOCK_SHOW.max(1);
+        for q in across.0 - 1..=across.1 + 1 {
+            let (x, y) = match m.facing {
+                0 => (q, t + k),
+                2 => (q, bt - k),
+                1 => (r - k, q),
+                _ => (l + k, q),
+            };
+            pc(fb, f, x - cx, y - cy, if q < across.0 || q > across.1 { TRACTOR_HI } else { TRACTOR });
+        }
+    }
+}
+
 /// A ship on the map, with its cannon barrels showing where each turret points. Pixels still to
 /// grow show as a faint dither of where they'll be; a ship arriving by hyperspace is revealed
 /// behind a sweeping blue line.
@@ -149,7 +155,8 @@ pub fn ship(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
     // scoopful aboard, so a miner fills up before your eyes and flies home full.
     if s.carry > 0 {
         let full = ((s.carry + SCOOP_CARRY - 1) / SCOOP_CARRY) as usize;
-        for c in (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && s.shape.cells[c] == Some(Part::Scoop)).take(full) {
+        // (And in its vacuum pixels, which hold as much each.)
+        for c in (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && matches!(s.shape.cells[c], Some(Part::Scoop | Part::Vacuum))).take(full) {
             let (px, py) = s.cell_xy(c);
             pc(fb, f, px - cx, py - cy, LOOSE);
         }
@@ -195,6 +202,100 @@ fn shields(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
     }
 }
 
+/// The edge of a field: a box on the map grown by `reach`, with round corners, as a dotted
+/// line with a dot every `step` pixels.
+fn reach_line(fb: &mut Framebuffer, f: Rect, (l, t, r, b): (i32, i32, i32, i32), reach: i32, step: i32, col: u8, (cx, cy): (i32, i32)) {
+    let (l, t, r, b) = (l - cx, t - cy, r - cx, b - cy);
+    for x in (l..=r).filter(|x| x.rem_euclid(step) == 0) {
+        pc(fb, f, x, t - reach, col);
+        pc(fb, f, x, b + reach, col);
+    }
+    for y in (t..=b).filter(|y| y.rem_euclid(step) == 0) {
+        pc(fb, f, l - reach, y, col);
+        pc(fb, f, r + reach, y, col);
+    }
+    // Each corner's quarter circle, walked along whichever way it runs flatter so the dots
+    // stay evenly apart.
+    for k in (step..reach * 181 / 256).step_by(step as usize) {
+        let far = isqrt(reach * reach - k * k);
+        for (dx, dy) in [(k, far), (far, k)] {
+            pc(fb, f, r + dx, b + dy, col);
+            pc(fb, f, r + dx, t - dy, col);
+            pc(fb, f, l - dx, b + dy, col);
+            pc(fb, f, l - dx, t - dy, col);
+        }
+    }
+}
+
+/// Stasis fields. A lattice whose ship is moving shows nothing: it does nothing. One that's
+/// set (its ship is still) shows where it would hold as a sparse dotted line, the lattice's
+/// box grown by its reach. One that's up (an enemy is in it) shows that line twice as close,
+/// and every other pixel of the lattice turns white. Any ship with part of itself inside the
+/// line is held, friend or enemy.
+fn stasis(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    for fld in a.stasis.iter().filter(|fld| fld.set && a.ships.get(fld.ship).is_some_and(|s| s.alive)) {
+        reach_line(fb, f, fld.bbox, fld.reach, if fld.up { 4 } else { 8 }, STASIS, (cx, cy));
+        if fld.up {
+            let s = &a.ships[fld.ship];
+            let (l, t, r, b) = fld.bbox;
+            for c in (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && s.shape.cells[c] == Some(Part::Stasis)) {
+                let (px, py) = s.cell_xy(c);
+                if (l..=r).contains(&px) && (t..=b).contains(&py) && (px + py) & 1 == 0 {
+                    pc(fb, f, px - cx, py - cy, WHITE);
+                }
+            }
+        }
+    }
+}
+
+/// Once round a box grown by `reach`, with round corners: clockwise from above its top left.
+fn box_round((l, t, r, b): (i32, i32, i32, i32), reach: i32) -> Vec<(i32, i32)> {
+    let c = circle_round(reach);
+    let at = |p: (i32, i32)| c.iter().position(|&q| q == p).unwrap_or(0);
+    let (e, s, w) = (at((reach, 0)), at((0, reach)), at((-reach, 0)));
+    let mut round: Vec<(i32, i32)> = Vec::new();
+    round.extend((l..=r).map(|x| (x, t - reach)));
+    round.extend(c[..=e].iter().map(|&(dx, dy)| (r + dx, t + dy)));
+    round.extend((t..=b).map(|y| (r + reach, y)));
+    round.extend(c[e..=s].iter().map(|&(dx, dy)| (r + dx, b + dy)));
+    round.extend((l..=r).rev().map(|x| (x, b + reach)));
+    round.extend(c[s..=w].iter().map(|&(dx, dy)| (l + dx, b + dy)));
+    round.extend((t..=b).rev().map(|y| (l - reach, y)));
+    round.extend(c[w..].iter().map(|&(dx, dy)| (l + dx, t + dy)));
+    round.dedup();
+    round
+}
+
+/// Slipstreams. One's reach is shown as a tractor's is: one dot, green, that goes once round
+/// the lump's box at that distance and then rests. It's always on, so there's nothing else to
+/// show of the field; what it speeds leaves a green wake (`drift`).
+fn slips(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    for (k, fld) in a.slip_fields().iter().enumerate() {
+        let t = (a.tick + 23 * k as u32) % (RING_LAP + RING_REST);
+        if t >= RING_LAP || fld.reach <= 0 {
+            continue;
+        }
+        let round = box_round(fld.bbox, fld.reach);
+        let (x, y) = round[t as usize * round.len() / RING_LAP as usize];
+        pc(fb, f, x - cx, y - cy, SLIP);
+    }
+}
+
+/// Vacuums. One's reach is shown as a tractor's is: one dot that goes once round its ship's
+/// middle at that distance and then rests, in the colour of the loose pixels it takes. What
+/// it pulls shows by itself: the pixels stream in.
+fn vacs(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
+    for (k, v) in a.vac_fields().iter().enumerate() {
+        let t = (a.tick + 37 * k as u32 + 11) % (RING_LAP + RING_REST);
+        if t >= RING_LAP || v.reach <= 0 {
+            continue;
+        }
+        let round = circle_round(v.reach);
+        let (dx, dy) = round[t as usize * round.len() / RING_LAP as usize];
+        pc(fb, f, v.mid.0 - cx + dx, v.mid.1 - cy + dy, LOOSE);
+    }
+}
+
 /// A projector's skin. Its reach is a dotted line: any friend with part of itself inside that
 /// line is covered. Every ship one covers wears a blue outline two pixels outside its box, with
 /// its corners cut. A full pool is a solid outline, and it thins by a quarter for each quarter of
@@ -202,27 +303,8 @@ fn shields(fb: &mut Framebuffer, f: Rect, s: &Ship, (cx, cy): (i32, i32)) {
 /// nothing's covered.
 fn skins(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
     // The reach: the lump's box grown by its reach, with round corners. A dot every fourth pixel.
-    for (_, _, (l, t, r, b), reach) in a.proj_fields() {
-        let (l, t, r, b) = (l - cx, t - cy, r - cx, b - cy);
-        for x in (l..=r).filter(|x| x & 3 == 0) {
-            pc(fb, f, x, t - reach, PROJECTOR_DIM);
-            pc(fb, f, x, b + reach, PROJECTOR_DIM);
-        }
-        for y in (t..=b).filter(|y| y & 3 == 0) {
-            pc(fb, f, l - reach, y, PROJECTOR_DIM);
-            pc(fb, f, r + reach, y, PROJECTOR_DIM);
-        }
-        // Each corner's quarter circle, walked along whichever way it runs flatter so the dots
-        // stay evenly apart.
-        for k in (4..reach * 181 / 256).step_by(4) {
-            let far = isqrt(reach * reach - k * k);
-            for (dx, dy) in [(k, far), (far, k)] {
-                pc(fb, f, r + dx, b + dy, PROJECTOR_DIM);
-                pc(fb, f, r + dx, t - dy, PROJECTOR_DIM);
-                pc(fb, f, l - dx, b + dy, PROJECTOR_DIM);
-                pc(fb, f, l - dx, t - dy, PROJECTOR_DIM);
-            }
-        }
+    for (_, _, bbox, reach) in a.proj_fields() {
+        reach_line(fb, f, bbox, reach, 4, PROJECTOR_DIM, (cx, cy));
     }
     for (i, s) in a.ships.iter().enumerate() {
         if !s.alive || s.warp > 0 {
@@ -262,6 +344,9 @@ pub fn corners(fb: &mut Framebuffer, s: &Ship, (cx, cy): (i32, i32)) {
 /// where it will cut as a dotted line, and one that has just cut as a solid one.
 pub fn fire(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
     skins(fb, f, a, (cx, cy));
+    stasis(fb, f, a, (cx, cy));
+    slips(fb, f, a, (cx, cy));
+    vacs(fb, f, a, (cx, cy));
     for w in a.warming() {
         for k in (2..=w.reach).step_by(2) {
             pc(fb, f, w.from.0 + w.dir.0 * k - cx, w.from.1 + w.dir.1 * k - cy, BEAM);
@@ -272,6 +357,13 @@ pub fn fire(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
     }
     for sh in &a.shots {
         let (p, q) = ((sh.prev.0 - cx, sh.prev.1 - cy), (sh.line.x - cx, sh.line.y - cy));
+        // An energy ball is 2x2, with one bright pixel.
+        if sh.kind == Kind::Ball {
+            for (dx, dy, col) in [(0, 0, BALL_HI), (1, 0, BALL), (0, 1, BALL), (1, 1, BALL)] {
+                pc(fb, f, q.0 + dx, q.1 + dy, col);
+            }
+            continue;
+        }
         let (c0, c1) = match sh.kind {
             Kind::Lance => (LANCE, LANCE_HI),
             Kind::Shell => (GOLD, WHITE),
@@ -279,6 +371,7 @@ pub fn fire(fb: &mut Framebuffer, f: Rect, a: &Arena, (cx, cy): (i32, i32)) {
             Kind::Repeat => (REPEATER, WHITE),
             Kind::Track => (TRACKER, TRACKER_HI),
             Kind::Flak => (team_col(sh.team, 1), team_col(sh.team, 3)),
+            Kind::Ball => (BALL, BALL_HI),
         };
         pc(fb, f, p.0, p.1, c0);
         pc(fb, f, q.0, q.1, c1);

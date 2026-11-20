@@ -41,8 +41,11 @@ use std::time::Duration;
 /// flying are gone, a rotation engine is a part, and a ship carries what nose-first flight
 /// needs. 18: every ship in a match flies nose-first, a lance leads its target, and a gun
 /// aims at what it can break. 19: the tractor is a part, miners unload at tractors a pixel
-/// at a time, and a collector follows them.)
-pub const PROTO: u32 = 19;
+/// at a time, and a collector follows them. 20: a build order has a start, printed once,
+/// before its round; every scoop bites; top speed is thrust over weight; heavy plate is
+/// two thick. 21: dock pads and the energy ball, a scoop uses 2 power, the rocks' four
+/// layouts, and a king that keeps out of reach of the guns that outweigh it.)
+pub const PROTO: u32 = 24;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.
@@ -699,7 +702,7 @@ pub mod tests {
     fn script(seed: u64) -> (Arena, Vec<(u32, Cmd)>) {
         let mut a = Arena::for_match(seed, [starter_deck(), starter_deck()], [false, false]);
         let mut rng = Rng::new(seed);
-        while a.tick < 15 * 180 {
+        while a.tick < 15 * 180 && a.over.is_none() {
             for team in 0..2 {
                 for c in fidget(&mut rng, &a, team) {
                     a.command(c);

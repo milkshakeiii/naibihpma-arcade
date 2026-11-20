@@ -16,7 +16,9 @@ pub const STEEL_DK: u8 = 21;
 pub const GUN: u8 = 22;
 pub const ENGINE: u8 = 23;
 pub const SCOOP: u8 = 24;
-pub const CORE: u8 = 25;
+/// (The core is white, and so is `WHITE`: until 2026-11-18 it had an entry of its own, the
+/// same colour, at 25.)
+pub const CORE: u8 = WHITE;
 pub const LOOSE: u8 = 26;
 pub const LANCE: u8 = 27;
 pub const LANCE_HI: u8 = 28;
@@ -38,7 +40,9 @@ pub const REPEATER: u8 = 37;
 /// Projector pixels, and the outline on what a projector covers: a colder, brighter blue than
 /// the blue side's hull.
 pub const PROJECTOR: u8 = 38;
-pub const PROJECTOR_HI: u8 = 39;
+/// (The lump's pale middle is the panels' bright accent, a shade off what it was: until
+/// 2026-11-18 it had an entry of its own, at 39.)
+pub const PROJECTOR_HI: u8 = ACCENT_HI;
 /// The dotted line at the edge of a projector's reach.
 pub const PROJECTOR_DIM: u8 = 40;
 /// Heavy plate: a darker, bluer steel than plate.
@@ -53,6 +57,21 @@ pub const GYRO: u8 = 45;
 /// Tractor pixels and the line of a tractor's pull; the pixel that runs along the line.
 pub const TRACTOR: u8 = 46;
 pub const TRACTOR_HI: u8 = 47;
+/// Dock pad pixels: a deck green. (11 was one of the three colours nothing used.)
+pub const DOCK: u8 = 11;
+/// Energy ball pixels and a ball in flight; the ball's bright half.
+pub const BALL: u8 = 60;
+pub const BALL_HI: u8 = 62;
+/// Stasis lattice pixels, and the dotted line at the edge of a field that's up: a deep violet.
+/// (25 was the core's, which is `WHITE`.)
+pub const STASIS: u8 = 25;
+/// Slipstream pixels, the dot that goes round a slipstream's reach, and the exhaust of a ship
+/// flying faster for one. It's the green that says a thing is good: the palette is full, and
+/// no part had a plain green.
+pub const SLIP: u8 = GOOD;
+/// Vacuum pixels: a deep green, the colour furthest from every other in the palette. (39 was
+/// the projector's pale middle.)
+pub const VACUUM: u8 = 39;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;
@@ -120,7 +139,7 @@ pub fn game() -> Pal {
     set(&mut p, MISSILE_HI, (255, 212, 164));
     set(&mut p, REPEATER, (240, 232, 148));
     set(&mut p, PROJECTOR, (96, 208, 252));
-    set(&mut p, PROJECTOR_HI, (208, 240, 255));
+    set(&mut p, VACUUM, (0, 160, 60));
     set(&mut p, PROJECTOR_DIM, (36, 96, 140));
     set(&mut p, HEAVY, (100, 116, 152));
     set(&mut p, PIERCER, (204, 64, 112));
@@ -129,6 +148,10 @@ pub fn game() -> Pal {
     set(&mut p, GYRO, (164, 116, 236));
     set(&mut p, TRACTOR, (252, 148, 196));
     set(&mut p, TRACTOR_HI, (255, 224, 236));
+    set(&mut p, DOCK, (116, 172, 124));
+    set(&mut p, BALL, (88, 255, 200));
+    set(&mut p, BALL_HI, (224, 255, 244));
+    set(&mut p, STASIS, (124, 72, 252));
 
     set(&mut p, PANEL_LO, (36, 40, 56));
     set(&mut p, PANEL, (60, 66, 88));

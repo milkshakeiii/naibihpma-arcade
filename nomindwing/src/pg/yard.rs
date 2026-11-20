@@ -18,11 +18,17 @@ pub const NAME_RECT: Rect = Rect::new(210, 26, 134, 18);
 /// The library, beside the name of the drawing it would take or keep.
 pub const BTN_LIBRARY: Rect = Rect::new(346, 27, 50, 16);
 pub const STATUS_RECT: Rect = Rect::new(210, 133, 186, 11);
-const INFO_RECT: Rect = Rect::new(208, 189, 190, 109);
+/// (Thirteen pixels shorter since 2026-11-17, when the build order got a second row: its nine
+/// lines of text never filled it.)
+const INFO_RECT: Rect = Rect::new(208, 202, 190, 96);
 /// Built or seeded, and the build order: the deck slots it prints, and buttons to add them.
 const KIND_BTNS: [Rect; 2] = [Rect::new(210, 148, 44, 13), Rect::new(256, 148, 50, 13)];
+/// The build order: the START row (printed once), the REPEAT row under it (round and round),
+/// and the ADD buttons, which put a design on the end of whichever row is lit.
 const BUILD_Y: i32 = 163;
-const ADD_Y: i32 = 176;
+const ROUND_Y: i32 = 175;
+const ADD_Y: i32 = 188;
+const ROW_NAMES: [&str; 2] = ["START", "REPEAT"];
 /// Where the word GROUP sits on the flight row, before its four buttons.
 const COL_X: i32 = 212;
 const COST_Y: i32 = 47;
@@ -47,7 +53,8 @@ const TAB_NAME: usize = 7;
 /// Under the canvas: the categories, two rows for the open category's parts, the tools and the
 /// zoom, each row 13 px high.
 fn cat_rect(i: usize) -> Rect {
-    Rect::new(6 + i as i32 * 33, 228, 32, 13)
+    // (Six of them 32 wide until 2026-11-17, when HEAVY WEAPONS made seven.)
+    Rect::new(6 + i as i32 * 28, 228, 27, 13)
 }
 /// The i-th of n part buttons for the open category.
 /// The button of part `i` of a category's `parts`: each as wide as its swatch and its name, so
@@ -70,12 +77,27 @@ fn part_rect(i: usize, parts: &[Part]) -> Rect {
 fn tool_rect(i: usize) -> Rect {
     Rect::new(6 + i as i32 * 25, 270, 23, 13)
 }
+/// What the build order's rows and its ADD buttons say when pointed at.
+fn build_row_tip(row: usize) -> &'static str {
+    if row == 0 {
+        "START: WHAT ITS FACTORY PIXELS PRINT FIRST, ONCE, IN ORDER. CLICK HERE AND THE ADD BUTTONS PUT DESIGNS ON THIS ROW. IT HOLDS 16."
+    } else {
+        "REPEAT: WHAT ITS FACTORY PIXELS PRINT AFTER THE START, ROUND AND ROUND. CLICK HERE AND THE ADD BUTTONS PUT DESIGNS ON THIS ROW. IT HOLDS 16. LEFT EMPTY, THE FACTORY STOPS AFTER ITS START."
+    }
+}
+const ADD_TIP: &str = "ADD A DESIGN FROM YOUR DECK TO THE END OF THE LIT ROW: CLICK START OR REPEAT TO LIGHT IT. ITS FACTORY PIXELS PRINT THE START ONCE, THEN THE REPEAT ROW ROUND AND ROUND, SKIPPING WHAT IT'S TOO SMALL FOR.";
+
 /// What the flight row says when pointed at. Ships choose how they fly, so there's nothing to
 /// set: the row shows where the drawing starts them.
 const FLIGHT_TIP: &str = "IN A FIGHT A SHIP HOLDS AT THE REACH OF ITS GUNS. NO ENGINES: IT STAYS PUT.";
 
-fn chip_rect(k: usize) -> Rect {
-    Rect::new(250 + k as i32 * 12, BUILD_Y, 11, 11)
+/// Entry `k` of a build order's row: 0 the start, 1 the repeat. Sixteen fit across.
+fn chip_rect(row: usize, k: usize) -> Rect {
+    Rect::new(250 + k as i32 * 9, if row == 0 { BUILD_Y } else { ROUND_Y }, 8, 11)
+}
+/// A row's name: a click lights the row, and ADD adds to the lit one.
+fn row_rect(row: usize) -> Rect {
+    Rect::new(208, if row == 0 { BUILD_Y } else { ROUND_Y }, 40, 11)
 }
 fn add_rect(k: usize) -> Rect {
     Rect::new(250 + k as i32 * 14, ADD_Y, 12, 12)
@@ -130,11 +152,11 @@ pub struct Ed {
     /// Where the grid's top-left corner sits from the canvas's, in screen pixels.
     pub pan: (i32, i32),
     pub stamp: Option<Stamp>,
-    /// Heavy plate's domino stands two tall (else it lies two wide). [T] turns it.
-    pub upright: bool,
     /// The way the engine you paint pushes its ship: 0 ahead, 1 to its right, 2 astern, 3 to
     /// its left. [T] turns it.
     pub engine_way: usize,
+    /// ADD puts designs on the build order's START row (else on its REPEAT row).
+    pub add_to_start: bool,
     /// A mouse button held down on the canvas: whether it's the right one, and the cell it went
     /// down on.
     pub drag: Option<(bool, (i32, i32))>,
@@ -154,7 +176,7 @@ impl Ed {
     }
 
     pub fn new() -> Ed {
-        Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, upright: false, engine_way: 0, drag: None, last_cell: None, undo: Vec::new(), framed: None }
+        Ed { cat: Cat::Armor, part: Part::Hull, tool: Tool::Pencil, mirror: true, zoom: 4, pan: (0, 0), stamp: None, engine_way: 0, add_to_start: false, drag: None, last_cell: None, undo: Vec::new(), framed: None }
     }
 }
 
@@ -176,14 +198,27 @@ fn canvas_centre() -> (i32, i32) {
     (CANVAS.x + CANVAS.w / 2, CANVAS.y + CANVAS.h / 2)
 }
 
+/// What a drawing is there for, if it has a stasis lattice, a slipstream or a vacuum, and how
+/// far that reaches: for the status line of one with no guns.
+pub fn yard_field(st: &Stats) -> Option<(&'static str, i32)> {
+    [("STASIS", st.stasis_reach()), ("SLIPSTREAM", st.slip_reach()), ("VACUUM", st.vac_past())].into_iter().find(|f| f.1 > 0)
+}
+
 /// The yard's one-line status: what's wrong with the design, or how it will behave. `power` is
-/// the percent of the power it needs that it has.
-pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order, collects: bool) -> (String, u8) {
+/// the percent of the power it needs that it has, and `field` what it's for if it's there for
+/// a stasis lattice, a slipstream or a vacuum, and how far that reaches.
+pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order, collects: bool, field: Option<(&str, i32)>) -> (String, u8) {
     match check.problem() {
         Some(why) => (why, BAD),
         None if power < 100 => (format!("UNDERPOWERED: RUNS AT {power}%"), GOLD),
         // A ship that flies with a tractor and no scoop, armed or not.
-        None if collects => ("A COLLECTOR: FOLLOWS YOUR MINERS".into(), GOOD),
+        // (It read "A COLLECTOR: FOLLOWS YOUR MINERS" until 2026-11-17, a letter too long
+        // for its box: the test of what fits never asked for this line.)
+        None if collects => ("COLLECTOR: FOLLOWS YOUR MINERS".into(), GOOD),
+        // A lattice and no guns: what it's for is its reach. (It read "NO GUNS: STAYS WITH
+        // THE FLEET", which is what such a ship does least.)
+        // A slipstream and no guns, or a vacuum: the same.
+        None if !armed && field.is_some() => (format!("{}: REACHES {} PX", field.unwrap().0, field.unwrap().1), GOOD),
         None if !armed => {
             // What it does follows from the drawing: no engines, a scoop, or neither.
             let what = match order {
@@ -386,15 +421,10 @@ impl Pg {
         }
     }
 
-    /// [T]: turns the stamp you're holding, or, painting heavy plate, its domino, or, painting
-    /// engines, the way they push.
+    /// [T]: turns the stamp you're holding, or, painting engines, the way they push.
     fn turn_stamp(&mut self) {
         match &self.ed.stamp {
             Some(st) => self.ed.stamp = Some(st.turned()),
-            None if self.ed.part == Part::HeavyPlate => {
-                self.ed.upright = !self.ed.upright;
-                self.say(if self.ed.upright { "HEAVY PLATE: TWO TALL" } else { "HEAVY PLATE: TWO WIDE" });
-            }
             None if self.ed.part == Part::Engine => {
                 self.ed.engine_way = (self.ed.engine_way + 1) % 4;
                 self.say(&format!("ENGINE: IT PUSHES THE SHIP {}", WAYS[self.ed.engine_way]));
@@ -470,36 +500,23 @@ impl Pg {
     fn paint(&mut self, (cx, cy): (i32, i32), erase: bool) {
         let p = if erase { None } else { Some(self.brush()) };
         let mirror = self.ed.mirror;
-        let upright = self.ed.upright;
         let d = &mut self.lib[self.slot];
-        let mut changed;
-        if p == Some(Part::HeavyPlate) {
-            // A domino's twin is its mirror image: two wide, the twin's top-left is a cell
-            // further in; two tall on the middle column, it's its own twin. A twin that would
-            // overlap it is skipped rather than replacing it.
-            changed = d.put_domino(cx, cy, upright);
-            let mx = mirror_x(cx) - !upright as i32;
-            if mirror && (if upright { mx != cx } else { (mx - cx).abs() >= 2 }) {
-                changed |= d.put_domino(mx, cy, upright);
-            }
-        } else {
-            // A turret's twin is centred on the mirrored cell, and is skipped if it would overlap.
-            changed = d.put(cx, cy, p);
-            let mx = mirror_x(cx);
-            let n = p.map_or(1, |q| q.side());
-            if mirror && mx != cx && !(n > 1 && (mx - cx).abs() < n) {
-                // (An engine's twin pushes the mirrored way.)
-                changed |= d.put(mx, cy, p.map(Part::mirrored));
-            }
+        // A turret's twin is centred on the mirrored cell, and is skipped if it would overlap.
+        let mut changed = d.put(cx, cy, p);
+        let mx = mirror_x(cx);
+        let n = p.map_or(1, |q| q.side());
+        if mirror && mx != cx && !(n > 1 && (mx - cx).abs() < n) {
+            // (An engine's twin pushes the mirrored way.)
+            changed |= d.put(mx, cy, p.map(Part::mirrored));
         }
         self.edited |= changed;
         self.lock_seed();
     }
 
     /// Paints every cell between the last sample and this one, so a fast stroke leaves no gaps.
-    /// A turret or a domino of heavy plate stamps once per click, not along the stroke.
+    /// A turret stamps once per click, not along the stroke.
     fn paint_to(&mut self, cell: (i32, i32), erase: bool) {
-        if !erase && (self.ed.part.side() > 1 || self.ed.part == Part::HeavyPlate) {
+        if !erase && self.ed.part.side() > 1 {
             if self.ed.last_cell.is_none() {
                 self.paint(cell, false);
             }
@@ -627,14 +644,25 @@ impl Pg {
             }
             return;
         }
-        if let Some(k) = (0..self.lib[self.slot].build.len()).find(|&k| chip_rect(k).contains(x, y)) {
-            // Right-click takes an entry off the build order.
-            if right {
-                self.lib[self.slot].build.remove(k);
-                self.edited = true;
-                self.save();
+        if self.has_factory() {
+            for row in 0..2 {
+                let d = &mut self.lib[self.slot];
+                let list = if row == 0 { &mut d.first } else { &mut d.build };
+                if let Some(k) = (0..list.len()).find(|&k| chip_rect(row, k).contains(x, y)) {
+                    // Right-click takes an entry off the build order.
+                    if right {
+                        list.remove(k);
+                        self.edited = true;
+                        self.save();
+                    }
+                    return;
+                }
+                // A click on a row's name: ADD adds to that row from now on.
+                if !right && row_rect(row).contains(x, y) {
+                    self.ed.add_to_start = row == 0;
+                    return;
+                }
             }
-            return;
         }
         if right {
             // Right-click off the canvas puts a held stamp down.
@@ -660,13 +688,15 @@ impl Pg {
         } else if let Some(k) = (0..2).find(|&k| KIND_BTNS[k].contains(x, y)) {
             self.set_kind(k == 1);
         } else if let Some(k) = (0..self.lib.len()).find(|&k| self.has_factory() && add_rect(k).contains(x, y)) {
+            let start = self.ed.add_to_start;
             let d = &mut self.lib[self.slot];
-            if d.build.len() < BUILD_MAX {
-                d.build.push(k);
+            let list = if start { &mut d.first } else { &mut d.build };
+            if list.len() < BUILD_MAX {
+                list.push(k);
                 self.edited = true;
                 self.save();
             } else {
-                self.say("A BUILD ORDER HOLDS 12 AT MOST");
+                self.say("A ROW OF THE BUILD ORDER HOLDS 16 AT MOST");
             }
         } else if BTN_LIBRARY.contains(x, y) {
             self.open_library();
@@ -761,8 +791,8 @@ impl Pg {
             let (sel, hov) = (cat == e.cat, r.contains(m.0, m.1));
             ui::button(fb, r, "", hov && !sel, sel);
             let col = if cat.parts().is_empty() { TEXT_FAINT } else if sel { ACCENT } else if hov { PANEL_DEEP } else { TEXT };
-            icons::draw(fb, Icon::Cat(cat), r.x + 7, r.y + 3, col);
-            fb.text(&format!("{}", i + 1), r.x + 20, r.y + 3, if hov && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
+            icons::draw(fb, Icon::Cat(cat), r.x + 5, r.y + 3, col);
+            fb.text(&format!("{}", i + 1), r.x + 17, r.y + 3, if hov && !sel { PANEL_LO } else { TEXT_DIM }, None, 1);
         }
         let parts = e.cat.parts();
         for (i, &p) in parts.iter().enumerate() {
@@ -827,7 +857,7 @@ impl Pg {
             swatch(fb, r.x, r.y, p);
             fb.text(&n.to_string(), r.x + 12, r.y + 1, TEXT, None, 1);
         }
-        let (status, col) = yard_status(&check, st.armed(), st.power_pct(), st.order(), st.collector());
+        let (status, col) = yard_status(&check, st.armed(), st.power_pct(), st.order(), st.collector(), yard_field(&st));
         fb.text(&status, STATUS_RECT.x + 2, STATUS_RECT.y + 2, col, None, 1);
 
         // Built or seeded, and what its factory pixels print.
@@ -839,15 +869,24 @@ impl Pg {
             fb.text(&format!("ROCK {}", st.count), 312, KIND_BTNS[0].y + 3, TEXT_DIM, None, 1);
         }
         if st.factory > 0 || d.cells.contains(&Some(Part::Factory)) {
-            fb.text("BUILDS", 210, BUILD_Y + 2, TEXT_FAINT, None, 1);
-            for (k, &b) in d.build.iter().enumerate() {
-                let r = chip_rect(k);
-                let bad = self.build_problem(d, b).is_some();
-                fb.rect_fill(r.x, r.y, r.w, r.h, if bad { BAD_DIM } else { PANEL_DEEP });
-                fb.text_centered(&format!("{}", b + 1), r.x + r.w / 2, r.y + 2, if bad { BAD } else if r.contains(m.0, m.1) { WHITE } else { ACCENT }, None, 1);
-            }
-            if d.build.is_empty() {
-                fb.text("NOTHING YET", 250, BUILD_Y + 2, TEXT_FAINT, None, 1);
+            for (row, list) in [&d.first, &d.build].into_iter().enumerate() {
+                // The row ADD adds to is lit.
+                let (name, lit) = (row_rect(row), (row == 0) == self.ed.add_to_start);
+                fb.text(ROW_NAMES[row], 210, name.y + 2, if lit { ACCENT } else if name.contains(m.0, m.1) { TEXT } else { TEXT_FAINT }, None, 1);
+                for (k, &b) in list.iter().enumerate() {
+                    let r = chip_rect(row, k);
+                    let bad = self.build_problem(d, b).is_some();
+                    fb.rect_fill(r.x, r.y, r.w, r.h, if bad { BAD_DIM } else { PANEL_DEEP });
+                    fb.text_centered(&format!("{}", b + 1), r.x + r.w / 2, r.y + 2, if bad { BAD } else if r.contains(m.0, m.1) { WHITE } else { ACCENT }, None, 1);
+                }
+                if list.is_empty() {
+                    let none = match (row, d.first.is_empty()) {
+                        (0, _) => "NOTHING FIRST",
+                        (_, true) => "NOTHING YET",
+                        _ => "NOTHING: THEN IT STOPS",
+                    };
+                    fb.text(none, 250, name.y + 2, TEXT_FAINT, None, 1);
+                }
             }
             fb.text("ADD", 210, ADD_Y + 3, TEXT_FAINT, None, 1);
             for k in 0..self.lib.len() {
@@ -906,7 +945,7 @@ impl Pg {
                     }
                 }
             }
-            for &(cx, cy) in check.loose.iter().chain(&check.buried).chain(&check.hemmed) {
+            for &(cx, cy) in check.loose.iter().chain(&check.buried).chain(&check.hemmed).chain(&check.slight).chain(&check.scant) {
                 outline_clip(fb, c, ox + cx * z - 1, oy + cy * z - 1, inner + 2, inner + 2, BAD);
             }
         }
@@ -951,15 +990,6 @@ impl Pg {
                     }
                 }
                 (None, Tool::Copy) => frame(fb, cell, cell, ACCENT),
-                _ if e.tool == Tool::Pencil && e.part == Part::HeavyPlate => {
-                    // The domino the click would put down, and its mirror twin.
-                    let far = |x: i32| if e.upright { (x, cell.1 + 1) } else { (x + 1, cell.1) };
-                    frame(fb, cell, far(cell.0), WHITE);
-                    let mx = mirror_x(cell.0) - !e.upright as i32;
-                    if e.mirror && (if e.upright { mx != cell.0 } else { (mx - cell.0).abs() >= 2 }) {
-                        frame(fb, (mx, cell.1), far(mx), TEXT_FAINT);
-                    }
-                }
                 _ => {
                     // A turret shows the whole block the click would stamp, and its mirror twin.
                     let n = if e.tool == Tool::Pencil { e.part.side() } else { 1 };
@@ -997,7 +1027,7 @@ impl Pg {
         if let Some(i) = (0..BTNS.len()).find(|&i| at(tool_rect(i))) {
             return match BTNS[i] {
                 Btn::Tool(t) => self.tool_info(t),
-                Btn::Turn => "[T] TURN THE STAMP YOU'RE HOLDING A QUARTER TURN CLOCKWISE, OR HEAVY PLATE'S DOMINO FROM TWO WIDE TO TWO TALL AND BACK, OR THE WAY THE ENGINES YOU PAINT PUSH.".into(),
+                Btn::Turn => "[T] TURN THE STAMP YOU'RE HOLDING A QUARTER TURN CLOCKWISE, OR THE WAY THE ENGINES YOU PAINT PUSH.".into(),
                 Btn::Undo => "[U] UNDO THE LAST CHANGE TO THIS DESIGN.".into(),
                 Btn::Mirror => "[M] MIRROR: EVERY TOOL ALSO WORKS ON THE OTHER SIDE OF THE LIT CENTRE COLUMN.".into(),
                 Btn::Clear => "CLEAR THE WHOLE DESIGN. [U] UNDO BRINGS IT BACK.".into(),
@@ -1006,16 +1036,21 @@ impl Pg {
         if at(BTN_ZOOM_OUT) || at(BTN_ZOOM_IN) || ((6..148).contains(&m.0) && (282..297).contains(&m.1)) {
             return format!("[Q] [E] OR THE MOUSE WHEEL ZOOM IN WHOLE STEPS. 1X IS THE SHIP AT ITS REAL SIZE, AS IN THE ARENA; 2X SHOWS THE WHOLE {GRID}X{GRID} GRID; 4X AND 8X ARE FOR FINE WORK. WASD OR THE ARROWS SCROLL. THE NUMBERS ARE THE CELL UNDER THE POINTER.");
         }
-        if let Some(k) = (0..d.build.len()).find(|&k| at(chip_rect(k))) {
-            let b = d.build[k];
-            let what = self.lib.get(b).map_or("AN EMPTY SLOT".to_string(), |o| format!("{} ({} PX)", o.name, o.stats().cost));
-            return match self.build_problem(d, b) {
-                Some(why) => format!("{}: {what}. {why} RIGHT-CLICK TAKES IT OFF.", b + 1),
-                None => format!("{}: {what}. RIGHT-CLICK TAKES IT OFF THE BUILD ORDER.", b + 1),
-            };
+        for (row, list) in [&d.first, &d.build].into_iter().enumerate() {
+            if let Some(k) = (0..list.len()).find(|&k| at(chip_rect(row, k))) {
+                let b = list[k];
+                let what = self.lib.get(b).map_or("AN EMPTY SLOT".to_string(), |o| format!("{} ({} PX)", o.name, o.stats().cost));
+                return match self.build_problem(d, b) {
+                    Some(why) => format!("{}: {what}. {why} RIGHT-CLICK TAKES IT OFF.", b + 1),
+                    None => format!("{}: {what}. RIGHT-CLICK TAKES IT OFF THE BUILD ORDER.", b + 1),
+                };
+            }
+            if self.has_factory() && at(row_rect(row)) {
+                return build_row_tip(row).into();
+            }
         }
         if (0..self.lib.len()).any(|k| at(add_rect(k))) {
-            return "ADD A DESIGN FROM YOUR DECK TO THE END OF THE BUILD ORDER. ITS FACTORY PIXELS PRINT THE LIST ROUND AND ROUND, SKIPPING WHAT IT'S TOO SMALL FOR.".into();
+            return ADD_TIP.into();
         }
         if KIND_BTNS.iter().any(|&r| at(r)) {
             return "BUILT: A FACTORY OR YOUR KING PRINTS IT. SEEDED: YOUR KING PRINTS A SEED THAT GROWS IT OUT OF A ROCK, PIXEL BY PIXEL FROM ITS CORE; THE ROCK MUST HOLD AS MANY PIXELS AS THE SHIP. ITS SEED CORE STAYS AT THE CENTRE.".into();
@@ -1039,10 +1074,10 @@ impl Pg {
             return FLIGHT_TIP.into();
         }
         if on_row(GAUGE_Y[0]) {
-            return format!("TOP SPEED: {} PX/S. MORE ENGINES FOR THE WEIGHT, FASTER. EVEN THE HEAVIEST SHIP WITH AN ENGINE MANAGES 11.", st.top_speed_px_s());
+            return format!("TOP SPEED: {} PX/S. IT'S THRUST OVER WEIGHT: TWICE THE ENGINES FOR THE WEIGHT, TWICE THE SPEED, UP TO {}. THE HEAVIEST SHIP WITH AN ENGINE CRAWLS AT {}.", st.top_speed_px_s(), SPEED_MOST * 15 / 4, SPEED_LEAST * 15 / 4);
         }
         if on_row(GAUGE_Y[1]) {
-            return format!("TURNING: {}.{} S FOR A QUARTER TURN. HEAVIER SHIPS TURN SLOWER; MORE ENGINES HELP, UP TO A LIMIT OF 1.6 S.", st.turn_ds() / 10, st.turn_ds() % 10);
+            return format!("TURNING: {}.{} S FOR A QUARTER TURN. A SHIP TURNS ON ITS CORES AND ROTATION ENGINES, SLOWER THE MORE WEIGHT IT HAS FAR FROM ITS MIDDLE, AND NEVER SLOWER THAN {} S.", st.turn_ds() / 10, st.turn_ds() % 10, secs(SLOWEST_TURN));
         }
         if on_row(GAUGE_Y[2]) {
             let (a, b) = (st.zero_to_top_ds() / 10, st.zero_to_top_ds() % 10);
@@ -1082,7 +1117,7 @@ impl Pg {
         let mirror = if self.ed.mirror { " MIRROR IS ON: IT ALSO WORKS ON THE OTHER SIDE." } else { "" };
         match t {
             Tool::Pencil if self.ed.part.side() == 3 => format!("[P] PENCIL, PAINTING {p}: A CLICK STAMPS A 3X3 {p} CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF ONE TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}"),
-            Tool::Pencil if self.ed.part == Part::HeavyPlate => format!("[P] PENCIL, PAINTING {p}: A CLICK PUTS DOWN A DOMINO {} FROM THE CELL ([T] TURNS IT); RIGHT-CLICK EITHER HALF TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}", if self.ed.upright { "TWO TALL" } else { "TWO WIDE" }),
+            Tool::Pencil if self.ed.part == Part::HeavyPlate => format!("[P] PENCIL, PAINTING {p}: IT HAS TO BE 2 THICK, AND A PIXEL OF IT THAT ISN'T SHOWS RED. THE RECTANGLE [R] PUTS DOWN A SLAB. UP IS THE FRONT.{mirror}"),
             Tool::Pencil if self.ed.part == Part::Engine => format!("[P] PENCIL, PAINTING {p}: IT PUSHES THE SHIP {} ([T] TURNS IT). LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}", WAYS[self.ed.engine_way]),
             Tool::Pencil => format!("[P] PENCIL, PAINTING {p}. LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}"),
             Tool::Rect => format!("[R] RECTANGLE: DRAG A BOX TO FILL IT WITH {p}; RIGHT-DRAG EMPTIES ONE. TURRETS TILE THE BOX IN 3X3 BLOCKS; HEAVY PLATE FILLS AN EVEN NUMBER OF CELLS.{mirror}"),
@@ -1097,7 +1132,7 @@ impl Pg {
 fn gauges(st: &Stats) -> [(Icon, i32, Option<i32>, String, u8); 4] {
     let moves = st.thrust > 0;
     let speed = if moves { st.vmax * 10 / 12 } else { 0 };
-    let turn = if moves { (25 - st.turn) * 10 / 24 } else { 0 };
+    let turn = if moves && st.quarter > 0 { (SLOWEST_TURN + 1 - st.quarter) * 10 / SLOWEST_TURN } else { 0 };
     // Half the bar is 1 thrust per weight, where attack runs start.
     let push = if st.mass > 0 { (st.thrust * 5 / st.mass).min(10) } else { 0 };
     // Power is a load: how much of what the ship makes it uses. Over 100% the bar turns red.
@@ -1149,7 +1184,13 @@ mod tests {
                 }
             }
         }
-        assert!(Cat::Weapons.parts().len() >= 5 && part_rect(4, &Cat::Weapons.parts()).y > part_rect(0, &Cat::Weapons.parts()).y, "the fifth weapon should be on the second row");
+        // (Seven weapons filled two rows and an eighth had nowhere to go, so since 2026-11-17
+        // the cannon, tracker, missile and energy ball are HEAVY WEAPONS. Each of the two
+        // still runs on to a second row.)
+        for cat in [Cat::Weapons, Cat::Heavy] {
+            let parts = cat.parts();
+            assert!(parts.len() == 4 && part_rect(3, &parts).y > part_rect(0, &parts).y, "{}'s fourth part should be on the second row", cat.name());
+        }
         // The rows under the canvas keep clear of each other, down to the foot of the screen.
         assert!(CANVAS.y + CANVAS.h <= cat_rect(0).y && tool_rect(0).y + tool_rect(0).h <= BTN_ZOOM_OUT.y && BTN_MATCH.y + BTN_MATCH.h <= 300);
     }
@@ -1308,29 +1349,45 @@ mod tests {
     }
 
     #[test]
-    fn a_mirrored_domino_of_heavy_plate_lands_as_its_mirror_image() {
+    fn heavy_plate_is_painted_a_pixel_at_a_time_and_has_to_be_two_thick() {
         let mut pg = Pg::new(None, None);
         pg.select_slot(5);
         pg.press_btn(Btn::Clear);
         pg.ed.part = Part::HeavyPlate;
         pg.ed.mirror = true;
-        // Two wide: its cells are 20-21, so its twin's are their mirrors, 77-78.
+        let heavy = |pg: &Pg| (0..GRID * GRID).filter(|&i| pg.lib[5].get(i % GRID, i / GRID) == Some(Part::HeavyPlate)).count();
+        // One click, one pixel and its mirror twin: no dominoes, and nothing for [T] to turn.
         pg.paint((20, 30), false);
-        assert_eq!(pg.lib[5].dominoes(), (vec![((20, 30), (21, 30)), ((77, 30), (78, 30))], vec![]));
-        assert_eq!(mirror_x(21), 77);
-        // [T] stands it up: two tall, its twin straight across.
+        assert_eq!((heavy(&pg), pg.lib[5].get(mirror_x(20), 30)), (2, Some(Part::HeavyPlate)));
         pg.key_yard(Key::Letter('T'));
-        assert!(pg.ed.upright);
-        pg.paint((20, 40), false);
-        assert!(pg.lib[5].dominoes().0.contains(&((20, 40), (20, 41))) && pg.lib[5].dominoes().0.contains(&((78, 40), (78, 41))));
-        // Two tall on the middle column, it's its own twin.
-        pg.paint((GRID / 2, 50), false);
-        assert_eq!(pg.lib[5].dominoes().0.iter().filter(|(a, _)| a.1 == 50).count(), 1);
-        // Two wide across the middle column, the twin would overlap it, so there's only one.
-        pg.key_yard(Key::Letter('T'));
-        pg.paint((GRID / 2, 60), false);
-        assert_eq!((pg.lib[5].dominoes().0.iter().filter(|(a, _)| a.1 == 60).count(), pg.lib[5].dominoes().1.len()), (1, 0));
+        assert!(pg.notice.as_ref().is_some_and(|(s, _)| s.starts_with("NO STAMP TO TURN")), "{:?}", pg.notice);
+        // Alone they're too thin, and the status line says so.
+        assert_eq!(pg.lib[5].thin_plate().len(), 2);
+        // A stroke two thick is fine; so is a wall three wide across the middle column, which
+        // a 2x2 block could never be laid on.
+        for (x, y) in [(21, 30), (20, 31), (21, 31)] {
+            pg.paint((x, y), false);
+        }
+        assert!(pg.lib[5].thin_plate().is_empty());
+        pg.ed.mirror = false;
+        let mid = GRID / 2;
+        for y in 50..52 {
+            for x in mid - 1..=mid + 1 {
+                pg.paint((x, y), false);
+            }
+        }
+        assert!(pg.lib[5].thin_plate().is_empty(), "{:?}", pg.lib[5].thin_plate());
+        // An L two thick is fine too. A tail one pixel wide off it isn't: just the tail.
+        for (x, y) in [(mid + 2, 50), (mid + 2, 51), (mid + 3, 50)] {
+            pg.paint((x, y), false);
+        }
+        assert_eq!(pg.lib[5].thin_plate(), vec![(mid + 3, 50)]);
+        // A right-click takes up one pixel, and what that leaves too thin shows.
+        pg.paint((mid + 3, 50), true);
+        pg.paint((mid - 1, 50), true);
+        assert_eq!(pg.lib[5].thin_plate(), vec![(mid - 1, 51)]);
         // A tracker's twin is centred on the mirrored cell, as a cannon's is.
+        pg.ed.mirror = true;
         pg.ed.part = Part::Tracker;
         pg.paint((30, 40), false);
         assert_eq!(pg.lib[5].blocks(Part::Tracker).0, vec![(29, 39), (mirror_x(31), 39)]);
@@ -1394,11 +1451,64 @@ mod tests {
         press(&mut pg, KIND_BTNS[0]);
         assert!(!d(&pg).seeded);
         // They and the build row sit between the status line and the info box.
-        assert!(KIND_BTNS[0].y >= STATUS_RECT.y + STATUS_RECT.h && BUILD_Y >= KIND_BTNS[0].y + KIND_BTNS[0].h && ADD_Y >= BUILD_Y + 11 && ADD_Y + 11 <= INFO_RECT.y, "the column's rows overlap");
+        assert!(KIND_BTNS[0].y >= STATUS_RECT.y + STATUS_RECT.h && BUILD_Y >= KIND_BTNS[0].y + KIND_BTNS[0].h && ROUND_Y >= BUILD_Y + 11 && ADD_Y >= ROUND_Y + 11 && ADD_Y + 12 <= INFO_RECT.y && INFO_RECT.y + INFO_RECT.h <= 298, "the column's rows overlap");
         // The row says whether the drawing flies, and its hover text what a ship does in a fight.
         pg.mouse = (COL_X + 20, FLIGHT_Y + 2);
         let st = d(&pg).stats();
         assert!(pg.yard_info(&d(&pg), &st).starts_with("IN A FIGHT A SHIP HOLDS AT THE REACH OF ITS GUNS"));
+    }
+
+    #[test]
+    fn a_build_order_has_a_start_row_and_a_repeat_row() {
+        use crate::app::{App, Ev};
+        let mut pg = Pg::new(None, None);
+        pg.screen = crate::pg::Screen::Yard;
+        pg.help = false;
+        pg.select_slot(4);
+        let press = |pg: &mut Pg, r: Rect, right: bool| pg.event(Ev::Press { x: r.x + r.w / 2, y: r.y + r.h / 2, right });
+        let rows = |pg: &Pg| (pg.lib[4].first.clone(), pg.lib[4].build.clone());
+        assert_eq!(rows(&pg), (vec![], vec![3, 3, 0, 0, 1, 2]));
+        // ADD adds to the repeat row until the start row's name is clicked.
+        press(&mut pg, add_rect(7), false);
+        assert_eq!(rows(&pg), (vec![], vec![3, 3, 0, 0, 1, 2, 7]));
+        press(&mut pg, row_rect(0), false);
+        assert!(pg.ed.add_to_start);
+        press(&mut pg, add_rect(3), false);
+        press(&mut pg, add_rect(7), false);
+        assert_eq!(rows(&pg), (vec![3, 7], vec![3, 3, 0, 0, 1, 2, 7]));
+        // And back.
+        press(&mut pg, row_rect(1), false);
+        press(&mut pg, add_rect(0), false);
+        assert_eq!(rows(&pg), (vec![3, 7], vec![3, 3, 0, 0, 1, 2, 7, 0]));
+        // A right-click takes an entry off its own row, and a right-click on a row's name
+        // changes nothing.
+        press(&mut pg, chip_rect(0, 0), true);
+        press(&mut pg, chip_rect(1, 6), true);
+        press(&mut pg, row_rect(0), true);
+        assert_eq!(rows(&pg), (vec![7], vec![3, 3, 0, 0, 1, 2, 0]));
+        assert!(!pg.ed.add_to_start);
+        // It's saved with the design, and a row holds sixteen: the seventeenth is refused.
+        assert!(pg.lib[4].to_line().ends_with("|SEEDED|7>3,3,0,0,1,2,0"), "{}", pg.lib[4].to_line());
+        press(&mut pg, row_rect(0), false);
+        for _ in 0..20 {
+            press(&mut pg, add_rect(3), false);
+        }
+        assert_eq!((pg.lib[4].first.len(), BUILD_MAX), (16, 16));
+        assert!(pg.notice.as_ref().is_some_and(|(s, _)| s == "A ROW OF THE BUILD ORDER HOLDS 16 AT MOST"), "{:?}", pg.notice);
+        // Sixteen fit across, clear of each other, the rows' names and the screen's edge; the
+        // rows are clear of each other, of the ADD buttons and of the text box.
+        for row in 0..2 {
+            for k in 0..BUILD_MAX {
+                let c = chip_rect(row, k);
+                assert!(c.x >= row_rect(row).x + row_rect(row).w && c.x + c.w <= 398 && (k == 0 || chip_rect(row, k - 1).x + chip_rect(row, k - 1).w <= c.x), "chip {k} of row {row}");
+            }
+            assert!(Framebuffer::text_width(ROW_NAMES[row], 1) + 2 <= row_rect(row).w);
+        }
+        assert!(chip_rect(0, 0).y + chip_rect(0, 0).h <= chip_rect(1, 0).y && chip_rect(1, 0).y + chip_rect(1, 0).h <= add_rect(0).y && add_rect(0).y + add_rect(0).h <= INFO_RECT.y);
+        // A design with no factory pixels has no rows to click.
+        pg.select_slot(0);
+        press(&mut pg, row_rect(1), false);
+        assert!(pg.ed.add_to_start && pg.lib[0].first.is_empty() && pg.lib[0].build.is_empty());
     }
 
     #[test]

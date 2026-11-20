@@ -371,6 +371,9 @@ pub fn deck_sheet(file: Option<&str>) {
             st.max_build(),
             c.problem().map_or(String::new(), |p| format!("  ** NOT LEGAL: {p} **"))
         );
+        if !d.first.is_empty() {
+            println!("    builds first, once: {}", d.first.iter().map(|&b| deck.get(b).map_or("?".to_string(), |o| o.name.clone())).collect::<Vec<_>>().join(", "));
+        }
         if !d.build.is_empty() {
             let names: Vec<String> = d
                 .build
@@ -404,6 +407,14 @@ pub struct Played {
     pub arena: crate::pg::sim::Arena,
 }
 
+/// The layout the tools' matches are played on, if `--map` named one: otherwise each match's
+/// is picked by its seed, as the game's are.
+pub static MAP: std::sync::OnceLock<crate::pg::sim::Layout> = std::sync::OnceLock::new();
+
+fn map_for(seed: u64) -> crate::pg::sim::Layout {
+    MAP.get().copied().unwrap_or_else(|| crate::pg::sim::Layout::pick(seed))
+}
+
 /// Plays one match with nobody watching.
 pub fn play_match(seed: u64, decks: [Vec<crate::pg::design::Design>; 2], bots: [crate::pg::sim::Bot; 2], each_tick: impl FnMut(&crate::pg::sim::Arena)) -> Played {
     play_match_with(seed, decks, bots, [false; 2], each_tick)
@@ -413,7 +424,7 @@ pub fn play_match(seed: u64, decks: [Vec<crate::pg::design::Design>; 2], bots: [
 pub fn play_match_with(seed: u64, decks: [Vec<crate::pg::design::Design>; 2], bots: [crate::pg::sim::Bot; 2], sends: [bool; 2], mut each_tick: impl FnMut(&crate::pg::sim::Arena)) -> Played {
     use crate::pg::sim::{Arena, Role};
     let n = [decks[0].len(), decks[1].len()];
-    let mut a = Arena::for_bots(seed, decks, bots);
+    let mut a = Arena::for_map(seed, map_for(seed), decks, bots);
     for t in 0..2 {
         if sends[t] {
             a.send_by_looking(t);
@@ -475,7 +486,7 @@ pub fn match_sim(n: u64, blue: Option<&str>, red: Option<&str>, bots: [crate::pg
         };
         wins[m.winner.unwrap_or(2)] += 1;
         ticks.push(m.ticks);
-        println!("seed {seed}: {who} at {} ({} ms) | {}", clock(m.ticks), t0.elapsed().as_millis(), state_line(a));
+        println!("seed {seed}, rocks {}: {who} at {} ({} ms) | {}", map_for(seed).name(), clock(m.ticks), t0.elapsed().as_millis(), state_line(a));
         // What each side made of each card (everything that ever flew or stood), and when it
         // first had one finished.
         for t in 0..2 {
@@ -523,7 +534,7 @@ pub fn match_trace(blue: &str, red: &str, seed: u64, from: u32, to: u32, off: u3
     let teams = ready_teams();
     let find = |n: &str| teams.iter().position(|t| t.name.eq_ignore_ascii_case(n)).unwrap_or_else(|| panic!("no team called {n}"));
     let (i, j) = (find(blue), find(red));
-    let mut a = Arena::for_match(seed, [teams[i].designs.clone(), teams[j].designs.clone()], [true, true]);
+    let mut a = Arena::for_map(seed, map_for(seed), [teams[i].designs.clone(), teams[j].designs.clone()], [crate::pg::sim::Bot::Ai; 2]);
     let was = |n: usize| old.is_some_and(|o| o.split(',').any(|w| w.trim().eq_ignore_ascii_case(teams[n].name)));
     {
         let e = a.eco.as_mut().unwrap();
@@ -539,14 +550,14 @@ pub fn match_trace(blue: &str, red: &str, seed: u64, from: u32, to: u32, off: u3
         let e = a.eco.as_ref().unwrap();
         let mut line = clock(a.tick);
         for t in 0..2 {
-            let war: Vec<&Ship> = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && s.st.scoops == 0).collect();
+            let war: Vec<&Ship> = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && !s.st.gathers()).collect();
             let px: i32 = war.iter().map(|s| s.px_now()).sum();
             let n = war.len().max(1) as i32;
             let (cx, cy) = (war.iter().map(|s| s.x).sum::<i32>() / n, war.iter().map(|s| s.y).sum::<i32>() / n);
             let k = &a.ships[e.king[t]];
-            let near = a.ships.iter().filter(|s| s.alive && s.team != t && s.role == Role::Ship && !s.rooted && s.st.armed() && s.st.scoops == 0 && crate::geom::cheb(s.x, s.y, k.x, k.y) <= 300).map(|s| s.px_now()).sum::<i32>();
+            let near = a.ships.iter().filter(|s| s.alive && s.team != t && s.role == Role::Ship && !s.rooted && s.st.armed() && !s.st.gathers() && crate::geom::cheb(s.x, s.y, k.x, k.y) <= 300).map(|s| s.px_now()).sum::<i32>();
             let fact: Vec<String> = a.ships.iter().filter(|s| s.alive && s.team == t && s.rooted && s.st.factory > 0).map(|s| format!("{}", s.px_now())).collect();
-            let miners = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.st.scoops > 0).count();
+            let miners = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.st.gathers()).count();
             line += &format!(" | {} war {:2} ships {:3} px at {:4},{:4} | king {:3} px at {:4},{:4}{} | fact [{}] miners {:2} bank {:3} | enemy near king {:3}", ["B", "R"][t], war.len(), px, cx, cy, k.px_now() * k.alive as i32, k.x, k.y, if k.sent.is_some() { " SENT" } else { "" }, fact.join(" "), miners, a.bank(e.king[t]), near);
         }
         println!("{line}");
@@ -595,7 +606,7 @@ pub fn teams(seeds: u64, only: Option<&str>, minutes: bool, off: u32, old: Optio
                 let k = next.fetch_add(1, Ordering::Relaxed);
                 let Some(&(i, j, seed)) = jobs.get(k) else { break };
                 let teams = ready_teams();
-                let mut a = Arena::for_match(seed, [teams[i].designs.clone(), teams[j].designs.clone()], [true, true]);
+                let mut a = Arena::for_map(seed, map_for(seed), [teams[i].designs.clone(), teams[j].designs.clone()], [crate::pg::sim::Bot::Ai; 2]);
                 a.eco.as_mut().unwrap().strategy = [teams[i].strategy, teams[j].strategy];
                 // A team named in `old` plays with every rule of 2026-11-15 off: as it played before.
                 let was = |n: usize| old.is_some_and(|o| o.split(',').any(|w| w.trim().eq_ignore_ascii_case(teams[n].name)));
@@ -611,15 +622,15 @@ pub fn teams(seeds: u64, only: Option<&str>, minutes: bool, off: u32, old: Optio
                         let e = a.eco.as_ref().unwrap();
                         let side = |t: usize| {
                             let mine = |s: &&crate::pg::sim::Ship| s.alive && s.team == t;
-                            let miners = a.ships.iter().filter(|s| mine(s) && s.role == Role::Ship && s.grow.is_none() && s.st.scoops > 0).count();
-                            let war: i32 = a.ships.iter().filter(|s| mine(s) && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && s.st.scoops == 0).map(|s| s.px_now()).sum();
+                            let miners = a.ships.iter().filter(|s| mine(s) && s.role == Role::Ship && s.grow.is_none() && s.st.gathers()).count();
+                            let war: i32 = a.ships.iter().filter(|s| mine(s) && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && !s.st.gathers()).map(|s| s.px_now()).sum();
                             format!("{} fact {:2} miners {:3} war px {:4} king {:3} bank {:4} mined {:5} rock {:5}", ["BLUE", "RED"][t], factories(&a, t), miners, war, a.ships[e.king[t]].px_now() * a.ships[e.king[t]].alive as i32, a.bank(e.king[t]), a.score[t].mined, a.rock_in_reach(t))
                         };
                         lines.push(format!("{} | {} | {}", clock(a.tick), side(0), side(1)));
                     }
                     if a.tick % 15 == 0 {
                         for t in 0..2 {
-                            let px: i32 = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && s.st.scoops == 0).map(|s| s.px_now()).sum();
+                            let px: i32 = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && !s.rooted && s.grow.is_none() && s.st.armed() && !s.st.gathers()).map(|s| s.px_now()).sum();
                             army[t][2] = army[t][2].max(px);
                             if a.tick == 15 * 300 {
                                 army[t][0] = px;
@@ -1721,7 +1732,7 @@ pub fn new_parts_screenshots(dir: &Path) {
     pg.draw(&mut fb);
     save(&fb, &pg, "60_yard_new_parts.png");
     pg.screen = Screen::Arena;
-    if pg.load_named("1 BASTION VS 17 LANCERS") {
+    if pg.load_named("1 BASTION VS 23 LANCERS") {
         pg.running = true;
         for _ in 0..15 * 4 {
             pg.tick();
@@ -1729,6 +1740,216 @@ pub fn new_parts_screenshots(dir: &Path) {
         pg.mouse = (0, 0);
         pg.draw(&mut fb);
         save(&fb, &pg, "61_bastion_vs_lancers.png");
+    }
+    // The parts of 2026-11-17 in the yard: the dock pad, and the energy ball in the seventh
+    // category.
+    for (name, cat, part, file) in [("PADPOST", Cat::Industry, Part::DockPad, "62_yard_dock_pad.png"), ("SAPPER", Cat::Heavy, Part::EnergyBall, "63_yard_energy_ball.png"), ("HAULER", Cat::Industry, Part::Scoop, "64_yard_hauler.png")] {
+        pg.screen = Screen::Yard;
+        pg.lib[5] = part_examples().into_iter().find(|d| d.name == name).unwrap();
+        pg.select_slot(5);
+        pg.ed.cat = cat;
+        pg.ed.part = part;
+        pg.mouse = pg.part_button(part);
+        pg.draw(&mut fb);
+        save(&fb, &pg, file);
+    }
+    // A pad at work in a match: the example outpost with its pad, six full miners by it, at
+    // the moment one's load is going, and a second and a half later.
+    {
+        let mut pg = Pg::new(None, None);
+        pg.lib = crate::pg::design::starter_deck();
+        pg.start_match(true, 3);
+        pg.help = false;
+        let d = crate::pg::design::starter_deck();
+        let post = {
+            let a = &mut pg.play.as_mut().unwrap().arena;
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let post = a.spawn(0, 4, &part_examples().into_iter().find(|d| d.name == "PADPOST").unwrap(), kx + 80, ky - 40, 0, false);
+            for n in 0..6 {
+                let m = a.spawn(0, 3, &d[3], kx + 118 + 7 * (n % 3), ky - 62 + 22 * (n / 3), 0, false);
+                a.ships[m].carry = 9;
+            }
+            post
+        };
+        let (mut shown, mut after) = (false, 0);
+        for _ in 0..15 * 30 {
+            pg.tick();
+            let p = pg.play.as_ref().unwrap();
+            let going = p.arena.ships.iter().any(|s| s.alive && s.berth.is_some_and(|b| b.phase == 1 && b.t == crate::pg::design::DOCK_SHOW / 2));
+            after += shown as i32;
+            if (going && !shown) || after == 22 {
+                let s = &p.arena.ships[post];
+                pg.mouse = (s.x - p.cam.0 - 8, s.y - p.cam.1);
+                pg.draw(&mut fb);
+                save(&fb, &pg, if shown { "66_dock_pad_later.png" } else { "65_dock_pad_unloading.png" });
+                if shown {
+                    break;
+                }
+                shown = true;
+            }
+        }
+    }
+    // The stasis lattice (2026-11-18): its example in the yard, and in a match with its field
+    // up: parked by blue's king, three blue fighters beside it and six red ones come at it.
+    {
+        pg.screen = Screen::Yard;
+        pg.lib[5] = part_examples().into_iter().find(|d| d.name == "ANCHOR").unwrap();
+        pg.select_slot(5);
+        pg.ed.cat = Cat::Drive;
+        pg.ed.part = Part::Stasis;
+        pg.mouse = pg.part_button(Part::Stasis);
+        pg.draw(&mut fb);
+        save(&fb, &pg, "67_yard_stasis.png");
+        let mut pg = Pg::new(None, None);
+        pg.lib = crate::pg::design::starter_deck();
+        pg.start_match(true, 3);
+        pg.help = false;
+        let d = crate::pg::design::starter_deck();
+        let anchor = {
+            let a = &mut pg.play.as_mut().unwrap().arena;
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let anchor = a.spawn(0, 4, &part_examples().into_iter().find(|d| d.name == "ANCHOR").unwrap(), kx + 110, ky - 30, 0, false);
+            a.ships[anchor].sent = Some((kx + 110, ky - 30));
+            for n in 0..3 {
+                let f = a.spawn(0, 0, &d[0], kx + 70, ky - 50 + 20 * n, 1, false);
+                a.ships[f].sent = Some((kx + 70, ky - 50 + 20 * n));
+            }
+            for n in 0..6 {
+                a.spawn(1, 0, &d[0], kx + 190 + 12 * (n % 2), ky - 70 + 16 * (n / 2), 3, false);
+            }
+            anchor
+        };
+        for t in 0..15 * 12 {
+            pg.tick();
+            let p = pg.play.as_ref().unwrap();
+            let up = p.arena.stasis.iter().any(|f| f.ship == anchor && f.up);
+            let held = p.arena.ships.iter().filter(|s| s.alive && s.slowed).count();
+            if t == 15 * 12 - 1 || (up && held >= 4 && t >= 15 * 4) {
+                let s = &p.arena.ships[anchor];
+                pg.mouse = (s.x - p.cam.0, s.y - p.cam.1 + 3);
+                pg.draw(&mut fb);
+                save(&fb, &pg, "68_stasis_field_up.png");
+                println!("68: tick {t}, the field is {}, {held} ships held", if up { "up" } else { "not up" });
+                break;
+            }
+        }
+    }
+    // The slipstream (2026-11-18): its example in the yard, and in a match: a pace ship sent
+    // off with two frigates and a capital, which leave green exhaust while it has them.
+    {
+        pg.screen = Screen::Yard;
+        pg.lib[5] = part_examples().into_iter().find(|d| d.name == "PACER").unwrap();
+        pg.select_slot(5);
+        pg.ed.cat = Cat::Drive;
+        pg.ed.part = Part::Slipstream;
+        pg.mouse = pg.part_button(Part::Slipstream);
+        pg.draw(&mut fb);
+        save(&fb, &pg, "69_yard_slipstream.png");
+        let mut pg = Pg::new(None, None);
+        pg.lib = crate::pg::design::starter_deck();
+        pg.start_match(true, 3);
+        pg.help = false;
+        let d = crate::pg::design::starter_deck();
+        let (pacer, wards) = {
+            let a = &mut pg.play.as_mut().unwrap().arena;
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            let pacer = a.spawn(0, 4, &part_examples().into_iter().find(|d| d.name == "PACER").unwrap(), kx + 80, ky - 40, 1, false);
+            let wards = vec![a.spawn(0, 2, &d[2], kx + 84, ky - 68, 1, false), a.spawn(0, 2, &d[2], kx + 84, ky - 12, 1, false), a.spawn(0, 6, &d[6], kx + 40, ky - 40, 1, false)];
+            a.step();
+            let all: Vec<usize> = wards.iter().copied().chain([pacer]).collect();
+            let pace = all.iter().map(|&i| a.ships[i].st.vmax).min().unwrap();
+            for &i in &all {
+                (a.ships[i].sent, a.ships[i].pace) = (Some((a.ships[i].x + 500, a.ships[i].y)), pace);
+            }
+            println!("70: the wards' own speeds {:?}, the pace {pace}", wards.iter().map(|&i| a.ships[i].vmax_own()).collect::<Vec<_>>());
+            (pacer, wards)
+        };
+        for _ in 0..15 * 5 {
+            pg.tick();
+        }
+        let p = pg.play.as_ref().unwrap();
+        let s = &p.arena.ships[pacer];
+        println!("70: {} of {} sped; the pace ship at {:?}, the camera {:?}", wards.iter().filter(|&&i| p.arena.ships[i].sped).count(), wards.len(), (s.x, s.y), p.cam);
+        pg.mouse = (s.x - p.cam.0, s.y - p.cam.1 + 3);
+        pg.draw(&mut fb);
+        save(&fb, &pg, "70_slipstream_fleet.png");
+    }
+    // The vacuum (2026-11-18): its example in the yard, and in a match: a sweeper come to a
+    // field of wreckage by blue's king, the loose pixels streaming in to it.
+    {
+        pg.screen = Screen::Yard;
+        pg.lib[5] = part_examples().into_iter().find(|d| d.name == "SWEEPER").unwrap();
+        pg.select_slot(5);
+        pg.ed.cat = Cat::Industry;
+        pg.ed.part = Part::Vacuum;
+        pg.mouse = pg.part_button(Part::Vacuum);
+        pg.draw(&mut fb);
+        save(&fb, &pg, "71_yard_vacuum.png");
+        let mut pg = Pg::new(None, None);
+        pg.lib = crate::pg::design::starter_deck();
+        pg.start_match(true, 3);
+        pg.help = false;
+        let sweeper = {
+            let a = &mut pg.play.as_mut().unwrap().arena;
+            let k = a.eco.as_ref().unwrap().king[0];
+            let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+            // Wreckage as a fight leaves it: some 200 loose pixels strewn over a patch 80 px
+            // across.
+            let mut rng = crate::rng::Rng::new(7);
+            for _ in 0..260 {
+                let (dx, dy) = (rng.range(-40, 40), rng.range(-40, 40));
+                if dx * dx + dy * dy <= 40 * 40 {
+                    a.loose_at(kx + 85 + dx, ky - 55 + dy);
+                }
+            }
+            // (In the miner's slot of the deck: a ship does as its slot's card does.)
+            a.spawn(0, 3, &part_examples().into_iter().find(|d| d.name == "SWEEPER").unwrap(), kx + 20, ky - 90, 1, false)
+        };
+        let mut shot = false;
+        for t in 0..15 * 30 {
+            pg.tick();
+            let p = pg.play.as_ref().unwrap();
+            let s = &p.arena.ships[sweeper];
+            if !shot && s.carry >= 30 {
+                println!("72: tick {t}, it carries {} of {}, {} loose pixels left", s.carry, s.st.hold(), p.arena.debris.len());
+                pg.mouse = (s.x - p.cam.0, s.y - p.cam.1 + 3);
+                pg.draw(&mut fb);
+                save(&fb, &pg, "72_vacuum_at_work.png");
+                shot = true;
+            }
+        }
+        let p = pg.play.as_ref().unwrap();
+        let s = &p.arena.ships[sweeper];
+        println!("72: 30 s on it carries {}, is {}, and {} loose pixels are left", s.carry, s.doing.name(), p.arena.debris.len());
+        assert!(shot);
+    }
+    // Two decks for the headless matches: the starter deck with the pad on its outpost, and
+    // that with the hauler for its miner.
+    let mut deck = crate::pg::design::starter_deck();
+    let find = |name: &str| part_examples().into_iter().find(|d| d.name == name).unwrap();
+    deck[4] = find("PADPOST");
+    let text = |deck: &[crate::pg::design::Design]| format!("{}\n{}\n", crate::pg::design::SAVE_HEADER, deck.iter().map(|d| d.to_line()).collect::<Vec<_>>().join("\n"));
+    let _ = std::fs::write(dir.join("deck_pad.txt"), text(&deck));
+    let _ = std::fs::write(dir.join("deck_scavengers.txt"), text(&crate::pg::teams::scavengers()));
+    {
+        pg.screen = Screen::Yard;
+        pg.lib = crate::pg::teams::scavengers();
+        for slot in 0..pg.lib.len() {
+            pg.select_slot(slot);
+            pg.mouse = (0, 0);
+            pg.draw(&mut fb);
+            let name = format!("8{slot}_scavengers_{}.png", pg.lib[slot].name.to_lowercase());
+            save(&fb, &pg, &name);
+        }
+    }
+    deck[3] = find("HAULER");
+    let _ = std::fs::write(dir.join("deck_pad_hauler.txt"), text(&deck));
+    for d in [find("PADPOST"), find("HAULER"), find("SAPPER"), find("ANCHOR"), find("PACER"), find("SWEEPER"), find("DUSTER")] {
+        let st = d.stats();
+        println!("{}: {} px, cost {}, power {}%, {} px/s, problem {:?}", d.name, st.count, st.cost, st.power_pct(), st.top_speed_px_s(), d.check().problem());
     }
 }
 
@@ -2017,8 +2238,8 @@ pub fn tractor_screenshots(dir: &Path) {
         let a = &mut pg.play.as_mut().unwrap().arena;
         let k = a.eco.as_ref().unwrap().king[0];
         let (kx, ky) = (a.ships[k].x, a.ships[k].y);
-        for n in 0..4 {
-            let m = a.spawn(0, 3, &d[3], kx + 30 + 8 * n, ky - 34 + 6 * n, 0, false);
+        for n in 0..7 {
+            let m = a.spawn(0, 3, &d[3], kx + 30 + 8 * (n % 4), ky - 34 + 6 * n, 0, false);
             a.ships[m].carry = 9;
         }
         a.spawn(0, 7, &d[7], kx + 60, ky + 24, 0, false)
@@ -2043,7 +2264,39 @@ pub fn tractor_screenshots(dir: &Path) {
     pg.mouse = pg.part_button(Part::Tractor);
     pg.draw(&mut fb);
     save(&fb, &pg, "tractor_yard.png");
+    // The outpost's build order: a start row and a repeat row, the start row lit.
+    pg.select_slot(4);
+    pg.lib[4].first = vec![3, 3, 7];
+    pg.ed.add_to_start = true;
+    pg.mouse = (214, 166);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "tractor_yard_builds.png");
     println!("exported tractor screenshots to {}", dir.display());
+}
+
+/// A picture of the whole map for each way its rocks can be laid out, on the first seed that
+/// falls on each.
+pub fn map_screenshots(dir: &Path) {
+    use crate::app::{App, Ev, Key};
+    use crate::pg::design::starter_deck;
+    use crate::pg::sim::{Layout, LAYOUTS};
+    use crate::pg::Pg;
+    let _ = std::fs::create_dir_all(dir);
+    let mut fb = Framebuffer::new();
+    for layout in LAYOUTS {
+        let seed = (1..).find(|&s| Layout::pick(s) == layout).unwrap();
+        let mut pg = Pg::new(None, None);
+        pg.lib = starter_deck();
+        pg.start_match(true, seed);
+        pg.help = false;
+        pg.event(Ev::Key(Key::Tab));
+        pg.mouse = (399, 299);
+        pg.draw(&mut fb);
+        let name = format!("map_{}_seed{seed}.png", layout.name().to_lowercase().replace(' ', "_"));
+        fb.save_png(&dir.join(&name), pg.palette());
+        let a = &pg.play.as_ref().unwrap().arena;
+        println!("{name}: {} rocks, {} px of rock", a.eco.as_ref().unwrap().rocks.len(), a.eco.as_ref().unwrap().rocks.iter().map(|r| r.px.len()).sum::<usize>());
+    }
 }
 
 #[cfg(test)]

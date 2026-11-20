@@ -160,7 +160,9 @@ impl Pg {
         let mine = if starter { starter_deck() } else { self.lib.clone() };
         let teams = super::teams::ready_teams();
         let ai = &teams[self.ai_team % teams.len()];
-        let mut arena = Arena::for_match(seed, [mine, ai.designs.clone()], [false, true]);
+        // The map's rocks are laid out one of four ways, as the seed falls.
+        let layout = Layout::pick(seed);
+        let mut arena = Arena::for_map(seed, layout, [mine, ai.designs.clone()], [Bot::None, Bot::Ai]);
         arena.eco.as_mut().unwrap().strategy[1] = ai.strategy;
         let mut p = Play { arena, link: Link::solo(), cam: (0, 0), tactical: false, planting: None, picked: Vec::new(), box_from: None, groups: Default::default(), last_click: None, last_group: None, running: true, speed: 1, starter, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
         p.look_at_king();
@@ -170,7 +172,7 @@ impl Pg {
         // The rules first: Toy 1's were hard to work out from play alone.
         self.help = true;
         let deck = if starter { "STARTER DECK" } else { "YOUR DECK" };
-        self.log(&format!("MATCH START round 2, seed {seed}, {deck}, AI PLAYS {}", ai.name));
+        self.log(&format!("MATCH START round 2, seed {seed}, {deck}, AI PLAYS {}, ROCKS {}", ai.name, layout.name()));
         if !starter {
             for d in self.lib.clone() {
                 self.log(&format!("  DESIGN {}", d.to_line()));
@@ -188,7 +190,8 @@ impl Pg {
     /// The same, over any wire.
     pub fn start_linked(&mut self, me: usize, seed: u64, theirs: Vec<Design>, wire: Box<dyn Wire>, backlog: Vec<Msg>) {
         let decks = if me == 0 { [self.lib.clone(), theirs] } else { [theirs, self.lib.clone()] };
-        let arena = Arena::for_match(seed, decks, [false, false]);
+        // (Both machines have the seed, so both lay the same map out.)
+        let arena = Arena::for_map(seed, Layout::pick(seed), decks, [Bot::None, Bot::None]);
         let mut p = Play { arena, link: Link::net(me, wire, backlog), cam: (0, 0), tactical: false, planting: None, picked: Vec::new(), box_from: None, groups: Default::default(), last_click: None, last_group: None, running: true, speed: 1, starter: false, seed, map_drag: None, logged_over: false, next_log: 15 * 60, slowed: [false; 2], logged_net: [false; 3] };
         p.look_at_king();
         self.play = Some(p);
@@ -1060,12 +1063,6 @@ impl Pg {
             notes.push(("YOUR NETWORK SPLIT".into(), GOLD));
         }
         if a.over.is_none() {
-            // Tractors are what's holding your mining up: this many of your miners are
-            // standing in one's reach with a load, waiting their turn.
-            let waiting = waiting_miners(a, me);
-            if waiting >= WAITING_NOTE {
-                notes.push((format!("{waiting} MINERS ARE WAITING ON A TRACTOR"), GOLD));
-            }
             if a.king_slowed(me) {
                 notes.push((format!("YOUR KING IS SLOWED: UNDER {KING_NEEDS} PX LEFT STANDING"), BAD));
             }
@@ -1073,11 +1070,21 @@ impl Pg {
                 notes.push(("THE ENEMY KING IS SLOWED".into(), GOOD));
             }
         }
+        // Tractors are what's holding your mining up: this many of your miners are standing in
+        // one's reach with a load, waiting their turn. A small mark and the number, above
+        // the notes; the bar says it in words when the pointer is on the mark.
+        let waiting = Some(waiting_miners(a, me)).filter(|&n| n >= WAITING_NOTE && a.over.is_none());
+        if let Some(n) = waiting {
+            draw_wait_mark(fb, wait_mark_rect(n), n);
+        }
+        let first_row = 14 + if waiting.is_some() { WAIT_MARK.len() as i32 + 2 } else { 0 };
         for (i, (text, col)) in notes.iter().enumerate() {
-            fb.text_centered(text, f.w / 2, 14 + i as i32 * 9, *col, Some(OUTLINE), 1);
+            fb.text_centered(text, f.w / 2, first_row + i as i32 * 9, *col, Some(OUTLINE), 1);
         }
         if bar.is_none() {
-            bar = if let Some(i) = hovered {
+            bar = if let Some(n) = waiting.filter(|&n| wait_mark_rect(n).contains(m.0, m.1)) {
+                Some(wrap(&wait_tip(n), BAR_COLS))
+            } else if let Some(i) = hovered {
                 let mut lines = ship_lines(a, i);
                 // One of yours that can be sent, or a factory: how to pick it.
                 if a.ships[i].commandable(me) && !p.picked.contains(&i) {
@@ -1256,13 +1263,18 @@ impl Pg {
                 return Some(format!("{}AN EMPTY SLOT. A TEAM HOLDS NINE DESIGNS: DRAW ONE HERE IN THE YARD, OR TAKE ONE FROM THE LIBRARY.", card_key(i)));
             };
             let c = e.cards[me][i];
-            let builds: Vec<String> = d.build.iter().filter_map(|&b| e.deck[me].get(b)).map(|o| o.name.clone()).collect();
+            let (first, round) = (build_names(&d.first, &e.deck[me]), build_names(&d.build, &e.deck[me]));
             let what = if c.seeded {
                 format!("{}{}: {} PX, PAID IN FULL WHEN YOU PICK ITS ROCK. ITS SEED FLIES THERE AND GROWS IT OUT OF THE ROCK. WHERE THE ROCK HOLDS UNDER {} PX, OR IN OPEN SPACE (CTRL), IT DRAWS THE REST FROM ITS NETWORK AS IT GROWS.", card_key(i), d.name, c.price(), c.count)
             } else {
                 format!("{}{}: YOUR KING PRINTS IT FOR {} PX, A PIXEL AT A TIME. RIGHT-CLICK: ONE GOES ON THE END OF THE QUEUE, ON REPEAT.", card_key(i), d.name, c.cost)
             };
-            let builds = if builds.is_empty() { String::new() } else { format!(" ITS FACTORY PIXELS PRINT {}.", builds.join(", ")) };
+            let builds = match (first.is_empty(), round.is_empty()) {
+                (true, true) => String::new(),
+                (true, false) => format!(" ITS FACTORY PIXELS PRINT {round}."),
+                (false, false) => format!(" ITS FACTORY PIXELS PRINT {first} FIRST, THEN {round} ROUND AND ROUND."),
+                (false, true) => format!(" ITS FACTORY PIXELS PRINT {first}, ONCE."),
+            };
             return Some(what + &builds + &format!(" CTRL+{} SELECTS EVERY ONE YOU HAVE.", CARD_KEYS[i]));
         }
         if let Some((k, j)) = p.job_at(m.0, m.1) {
@@ -1328,12 +1340,51 @@ impl Pg {
 /// a bit counterintuitive to players", so it's said where the seed is placed. And 2026-11-13:
 /// say the one rule, that it draws from its network, and none of what follows from it.
 /// What the bar says under one of your ships that can be selected.
+/// A row of a build order in words, the same design several times running said once with
+/// how many: "5 MINER, FIGHTER, 2 COLLECTOR". (A row holds sixteen, and a card's tip has
+/// seven lines.)
+fn build_names(list: &[usize], deck: &[Design]) -> String {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for &b in list.iter().filter(|&&b| b < deck.len()) {
+        match runs.last_mut() {
+            Some((slot, n)) if *slot == b => *n += 1,
+            _ => runs.push((b, 1)),
+        }
+    }
+    runs.iter().map(|&(slot, n)| if n > 1 { format!("{n} {}", deck[slot].name) } else { deck[slot].name.clone() }).collect::<Vec<_>>().join(", ")
+}
+
 /// How many of a side's miners are standing with a load, waiting for a tractor to take it.
 fn waiting_miners(a: &Arena, team: usize) -> usize {
     a.ships.iter().filter(|s| s.alive && s.team == team && s.carry > 0 && s.dock.is_some() && s.doing == Doing::Haul && (s.vx, s.vy) == (0, 0)).count()
 }
 /// The match says so once this many are.
 const WAITING_NOTE: usize = 4;
+/// How it says so: a warning triangle with a tractor-pink square in it, and the number beside
+/// it. (A line of words across the top of the field for a day. Henry, 2026-11-17: "a bit too
+/// big. Maybe just like [! pink square] in a warning triangle with a number of miners?")
+const WAIT_MARK: [&str; 9] = [".....G.....", "....G.G....", "....G.G....", "...G...G...", "...G...G...", "..G.PPP.G..", "..G.PPP.G..", ".G..PPP..G.", ".GGGGGGGGG."];
+/// Where the mark and its number go: in the middle of the top of the field, under the bar.
+fn wait_mark_rect(waiting: usize) -> Rect {
+    let w = WAIT_MARK[0].len() as i32 + 3 + Framebuffer::text_width(&waiting.to_string(), 1);
+    Rect::new((FIELD.w - w) / 2, 14, w, WAIT_MARK.len() as i32)
+}
+fn draw_wait_mark(fb: &mut Framebuffer, r: Rect, waiting: usize) {
+    for (y, row) in WAIT_MARK.iter().enumerate() {
+        for (x, c) in row.bytes().enumerate() {
+            match c {
+                b'G' => fb.pset(r.x + x as i32, r.y + y as i32, GOLD),
+                b'P' => fb.pset(r.x + x as i32, r.y + y as i32, TRACTOR),
+                _ => {}
+            }
+        }
+    }
+    fb.text(&waiting.to_string(), r.x + WAIT_MARK[0].len() as i32 + 3, r.y + 1, GOLD, Some(OUTLINE), 1);
+}
+/// What the bar says with the pointer on the mark.
+fn wait_tip(waiting: usize) -> String {
+    format!("{waiting} OF YOUR MINERS ARE STANDING WITH A LOAD, WAITING ON A TRACTOR. THEY BITE FASTER THAN YOUR TRACTORS PULL: MORE TRACTOR PIXELS, OR A COLLECTOR, WOULD EMPTY THEM.")
+}
 
 /// The letters that fit across the bar at the foot of the screen.
 const BAR_COLS: usize = 49;
@@ -1684,6 +1735,8 @@ impl Play {
                 }
             }
         }
+        // A load going at a dock pad: over the ships, so it shows on the miner.
+        scene::docking(fb, f, a, self.cam);
         scene::fire(fb, f, a, self.cam);
     }
 
@@ -1801,7 +1854,7 @@ pub fn state_line(a: &Arena) -> String {
         let factories = a.ships.iter().filter(|s| s.alive && s.team == t && s.role == Role::Ship && s.plant()).count();
         let tl = e.tally[t];
         format!(
-            "{} bank {} (peak {}, {} in all its nodes), {} factories, {} ships, {} px standing{}; planted {}, printed {}, summoned {}, mined {}, lost {} ships",
+            "{} bank {} (peak {}, {} in all its nodes), {} factories, {} ships, {} px standing{}; planted {}, printed {}, summoned {}, mined {}{}, lost {} ships",
             team_name(t),
             a.bank(e.king[t]),
             tl.bank_peak,
@@ -1814,6 +1867,8 @@ pub fn state_line(a: &Arena) -> String {
             tl.printed,
             tl.summoned,
             a.score[t].mined,
+            // What came in over dock pads, when any did.
+            if a.score[t].landed > 0 { format!(" ({} of it on pads)", a.score[t].landed) } else { String::new() },
             a.score[t].lost
         )
     };
@@ -1877,12 +1932,31 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
     if s.carry > 0 {
         parts.push(format!("CARRYING {}", s.carry));
     }
+    if s.slowed {
+        parts.push("HELD BY STASIS".to_string());
+    }
+    if s.sped {
+        parts.push("IN A SLIPSTREAM".to_string());
+    }
     lines.push(parts.join("  "));
+    if let Some(line) = a.stasis_line(i).filter(|_| s.maker.is_none() && s.warp == 0) {
+        lines.push(line);
+    }
+    if let Some(line) = a.slip_line(i).filter(|_| s.maker.is_none() && s.warp == 0) {
+        lines.push(line);
+    }
+    if let Some(line) = a.vac_line(i).filter(|_| s.maker.is_none() && s.warp == 0) {
+        lines.push(line);
+    }
     if a.tractor_px(i) > 0 {
         lines.push(tractor_line(a.tractor_px(i), a.tractor_reach(i), a.ships.iter().filter(|m| m.alive && m.carry > 0 && m.dock == Some(i)).count()));
     }
+    if s.st.dock > 0 && s.maker.is_none() && s.warp == 0 {
+        let bound = (0..a.ships.len()).filter(|&m| a.ships[m].alive && a.ships[m].carry > 0 && a.ships[m].dock == Some(i) && a.pad_room(m, i) > 0).count();
+        lines.push(format!("DOCK PAD: {} PX. {bound} MINER{} BRINGING A LOAD.", s.st.dock, if bound == 1 { "" } else { "S" }));
+    }
     if s.role == Role::King {
-        lines.extend(wrap(&format!("ITS SIDE HAS {} PX OF SHIPS AND FACTORIES STANDING. WITH UNDER {KING_NEEDS}, AFTER THE FIRST MINUTE, A KING FLIES AT A FIFTH OF ITS SPEED.", a.standing(s.team)), 49));
+        lines.extend(wrap(&format!("ITS SIDE HAS {} PX OF SHIPS AND FACTORIES STANDING. WITH UNDER {KING_NEEDS}, AFTER THE FIRST MINUTE, A KING FLIES AT A TENTH OF ITS SPEED.", a.standing(s.team)), 49));
     }
     lines
 }
@@ -2063,13 +2137,15 @@ mod tests {
         click(&mut pg, far, false);
         let p = pg.play.as_ref().unwrap();
         assert!(p.cam != home && p.cam.0 > MW / 2, "the view didn't move to the click: {:?}", p.cam);
-        // Planting from the whole map: the outpost's card, then the home rock.
+        // Planting from the whole map: the outpost's card, then the rock nearest your king,
+        // however this map's rocks are laid out.
         click(&mut pg, card_rect(4), false);
         assert_eq!(pg.play.as_ref().unwrap().planting, Some(4));
         let rock = {
             let a = &pg.play.as_ref().unwrap().arena;
             let (kx, ky) = KING_STARTS[0];
-            a.rock_near((kx + 125, ky + 35), 40).unwrap()
+            let near = a.eco.as_ref().unwrap().rocks.iter().min_by_key(|r| dist2(r.cx, r.cy, kx, ky)).unwrap();
+            (near.cx, near.cy)
         };
         click(&mut pg, Rect::new(TAC.x + rock.0 / TAC_SCALE, TAC.y + rock.1 / TAC_SCALE, 1, 1), false);
         let p = pg.play.as_ref().unwrap();
@@ -2327,7 +2403,7 @@ mod tests {
         assert!(job_rect(4).x + job_rect(4).w <= BTN_CANCEL.x, "the fifth job runs under the drop button");
         // The number in the rules is the number in the sim.
         assert!(MATCH_HELP[0].1.contains(&format!("UNDER {KING_NEEDS} PX")));
-        assert_eq!(KING_SPEED, 5 * KING_SLOW, "the hover text says a fifth");
+        assert_eq!(KING_SPEED, 10 * KING_SLOW, "the hover text says a tenth");
     }
 
     #[test]
@@ -2746,6 +2822,10 @@ mod tests {
             // has pulled its first pixel off one of them.
             assert_eq!(waiting_miners(a, 0), 5);
             assert!(waiting_miners(a, 0) >= WAITING_NOTE);
+            // It says so with a mark no bigger than a small ship, and a number.
+            let mark = wait_mark_rect(5);
+            assert!(mark.w <= 24 && mark.h <= 9 && mark.y >= 13 && mark.x > 100 && mark.x + mark.w < FIELD.w - 100, "{:?}", (mark.x, mark.y, mark.w, mark.h));
+            assert!(wrap(&wait_tip(99), BAR_COLS).len() <= 4, "{:?}", wrap(&wait_tip(99), BAR_COLS));
             assert_eq!(miners.iter().filter(|&&m| a.ships[m].pulled.is_some()).count(), 1);
             a.tractor_reach(k)
         };
@@ -2754,6 +2834,10 @@ mod tests {
         let mut fb = Framebuffer::new();
         pg.mouse = (300, 30);
         pg.draw(&mut fb);
+        // The mark: its nine pink pixels and its gold outline, where it's meant to be.
+        let mark = wait_mark_rect(5);
+        assert_eq!(pink(&fb, mark.x..mark.x + 11, mark.y..mark.y + mark.h), 9, "the mark's pink square");
+        assert_eq!(fb.get(mark.x + 5, mark.y), GOLD, "the mark's point");
         let gap = pink(&fb, kx + 12 - cx..kx + 26 - cx, ky - 12 - cy..ky + 12 - cy);
         assert!(gap >= 4, "{gap} px of the pull between the king and the miner it's emptying");
         // Its reach isn't drawn until the pointer is on the king. Then one pink dot goes once
@@ -2789,6 +2873,31 @@ mod tests {
         assert_eq!(tractor_line(12, 40, 0), "TRACTOR: 1.5 PX A SECOND, 40 PX REACH. 0 MINERS WITH A LOAD.");
         let a = &pg.play.as_ref().unwrap().arena;
         assert!(ship_lines(a, k).iter().any(|l| l.starts_with("TRACTOR: 1 PX A SECOND")), "{:?}", ship_lines(a, k));
+    }
+
+    #[test]
+    fn a_cards_tip_says_its_start_and_its_round() {
+        use crate::app::{App, Ev};
+        let deck = starter_deck();
+        // The same design several times running is said once, with how many.
+        assert_eq!(build_names(&[3, 3, 3, 0, 7, 7, 3], &deck), "3 MINER, FIGHTER, 2 COLLECTOR, MINER");
+        assert_eq!(build_names(&[], &deck), "");
+        let tip = |first: &[usize], round: &[usize]| {
+            let mut pg = Pg::new(None, None);
+            (pg.lib[4].first, pg.lib[4].build) = (first.to_vec(), round.to_vec());
+            pg.start_match(false, 3);
+            pg.help = false;
+            let r = card_rect(4);
+            pg.event(Ev::Move(r.x + 4, r.y + 4));
+            pg.match_tip().unwrap_or_default()
+        };
+        assert!(tip(&[], &[3, 3, 0]).contains(" ITS FACTORY PIXELS PRINT 2 MINER, FIGHTER. "), "{}", tip(&[], &[3, 3, 0]));
+        assert!(tip(&[3, 3], &[0, 1]).contains(" ITS FACTORY PIXELS PRINT 2 MINER FIRST, THEN FIGHTER, LANCER ROUND AND ROUND. "), "{}", tip(&[3, 3], &[0, 1]));
+        assert!(tip(&[3, 7], &[]).contains(" ITS FACTORY PIXELS PRINT MINER, COLLECTOR, ONCE. "), "{}", tip(&[3, 7], &[]));
+        // The longest it can be still fits the bar's seven lines... or near it: sixteen and
+        // sixteen with no two alike running.
+        let long = tip(&[3, 0].repeat(8), &[1, 2].repeat(8));
+        assert!(wrap(&long, BAR_COLS).len() <= 14, "{} lines", wrap(&long, BAR_COLS).len());
     }
 
     #[test]

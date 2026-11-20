@@ -54,10 +54,10 @@ pub(super) const MATCH_KEYS: &[Row] = &[
 pub(super) const YARD_KEYS: &[Row] = &[
     ("W A S D ARROWS", "SCROLL THE CANVAS"),
     ("Q E", "ZOOM OUT, ZOOM IN"),
-    ("1-6", "A CATEGORY OF PARTS"),
+    ("1-7", "A CATEGORY OF PARTS"),
     ("TAB", "THE NEXT PART IN THE CATEGORY"),
     ("P R F C", "PENCIL, RECTANGLE, FILL, COPY"),
-    ("T", "TURN A COPY, HEAVY PLATE OR ENGINES"),
+    ("T", "TURN A COPY, OR THE ENGINES YOU PAINT"),
     ("U", "UNDO"),
     ("M", "MIRROR, ON AND OFF"),
     ("L", "THE LIBRARY"),
@@ -196,7 +196,7 @@ mod tests {
         out
     }
 
-    /// A table has a key if it names it. Digits are named as a range, "1-9" or "1-6".
+    /// A table has a key if it names it. Digits are named as a range, "1-9" or "1-7".
     fn has(rows: &[Row], key: &str) -> bool {
         let names = named(rows);
         if key == "1-9" {

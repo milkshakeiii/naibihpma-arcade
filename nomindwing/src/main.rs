@@ -56,6 +56,10 @@ fn main() {
         export::nose_trails(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/nose-trails".into())));
         return;
     }
+    if let Some(dir) = arg("--map-screenshots") {
+        export::map_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/maps".into())));
+        return;
+    }
     if let Some(dir) = arg("--tractor-screenshots") {
         export::tractor_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/tractor".into())));
         return;
@@ -76,6 +80,12 @@ fn main() {
         let n = |k: usize| args.get(i + k).and_then(|s| s.parse::<i32>().ok()).unwrap_or(1);
         export::pg_trace((n(1) as usize, n(2)), (n(3) as usize, n(4)), n(5).max(1) as u32, n(6).max(1) as u32);
         return;
+    }
+    // --map scatter|s|ring|triangles: the headless matches below are all played on that layout
+    // of rocks. Without it each match's layout is picked by its seed, as the game's are.
+    if let Some(Some(name)) = arg("--map") {
+        let layout = pg::sim::Layout::from_name(&name).unwrap_or_else(|| panic!("no map called {name}: scatter, s, ring or triangles"));
+        let _ = export::MAP.set(layout);
     }
     if let Some(file) = arg("--deck") {
         export::deck_sheet(file.as_deref());
