@@ -72,6 +72,10 @@ pub const SLIP: u8 = GOOD;
 /// Vacuum pixels: a deep green, the colour furthest from every other in the palette. (39 was
 /// the projector's pale middle.)
 pub const VACUUM: u8 = 39;
+/// Phase ring pixels, the dot that runs from a ring to the rock it's charging, and the rock
+/// as it goes: the lance's pale pink. (The palette is full. Nothing drawn on a ship had this
+/// one: it was only a lance shot's bright end.)
+pub const PHASE: u8 = LANCE_HI;
 
 // Shared UI block.
 pub const PANEL_LO: u8 = 48;

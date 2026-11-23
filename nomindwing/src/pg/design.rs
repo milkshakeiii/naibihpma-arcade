@@ -129,9 +129,10 @@ pub const BALL_PIERCE: i32 = 1;
 /// guns get one tick in so many. Its scoops and factories work as ever. A lattice reaches
 /// `STASIS_REACH` px for each pixel of its width plus its height, `STASIS_REACH_MAX` at most:
 /// reach comes from how far it spreads, and not from how many pixels are in it. The field is
-/// set `STASIS_RISE` ticks after its ship stops and drops the tick it moves, so where the ship
-/// is parked and when it's moved is the switch; and with no enemy in it, it holds no friend.
-/// Kings aren't held.
+/// set `STASIS_RISE` ticks after its ship stops where it means to stay, and drops the tick it
+/// moves, so where the ship is parked and when it's moved is the switch; and with no enemy
+/// in it, it holds no friend. A ship whose field is up doesn't move until it's sent somewhere
+/// or nothing is left in its reach. Kings aren't held.
 ///
 /// (As first built it slowed flight and nothing else. In twelve fights each of six, level on
 /// cost, the side with a lattice lost every one, 0 to 12 five times and 4 to 8: a ship held
@@ -139,9 +140,16 @@ pub const BALL_PIERCE: i32 = 1;
 /// in the field and the enemy loses little. Both sides in it matters only if being in it
 /// costs.)
 pub const STASIS_SLOW: i32 = 4;
-pub const STASIS_REACH: i32 = 2;
+/// (2 until 2026-11-21. The SCAVENGERS' SNARE reached 60 px then, and a lancer stands 75 px
+/// from what it shoots: left parked, its field came up against fighters and never against
+/// lancers. Henry, who had built several and never seen one work: "a bigger area". At 3 the
+/// same lattice was up for 92 of the 152 ticks lancers were near, and at 4 for 209 of 210.)
+pub const STASIS_REACH: i32 = 4;
 pub const STASIS_REACH_MAX: i32 = 150;
 pub const STASIS_RISE: i32 = 30;
+/// A ship whose lattice is set doesn't shift to a new post while an enemy is within this many
+/// px of its reach: one that has only stepped out is back before a field could set again.
+pub const STASIS_KEEP: i32 = 40;
 /// How far a lattice whose width plus height is `span` reaches, from its box.
 pub fn stasis_reach(span: i32) -> i32 {
     (span * STASIS_REACH).min(STASIS_REACH_MAX)
@@ -221,6 +229,98 @@ pub const VAC_REACH_MAX: i32 = 150;
 pub fn vac_reach(px: i32) -> i32 {
     px.clamp(0, VAC_REACH_MAX)
 }
+/// The phase ring (2026-11-22). Henry: "I want to add a way to get a burst of resources to
+/// encourage building big ships. What about a phase-harvester that builds up a charge on an
+/// entire asteroid and harvests the entire asteroid at once once the bar reaches the amount
+/// of pixels remaining on the asteroid?" And, of two sides at one rock and of miners at it:
+/// "rival charges cancel. miners can "help" by reducing the rock size."
+///
+/// Phase pixels drawn as a closed ring are a phase ring, and what it's worth is the empty
+/// space it encloses (`ring_holes`): the cells of the drawing with nothing on them that are
+/// shut in on every side by phase pixels and nothing else. While its ship is at rest (for
+/// `PHASE_RISE` ticks) with rock within `PHASE_REACH` px of its edge, it charges the rock
+/// nearest it: a pixel of charge every `PHASE_TICKS` ticks for each enclosed cell, and for no
+/// more than `PHASE_MOST` of them. Short of power it charges slower in proportion.
+///
+/// A rock has one charge and it's one side's. Rings of that side add to it, and a ring of
+/// the other side takes its charge off it first: only when none is left does it begin a
+/// charge of its own. With no ring of its side at work on it, a charge leaks a pixel every
+/// `PHASE_LEAK` ticks. When a side's charge is as much as the rock has left, with a ring of
+/// that side at work on it, every pixel of the rock goes at once aboard that ring's ship
+/// (its biggest, of several): so a miner biting the rock meanwhile, of either side, brings
+/// that nearer.
+///
+/// What it takes is cargo, as a miner's load is: a tractor has to pull it off, a pixel at a
+/// time, or a pad the ship fits on take it all at once, and that's when it's banked. With a
+/// load aboard a ring charges nothing. Its ship is no node. (For an evening it was one, and
+/// held what it took in its own store. Henry, 2026-11-22: "I'd like to stick to what I said
+/// about dropping off the resources. We can't just be making everything a node; it doesn't
+/// work in the design, one reason is because you don't control where units go precisely, so
+/// you can't keep them in a particular network. The phase harvesters need to be paired with
+/// a way to offload the pixels. THEN you get the burst.")
+///
+/// (The enclosed space, and not the pixels in the ring, is mine. A ring twice as far across
+/// has twice the pixels and four times the room inside, so a big one charges faster for what
+/// it cost: Henry, 2026-11-13, "large ships ... should be actually more powerful per-pixel".
+/// And one pixel shot out of a ring one thick opens it.)
+pub const PHASE_TICKS: i32 = 1500;
+pub const PHASE_MOST: i32 = 400;
+pub const PHASE_REACH: i32 = 24;
+pub const PHASE_RISE: i32 = 15;
+pub const PHASE_LEAK: i32 = 15;
+/// The empty cells of a w-wide grid that phase rings enclose. A hole is a run of empty cells,
+/// joined edge to edge, that can't be left edge to edge: neither off the grid nor into any
+/// other empty cell. It counts if every cell it touches edge to edge is a phase pixel.
+pub fn ring_holes(w: i32, cells: &[Option<Part>]) -> i32 {
+    ring_cells(w, cells).len() as i32
+}
+/// Those cells, for the yard to mark.
+pub fn ring_cells(w: i32, cells: &[Option<Part>]) -> Vec<usize> {
+    let w = w.max(1);
+    let h = cells.len() as i32 / w;
+    let at = |x: i32, y: i32| (y * w + x) as usize;
+    let around = |c: usize| {
+        let (x, y) = (c as i32 % w, c as i32 / w);
+        [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+    };
+    // 0: not looked at. 1: open, it can be left by the edge of the grid. 2: shut in.
+    let mut seen = vec![0u8; cells.len()];
+    let mut shut = Vec::new();
+    for start in 0..cells.len() {
+        if cells[start].is_some() || seen[start] != 0 {
+            continue;
+        }
+        let (mut todo, mut hole, mut open, mut ringed) = (vec![start], vec![start], false, true);
+        seen[start] = 2;
+        while let Some(c) = todo.pop() {
+            for (x, y) in around(c) {
+                if x < 0 || y < 0 || x >= w || y >= h {
+                    open = true;
+                    continue;
+                }
+                let n = at(x, y);
+                match cells[n] {
+                    Some(Part::PhaseRing) => {}
+                    Some(_) => ringed = false,
+                    None if seen[n] == 0 => {
+                        seen[n] = 2;
+                        todo.push(n);
+                        hole.push(n);
+                    }
+                    None => {}
+                }
+            }
+        }
+        if open {
+            for &c in &hole {
+                seen[c] = 1;
+            }
+        } else if ringed {
+            shut.extend(hole);
+        }
+    }
+    shut
+}
 /// How far (px) a scoop reaches from its ship's middle: 8, whatever the ship (Henry,
 /// 2026-11-17: "Let's just give scoops a short, fixed range of 8 px").
 pub const SCOOP_REACH: i32 = 8;
@@ -239,6 +339,9 @@ pub const DOCK_GRAB: i32 = 12;
 /// A miner waits for a pad this far clear of the pad's ship, edge to edge, and is put down
 /// there again afterwards.
 pub const DOCK_CLEAR: i32 = 5;
+/// A pad's ship that flies stops for a miner with a load that's this near where it would wait
+/// (and for one nearer): a pad only takes hold of a miner while its ship is at rest.
+pub const DOCK_HAIL: i32 = 30;
 /// How fast a pad moves a miner it has hold of, in pixels a tick.
 pub const DOCK_SPEED: i32 = 1;
 /// How long a miner sits on its place while its load goes: the length of the pink sweep.
@@ -455,6 +558,10 @@ pub enum Part {
     /// A lump of these pulls in the loose pixels in its reach, and its ship carries them.
     /// (2026-11-18.)
     Vacuum,
+    /// A closed ring of these, at rest by a rock, charges it, and takes the whole rock at
+    /// once, as cargo, when the charge is as much as the rock has left (match only).
+    /// (2026-11-22.)
+    PhaseRing,
 }
 
 /// The engines that aren't `Part::Engine`: the ones turned to push some other way than ahead.
@@ -463,7 +570,7 @@ pub const TURNED_ENGINES: [Part; 3] = [Part::EngineRight, Part::EngineAstern, Pa
 pub const WAYS: [&str; 4] = ["AHEAD", "TO ITS RIGHT", "ASTERN", "TO ITS LEFT"];
 
 /// The parts in the order the yard shows them.
-pub const PARTS: [Part; 24] = [
+pub const PARTS: [Part; 25] = [
     Part::Hull,
     Part::Plate,
     Part::HeavyPlate,
@@ -484,6 +591,7 @@ pub const PARTS: [Part; 24] = [
     Part::Slipstream,
     Part::Scoop,
     Part::Vacuum,
+    Part::PhaseRing,
     Part::Tractor,
     Part::DockPad,
     Part::Factory,
@@ -572,7 +680,7 @@ pub fn secs(ticks: i32) -> String {
 }
 
 /// One row per part, in the order of the `Part` enum.
-pub const PART_INFO: [PartInfo; 27] = [
+pub const PART_INFO: [PartInfo; 28] = [
     PartInfo {
         ch: 'h',
         name: "HULL",
@@ -959,6 +1067,21 @@ about: || "THRUST: MORE OF IT FOR THE WEIGHT MEANS FASTER. IT PUSHES THE SHIP ON
         glyph: ["######.", "#....#.", "#.##.#.", "#.#..#.", "#.####.", "#......", "#######"],
         about: || format!("PULLS IN THE LOOSE PIXELS IN ITS REACH AND CARRIES {SCOOP_CARRY} A PIXEL. A TRACTOR OR PAD HAS TO TAKE THE LOAD. A LUMP REACHES 1 PX PAST ITS SHIP FOR EACH OF ITS PIXELS, {VAC_REACH_MAX} AT MOST. ON ROCK A LUMP BITES AS ONE SCOOP."),
     },
+    PartInfo {
+        // (A capital, as the vacuum's is: every small letter is some part's.)
+        ch: 'O',
+        name: "PHASE RING",
+        cat: Cat::Industry,
+        mass: 1,
+        armor: 0,
+        makes: 0,
+        uses: 1,
+        block: 1,
+        colour: Some(pal::PHASE),
+        rank: 5,
+        glyph: ["...#...", "..#.#..", ".#...#.", "#.....#", ".#...#.", "..#.#..", "...#..."],
+        about: || format!("A CLOSED RING AT REST BY A ROCK CHARGES IT: 1 PX A SECOND PER {} EMPTY PIXELS INSIDE, {PHASE_MOST} AT MOST. CHARGED TO ALL THE ROCK HAS LEFT, ITS SHIP TAKES THE ROCK WHOLE, AS CARGO FOR A TRACTOR OR PAD. A RIVAL RING TAKES CHARGE OFF.", PHASE_TICKS / 15),
+    },
 ];
 
 impl Part {
@@ -1141,6 +1264,9 @@ pub struct Stats {
     pub vacuum: i32,
     pub vac_lump: i32,
     pub vac_lumps: i32,
+    /// Phase ring pixels, and the empty cells its rings enclose (`ring_holes`).
+    pub ring: i32,
+    pub ring_hole: i32,
     /// Power made (hull and cores) and used (engines and guns).
     pub made: i32,
     pub used: i32,
@@ -1164,14 +1290,15 @@ pub struct Stats {
 
 impl Stats {
     /// The order a ship of this drawing starts on. It follows from the drawing and nobody sets
-    /// it: with engines and a scoop it mines, with engines and no scoop it fights, and with no
+    /// it: with engines and a scoop it mines (and with a closed phase ring it goes to the
+    /// rocks, which is the same order), with engines and neither it fights, and with no
     /// engines it holds where it is. (A design carried an order chosen in the yard until
     /// 2026-11-14. Orders are now what a side's AI gives its cards, and what a person's stance
     /// gives every ship: nothing a drawing has.)
     pub fn order(&self) -> Order {
         if self.thrust == 0 {
             Order::Hold
-        } else if self.gathers() {
+        } else if self.gathers() || self.ring_hole > 0 {
             Order::Harvest
         } else {
             Order::Hunt
@@ -1188,6 +1315,20 @@ impl Stats {
     /// Whether it has mining equipment: a scoop or a vacuum.
     pub fn gathers(&self) -> bool {
         self.scoops + self.vacuum > 0
+    }
+    /// What its phase rings put on a rock each tick, in `PHASE_TICKS`ths of a pixel: one for
+    /// each cell they enclose, `PHASE_MOST` at most. Short of power, less in proportion.
+    pub fn phase_rate(&self) -> i32 {
+        self.ring_hole.min(PHASE_MOST) * self.power_pct() / 100
+    }
+    /// How far from its middle a ship of this drawing's phase ring reaches, given how far its
+    /// edge is from its middle (0: it has no closed ring).
+    pub fn phase_reach(&self, half: i32) -> i32 {
+        if self.ring_hole > 0 {
+            half + PHASE_REACH
+        } else {
+            0
+        }
     }
     /// How many pixels it carries: `SCOOP_CARRY` for each scoop and each vacuum pixel.
     pub fn hold(&self) -> i32 {
@@ -1369,7 +1510,7 @@ pub fn stats_of(w: i32, cells: &[Option<Part>], cannons: i32, trackers: i32, bea
     let turning: i64 = (CORE_TURN * cores) as i64 + drawn.iter().filter(|&&c| cells[c] == Some(Part::Gyro)).map(|&c| GYRO_TURN as i64 * (2 + isqrt_i64(far2(c) as i64)) / 2).sum::<i64>();
     let turning = if used > made { turning * made as i64 / used as i64 } else { turning };
     let quarter = if push == [0; 4] || turning == 0 { 0 } else { ((spread + turning - 1) / turning).clamp(1, SLOWEST_TURN as i64) as i32 };
-    Stats { push, gyros, quarter, count, cores, cost, mass, engines, flak, lance, cannon: cannons, tracker: trackers, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, tractor: n(Part::Tractor), dock: n(Part::DockPad), ball: n(Part::EnergyBall), stasis: n(Part::Stasis), stasis_span: lattices(w, cells).iter().map(|l| l.1).max().unwrap_or(0), slip: n(Part::Slipstream), slip_lump: lumps_of(w, cells, Part::Slipstream).iter().map(|l| l.len() as i32).max().unwrap_or(0), vacuum: n(Part::Vacuum), vac_lump: lumps_of(w, cells, Part::Vacuum).iter().map(|l| l.len() as i32).max().unwrap_or(0), vac_lumps: lumps_of(w, cells, Part::Vacuum).len() as i32, made, used, thrust, vmax, turn, flight }
+    Stats { push, gyros, quarter, count, cores, cost, mass, engines, flak, lance, cannon: cannons, tracker: trackers, beam: n(Part::Beam), beam_len, shields: n(Part::Shield), missile: n(Part::Missile), repeater: n(Part::Repeater), rep_len, projector: n(Part::Projector), scoops: n(Part::Scoop), factory, tractor: n(Part::Tractor), dock: n(Part::DockPad), ball: n(Part::EnergyBall), stasis: n(Part::Stasis), stasis_span: lattices(w, cells).iter().map(|l| l.1).max().unwrap_or(0), slip: n(Part::Slipstream), slip_lump: lumps_of(w, cells, Part::Slipstream).iter().map(|l| l.len() as i32).max().unwrap_or(0), vacuum: n(Part::Vacuum), vac_lump: lumps_of(w, cells, Part::Vacuum).iter().map(|l| l.len() as i32).max().unwrap_or(0), vac_lumps: lumps_of(w, cells, Part::Vacuum).len() as i32, ring: n(Part::PhaseRing), ring_hole: if n(Part::PhaseRing) > 0 { ring_holes(w, cells) } else { 0 }, made, used, thrust, vmax, turn, flight }
 }
 
 /// The whole part of a square root.
@@ -2465,6 +2606,68 @@ pub fn part_examples() -> Vec<Design> {
         // A small one that fits the PADPOST's pad, as the HAULER does: a lump of 10 that
         // reaches 10 px and holds 30, and 26 px/s. All its power is spent.
         drawn("DUSTER", (47, 47), &["VVVVV", "VVVVV", "hhchh", "hhhhh", "eehee"], None),
+        // A phase ring 17 across in a band of hull, which makes its power and takes the first
+        // hit from any side. It encloses 15 by 15, so it puts 2.2 px a second on a rock. Ten
+        // engines and a rotation engine at each end of its stern: 11 px/s. No guns. 149 px,
+        // and all its power is spent.
+        drawn(
+            "HALO",
+            (40, 40),
+            &[
+                "hhhhhhhhhhhhhhhhhhh",
+                "hOOOOOOOOOOOOOOOOOh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hO...............Oh",
+                "hOOOOOOOOOOOOOOOOOh",
+                "hhhhhhhhhchhhhhhhhh",
+                "y...eeeeeheeeee...y",
+            ],
+            None,
+        ),
+        // A pad for the HALO, grown from a seed: a pad pixel under every pixel of a HALO, bow
+        // up or bow down, with its own core in the space a HALO's ring leaves open and a
+        // flak turret on each side of that. A HALO comes down round it like a hoop on a peg,
+        // and the rock it took is banked at once. 172 px, and all its power is spent.
+        drawn(
+            "CRADLE",
+            (40, 40),
+            &[
+                "kkkkkkkkkkkkkkkkkkk",
+                "kkkkkkkkkkkkkkkkkkk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk.......g.......kk",
+                "kkkkkkkkgcgkkkkkkkk",
+                "kk.......g.......kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kk...............kk",
+                "kkkkkkkkkkkkkkkkkkk",
+                "kkkkkkkkkkkkkkkkkkk",
+                "kkkkkkkkkkkkkkkkkkk",
+            ],
+            Some(&[]),
+        ),
     ]
 }
 

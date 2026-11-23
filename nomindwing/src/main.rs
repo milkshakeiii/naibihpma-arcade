@@ -60,6 +60,10 @@ fn main() {
         export::map_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/maps".into())));
         return;
     }
+    if let Some(dir) = arg("--phase-screenshots") {
+        export::phase_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/phase".into())));
+        return;
+    }
     if let Some(dir) = arg("--tractor-screenshots") {
         export::tractor_screenshots(&PathBuf::from(dir.unwrap_or_else(|| "screenshots/tractor".into())));
         return;

@@ -75,7 +75,7 @@ The fight is over when a king dies.
 ### Mining and pixels
 - **Scoop ships mine any rock.** About 2.5 px/s with one scoop and 5 px/s with two or more (the proving ground's current rates), plus travel time.
 - **A tractor takes their load, a pixel at a time** (2026-11-16; until then a load was banked the moment a miner reached any node). A full miner flies into the reach of a tractor and waits there until it's empty. A miner that works within a tractor's reach is emptied as it works and never leaves the rock. Your king has a tractor. A factory has one if it's drawn with one, and so has a collector, which flies out to where your miners work. A rock near your tractors is cheap to work. One near theirs means long, exposed trips past their guns. Territory comes from distance and guns, not a rule.
-- **A miner at work keeps apart from nobody** (M2.21). Other ships of a side keep a pixel or two apart. A miner going to its rock pixel, working it, or taking a full load home doesn't, and nothing keeps apart from it: miners heap up on a rock face, fly through each other and over a parked fleet, and other ships fly over them.
+- **(Gone, 2026-11-22: nothing pushes friends apart. MA8, far below.)** **A miner at work keeps apart from nobody** (M2.21). Other ships of a side keep a pixel or two apart. A miner going to its rock pixel, working it, or taking a full load home doesn't, and nothing keeps apart from it: miners heap up on a rock face, fly through each other and over a parked fleet, and other ships fly over them.
 - **Loose pixels are anyone's:** from shots, kills and spilled stock. Once the rocks are gone, the economy runs on wreckage.
 
 ### Networks and split pools
@@ -1648,7 +1648,7 @@ Henry: "I give it a spin. There are several features I think have to go along wi
 - **Shift+number adds to a group.** It used to turn a card's order; that's by the card's tag only now.
 - **"All of a type on the whole map" is a double click on the whole map,** where everything is in view. There's no separate command for it.
 - **Ctrl+click is the double click,** as in other RTSs: in view, not across the map as I first built it.
-- **A ship sent after something follows it for good,** friend or enemy, until it's sent elsewhere or let go. A king sent after a thing doesn't stop when it reaches it.
+- **A ship sent after something follows it for good,** friend or enemy, until it's sent elsewhere or let go. (2026-11-22: sent after a friend it stops beside it, clear of it, whichever was built first: ST5.) A king sent after a thing doesn't stop when it reaches it.
 - **The view starts on your king and then stays where you put it.**
 - **The code that flew the king from the keys is kept,** unused, for the campaign level Henry mentioned.
 
@@ -3254,7 +3254,7 @@ What I had was less than he took it for: the pad drew a miner only the last pixe
 **The parts Henry asked about, not built. What I think of each:**
 - **A speed-up field and a stasis field.** (The stasis field is built: see "The stasis lattice", below. The speed-up field is measured there and not built.) As I put it on 2026-11-17: they're one part with two signs: a lump that changes how fast things near it fly. What makes them more than "pixels for a bonus" (his words of 2026-11-11) is who they touch. I'd have a field touch everything in its reach, friend and enemy alike, so a speed-up ship has to be flown ahead of its own fleet and a stasis ship into the enemy's, and each is a thing to shoot first. The risk he names is real: ships choose courses by looking ahead at their own speed, and a field changes it under them. The stasis lattice (his shape, 2026-11-13) is the natural drawing.
 - **A scoop with a range.** A mining beam: a column of them, like a beam gun, bites the rock in line with it up to a reach its length sets. It lets a big miner sit off a rock instead of nosing into the heap, and it gives a miner a facing that matters.
-- **A phase-harvester.** I like it for the reason he gives: it's the one way of mining that pays a big ship and can't be done by a swarm. It also makes a rock a thing to fight over for a known time, which scattered miners never do. What needs settling: whether rivals' charges on one rock race or cancel, whether miners biting the rock meanwhile help it (less left to charge) or are locked out, and whether the charge is lost when the harvester is driven off. **Henry, 2026-11-18:** "rival charges cancel. miners can "help" by reducing the rock size. no opinion on item 3." So rivals' charges cancel, miners biting the rock help (there's less left to charge to), and whether a harvester driven off keeps its charge is mine to propose. Not built yet: "before building phase harvester, we'll do a playtest".
+- **A phase-harvester.** I like it for the reason he gives: it's the one way of mining that pays a big ship and can't be done by a swarm. It also makes a rock a thing to fight over for a known time, which scattered miners never do. What needs settling: whether rivals' charges on one rock race or cancel, whether miners biting the rock meanwhile help it (less left to charge) or are locked out, and whether the charge is lost when the harvester is driven off. **Henry, 2026-11-18:** "rival charges cancel. miners can "help" by reducing the rock size. no opinion on item 3." So rivals' charges cancel, miners biting the rock help (there's less left to charge to), and whether a harvester driven off keeps its charge is mine to propose. Not built yet: "before building phase harvester, we'll do a playtest". (Built 2026-11-22: "The phase ring", far below.)
 - **A repair array.** It makes damage something a side can undo by holding ground, which nothing does today. Paying for it from the bank keeps it honest. His point about a ship cut in two and both halves repaired is right, and I'd let it stand: it costs the pixels either way.
 - **A full set, and building sets.** With those five the list covers each job at least twice over (two ways to unload, three to mine, two to stop shots, two to undo them). That's when sets start to mean something: a set is a choice between answers to the same job.
 
@@ -3272,12 +3272,12 @@ So stasis is built, as a bare toy: the part, one example ship, and two fights to
 |---|---|---|
 | Q1 | **STASIS, a part** (DRIVE, key 3; violet). Stasis pixels joined edge to edge are one lattice. A pixel weighs 1 and uses 2 power. | |
 | Q2 | **It holds every other ship in its reach, friend or enemy. A held ship flies and fires at a quarter of its speed:** its pilot and its guns get one tick in four. Never the lattice's own ship. Mining, unloading and printing go on as ever. Two fields hold a ship no harder than one. | Both sides: his. The quarter, and that guns are held too, are mine: see Q9. |
-| Q3 | **Its reach is 2 px for each pixel of its width plus its height,** from the lattice's box, 150 at most. Reach comes from how far it spreads and not from how many pixels are in it: 25 px in a block reach 20, the same 25 as two arms reach 52. Shot through, it reaches as far as what's left of it spreads. Short of power it reaches less in proportion. A ship is in reach if any part of its box is, as a projector counts it. | |
-| Q4 | **On and off, the first half: it works only while its ship is still.** The field is set 2 s after its ship stops and drops the tick it moves. Turning on the spot is still. So where you park it and when you move it is the switch, and there's no new key. | Mine. He asked for some logic; this is my answer, and a switch on the card is the other one. |
+| Q3 | **Its reach is 2 px for each pixel of its width plus its height,** (4 px since 2026-11-21: LT2, below) from the lattice's box, 150 at most. Reach comes from how far it spreads and not from how many pixels are in it: 25 px in a block reach 20, the same 25 as two arms reach 52. Shot through, it reaches as far as what's left of it spreads. Short of power it reaches less in proportion. A ship is in reach if any part of its box is, as a projector counts it. | |
+| Q4 | **On and off, the first half: it works only while its ship is still.** The field is set 2 s after its ship stops and drops the tick it moves. Turning on the spot is still. (Changed 2026-11-22: only where it means to stay. Stopped to turn on its way somewhere isn't still: ST1, below.) So where you park it and when you move it is the switch, and there's no new key. | Mine. He asked for some logic; this is my answer, and a switch on the card is the other one. |
 | Q5 | **The second half: it's up only while an enemy is in its reach.** With no enemy in it, it holds no friend. Otherwise a lattice waiting at its post by the shipyard held its own side's miners and new ships all day. | Mine. |
 | Q6 | **Kings aren't held.** | Mine, and his to rule: it follows from "a king goes exactly where and when it's told", and it keeps a lattice from pinning a king for the guns. |
-| Q7 | **A ship with a lattice stays on the spot it's sent to,** guns or no, and doesn't step aside for shots. One with no guns, on ATTACK, takes itself to the nearest enemy and stops when that's in reach, or will be by the time the field is set. An armed one that hasn't been sent flies by its guns, so its field is up only when it happens to stand still. | |
-| Q8 | **How it shows.** A lattice whose ship is moving shows nothing. Set, its reach is a sparse dotted violet line. Up, the line is twice as close and every other pixel of the lattice turns white. The inspector says "STASIS: 84 PX REACH, UP." (or WAITING FOR AN ENEMY, or DOWN UNTIL ITS SHIP IS STILL), and of a held ship "HELD BY STASIS". | |
+| Q7 | **A ship with a lattice stays on the spot it's sent to,** guns or no, and doesn't step aside for shots. One with no guns, on ATTACK, takes itself to the nearest enemy and stops when that's in reach, or will be by the time the field is set. An armed one that hasn't been sent flies by its guns, so its field is up only when it happens to stand still. (Changed 2026-11-21, after Henry had built SNAREs and never seen one work: LT1, below. It keeps its post now. And 2026-11-22: with an enemy in its reach it stops where it is and stays, and only sending it moves it: ST2 to ST4, below.) | |
+| Q8 | **How it shows.** A lattice whose ship is moving shows nothing. Set, its reach is a sparse dotted violet line. Up, the line is twice as close and every other pixel of the lattice turns white. The inspector says "STASIS: 84 PX REACH, UP." (or WAITING FOR AN ENEMY, or DOWN UNTIL ITS SHIP IS STILL), and of a held ship "HELD BY STASIS". (More since 2026-11-21: LT4, below. Its rings dotted since 2026-11-22: ST6.) | |
 | Q9 | **Guns are held as well as flight.** As first built a held ship only flew slower. That lost every fight I ran (the first table below), for a plain reason: a ship at a quarter of its speed shoots as fast as ever, so your own ships lose nothing by standing in your field and the enemy loses little. "Both sides" only shapes an army if being in the field costs. | Mine. |
 | Q10 | **The ANCHOR,** on the library's parts shelf: 212 px, an H of lattice 21 across (two rails standing clear of the hull on a bar through its middle) that reaches 84 px. No guns. Five engines turned astern, so it stops without turning about. Cut the bar and it's two lattices that reach 62. | |
 | Q11 | **Two fights to watch** in the arena's list: ANCHOR + 4 FRIGATES against 48 FIGHTERS, and 8 FRIGATES against the same. | |
@@ -3432,7 +3432,7 @@ So it's built with what it takes as cargo, as a bare toy: the part and two examp
 | 1 (Z) | DART | 11 | 30 px/s | A fighter: a repeater two long and two flak. |
 | 2 (X) | PULSAR | 39 | 18 | An energy ball gun of six pixels, and two flak. |
 | 3 (C) | MAUL | 110 | 7.5 | Two cannons, a tracker and two flak in a whole skin of plate. Only its engines are outside it. |
-| 4 (V) | SNARE | 175 | 7.5 | A stasis lattice in an H, 15 by 15, that reaches 60 px, with a tracker and four flak of its own. |
+| 4 (V) | SNARE | 175 | 7.5 | A stasis lattice in an H, 15 by 15, that reaches 60 px, with a tracker and four flak of its own. (Redrawn 2026-11-21: 200 px, a cross inside a skin of plate that reaches 120. See "The lattice that never came up".) |
 | 5 (B) | HERALD | 93 | 30 | A pace ship: a slipstream lump of 28 across its bow, and no guns. Every other card but the DART is slower, so it speeds them. |
 | 6 (N) | DIGGER | 19 | 22 | A miner with four scoops, 5 by 4. It carries 12. |
 | 7 (M) | GLEANER | 35 | 22 | A vacuum lump of 12 that reaches 12 px past its edge, 6 by 6. It carries 36. |
@@ -3445,7 +3445,7 @@ So it's built with what it takes as cargo, as a bare toy: the part and two examp
 
 - **A PORT first.** It's 135 px of the 190 a king starts with. It prints four DIGGERs and a GLEANER, then two DARTs, a PULSAR and a DIGGER round and round. Miners land on its pad: a GLEANER, or two DIGGERs at once.
 - **Each warship answers one of the starter deck's.** MAULs for fighters, DARTs for lancers, PULSARs for frigates (the table below). Nothing here but the MAUL beats fighters.
-- **The SNARE is sent to a spot and left there.** Parked, with an enemy within 60 px, it holds everything in its reach, his own ships too. Its own tracker and flak aren't held.
+- **The SNARE is sent to a spot and left there.** Parked, with an enemy within 60 px, it holds everything in its reach, his own ships too. Its own tracker and flak aren't held. (Since 2026-11-21 it needn't be sent: left where it's built it keeps its post, and it reaches 120.)
 - **The HERALD flies with the slow ships.** A MAUL or a SNARE beside it does 11 px/s for 7.5.
 - **GLEANERs go to wreckage by themselves,** and a BARGE goes out to wherever the miners and GLEANERs are working.
 
@@ -3612,10 +3612,408 @@ Miners that keep to their work bring more in. With his kept cards red won sooner
 - The yard's line for a miner with no guns already says NO GUNS: RUNS HOME WHEN HIT. Not touched.
 - The suite is 374 and passes, with the same four tests switched off.
 
+## Smaller over bigger (2026-11-21)
+
+*Henry, from a match on the build of 2026-11-19:* "only thing I'm noticing in the current playtest is that Gleaner appears to be rendered beneath Port"
+
+**What it was.** Ships were drawn in the order they were made, each over the ones before it. A PORT built after a GLEANER was drawn after it, so the GLEANER sat on the pad underneath the PORT. In every scene I'd tested the PORT was made first, which is why I never saw it. It wasn't only pads: a fighter made before a factory flew under it.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| LY1 | **Ships are drawn the biggest first,** so a smaller ship shows over a bigger one it's flying over or sitting on, whichever was made first and whoever's they are. A ship's size is its drawing's, so two ships don't change places as pixels are shot off them. | He reported the GLEANER. The rule is mine. |
+| LY2 | **Of two ships the same size, the one made later is on top,** as it was. | |
+| LY3 | **A ship in a pad's hands is drawn over the pad's ship, whatever their sizes.** A miner fits a pad by the pixels it has left, so a big miner shot small can sit on a pad whose ship was drawn smaller than it. | Mine. |
+| LY4 | **The whole map (Tab), the minimap and the arena draw in the same order.** One piece of code draws the ships for every screen. | |
+
+- **Not changed: which ship the pointer picks.** Of the ships whose box is under it, that's the one whose middle is nearest. It never went by what was drawn on top.
+- **What it also means:** a ship being printed is drawn where it will be, and it's small, so it shows over a bigger ship that's over its place. The DIGGER a PORT starts to print with what a GLEANER brought shows over the GLEANER for a tick as the pad puts it off. That was already so: a ship being printed was always the last made.
+- **Tested.** Three new tests. The PORT and a full GLEANER, made in either order: from the tick the pad takes hold of the GLEANER to the tick it lets go, every pixel of the GLEANER shows as it does drawn alone (19 ticks over the PORT, 8 of them down on the pad). A FIGHTER and a FRIGATE on one spot, made in either order, an enemy's FIGHTER over both, the FRIGATE shot down to five pixels, and a ship on a pad whose drawing is the bigger. And no screen draws a ship itself. Eight deliberate faults each fail one of them: the old order back; the smallest first; of a size the later one underneath; a ship on a pad at its own size; size as the pixels left; dead ships drawn; the match's field or the arena drawing its own ships.
+- The match itself is untouched: nothing here is in the rules, and two machines stay in step as they did.
+- The suite is 377 and passes, with the same four tests switched off.
+
+## The lattice that never came up (2026-11-21)
+
+*Henry:* "I built stasis field units a few times in my playtests but I never got to see it work. it should maybe be 1. better protected in the unit design 2. a bigger area or better cooldown/duration? and 3. have a pretty loud animation when it's doing its thing, if it doesn't yet"
+
+**Why he never saw it.** I ran the SNARE as he had it, with six DARTs and a MAUL beside it, against red's starter ships coming for them from 460 px off: six fights each way. The number is the fights in which its field was up for any tick at all.
+
+| How the SNARE was used | v 12 FIGHTERS | v 10 LANCERS | v 10 FIGHTERS + 8 LANCERS |
+|---|---|---|---|
+| Built and left, on GUARD | 0 of 6 | 0 of 6 | 0 of 6 |
+| On ATTACK | 0 of 6 | 0 of 6 | 0 of 6 |
+| Sent to its spot by hand | 6 of 6 | 0 of 6 | 6 of 6 |
+
+- **It had guns, so it flew by them.** A lattice works only while its ship is still. A SNARE has a tracker, and a ship with a gun went for whatever came near, picking its own courses: it was under way for as long as an enemy was about. That's the last sentence of Q7, which I wrote on 2026-11-18 ("its field is up only when it happens to stand still") and left there. Nothing in the game said a SNARE had to be sent somewhere.
+- **A lancer outranged it.** It reached 60 px, and a lancer stands 75 px from what it shoots. Parked by hand, its field was set and never up against lancers.
+- **Its lattice was the first thing shot.** The two rails stood clear of the hull. Left on guard against the fighters it ended those six fights with 7, 0, 0, 5, 3 and 0 of its 43 stasis pixels.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| LT1 | **A ship with a lattice flies for its field, whatever guns it has.** On GUARD it keeps its post, whatever comes near and whatever hits it. On ATTACK it goes to the nearest enemy and stops with that in its reach. Sent, it stays where it's sent, as before. It never picks a course of its own, and its friends don't push it off a spot it's holding. Its guns fire at what comes in their reach all the same. | **This changes Q7,** whose last sentence was "An armed one that hasn't been sent flies by its guns". That sentence was mine, and so is this. |
+| LT2 | **A lattice reaches 4 px for each pixel of its width plus its height.** It was 2. The most is still 150. | He asked for "a bigger area". The number is mine: the table below. **This changes Q3.** |
+| LT3 | **The SNARE is redrawn.** Its lattice is a cross, 15 by 15, inside the hull, and the hull has a whole skin of plate, which flak doesn't break. It reaches 120 px (it was 60). A tracker and four flak, which its own field doesn't hold. Five of its eleven engines are turned astern, so it stops without turning about. 200 px (it was 175), which is the most a PORT builds. 7.5 px/s, as it was. | He asked for "better protected in the unit design". The drawing is mine. |
+| LT4 | **A field that's up shows.** All of it, from the lattice out to its reach: a dim dotted web fixed to the map, and violet rings 32 px apart that close in on the lattice at 2 px a tick. The line round its reach is four times as close as it was. Every ship it holds, his or the enemy's, has a violet corner at each corner of its box. A field that's only set (no enemy in it) is still the sparse dotted line and nothing else. | He asked for "a pretty loud animation when it's doing its thing". **This changes Q8.** |
+| LT5 | **No timing is changed.** There's no cooldown and no duration: a field is up for as long as its ship is still and an enemy is in its reach, and the only clock is the 2 s it takes to set once its ship has stopped. | His "better cooldown/duration?" I've taken as a question. If he wants it to be a thing that fires and runs out, that's a different part, and his call. |
+| LT6 | The network protocol is 25. (26 since 2026-11-22: ST7.) | |
+
+**The same fights on what's built now,** eight each. Sent by hand and left on guard are the same fights now, to the tick, so they're one row.
+
+| How the SNARE is used | Against | Field up, in fights | Ticks up, of ticks an enemy was within 130 px | Enemy ship-ticks held | His own ship-ticks held | Stasis pixels left |
+|---|---|---|---|---|---|---|
+| Left on GUARD, or sent | 12 FIGHTERS | 8 of 8 | 244 of 244 | 1543 | 1368 | 29 of 29 |
+| Left on GUARD, or sent | 10 LANCERS | 8 of 8 | 227 of 230 | 908 | 1445 | 29 of 29 |
+| Left on GUARD, or sent | 10 FIGHTERS + 8 LANCERS | 8 of 8 | 398 of 400 | 2642 | 1838 | 28 of 29 |
+| On ATTACK | 12 FIGHTERS | 8 of 8 | 210 of 239 | 1109 | 218 | 29 of 29 |
+| On ATTACK | 10 LANCERS | 0 of 8 | 0 of 14 | 0 | 0 | 29 of 29 |
+| On ATTACK | 10 FIGHTERS + 8 LANCERS | 8 of 8 | 354 of 395 | 2148 | 361 | 26 of 29 |
+
+- **On ATTACK against lancers alone it still never comes up,** and that isn't the field: the SNARE does 7.5 px/s, its DARTs fly ahead, and the fight is over 300 px from it. An enemy was within 130 px of it for 14 ticks a fight.
+- **Left at a post it holds about as many of his ships as the enemy's.** That's "both sides", which is his ruling, on a field 255 px across. On ATTACK it's five to one the right way, because his own ships are out in front of it.
+- Who won isn't in the table because it isn't a finding: blue won 44 of the 48 and lost none, and that's one army against one kind of attack.
+
+**The reach, measured before I picked it.** The SNARE's first drawing with LT1 in, left on guard, eight fights each: fights its field was up in, and the ticks it was up of the ticks an enemy was within 130 px.
+
+| Each pixel of width plus height reaches | That SNARE reached | v 12 FIGHTERS | v 10 LANCERS | v 10 FIGHTERS + 8 LANCERS |
+|---|---|---|---|---|
+| 2 px (as it was) | 60 | 8 of 8, 164 of 219 | 0 of 8, 0 of 115 | 8 of 8, 164 of 364 |
+| 3 px | 90 | 8 of 8, 278 of 292 | 8 of 8, 92 of 152 | 8 of 8, 342 of 399 |
+| 4 px | 120 | 8 of 8, 224 of 224 | 8 of 8, 209 of 210 | 8 of 8, 299 of 299 |
+
+- At 2 a lancer is never in it. At 3 it's in it some of the time: when it's shooting at the SNARE itself and not at the ship beside it. At 4 it's in it.
+- **A lance shot flies 112 px, not the 100 on the card,** and the gun fires at whatever the shot will reach. The redrawn SNARE's lattice was 13 by 13 at first and reached 104: a lancer flying straight at it fired its first two shots from outside. At 15 by 15 it reaches 120, and a lancer can't hit any pixel of the ship without being held first. That's why the ship is 200 px and not 173.
+
+**What lances still do to it.** One lancer against a SNARE with hull for its guns (so the lancer lives): it fired two volleys held, at a lattice reaching 120, then stood outside what was left and fired the rest free. The SNARE's reach as each volley was fired: 120, 120, 32, 32, 32, 28. A lance punches through six pixels, a lancer fires two down one line, and the lattice is one pixel thick: a volley that happens to run along a bar takes ten pixels of it and the middle of the cross. So plate keeps flak off the lattice and nothing keeps a lance off it. With its tracker a SNARE shoots a lone lancer before that; a line of them will cut it down. That's the way to beat it, and I've left it.
+
+**Engines astern, measured.** A SNARE that has to turn about to stop takes six seconds to do it. With engines astern it doesn't turn, but it needs enough of them. Sent six ways from rest, how long until it's stopped for good, and how far past the spot it flew:
+
+| Astern | 80 px ahead | 250 px ahead | 120 px to the side | 60 px to the side and 90 astern | 200 px astern | 36 px off | Furthest past |
+|---|---|---|---|---|---|---|---|
+| Three of eleven | 30 s | 52 s | 38 s | 54 s | 30 s | 42 s | 28 px |
+| Five of eleven | 13 s | 35 s | 21 s | 37 s | 28 s | 20 s | 3 px |
+
+(Measured a drawing before the last: it had three more stasis pixels where the four flak are now, and weighed the same. The last one, sent 80 px in a test with fighters coming, stops a pixel from its spot.)
+
+**What he has to do to see it.** His saved deck holds the SNARE as it was drawn before. LT1, LT2 and LT4 work on that drawing too: its H reaches 120 now, and it keeps its post. Its rails are still bare and it still has to turn about to stop. To get the new drawing he takes the SCAVENGERS from the library's TEAMS shelf again, and the deck he has goes on the shelf as a TEAM with a number.
+
+**Not done, and what's still open.**
+- **The ANCHOR isn't redrawn.** It reaches 150 now (21 and 21 would be 168, and 150 is the most), and its rails still stand clear of its hull. Its two arena fights will go differently; I haven't run them again.
+- **One cheap enemy ship flown in turns the field on over his own fleet.** I said so on 2026-11-18. The field covers more than three times the ground it did, so it matters more. A switch on the card is still the answer if he wants one.
+- The whole-map view and the minimap don't show a field. There's no sound for one.
+- The card's text is as it was, but for the number. "FOUR TIMES SLOWER" for "AT A QUARTER SPEED" is still his to say.
+- The AI doesn't build a lattice, keep out of one, or shoot one from outside its reach.
+- I haven't seen it in the running game: the pictures are frames the game drew headless. `screenshots/stasis_field.gif` is three seconds of one.
+
+**Tested.** Eight new tests. The SNARE left on guard in twelve fights: every tick it's where it began, its field is set from two seconds in, and it's up on exactly the ticks an enemy is in its reach. On ATTACK in four: its field is up within five seconds of the first enemy coming into reach, and it doesn't move while one is. A lancer can't fire at a whole SNARE from outside its field. No stasis pixel of the SNARE has an open side, and twelve fighters at it for 40 s land 40 shots and cut none. The ANCHOR, which has no guns, stays when it's shot at, where the same drawing with hull for its lattice runs. The field's web, its rings (whole, 32 px apart, 2 px nearer each tick, and nothing past its reach or off the map's rectangle), the held ships' corners, and that both screens draw the field under their ships. Twenty-one faults put in on purpose each fail one of them: a lattice ship picking courses, chasing on guard, flying by its guns on attack, running when hit, or pushed off its spot by friends; a reach of 2 or of 3 px; the SNARE's plate open over a bar's end, or with three engines astern, or none; rings that stand still or go outward; a field that shows when it's only set, or past its reach, or fixed to the screen; either screen not drawing it, or drawing it over its ships; no mark on a held ship, or a mark on every ship; and the line round it no closer than before.
+
+- Seven older lattice tests had the old reach in them and say the new one now. The post they use is 19 across where it was 41, so that it reaches 92 and not the most there is.
+- The suite is 385 and passes, with the same four tests switched off.
+
+## The SNARE that wouldn't stay put (2026-11-22)
+
+*Henry, after a 30-minute match on the build above:* "do gleaners still try to wait for barges even though they're too big for them? the SNARE still moves when its field is active. it should basically never do that, I think. also, the animation for the field is slightly too loud."
+
+**The gleaners.** No, and nothing is changed. A miner only ever makes for a pad it fits: every pixel of it over a dock pixel, turned whichever of the four ways suits. Asked of his own cards: a GLEANER (6 by 6) has one place on a BARGE (6 by 6) and none on his PORT, whose pad he has redrawn 6 by 5. A DIGGER has one place on each. So in his deck a GLEANER lands on a BARGE or unloads in his king's tractor, and that's all there is for it. His cards on his map and two others, eight minutes each with the SWARM raiding: GLEANERs stood waiting by a BARGE for 6, 4 and 12 s in all, 4 s at the longest, and by the king for 7, 1 and 2 s. A sixth row of pad on the PORT would let them land there.
+
+**Why the SNARE moved.** His cards, on his map (seed 49089, a ring) and two others, the SWARM raiding from about 3:00, nobody playing blue: a PORT by the home rock, miners, and six DARTs, a PULSAR and two SNAREs put down as the PORT would have built them, with posts in its rings. Seven minutes. For the two SNAREs together: the ticks an enemy was in a SNARE's reach, the ticks of those its field was up, and the ticks of those it was under way.
+
+| How they were used | Map | Before: up, of ticks in reach | under way | Now: up, of ticks in reach | under way |
+|---|---|---|---|---|---|
+| Left on GUARD | his, a ring | 969 of 1136 | 160 | 1193 of 1195 | 0 |
+| Left on GUARD | two triangles | 492 of 510 | 17 | 876 of 892 | 0 |
+| Left on GUARD | an S | 1111 of 1381 | 253 | 1302 of 1303 | 0 |
+| Stance to ATTACK when a field first came up, back to GUARD 20 s on | his | 1324 of 1527 | 180 | 1106 of 1110 | 0 |
+| The same | two triangles | 517 of 634 | 117 | 867 of 867 | 0 |
+| The same | an S | 1910 of 1947 | 35 | 2245 of 2247 | 0 |
+| Stance ATTACK from 2:30 | his | 273 of 532 | 151 | 273 of 532 | 151 |
+| Stance ATTACK from 2:30 | two triangles | 280 of 513 | 175 | 280 of 513 | 175 |
+| Stance ATTACK from 2:30 | an S | 1082 of 1983 | 748 | 1479 of 2207 | 565 |
+| Sent as a group at 2:30, 200 px towards the middle | his | 516 of 1150 | 431 | 356 of 629 | 155 |
+| The same | two triangles | 544 of 879 | 242 | 354 of 793 | 278 |
+| The same | an S | 467 of 748 | 219 | 570 of 722 | 100 |
+
+(The matches aren't the same matches before and now, so the ticks in reach differ. On ATTACK two of the three are the same to the tick: nothing in them touched what's changed.)
+
+Left on GUARD, on ATTACK and sent (the nine runs with no stance flipped back), before: a SNARE got under way within 3 s of its field having been up twelve times, and seven of those times an enemy was within 40 px of its reach (three times inside it). Now: nine times, and the nearest enemy was 42 px outside its reach or more every time.
+
+- **A turn on the spot counted as still.** A SNARE has engines ahead and astern and none to the side, so it turns before it sets off and for each leg. A quarter turn takes it 3 s, and a field sets in 2. So on its way to a post or a spot its field came up where it stood turning, with an enemy in reach, and dropped when it flew on. That's Q4, which is mine.
+- **On GUARD it flew to its post whatever was in reach, and its post moved.** Ships built at one place close up their rings when one built before them is lost. At the first raid on his map the SNAREs' posts moved 61 and 58 px. Each such move is a 3 s turn, a flight at 7.5 px/s and 2 s to set again.
+- **A ship sent after it took its place.** He sent one after a SNARE at 18:54 of his match. A ship sent after a thing is sent to where the thing is, and a waiting ship gives way to one built before it that's waiting too. So a MAUL sent after a SNARE built later than itself took the SNARE's own place, the SNARE gave way, and the MAUL followed it: in two minutes the SNARE was off its post on 1783 ticks of 1800 and its lattice was set on one. (A DART sent after it moved its place 14 px, which a SNARE counts as there, so it didn't stir.) Every kind of ship did this, not only one with a lattice.
+
+The table I gave him on 2026-11-21 didn't show any of it: in those fights the SNARE was put down on the spot it was to hold, with nothing built before it and no post to fly to.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| ST1 | **A lattice sets only once its ship has stopped where it means to stay.** Turning there is still. Stopped to turn on its way somewhere isn't. | **This changes Q4** ("Turning on the spot is still"). His words: "it should basically never do that". The rule is mine. |
+| ST2 | **With an enemy in its reach, a lattice ship that hasn't been sent anywhere stops where it is,** on GUARD as on ATTACK: on its way to its post, or going home after the stance changed. "In its reach" counts an enemy that will be by the time a field has set, at the speed it's coming. | **This changes LT1** ("On GUARD it keeps its post"): it stops short of a post it hasn't reached. |
+| ST3 | **One whose lattice is set keeps its place while an enemy is within 40 px of its reach,** whatever its post or the spot it was sent to does meanwhile, and whatever the stance changes to. It takes up its post again when the enemy has gone. On ATTACK it still closes on an enemy that's out of its reach: staying would never bring that one in. It doesn't get off a warming beam's line either. | The 40 px is mine: an enemy that has only stepped out is back before a field could set again. |
+| ST4 | **Sending it somewhere is the one thing that moves it sooner.** Sent to a new place, or after something, it lets its field go on the spot and leaves. Sent again to where it already is, nothing changes. A sent ship doesn't stop on its way (H10, as for every ship), so its field is down for the whole flight and sets where it arrives. (Changed later the same day, by his ruling: it stops on its way for an enemy that comes into its reach. SP1, SP2.) | Mine: his "basically never" needs one way out, and this is the order he gives the ship itself. |
+| ST5 | **A ship sent after a friend stops beside it, clear of it,** whichever was built first, so the friend is never pushed out of its place. Every kind of ship. | Mine. It's what a ship sent after a friend built before it did already. |
+| ST6 | **The rings of a working field are dotted:** every other pixel along each ring. They're as far apart, come in as fast, and their dots keep their rows and columns as they come. The web, the line round the reach and the corners on held ships are as they were. (Twice as far apart later the same day: SP6.) | His "slightly too loud". **This changes LT4.** One step: if it's still too much, the next is fewer rings or a thinner web. |
+| ST7 | The network protocol is 26. (27 later the same day: SP7.) | |
+
+- **The stance to GUARD doesn't pull a SNARE out of a fight.** With an enemy in its reach or just outside it stays until that's gone, and then goes home.
+- **Sent somewhere, it has no field until it's there** (ST4). In the table that's the last three rows: sent out as the raid came in, the SNAREs were under way for a good part of the time an enemy was in reach, before and now. It could stop on its way for an enemy in reach, as it does on GUARD. That would go against H10 for this one kind of ship, so it's his to say.
+- **On ATTACK its field is up for about half the time an enemy is in its reach,** before and now. It takes a SNARE 34 ticks to stop from 7.5 px/s and a field 30 to set: over 4 s from the first enemy in reach to a field. Not touched.
+- **Idle, it still shuffles** to a new post when the rings close up. Only an enemy within 40 px of its reach holds it.
+- A ship sent after an *enemy* still makes for the enemy's middle, as it did.
+- I haven't seen any of it in the running game. `screenshots/stasis_field.gif` is redone with the dotted rings: frames the game drew headless.
+
+**Tested.** Six new tests. A SNARE sent to a spot with an enemy in reach where it starts stands turning for 60 ticks, and its lattice is never set until it's at the spot. On guard with an enemy standing on its post 340 px off, it stops 117 px short, 34 ticks after the enemy came into reach, stays exactly there with its field up, and goes on to its post when the enemy is gone. Set at its post with three enemies to one side, it stays when the guard built before it is lost and its post moves, stays with the nearest enemy 20 px outside its reach, and goes when the nearest is 60 px outside; on ATTACK it closes on one 20 px outside. In a match: sent again to where it is, its field stays up; sent somewhere else, or after a PORT, its field is down the same tick and it's set again only where it arrives. A nimble frame with one stasis pixel gets off a warming beam's line with the gun's ship 4 px outside its reach, and 4 px nearer, with the gun's ship in its reach, it stays and is cut. A MAUL or a DART sent after a SNARE built later stops clear of it, and the SNARE never leaves its post nor loses its set.
+
+- One older test read "still" off a ship's track by where it was and how fast: it reads what the ship is making for as well now. The test of what the field shows says a ring is dotted.
+- Seventeen deliberate faults, each caught by one of these: any stop counting as still; each of the two reasons to stay taken out, both taken out, and each of the two exceptions (sent, closing) taken out; 0 px and 70 px for the 40; a send, a send to the same place and a follow each doing the other thing; the beam dodged; the follower taking its friend's place; the rings whole, dotted one way only, one pixel in three, and across for down. The first run of them missed three, and each miss was a fault of mine: the test of the 40 px took its distances from the 40; the beam test's ship couldn't have got off the line whatever the rule said; and a second clause I had put in the follow rule did nothing, so it's gone.
+- The suite is 391 and passes, with the same four tests switched off.
+
+## A sent SNARE that stops, BARGEs that wait for their miners, fewer rings (2026-11-22, later)
+
+*Henry, to "Should a SNARE you've sent somewhere stop on its way when an enemy comes into its reach?":* "Yes, stop." *And:* "do barges have to stop to unload resources? something about the barges didn't seem right. people would wait for a while for them even though they were empty. I can try to reproduce it again if needed." *And:* "I think there should be fewer rings in the stasis field animation"
+
+**The barges.** Yes: a pad takes hold of a miner only while its ship is at rest, and lets go of one its ship turns under. (The BARGE itself never has to unload. What lands on it is in its store, and it stands where it's in link with his network, so it's in his bank.) Measured on his cards: eight DIGGERs, two GLEANERs and two BARGEs at his home rock, nobody attacking, eight minutes, on his map and two others, with his PORT there and without. Seconds that a miner with a load stood beside the BARGE it was bound for, by what kept the pad from taking it (the longest single wait in brackets):
+
+| Scene | The BARGE took a new place | Before: the BARGE was under way | its pad had a miner on it | its pad was resting, nothing on it | Now: the BARGE was under way | its pad had a miner on it | its pad was resting, nothing on it |
+|---|---|---|---|---|---|---|---|
+| his map | 23 times, now 20 | 73 s (6) | 91 s (2) | 144 s (2) | 14 s (2) | 39 s (2) | 96 s (2) |
+| two triangles | 16, now 13 | 15 s (3) | 57 s (2) | 108 s (2) | 33 s (2) | 51 s (2) | 106 s (1) |
+| an S | 14, now 14 | 10 s (2) | 51 s (2) | 117 s (2) | 18 s (2) | 39 s (1) | 106 s (2) |
+| his map, with his PORT | 39, now 22 | 72 s (6) | 61 s (2) | 127 s (1) | 13 s (2) | 47 s (2) | 124 s (2) |
+| two triangles, with his PORT | 14, now 12 | 28 s (4) | 90 s (2) | 152 s (1) | 17 s (2) | 58 s (1) | 132 s (2) |
+| an S, with his PORT | 17, now 14 | 40 s (4) | 73 s (2) | 145 s (2) | 22 s (2) | 72 s (2) | 155 s (2) |
+
+- **Most of it is the pad's rest, and nothing showed it.** A pad pixel rests 3 s after a miner unloads on it (his rule, 2026-11-17), a DIGGER covers 19 of a BARGE's 36 and a second doesn't fit beside it, so a BARGE takes one DIGGER every four seconds or so. For about half of that the BARGE had nothing on it and looked ready. That's the "even though they were empty".
+- **The rest of it is the BARGE moving off.** It took up a new place whenever its miners' work had shifted 16 px, whoever was beside it: 14 to 39 times in the eight minutes. A miner that arrived as it left stood beside it for up to 6 s.
+- What they mined in the eight minutes is the same before and now, within a twentieth either way (1284, 1323, 1329, 1560, 1587, 1623 before; 1386, 1314, 1350, 1575, 1578, 1614 now).
+
+| # | What | Henry's verdict |
+|---|---|---|
+| SP1 | **A ship with a lattice that's been sent somewhere stops on its way for an enemy that comes into its reach,** and stays there as it does on GUARD (ST2, ST3). The enemy gone, it goes on to where it was sent. | His ruling: "Yes, stop." **This changes H10 for a ship with a lattice, and ST4's last sentence.** Every other sent ship still stops for nothing. |
+| SP2 | **Sent away from an enemy that's in its reach already, it goes,** and stops for nothing until it's clear of what it was sent away from. From there it stops for the next enemy. So sending is still how to get it out of a fight, and sending it again somewhere else is how to make it push on. Let go (the HOME order), it isn't leaving any more. | Mine. Without it SP1 would have left him no way to move a SNARE that had an enemy in its reach. |
+| SP3 | **A BARGE stays where it is while its pad has work:** a miner in its pad's hands, or one with a load that's bound for it and within 30 px of where the pad would take hold of it. On its way to a new place it stops for one, and goes on when the work is done. | Mine. The 30 px: with none, his map's 14 s beside a BARGE under way was 31 s. **Keep.** Henry, the same day, after playing: "barges seem much improved so that's good". |
+| SP4 | **A pad pixel that's resting shows:** every other one is dark, for its 3 s. | Mine. His rest rule is as it was. **Keep.** Henry, the same day, after playing: "barges seem much improved so that's good". |
+| SP5 | **A pad just built is ready at once.** Its pixels started out of step with each other, as guns do, so a new pad rested for up to a second. | Mine: SP4's test found it. **Keep.** Henry, the same day, after playing: "barges seem much improved so that's good". |
+| SP6 | **The field's rings are 64 px apart.** They were 32: a SNARE's field shows two at once where it showed three or four. | His: "fewer rings". **This changes ST6 and LT4.** |
+| SP7 | The network protocol is 27. (28 later the same day: MA4.) | |
+
+- **The rest itself is still the big number,** and it's his rule: about 100 to 150 s of ten miners' time in eight minutes. A pad with room for two side by side halves it (the SCAVENGERS' own PORT has one, 6 by 9; a BARGE's is 6 by 6; the PORT he drew has 6 by 5).
+- **A BARGE still takes a new place 12 to 22 times in eight minutes,** and two BARGEs pick the same place. I tried having it stand by the middle of all the work within 32 px and within 64 px, in place of the one busiest spot: nothing clearly better (on his map 12 and 11 moves for 20; the waits and the mining the same). Left as it was.
+- **On the two other maps with no PORT the wait beside a moving BARGE went up,** 15 s to 33 and 10 to 18, though no single wait is over 2 s now where they ran to 6: a BARGE that stops for each miner on its way takes longer to get where it's going.
+- I haven't seen any of it in the running game. `screenshots/stasis_field.gif` is redone with the rings further apart, and `screenshots/pad_resting.png` is a BARGE with a DIGGER's place resting: frames the game drew headless.
+
+**Tested.** Three new tests. A SNARE sent 400 px with nothing near it stops 34 ticks after an enemy by its way comes into its reach, 262 px short of the spot, stays there with its field up, and goes on to the spot when the enemy is gone. A BARGE that wants to leave doesn't stir, turn or make for anywhere while a full DIGGER 45 px off comes to it, is brought on, emptied and put off; then it goes; and with the DIGGER 120 px off it goes at once. Every pad pixel of a PORT is one colour until a DIGGER lands; then the 19 under it rest, every other one of them drawn dark; three seconds on they're as they were. The test of sending a lattice ship has one more step (sent off and let go the next tick, with the enemy in its reach, it stays), and the test of the field's look says the rings are 64 px apart.
+
+- Thirty-one deliberate faults, each caught: the seventeen of 2026-11-22 again, and fourteen for this: a sent ship never stopping, the rule going by "sent" as it did, a send and a follow that don't make it leave, letting go that doesn't end it, a BARGE that leaves whatever its pad is doing, one that stays only for a miner in its hands and one only for a miner waiting, 0 px and 300 px for the 30, a resting pixel that looks ready, every resting pixel dark, a new pad that starts out resting, and rings 32 px apart. (Two of them didn't build the first time round: my script's mistakes, not the tests'.)
+- The suite is 394 and passes, with the same four tests switched off.
+
+## The MAULs that ran off (2026-11-22, his match against LANCE LINE)
+
+*Henry, playing the build above (seed 13631, an S, won at 31:48), as he went:* "the movement of my mauls didn't seem to make sense. one ran off to the edge of the board and i'm not sure why. it did come back after a bit." *Then:* "this enemy miner also appears to being going towards an edge and I can't tell why", *and later of it:* "the miner wasn't exactly going to an edge but it was flying horizontally away from any minable resources in a way that didn't make sense". *And:* "barges seem much improved so that's good". *And:* "I Can't tell why the enemy's king isn't slow?"
+
+**The MAULs.** His MAUL is his own drawing, and it's a kind of ship no card the game ships with is: grown from a seed, with engines, guns and factory pixels (it prints SNAREs and HERALDs). 280 px, 691 of weight on four engines that all push ahead: 7.5 px/s, 3 s a quarter turn, 3.8 s to change its speed by the least there is. Two of them put down by his home rock with an AI raiding, ten minutes, five maps:
+
+| As the game was | Furthest either MAUL got from where it stood | Ticks against the map's edge, of 9000 (each MAUL) |
+|---|---|---|
+| As he played it | 933 to 1275 px, on every map | 0 to 727 |
+| With MA1 alone (on GUARD, as the stance said) | 96 to 220 px | 1771 to 5586 |
+| With MA1 and MA2 | 0 px on three maps (nothing came near), 68 to 135 px on the two the SWARM raided | 0 |
+
+- **It never took the stance.** A seeded design was left out of the cards the stance orders, so one that flew kept the order its parts give it: with engines and no scoop, ATTACK. His MAULs went after the nearest enemy anywhere on the map whatever the button said. That's against his own rule of 2026-11-14 ("ATTACK should send everything unless it has mining equipment"), and it's my code that left them out.
+- **It was pushed off by the ship it was printing.** Friends keep a pixel or two apart, each pushed away from the other. A half-printed ship rides beside its factory wherever the factory goes, so a factory that flies was pushed away from its own half-printed ship on every tick, twice as hard as it could fly back: in a straight line, to the edge of the map, where it stayed until the print was done. Then it came back, and began the next. That's "ran off to the edge" and "did come back after a bit".
+- **Sent to a spot, it never settled.** A sent ship has to stop within 3 px of its spot and goes round again until it has. This one is carried 7 px while it burns off the least speed there is. It came to rest 5 px past the spot one way and then the other, and was still at it four minutes on. He didn't report this; the test of MA2 found it.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| MA1 | **A design grown from a seed takes the stance if it flies,** like one that's built: GUARD where it grew, or ATTACK. | **This changes which cards the stance orders** (K2), to what his words of 2026-11-14 said. |
+| MA2 | **A factory that flies isn't pushed away by the ship it's printing.** | A fault. |
+| MA3 | **A ship is at its spot when it's as near as its engines can place it:** 2 px and what it's carried in one burn. That's 3 px still for every card the game ships with but one (the SIEGE team's LANCET: 4), and 9 for his MAUL. The looser distance a ship that hasn't been sent settles for goes up by the same: 1 px for the SNARE, the SCAVENGERS' MAUL, the BASTION and the CAPITAL, 2 for the LANCET, 7 for his MAUL. | **This changes "sent ships too" (2026-11-18) for a ship that can't land that fine.** Mine. Sent twelve ways, his MAUL now comes to rest within 7 px every time. |
+| MA4 | The network protocol is 28. (29 later the same day: MA7.) | |
+
+- **His MAUL is still very slow to do anything,** and that's the drawing: four engines for 691 of weight, none turned to brake. To stop it has to turn right round (6 s) and burn. A few engines turned the other way would let it stop without turning, as the SNARE's do; more engines would make every burn quicker.
+- **On ATTACK it still goes for the nearest enemy anywhere,** as every ship does. Now that's by the stance.
+- A SNARE printed by a MAUL takes its post in the rings round where the MAUL stood when it finished.
+- (No longer so: the push went the same evening, MA8.) A ship a flying factory has just finished is a ship like any other, and the two are pushed apart for the second or two before it's off to its post. His MAUL didn't move a pixel for it in the test; a light carrier would be nudged.
+
+**"barges seem much improved so that's good".** That's SP3 to SP5 (it stays while its pad has work, a resting pad shows, a new pad is ready): **keep, on his word.**
+
+**The enemy's king.** A king slows only when its side has under 40 px standing besides the king itself (M2.10). When he asked, red had no factories and one ship left, and that ship was 99 px (the log at 31:00: 2 ships, 108 px; at the end: 1 ship, 99 px). So its king flew at full speed. Nothing is changed. The game says THE ENEMY KING IS SLOWED when it is, and nothing about how far off that is. Asked whether it should show how many pixels the enemy has left, Henry, the same day: "No, leave it". **Ruled: not shown.**
+
+**The enemy's miner.** Not reproduced, so not explained. (Henry, later the same day: it may be miners from an outpost with everything mined out round it, so the nearest rock is by the enemy; "I agree that doesn't need fixing".) Both sides played by an AI (the SWARM against LANCE LINE) for 25 minutes on his map and two others, red's miners sampled three times a second: flying more than 150 px from any rock and more than 80 px from any loose pixel on 144 of 73,325 samples, 12 of 101,075 and 333 of 57,445. Every one of those was making for rock, for a node of its own side or for its king: an empty one going to the nearest rock left on the map, which was by one of its side's outposts, or a loaded one taking its load in. None was against an edge, in those or in the five matches of the table above (0 of 567,563 miner-ticks within 6 px of one). What a miner flies to, for reading the next one: the nearest rock pixel left anywhere; a loose pixel only with no rock within about 350 px and the pixel nearer than the rock; with a load, the tractor or pad that would empty it soonest; hit with no guns, its nearest node. With the pointer on a ship the bar says which.
+
+**Tested.** Three new tests, all on his MAUL as he drew it. On GUARD with an enemy 500 px off it stays where it stands for 40 s, goes for the enemy on ATTACK, and comes home on GUARD again. With pixels to print with it prints a SNARE (206 s, the half-printed SNARE inside the distance friends are pushed apart at the whole time) and starts another without stirring, and sent 150 px off with a ship half printed it comes to rest 5 px from where it was sent with that ship still beside it. Sent twelve ways from rest it comes to rest within 9 px every time (7 at the worst).
+
+- One older test had a seeded warship fly off by itself once it was whole, which was this fault: its side is on ATTACK in that test now.
+- Six deliberate faults, each caught: a seeded design left out of the stance, the push from its own half-printed ship, the burn counting for nothing in where a sent ship stops and in where an unsent one does, and the burn reckoned a quarter and twice what it is. The first run missed the push: in my test the MAUL faced up the map and the SNARE it printed sat a pixel outside the pushing distance. It faces across now, and the test says the SNARE is inside it.
+- The suite is 397 and passes, with the same four tests switched off.
+
+### The MAUL that still went to the edge (the same day, on the build with MA1 to MA3)
+
+*Henry, with two pictures (a MAUL against the left edge at 14:56 on GUARD; a red miner by its king):* "the miners might just be because they're produced from an outpost where everything is all mined out so the nearest resources are in a weird spot near the enemy. so I agree that doesn't need fixing. the MAUL still appears to be going to the edge of the map, however" *and* "unless my build didn't pick up the recent changes?"
+
+**His build had them** (built 16:29; my last change was 16:10). The five-map table above was two MAULs put down by themselves. He plants them on rocks, with PORTs on the same rocks and the ships both print standing round. So this time: on his map of that match (seed 4959), his map of the match before and one other, a PORT and a MAUL planted by the king's own orders on each of the four big rocks nearest his king, pixels in the bank to print with, LANCE LINE raiding, 22 minutes. Six MAULs grew.
+
+| As the game was | Furthest each MAUL got from where it grew (px) | Ticks against the map's edge |
+|---|---|---|
+| With MA1 to MA3 (what he was playing) | 481; 774; 242, 129, 179, 886 | 0; 762; 0, 0, 0, 29 |
+| MA5 alone | 243; 378; 274, 307, 177, 215 | 0; 440; 0, 1079, 0, 0 |
+| MA6 alone | 128; 128; 269, 89, 145, 136 | 0; 0; 0, 0, 0, 622 |
+| MA5 and MA6 | 58; 60; 56, 70, 52, 37 | none |
+
+- **It had no place of its own to hold.** A built ship has a post in the rings round what built it, and holds it: friends go round. A ship grown from a seed had none, so every friend that stood near pushed it away, twice as hard as it could fly back: the SNAREs and HERALDs it had printed, a PORT planted beside it, a BARGE come for the miners, another MAUL growing.
+- **It picked courses it couldn't fly.** A ship in a fight weighs its next four seconds. His MAUL needs 115 ticks to burn off even 7.5 px/s, so no stop it could begin shows inside the four seconds, and whatever speed it took up to get clear of a lance, it kept. That's NC3, which I had left for the talk on ship AI: "Not measured".
+
+| # | What | Henry's verdict |
+|---|---|---|
+| MA5 | **A ship grown from a seed has a post: where it grew.** It holds it as a built ship holds its place in the rings. Friends go round it, and ships sent to its spot come to rest beside it. | Mine. |
+| MA6 | **A ship too heavy for its engines to burn off its own top speed inside four seconds picks no course of its own.** It flies as its plan says, as a ship with no guns does: on GUARD it meets what comes within its guard and goes back to its post. Every card the game ships with still picks its courses (the slowest to burn off its speed is the SWARM's WASP, 48 ticks). | Mine. **This narrows H1 again,** as NC1 did, and it's the far end of NC3: the rest of NC3 (a ship that needs more than four seconds to turn about and stop) is as it was. |
+| MA7 | The network protocol is 29. (30 the same evening: MA10.) | |
+
+- The 70 px at most that's left is a MAUL meeting raiders inside its guard and coming back.
+- **The enemy's miners: no change, on his word.** "I agree that doesn't need fixing."
+
+**Tested.** Two new tests on his MAUL. Four ships sent to the very spot it stands on: it doesn't stir or turn, and they come to rest round it, clear of it; and with a PORT 10 px from where it grew it stays where it is. In a fight with six fighters, beside the SCAVENGERS' own MAUL (the same four engines under a quarter as much weight, near enough): theirs is on a course of its own for 142 ticks and his for none. Five deliberate faults, each caught: no post, a post in a ring, every ship picking courses, and the four seconds halved and doubled. The suite is 399 and passes, with the same four tests switched off.
+
+**The push itself (Henry, the same evening, asked what it is):** "it doesn't seem like the destacking push should be a physics push, it should be more just a hand-of-god one-time convenience intervention, which is it?" It's neither. Each tick a ship whose box is within 2 px of a friend's adds 15 px/s away from that friend to the speed its pilot makes for, and then flies that with its own engines: so it gathers real speed and has to stop and come back. Miners at work, ships at a post, ships sent to a spot and a lattice holding are let off. Measured with both sides played by an AI, 14 minutes, three matches (SWARM v LANCE LINE, BIG GUNS v SIEGE, LANCE LINE v SWARM): it acted on 909 of 37,053, 914 of 69,363 and 753 of 38,338 samples of ships not at work, nearly all of them in a fight. Ships with an enemy in sight that had a friend's middle within 2 px of their own: 110 of 14,009, 370 of 4,141 and 250 of 10,992 with the push; 196 of 13,400, 206 of 3,101 and 98 of 4,627 with it taken out (the third match ended at 9:25). So it changes how much ships stack very little: where a ship stops is already chosen clear of its friends once, by its post, the spot it was sent to or its place in a firing line. **Proposed: take the push out.** Henry: "Yes, take it out".
+
+### The push taken out (the same evening)
+
+| # | What | Henry's verdict |
+|---|---|---|
+| MA8 | **Nothing pushes friends apart.** On the way and in a fight they fly through one another, as they always could. Where a ship stops is chosen clear of its friends, once: its post, the spot it was sent to, its place in a firing line, or MA9. | His ruling: "Yes, take it out". **This removes "ships of a side keep a pixel or two apart"** (in the rules above, and the exceptions made to it since: miners at work, M2.21; posts, M2.12; sent ships, K5; a lattice holding). |
+| MA9 | **A ship with no gun to line up takes a place of its own round its target.** Sixteen places at its guns' distance, one out each way the game reckons a target's open sides by. It takes the nearest round from the place it has (from where it is, with none yet) that no friend built before it has for the same target, and of those, one on a side its guns can break something from if there is one. A ship with a stasis lattice doesn't: it comes at the enemy along its own line, as it did. | Mine, and not asked for: it's what taking the push out turned out to need (below). **This changes H6** ("on whichever side") **and I11**, which is the plan's doing now, on either pilot. |
+| MA10 | The network protocol is 30. | |
+
+**What the push had been doing, that nobody had designed it to.** The suite found three things when it went, and I had told him the day's measurement showed it wasn't needed.
+
+- **It was what spread ships with turrets and flak.** Each stood at its guns' distance on the line from its target to itself, whoever else was there. Six ARROWS sent at one target in a block came to rest on one pixel. One cannon shell then takes all six: on the plain pilot they won 1 fight of 20 against a cannon where they had won most. (Picking their own courses they still won 20 of 20. In the three matches I had measured, ships arrive from all sides and at all times, which is why stacking barely showed there.)
+- **It was what carried them round armour.** I11 says ships whose guns can't break the armour in front of them fly round to where they can, and its test had six ARROWS break a plated shell 20 times in 20 picking their own courses. With the push gone they sat in front of it and broke it in none of 20. It was the jostling that had taken them round, a few pixels at a time, until a course to the stern showed a gain inside four seconds.
+- **It had been getting in attackers' way.** Two BATTLESHIPS sent at the AI's king pushed each other off their lines as they came.
+
+With MA9: the six ARROWS break the shell 20 times in 20 on either pilot (the plain pilot was 0 in 20, by design then); they come to rest in an arc, no two on one place; and the cannon test passes as it did.
+
+**Stacking, measured again on what's built.** The same three matches played by two AIs: samples of ships with an enemy in sight that had a friend's middle within 2 px of their own.
+
+| Match | With the push | Push out, nothing in its place | Push out, with MA9 |
+|---|---|---|---|
+| SWARM v LANCE LINE | 110 of 14,009 | 196 of 13,400 | 85 of 13,626 |
+| BIG GUNS v SIEGE | 370 of 4,141 | 206 of 3,101 | 137 of 3,259 |
+| LANCE LINE v SWARM | 250 of 10,992 | 98 of 4,627 | 39 of 5,648 |
+
+**His planted MAULs, on what's built** (as in the table above): 57; 37; 0, 49, 0, 0 px at most from where they grew, and none against the edge.
+
+**What it costs: the AI's king is easier to corner.** Two BATTLESHIPS sent at the AI's king four minutes in, for two and a half minutes, on eight maps:
+
+| | Came through with half of itself or more and under 6 s in reach | Run into the corner of the map it starts by |
+|---|---|---|
+| With the push | 8 of 8 (134 to 218 px left of 218) | once, for 85 ticks |
+| Now | 5 of 8 | 3: left with 89 px, and killed twice |
+
+The king's own rules are as they were. Its start is 150 px from a corner, it backs away from guns that outweigh it, and two battleships that no longer hinder each other get it there. One scenario and one pair of ships: not a verdict on balance, but it's the AI losing a defence it had by accident. Not mended: asked whether to stop the AI's king backing into its own corner, Henry said "Not now".
+
+- **Two choices inside MA9 that no test pins.** Whether a free place on a shut side comes before a taken one on an open side (it does: a ship would sooner stand alone and bounce shots than share), and whether a ship gives way only to friends built before it or to all of them. Either way round passes every test there is.
+- Comments here and there in the code still explain a gap or an exception by the push. The push itself, and the note of who was at work that only it read, are gone.
+- I haven't seen any of it in the running game.
+
+**Tested.** One new test: the six ARROWS at a block of plate, in an arc and no two on one place, still there ten seconds on; and two of the SCAVENGERS' MAULs setting off for one target 10 px apart, neither ever making for a speed away from it. Three older tests re-stated: flying round armour (either pilot now), the SNARE on the attack (its field is up inside five seconds of an enemy staying in its reach; in these four fights within 2.5 s), and the AI's king, which is eight maps where it was one and says what happens on each. Eight deliberate faults: six caught (the push back, a taken place as good as a free one, a shut side as good as an open one, counting round from where it is, a lattice taking a firing place, guns taken to break anything), and the two orderings above not. The suite is 400 and passes, with the same four tests switched off.
+
+---
+
+## The phase ring (2026-11-22)
+
+*Henry, 2026-11-17:* "I want to add a way to get a burst of resources to encourage building big ships. What about a phase-harvester that builds up a charge on an entire asteroid and harvests the entire asteroid at once once the bar reaches the amount of pixels remaining on the asteroid?" *2026-11-18, of the points I'd left open:* "rival charges cancel. miners can "help" by reducing the rock size. no opinion on item 3." *2026-11-22, with the playtests done:* "i'd like to implement one or two more parts now".
+
+So the phase-harvester is built, as a part called the PHASE RING, with two example drawings: the HALO, which carries the ring, and the CRADLE, a pad it fits on. It's a bare toy: the AI doesn't know the part exists, no ready team has it, and nobody has played it.
+
+*Henry the same evening, of the ring's ship being a node that banked what it took (PR8 as I first built it):* "I'd like to stick to what I said about dropping off the resources. We can't just be making everything a node; it doesn't work in the design, one reason is because you don't control where units go precisely, so you can't keep them in a particular network. The phase harvesters need to be paired with a way to offload the pixels. THEN you get the burst." *And:* "BTW since you have that nice required empty space anyway, you could use it to graphically indicate the pixels the phase ship is holding." Both are built: PR8 and PR13. *Asked whether a ship that's destroyed should spill the cargo it was carrying:* "Yes, spill it". Built: PR17.
+
+| # | What | Henry's verdict |
+|---|---|---|
+| PR1 | **The part.** PHASE RING, in INDUSTRY: pale pink, letter `O` in a drawing's text. A pixel weighs 1 and uses 1 power. It does nothing in the arena: it's a match part, as the tractor and the pad are. | |
+| PR2 | **A ring is worth the empty space it shuts in.** Phase pixels are drawn as a closed ring, and what the ring is worth is the empty pixels inside it: the ones that can't be left edge to edge. They count only where phase pixels alone wall them in. With any other part in the wall, or anything standing inside, that ring counts nothing. A corner pixel may be left out. One pixel shot out of the side of a ring one thick opens it, and hull behind the gap doesn't close it. | **Mine.** His pitch says what a harvester does and not what makes one strong. See "Why a ring", below. (He has since called it "that nice required empty space", which isn't a verdict.) |
+| PR3 | **It charges the rock nearest it while its ship is at rest.** From a second after the ship stopped, with rock within 24 px of the ship's edge (measured from its middle, as a tractor's reach is, so it doesn't matter which way the ship is turned): 1 px of charge a second for each 100 pixels the ring shuts in, and for no more than 400 of them. Short of power it charges slower in proportion. Under way it charges nothing. | The charge is his. "At rest", the reach and the numbers are mine. |
+| PR4 | **A rock has one charge, and it's one side's.** Rings of a side on a rock add up. A ring of the other side takes its charge off first, and begins a charge of its own only when none is left: so two sides at one rock gain by the difference, and two that are even gain nothing. | His ruling: "rival charges cancel." |
+| PR5 | **When the charge is all the rock has left, the rock goes:** every pixel of it, that tick, aboard the ship with that side's biggest ring on it. A ring of that side has to be at work on the rock when it happens. A charge never stands higher than the rock has left. | His. (Which ship of several, and that a ring has to be there, are mine.) |
+| PR6 | **Miners help.** A miner biting the rock, of either side, leaves less to charge to. | His ruling: "miners can "help" by reducing the rock size." |
+| PR7 | **The charge is the rock's, and it leaks.** A ship that moves, is sent away or loses its ring leaves its charge on the rock. With no ring of its side at work on it, a charge leaks 1 px a second. | Mine: "no opinion on item 3." Losing it at once makes one shot at a ring worth a minute of its work, and keeping it for good makes driving a ring off worth nothing. |
+| PR8 | **What it takes is cargo, and its ship is no node.** The rock is aboard the ring's ship as a miner's load is aboard a miner, and nothing is banked until it's been taken off: by a tractor, a pixel at a time, or all at once by a pad the ship fits on. That's the burst. With a load aboard, a ring charges nothing. | **His ruling** (above). For an evening I had the ship a node that held what it took in its own store, against what he'd said of the vacuum, and flagged it: he put it back. |
+| PR9 | **A ship with a closed ring goes to the rocks by itself,** as a miner does: to the rock nearest it, where it stops and stays. With a rock aboard it takes that in first, to wherever it would be empty soonest, and then goes to the rock nearest it. It isn't one of the fleet: it takes no stance, and "select the fleet" leaves it out. Sent somewhere, it parks there, and its ring is on whatever rock is in reach. | Mine. |
+| PR10 | **Shot at, it keeps to its rock.** (An unarmed miner runs home for two seconds.) With its ring broken it goes home, or takes in what it has aboard. | Mine. |
+| PR11 | **How a charge shows.** A rock with a charge wears a small bar at its middle: as much of it lit as the charge is of what the rock has left, in the colour of the side whose charge it is. One pale dot runs from each ring at work to its rock, once a second. The rock going is sparks where it was. The inspector says what the ring puts on a second and how its rock stands ("CHARGED 235 OF 470", "TAKING OFF THE ENEMY'S CHARGE: 40 LEFT", "IT TOOK A ROCK OF 470 PX", "IT CHARGES NOTHING WITH A LOAD ABOARD"), and the bar under a rock says whose rings have charged it and how far. In the yard the pixels a ring shuts in each show a dot, and the status line says "PHASE RING: ENCLOSES 225 PX", or "ENCLOSES NOTHING" in gold. | |
+| PR12 | The network protocol is 31. (32 the same evening: PR16.) | |
+| PR13 | **What it's carrying shows in the space its ring shuts in:** in the colour of loose pixels, as a miner's load shows in its scoops. As much of the space is filled as the share of that rock it still has aboard, from the stern forward. So it's full the tick the rock goes, drains as a tractor empties it, and is empty the tick a pad takes the lot. | His idea. That it's a share of the rock, and not a cell for each pixel, is mine: a HALO shuts in 225 and most rocks are bigger, so a cell a pixel would show full until a tractor was half done. |
+| PR14 | **The CRADLE:** a pad for the HALO. A pad pixel under every pixel of a HALO, bow up or bow down, with the CRADLE's own core and four flak turrets in the space a HALO's ring leaves open: a HALO comes down round it like a hoop on a peg. Seeded, 172 px. | Mine: an example of "a way to offload". |
+| PR15 | **A ship with a rock aboard reckons the rock when it chooses where to unload.** A loaded ship goes where it would be empty soonest, and a tractor is reckoned to empty it the moment it arrives: only the flight and the queue are counted. That's as it was, for every miner. For a ship whose ring has taken a rock, the time that tractor would take over what it carries beyond its own hold counts too: reckoned the old way, a HALO with a rock aboard passed a pad it fitted for its king's tractor, which was the shorter flight and would be seven minutes about it. | Mine. **For an hour I had every ship's whole load counted,** which is the rule as it's written ("where it would be empty soonest"). It changed where every miner went, moved two older tests (a vacuum ship with a tractor of its own flew off to a faster one, and the AI king's whole-match test came out differently) and made the suite's AI matches run near three times as long. Nobody had asked for mining to change, so it's confined to a ring's rock. Whether miners should reckon their own load is a question about mining, and his. |
+| PR16 | The network protocol is 32. (33 with PR17.) | |
+| PR17 | **A ship that's lost spills what it was carrying:** loose pixels where it was, for whoever comes. 300 of them at most, as with what a broken node held, and the rest is lost. It's every ship's rule: a miner's load spills too. The network protocol is 33. | His ruling: "Yes, spill it". (The 300 is mine: it's the node's rule.) |
+
+**Why a ring (PR2).** A harvester needs a rule for how fast it charges. The plain one, a pixel of charge for so many pixels of the part, pays a swarm of small harvesters exactly what it pays one big one. A ring twice as far across has twice the pixels and four times the room inside, so a ring's worth for what it costs grows with its size: the first rule in the game by which a big ship is worth more a pixel than a small one, which he asked for on 2026-11-13 ("they should be actually more powerful per-pixel since you have to save up to build them and then wait out the build time"). It makes the part a large, hollow, exposed structure and nothing else (2026-11-13, of the projector: "an entire, large, exposed structure"), and it has an answer you can draw and one you can shoot: one pixel out of its side. What I'd watch for: whether every ring ship comes out as the same square. The most a ring counts is 400 pixels shut in, which is 20 by 20, so there's no use in a bigger one. If he'd rather have the plain rule it's one line of `stats_of`: nothing else here depends on it.
+
+**The examples.** The HALO: a ring 17 across in a band of hull, which makes its power and takes the first hit from any side; a core; ten engines and two rotation engines at its stern. 149 px. It shuts in 15 by 15, so it puts 2.2 px a second on a rock. 11 px/s, and three seconds to a quarter turn. No guns. The CRADLE: PR14. Both are on the library's PARTS shelf.
+
+**What it does, measured.** All on the tests' map (seed 1, scattered rocks) unless it says otherwise, with nobody playing either side.
+
+- **A rock of 401 px** (blue's home rock) went in 179 s, aboard the HALO. Nothing was banked.
+- **With only its king's tractor to go to** (eight tractor pixels, which pull a pixel a second): the first pixel was banked 11 s after the rock went, 61 were a minute later, and the HALO was empty 6 min 51 s after the rock went. Then it flew to the nearest rock and had its ring on it 26 s later. So a HALO puts 2.2 px a second on a rock and its king takes 1 px a second off it.
+- **With a CRADLE 80 px from the rock:** the HALO passed its king's tractor by, came down on the pad, and the whole 401 was banked in one tick, 28 s after the rock went. Its ring was on the next rock 14 s later.
+- **In a match on seed 3** (the pictures): a rock of 470 was half charged at 1:45 and went at 3:29, with blue's bank at 242; the HALO was down on a CRADLE at 3:42, and blue's bank was 715.
+- **Asked of the king and left:** the king takes 4 min 10 s to print one. It flew to the nearest rock, 99 px, and its ring was on it 19 s later. A minute on it hadn't stirred. Sent 154 px to another rock, its ring was on that one 19 s later.
+- **Printed by a factory on a rock** (the starter shipyard on blue's home rock, 36 s to print one): it's put off 26 px from the rock's middle, which is in its reach, so its ring is on its own factory's rock a tick later and it never leaves until that rock has gone.
+- **Miners:** with two unarmed miners of each side at the same rock it went in 138 s, not 179, and the HALO got 309 of the 401.
+- **Armed miners shoot it.** The starter deck's miner has a flak turret. Two of the enemy's at the rock shot hull off the HALO's band until it was short of power and charging at 200 where it had 225, and the rock went four seconds later than with no miners there at all.
+- **Rivals:** one HALO of each side on a rock for forty seconds leaves no charge on it. Blue's alone for forty seconds puts on 90. Two of red's then take that off in forty seconds, and put on 87 of their own in the next forty.
+- **Driven off:** a HALO with 90 on its rock, sent 150 px away and back, came back to 36.
+- **With a load aboard** and another rock in its reach for twenty seconds: no charge on that rock.
+- **Forty-eight approaches to a pad** (a loaded HALO put down 45, 90 and 180 px from a CRADLE on sixteen bearings, turned each of four ways): every one down and banked, the slowest 35 s after it was put there.
+- **A tractor nearer than a pad:** 67 px from its king's tractor's reach and 98 from a CRADLE, with 400 aboard, it went to the CRADLE and all 400 were in its store 27 s later.
+- **A ring that can't fly** (nine across on a base with no engines) charges the rock it stands by, and has what it takes aboard: cargo for a tractor that reaches it.
+
+**What that is beside miners, as arithmetic and not as a result.** A scoop bites a pixel every 10 s, so a DIGGER (19 px, four scoops) bites 0.4 px a second at the rock face, before any flying or waiting on a tractor; 149 px of DIGGERs is 3.1 px a second there. The SCAVENGERS' passive opening banked 522 px by 8:00, which is 1.1 px a second for the whole operation. A HALO puts on 2.2 px a second while it's at a rock, and banks nothing until the rock has gone and been taken off it: at a pixel a second by a king's tractor, or at once by a pad that costs 172 px more. The biggest ring that counts is 22 across and puts on 4; a ship drawn round it as the HALO is would be about 190 px. None of this is tuned, and none of it has been played.
+
+**What follows from rules that were already there, and I haven't tried.**
+- A seed on its way to a rock that goes heads for the nearest free rock, as it does when a rock is mined away.
+- A factory growing out of a rock that goes finishes from its network: so an enemy ring can take the rock out from under a factory that's still growing, and the factory then costs its side the pixels the rock would have given.
+- **A loaded HALO has to place itself more finely than a miner does.** A ship stops as near its spot as a ship of its sort can, which is 14 px for one that takes three seconds to a quarter turn, and a pad takes hold of a ship within 12 px of where it waits. Placing itself so, a loaded HALO stopped outside a pad's hold on some approaches and stood there for good; so with a rock aboard it places itself to 3 px, as a ship sent to a spot does. A miner that's as slow to turn still places itself to 14. I haven't looked at whether any miner stalls that way: the SCAVENGERS' miners turn fast enough that they can't, and his own drawings might not.
+- (What a ship carried was lost with it: a miner's dozen pixels, and then a ring ship's whole rock. Asked, he said to spill it: PR17, and "The spill", below.)
+
+**The spill (PR17), and what it moved.** A HALO with 470 aboard and a starter miner with a full load, each losing its core: where each was there are its own pixels, loose, and its load with them, all of the miner's and 300 of the HALO's. An enemy miner put down among the HALO's has a full load a tick later. It's a rule for every ship, so every match in which a loaded miner is lost plays differently from here on. One older test moved, the AI's king chased by two BATTLESHIPS on eight maps, which moves with every change to the game:
+
+| | Came through with half of itself or more and under 6 s in reach | The others |
+|---|---|---|
+| Before the spill | 5 of 8 | 3, in its own corner: left with 89 px, and killed twice |
+| With it | 6 of 8 | 2, against the map's edge: killed once, in its corner; and once alive with 110 px of 218 after nine seconds in reach, against the left edge |
+
+That test asked of a king that doesn't come through well that it be in its corner. It asks now that it be against the edge of the map, corner or no: the third time today it has been re-stated. One scenario, and no verdict on anything.
+
+**Not done.**
+- The AI doesn't build one, doesn't shoot one first and doesn't bring a ring of its own. (A ship of its on SAB counts one as a worker, as it does a miner. Not tried.)
+- No ready team has the part. The HALO and the CRADLE aren't in the SCAVENGERS: they're on the PARTS shelf to put in slots. The SCAVENGERS' PORT has a pad 6 by 9, which a HALO doesn't fit.
+- A ship that's been sent somewhere doesn't unload, as a sent miner doesn't: sent with a rock aboard it parks where it's sent until it's told to go back to its own devices.
+- A charge doesn't show on the tactical map or the minimap, and nothing shows a ring's reach.
+- The giant rock in the middle of a scattered map (about 2,800 px) would take a HALO 21 minutes, and a king's tractor 47 more to empty it.
+- A ring's ship places itself by the rock pixel nearest it and not by where it's safe.
+- I haven't seen any of it in the running game: the pictures are frames the game drew headless. `screenshots/phase_ring_yard.png`, `phase_ring_at_work.png`, `phase_ring_takes_the_rock.png` and `phase_ring_on_its_pad.png`; `--phase-screenshots [DIR]` draws them again.
+
+**Tested.** Eighteen new tests: what a ring shuts in (closed, open, a corner out, other parts in the wall or inside, two rings, two thick, the most it counts, short of power, the HALO's numbers); a rock charged and taken whole as cargo, taken off at its king's tractor a pixel at a time, and the next rock after that; a rock landed on a pad it fits and banked in one tick; miners of both sides; rivals; at rest only, and the leak; printed by the king and left, then sent; printed by a factory on a rock, and nothing charged while it's being printed; a ring broken at a corner and at a side, and a ring ship shot at; which of two rocks, the reach to the pixel, and nothing charged with a load aboard; whose ship takes the rock, and a ring that can't fly; a full charge with no ring on the rock; forty-eight approaches to a pad; a pad chosen over a nearer tractor; the bar and the dot; the load in the ring; a lost ship's spill; the yard's dots and status line. Forty-five deliberate faults, each caught by a test. Three got past the tests as first written, and each has a test now: a ring charging while its ship was still being printed, a loaded ship stopping too far from a pad to be taken hold of, and a tractor reckoned to empty a rock the moment the ship arrived. The suite is 418 and passes, with the same four tests switched off.
+
+### The repair array: proposed the same evening, not built
+
+*Henry, 2026-11-17:* "a repair array that uses banked pixels to repair damaged ships (this could even indirectly build two full ships out of one if a ship got split brained and then repaired)".
+
+What I'd build, put to him 2026-11-22:
+
+- **A lump of repair pixels is an array,** and its ship is a node: it draws on its network's bank.
+- **It mends ships of its side in its reach,** a pixel of reach for each pixel of the lump, from the lump's box, as a slipstream reaches.
+- **It puts lost pixels back one at a time, each next to one still standing,** so a ship grows back from the wound. Each is paid for from the bank, as a printed pixel is, and takes what a factory pixel takes to print one (4 s for an array of one pixel, and a bigger one sooner in proportion).
+- **A piece cut off with a core of its own grows back to the whole drawing,** so a ship cut in two and mended is two ships, each paid for. (His. A piece keeps only its own pixels today, so it would have to remember the drawing it came from.)
+
+Three things that are his to say, with what I'd pick:
+
+1. **In a fight, or between fights?** I'd mend only a ship that hasn't been hit for 3 s (a shield's rest). Mending under fire is a healer, and a ball of ships round one is hard to break by anything but killing the healer.
+2. **Its own ship?** I'd say no, as a projector never covers its own: the array's ship is the thing to shoot, and two of them mend each other.
+3. **The king?** I'd say no for now. A king's damage is for good today, and that's what ends a match.
+
 ---
 
 ## Wishlist (Henry's, for later; none of it is a work order)
 
+- **2026-11-22: the phase-harvester is built, as the PHASE RING (see "The phase ring").** Next in his queue: the repair array.
 - **2026-11-18, later: the vacuum is built too (see "The vacuum").** Next in his queue: the phase-harvester and the repair array.
 - **2026-11-18: the speed-up field is built (see "The slipstream"), and the scoop with a range is out of the queue.** Henry: "Instead of a ranged scoop, which naively is pretty redundant with a regular scoop, what if we have a vacuum that is specialized in picking up loose debris pixels but is less efficient when used on asteroids?" The vacuum is thought through in that section and not built.
 - **The part queue as Henry left it on 2026-11-17** (this one is a work order): a speed-up field and a stasis field ("among the riskier additions that would be good to get in earlier"), the ranged scoop, a phase-harvester ("builds up a charge on an entire asteroid and harvests the entire asteroid at once once the bar reaches the amount of pixels remaining on the asteroid"), and a repair array ("uses banked pixels to repair damaged ships"). Then "we're getting close to some sort of 'full set' of part content, although I haven't decided exactly how we want to handle building sets."

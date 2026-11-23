@@ -205,15 +205,22 @@ pub fn sentinel() -> Design {
 ///   drawn it had a bow of heavy plate and bare flanks, and lost to its cost in starter
 ///   fighters every time; and with the plate open over the outer corners of its cannons, most
 ///   times. See MATCH.md.)
-/// - 3 SNARE: a stasis lattice in an H, 15 by 15, that reaches 60 px, with a tracker and four
-///   flak of its own, which the field doesn't hold; 175 px, 7.5 px/s.
+/// - 3 SNARE: a stasis lattice in a cross, 15 by 15, that reaches 120 px, inside a whole
+///   skin of plate, with a tracker and four flak of its own, which the field doesn't hold,
+///   and five of its eleven engines turned astern to stop it without turning about; 200 px,
+///   7.5 px/s. (With three astern it flew 28 px past a spot it was sent to and took 30 s
+///   over 80 px; with four or more it stops within 3 px, in 13 s.) Until 2026-11-21 its
+///   lattice was an H of two rails standing clear of the hull, the first pixels any shot
+///   met, and it reached 60 px, which a lancer outranges. Henry: "it should maybe be
+///   1. better protected in the unit design 2. a bigger area". See MATCH.md, "The lattice
+///   that never came up".
 /// - 4 HERALD: a pace ship (OUTRIDER until it met a yard tab, which holds seven letters). A slipstream lump of 28 across its bow, no guns, 30 px/s: every
 ///   other card but the DART flies a step faster beside it. 93 px.
 /// - 5 DIGGER: a miner with four scoops, 5 by 4; 19 px, 22 px/s.
 /// - 6 GLEANER: a vacuum lump of 12 that reaches 12 px past its edge, a hold of 36, 6 by 6;
 ///   35 px, 22 px/s.
 /// - 7 PORT: the factory. Twenty factory pixels, so it builds every card here (the biggest
-///   is 175 px), four flak, and a dock pad 6 by 9 on its flank: a GLEANER lands on it, or
+///   is 200 px), four flak, and a dock pad 6 by 9 on its flank: a GLEANER lands on it, or
 ///   two DIGGERs at once. It has no tractor. 135 px, so the bank a king starts with plants one.
 /// - 8 BARGE: a dock pad 6 by 6 that flies. It's a collector: it goes out to where the miners
 ///   and the GLEANERs work, and they land on it. 47 px, 18 px/s.
@@ -270,23 +277,27 @@ pub fn scavengers() -> Vec<Design> {
         ),
         drawn(
             "SNARE",
-            (42, 42),
+            (41, 40),
             &[
-                "x.............x",
-                "x.hhhhhhhhhhh.x",
-                "x.hhhhttthhhh.x",
-                "x.ghhhttthhhg.x",
-                "x.hhhhttthhhh.x",
-                "x.hhhhhhhhhhh.x",
-                "x.hhhhhhhhhhh.x",
-                "xxxxxxxxxxxxxxx",
-                "x.hhhhhhhhhhh.x",
-                "x.hhhhhchhhhh.x",
-                "x.ghhhhhhhhhg.x",
-                "x.hhhhhhhhhhh.x",
-                "x.hhhhhhhhhhh.x",
-                "x.yeeheheheey.x",
-                "x.............x",
+                ".....q.qqq.q.....",
+                ".....ppppppp.....",
+                ".....pghxhgp.....",
+                ".....phhxhhp.....",
+                ".....phhxhhp.....",
+                ".....phhxhhp.....",
+                "ppppphhhxhphppppp",
+                "phhhhhhhxhchhhhhp",
+                "phhhhhhhxhhhhhhhp",
+                "pxxxxxxxxxxxxxxxp",
+                "phhhhtttxhhhhhhhp",
+                "phhhhtttxhhhhhhhp",
+                "ppppptttxhhhppppp",
+                "ee...phhxhhp...ee",
+                ".....phhxhhp.....",
+                ".....phhxhhp.....",
+                ".....pghxhgp.....",
+                ".....ppppppp.....",
+                "......e...e......",
             ],
             None,
         ),
@@ -537,7 +548,7 @@ mod tests {
         assert_eq!((st("DART").repeater, st("DART").flak, st("DART").count, st("DART").top_speed_px_s()), (2, 2, 11, 30));
         assert_eq!((st("PULSAR").ball, st("PULSAR").count, st("PULSAR").top_speed_px_s()), (6, 39, 18));
         assert_eq!((st("MAUL").cannon, st("MAUL").tracker, st("MAUL").flak, st("MAUL").count, st("MAUL").vmax), (2, 1, 2, 110, 2));
-        assert_eq!((st("SNARE").stasis, st("SNARE").stasis_reach(), st("SNARE").tracker, st("SNARE").flak, st("SNARE").count, st("SNARE").vmax), (43, 60, 1, 4, 175, 2));
+        assert_eq!((st("SNARE").stasis, st("SNARE").stasis_reach(), st("SNARE").tracker, st("SNARE").flak, st("SNARE").count, st("SNARE").vmax), (29, 120, 1, 4, 200, 2));
         assert_eq!((st("HERALD").slip_reach(), st("HERALD").armed(), st("HERALD").count, st("HERALD").vmax), (28, false, 93, 8));
         assert_eq!((st("DIGGER").scoops, st("DIGGER").hold(), st("DIGGER").count, st("DIGGER").vmax), (4, 12, 19, 6));
         assert_eq!((st("GLEANER").vacuum, st("GLEANER").vac_past(), st("GLEANER").hold(), st("GLEANER").count, st("GLEANER").vmax), (12, 12, 36, 35, 6));

@@ -198,9 +198,18 @@ fn canvas_centre() -> (i32, i32) {
     (CANVAS.x + CANVAS.w / 2, CANVAS.y + CANVAS.h / 2)
 }
 
+/// What `yard_field` calls a phase ring.
+pub const PHASE_RING: &str = "PHASE RING";
+
 /// What a drawing is there for, if it has a stasis lattice, a slipstream or a vacuum, and how
-/// far that reaches: for the status line of one with no guns.
+/// far that reaches: for the status line of one with no guns. (Or a phase ring, and how many
+/// empty pixels it encloses.)
 pub fn yard_field(st: &Stats) -> Option<(&'static str, i32)> {
+    // (A phase ring: what it's for is the space it encloses, which is none if it isn't
+    // closed.)
+    if st.ring > 0 {
+        return Some((PHASE_RING, st.ring_hole));
+    }
     [("STASIS", st.stasis_reach()), ("SLIPSTREAM", st.slip_reach()), ("VACUUM", st.vac_past())].into_iter().find(|f| f.1 > 0)
 }
 
@@ -215,6 +224,11 @@ pub fn yard_status(check: &Check, armed: bool, power: i32, order: Order, collect
         // (It read "A COLLECTOR: FOLLOWS YOUR MINERS" until 2026-11-17, a letter too long
         // for its box: the test of what fits never asked for this line.)
         None if collects => ("COLLECTOR: FOLLOWS YOUR MINERS".into(), GOOD),
+        // A phase ring that isn't closed, or has something other than phase pixels on the
+        // inside of it, encloses nothing and does nothing: it says so, guns or no. A closed
+        // one says what it encloses, which is what it's worth.
+        None if field == Some((PHASE_RING, 0)) => ("PHASE RING: ENCLOSES NOTHING".into(), GOLD),
+        None if field.is_some_and(|f| f.0 == PHASE_RING) => (format!("PHASE RING: ENCLOSES {} PX", field.unwrap().1), GOOD),
         // A lattice and no guns: what it's for is its reach. (It read "NO GUNS: STAYS WITH
         // THE FLEET", which is what such a ship does least.)
         // A slipstream and no guns, or a vacuum: the same.
@@ -926,6 +940,9 @@ impl Pg {
             // Guide blocks are 5 cells, centred, and the centre column (the mirror line) is lit.
             let band = |k: i32| ((k - GRID / 2).abs() + 2) / 5;
             let breeches = d.breeches();
+            // The empty cells a phase ring shuts in: they're what the ring is worth, and each
+            // is marked with a pale dot.
+            let shut: std::collections::HashSet<usize> = if d.cells.contains(&Some(Part::PhaseRing)) { crate::pg::design::ring_cells(GRID, &d.cells).into_iter().collect() } else { Default::default() };
             for cy in cy0..=cy1 {
                 for cx in cx0..=cx1 {
                     let (x, y) = (ox + cx * z, oy + cy * z);
@@ -939,6 +956,9 @@ impl Pg {
                         None => SPACE,
                     };
                     fill_clip(fb, c, x, y, inner, inner, col);
+                    if p.is_none() && shut.contains(&((cy * GRID + cx) as usize)) && c.contains(x + inner / 2, y + inner / 2) {
+                        fb.pset(x + inner / 2, y + inner / 2, crate::palette::PHASE);
+                    }
                     // At 8x each cell shows its part's shape too.
                     if let Some(p) = p.filter(|&p| z >= 8 && (!p.turret() || breech) && c.contains(x, y) && c.contains(x + 6, y + 6)) {
                         icons::draw(fb, Icon::Part(p), x, y, OUTLINE);
@@ -1117,6 +1137,7 @@ impl Pg {
         let mirror = if self.ed.mirror { " MIRROR IS ON: IT ALSO WORKS ON THE OTHER SIDE." } else { "" };
         match t {
             Tool::Pencil if self.ed.part.side() == 3 => format!("[P] PENCIL, PAINTING {p}: A CLICK STAMPS A 3X3 {p} CENTRED ON THE CELL; RIGHT-CLICK ANY PART OF ONE TO REMOVE IT WHOLE. UP IS THE FRONT.{mirror}"),
+            Tool::Pencil if self.ed.part == Part::PhaseRing => format!("[P] PENCIL, PAINTING {p}: DRAW A CLOSED RING. THE EMPTY PIXELS IT SHUTS IN SHOW A DOT: THEY'RE WHAT IT'S WORTH. NOTHING ELSE MAY STAND INSIDE IT OR IN ITS WALL. UP IS THE FRONT.{mirror}"),
             Tool::Pencil if self.ed.part == Part::HeavyPlate => format!("[P] PENCIL, PAINTING {p}: IT HAS TO BE 2 THICK, AND A PIXEL OF IT THAT ISN'T SHOWS RED. THE RECTANGLE [R] PUTS DOWN A SLAB. UP IS THE FRONT.{mirror}"),
             Tool::Pencil if self.ed.part == Part::Engine => format!("[P] PENCIL, PAINTING {p}: IT PUSHES THE SHIP {} ([T] TURNS IT). LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}", WAYS[self.ed.engine_way]),
             Tool::Pencil => format!("[P] PENCIL, PAINTING {p}. LEFT-CLICK OR DRAG PAINTS, RIGHT-CLICK ERASES. UP IS THE FRONT.{mirror}"),
@@ -1203,6 +1224,51 @@ mod tests {
             let p = clamp_pan(z, 0);
             assert!(p <= 0 || GRID * z <= CANVAS.w);
         }
+    }
+
+    #[test]
+    fn the_canvas_dots_the_empty_cells_a_phase_ring_shuts_in() {
+        use crate::app::App;
+        use crate::pg::design::{part_examples, ring_cells};
+        let mut pg = Pg::new(None, None);
+        (pg.screen, pg.help) = (crate::pg::Screen::Yard, false);
+        pg.lib[5] = part_examples().into_iter().find(|d| d.name == "HALO").unwrap();
+        pg.select_slot(5);
+        pg.mouse = (0, 0);
+        let mut fb = Framebuffer::new();
+        pg.draw(&mut fb);
+        let z = pg.ed.zoom;
+        let inner = if z >= 4 { z - 1 } else { z };
+        // The pixel in the middle of a cell of the grid.
+        let mid = |pg: &Pg, c: usize| {
+            // (`cell_screen` is the middle of the cell's square on the canvas, gap and all.)
+            let (sx, sy) = pg.cell_screen((c as i32 % GRID, c as i32 / GRID));
+            (sx - z / 2 + inner / 2, sy - z / 2 + inner / 2)
+        };
+        // Every cell the HALO's ring shuts in has a pale dot in its middle, and no other
+        // empty cell has: not the one just outside its band, at its top left.
+        let shut = ring_cells(GRID, &pg.lib[5].cells);
+        let (x0, y0, _, _) = pg.lib[5].used_box().unwrap();
+        assert_eq!((shut.len(), z >= 2), (225, true));
+        for &c in &shut {
+            let (x, y) = mid(&pg, c);
+            assert!(CANVAS.contains(x, y) && fb.get(x, y) == crate::palette::PHASE, "the cell at {},{}: at {z}x the pixel at {x},{y} is {}", c as i32 % GRID, c as i32 / GRID, fb.get(x, y));
+        }
+        let out = mid(&pg, (y0 * GRID + x0 - 1) as usize);
+        assert!(fb.get(out.0, out.1) != crate::palette::PHASE);
+        // With a pixel out of the ring's side it shuts nothing in: no dots, and the status
+        // line says so.
+        assert_eq!(pg.lib[5].get(x0 + 9, y0 + 1), Some(Part::PhaseRing));
+        pg.lib[5].set(x0 + 9, y0 + 1, None);
+        pg.draw(&mut fb);
+        for &c in &shut {
+            let (x, y) = mid(&pg, c);
+            assert!(fb.get(x, y) != crate::palette::PHASE);
+        }
+        let st = pg.lib[5].stats();
+        assert_eq!(yard_status(&pg.lib[5].check(), st.armed(), st.power_pct(), st.order(), st.collector(), yard_field(&st)).0, "PHASE RING: ENCLOSES NOTHING");
+        let st = part_examples().into_iter().find(|d| d.name == "HALO").unwrap().stats();
+        assert_eq!(yard_status(&Check { cores: 1, ..Check::default() }, false, 100, st.order(), false, yard_field(&st)).0, "PHASE RING: ENCLOSES 225 PX");
     }
 
     #[test]

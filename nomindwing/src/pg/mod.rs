@@ -1102,6 +1102,7 @@ impl Pg {
             }
         }
         scene::drift(fb, f, a, self.cam);
+        scene::stasis_ground(fb, f, a, self.cam);
         let (wx, wy) = self.to_world(m.0, m.1);
         let hovered = if f.contains(m.0, m.1) { a.ship_at(wx, wy) } else { None };
         if let Some(i) = hovered {
@@ -1116,9 +1117,7 @@ impl Pg {
                 }
             }
         }
-        for s in a.ships.iter().filter(|s| s.alive) {
-            scene::ship(fb, f, s, self.cam);
-        }
+        scene::ships(fb, f, a, self.cam);
         if let Some(i) = hovered {
             scene::corners(fb, &a.ships[i], self.cam);
         }
@@ -1165,6 +1164,9 @@ impl Pg {
                 parts.push(line);
             }
             if let Some(line) = a.vac_line(i) {
+                parts.push(line);
+            }
+            if let Some(line) = a.phase_line(i) {
                 parts.push(line);
             }
             Some(vec![format!("{} {} - {}", team_name(s.team), s.name, s.doing.name()), parts.join("  ")])
@@ -1564,7 +1566,7 @@ mod tests {
                 for &order in &ORDERS {
                     // The yard's status line, one line inside its box: a collector's too.
                     for collects in [false, true] {
-                        for field in [None, Some(("STASIS", 84)), Some(("STASIS", crate::pg::design::STASIS_REACH_MAX)), Some(("SLIPSTREAM", 42)), Some(("SLIPSTREAM", crate::pg::design::SLIP_REACH_MAX)), Some(("VACUUM", crate::pg::design::VAC_REACH_MAX))] {
+                        for field in [None, Some(("STASIS", 84)), Some(("STASIS", crate::pg::design::STASIS_REACH_MAX)), Some(("SLIPSTREAM", 42)), Some(("SLIPSTREAM", crate::pg::design::SLIP_REACH_MAX)), Some(("VACUUM", crate::pg::design::VAC_REACH_MAX)), Some((crate::pg::yard::PHASE_RING, 0)), Some((crate::pg::yard::PHASE_RING, 97 * 97))] {
                             let (status, _) = yard_status(c, armed, power, order, collects, field);
                             assert!(Framebuffer::text_width(&status, 1) <= STATUS_RECT.w - 2, "the yard's status line overflows: {status}");
                         }

@@ -1711,6 +1711,81 @@ pub fn pg_screenshots(dir: &Path) {
     println!("exported proving-ground screenshots to {}", dir.display());
 }
 
+/// The phase ring (2026-11-22) on screen (`--phase-screenshots [DIR]`): its example in the yard
+/// with the pointer on the part's button, a HALO half-way through charging blue's home rock,
+/// the tick the rock goes aboard it, and the tick it's down on a CRADLE's pad and the rock is
+/// banked.
+pub fn phase_screenshots(dir: &Path) {
+    use crate::app::App;
+    use crate::pg::design::{part_examples, Cat, Part};
+    use crate::pg::{Pg, Screen};
+    let _ = std::fs::create_dir_all(dir);
+    let mut fb = Framebuffer::new();
+    let save = |fb: &Framebuffer, pg: &Pg, name: &str| fb.save_png(&dir.join(name), pg.palette());
+    let halo = part_examples().into_iter().find(|d| d.name == "HALO").unwrap();
+    let mut pg = Pg::new(None, None);
+    pg.help = false;
+    pg.running = false;
+    pg.screen = Screen::Yard;
+    pg.lib[5] = halo.clone();
+    pg.select_slot(5);
+    pg.ed.cat = Cat::Industry;
+    pg.ed.part = Part::PhaseRing;
+    pg.mouse = pg.part_button(Part::PhaseRing);
+    pg.draw(&mut fb);
+    save(&fb, &pg, "73_yard_phase_ring.png");
+    let mut pg = Pg::new(None, None);
+    pg.lib = crate::pg::design::starter_deck();
+    pg.start_match(true, 3);
+    pg.help = false;
+    let (ship, r, at) = {
+        let a = &mut pg.play.as_mut().unwrap().arena;
+        let k = a.eco.as_ref().unwrap().king[0];
+        let (kx, ky) = (a.ships[k].x, a.ships[k].y);
+        let rocks = &a.eco.as_ref().unwrap().rocks;
+        let r = (0..rocks.len()).min_by_key(|&r| crate::geom::dist2(rocks[r].cx, rocks[r].cy, kx, ky)).unwrap();
+        let at = (rocks[r].cx, rocks[r].cy);
+        // A pad it fits on, in the outpost's slot: it stands where it's put, which is in
+        // reach of blue's king, so that its store is the bank.
+        a.spawn(0, 4, &part_examples().into_iter().find(|d| d.name == "CRADLE").unwrap(), at.0 - 80, at.1 - 25, 0, false);
+        // (In the miner's slot of the deck: a ship does as its slot's card does.)
+        (a.spawn(0, 3, &halo, at.0 - 32, at.1 + 6, 0, false), r, at)
+    };
+    let mut shots = 0;
+    for t in 0..15 * 400 {
+        pg.tick();
+        let (charge, left, aboard, mouse) = {
+            let p = pg.play.as_mut().unwrap();
+            p.cam = (at.0 - 150, (at.1 - 150).min(crate::pg::sim::MH - 300));
+            let (e, s) = (p.arena.eco.as_ref().unwrap(), &p.arena.ships[ship]);
+            (e.phase[r].charge, p.arena.rock_left(&e.rocks[r]), s.carry, (s.x - p.cam.0, s.y - p.cam.1 + 3))
+        };
+        pg.mouse = mouse;
+        let bank = |pg: &Pg| {
+            let a = &pg.play.as_ref().unwrap().arena;
+            a.bank(a.eco.as_ref().unwrap().king[0])
+        };
+        if shots == 0 && left > 0 && charge * 2 >= left {
+            println!("74: tick {t}, the rock is charged {charge} of {left}");
+            pg.draw(&mut fb);
+            save(&fb, &pg, "74_phase_ring_at_work.png");
+            shots = 1;
+        } else if shots == 1 && left == 0 {
+            println!("75: tick {t}, the rock has gone: the HALO has {aboard} aboard and blue's bank is {}", bank(&pg));
+            pg.draw(&mut fb);
+            save(&fb, &pg, "75_phase_ring_takes_the_rock.png");
+            shots = 2;
+        } else if shots == 2 && aboard == 0 {
+            println!("76: tick {t}, it's down on the CRADLE and blue's bank is {}", bank(&pg));
+            pg.draw(&mut fb);
+            save(&fb, &pg, "76_phase_ring_on_its_pad.png");
+            shots = 3;
+            break;
+        }
+    }
+    assert_eq!(shots, 3);
+}
+
 /// The parts of 2026-11-15 on screen: the BASTION in the yard with the pointer on the piercer's
 /// button, and its fight against seventeen lancers four seconds in.
 pub fn new_parts_screenshots(dir: &Path) {

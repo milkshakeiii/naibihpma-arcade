@@ -1094,7 +1094,7 @@ impl Pg {
                 }
                 Some(lines)
             } else if let Some(at) = at {
-                a.rock_near(at, if p.tactical { TAC_SCALE } else { 2 }).map(|px| rock_lines(a.rock_blob(px).len()))
+                a.rock_near(at, if p.tactical { TAC_SCALE } else { 2 }).map(|px| rock_lines(a.rock_blob(px).len(), a.phase_at(px).map(|(team, charge, left)| (team == me, charge, left))))
             } else {
                 self.match_tip().map(|t| wrap(&t, 49))
             };
@@ -1388,9 +1388,14 @@ fn wait_tip(waiting: usize) -> String {
 
 /// The letters that fit across the bar at the foot of the screen.
 const BAR_COLS: usize = 49;
-/// What the bar says of the rock under the pointer.
-fn rock_lines(px: usize) -> Vec<String> {
-    wrap(&format!("ROCK: {px} PX LEFT. ANYONE CAN MINE IT, AND A SEED CAN GROW A FACTORY OUT OF IT."), BAR_COLS)
+/// What the bar says of the rock under the pointer. With a charge from phase rings on it:
+/// whether it's this player's, how much, and what it has to come to.
+fn rock_lines(px: usize, charge: Option<(bool, i32, i32)>) -> Vec<String> {
+    let charged = match charge {
+        Some((mine, got, of)) => format!(" {} PHASE RINGS HAVE CHARGED IT {got} OF {of}.", if mine { "YOUR" } else { "ENEMY" }),
+        None => String::new(),
+    };
+    wrap(&format!("ROCK: {px} PX LEFT. ANYONE CAN MINE IT, AND A SEED CAN GROW A FACTORY OUT OF IT.{charged}"), BAR_COLS)
 }
 const SELECT_HINT: &str = "CLICK SELECTS IT. DOUBLE-CLICK: ALL OF ITS TYPE.";
 /// What the bar says under one of your factories.
@@ -1715,6 +1720,7 @@ impl Play {
             crate::render::dotted(fb, f, si.x - cx, si.y - cy, sj.x - cx, sj.y - cy, 4, team_col(si.team, 0));
         }
         scene::drift(fb, f, a, self.cam);
+        scene::stasis_ground(fb, f, a, self.cam);
         scene::tractors(fb, f, a, self.cam);
         // Our seeds' courses.
         for s in a.ships.iter().filter(|s| s.alive && s.team == self.link.me && s.role == Role::Seed) {
@@ -1722,9 +1728,7 @@ impl Play {
                 crate::render::dotted(fb, f, s.x - cx, s.y - cy, tx - cx, ty - cy, 3, TEXT_FAINT);
             }
         }
-        for s in a.ships.iter().filter(|s| s.alive) {
-            scene::ship(fb, f, s, self.cam);
-        }
+        scene::ships(fb, f, a, self.cam);
         // A slowed king's engines are out.
         for t in 0..2 {
             let k = &a.ships[e.king[t]];
@@ -1772,7 +1776,7 @@ impl Play {
                 crate::render::dotted(fb, r, x0, y0, x1, y1, 2, TEXT_FAINT);
             }
         }
-        for s in a.ships.iter().filter(|s| s.alive && s.warp == 0) {
+        for s in scene::layers(a).into_iter().map(|i| &a.ships[i]).filter(|s| s.warp == 0) {
             let (l, t, rr, b) = s.bbox();
             let ((x, y), w, h) = (at(l, t), (rr - l + 1 + sc / 2) / sc, (b - t + 1 + sc / 2) / sc);
             let (w, h) = (w.max(1), h.max(1));
@@ -1810,7 +1814,7 @@ impl Play {
         let r = MINI;
         let inner = scene::minimap_ground(fb, r, a, MINI_SCALE);
         let (ox, oy) = (inner.x, inner.y);
-        for s in a.ships.iter().filter(|s| s.alive && s.warp == 0) {
+        for s in scene::layers(a).into_iter().map(|i| &a.ships[i]).filter(|s| s.warp == 0) {
             let n = if s.node || s.role == Role::King { 2 } else { 1 };
             let (x, y) = (ox + s.x / MINI_SCALE, oy + s.y / MINI_SCALE);
             for k in 0..n * n {
@@ -1946,6 +1950,9 @@ fn ship_lines(a: &Arena, i: usize) -> Vec<String> {
         lines.push(line);
     }
     if let Some(line) = a.vac_line(i).filter(|_| s.maker.is_none() && s.warp == 0) {
+        lines.push(line);
+    }
+    if let Some(line) = a.phase_line(i).filter(|_| s.maker.is_none() && s.warp == 0) {
         lines.push(line);
     }
     if a.tractor_px(i) > 0 {
@@ -2905,7 +2912,7 @@ mod tests {
         // The bar is 49 letters wide; a tip in it may run to seven lines.
         assert!(selected_line(999, 0).len() <= 49 && SELECT_HINT.len() <= 49 && FACTORY_HINT.len() <= 49);
         // The rock's line ran off the right of the bar until 2026-11-16 (Henry's screenshot).
-        assert!(rock_lines(641).len() == 2 && rock_lines(99999).iter().all(|l| l.len() <= BAR_COLS), "{:?}", rock_lines(641));
+        assert!(rock_lines(641, None).len() == 2 && rock_lines(99999, Some((false, 99999, 99999))).iter().all(|l| l.len() <= BAR_COLS), "{:?}", rock_lines(641, None));
         assert!([selected_line(0, 1), selected_line(0, 99), selected_line(999, 99)].iter().all(|l| wrap(l, 49).len() <= 2));
         assert!(wrap(HOME_TIP, 49).len() <= 7 && wrap(STANCE_TIP, 49).len() <= 7);
         // The stance button comes first after the clock, and both its faces fit it.

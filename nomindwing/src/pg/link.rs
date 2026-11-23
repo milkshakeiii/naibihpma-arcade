@@ -44,8 +44,19 @@ use std::time::Duration;
 /// at a time, and a collector follows them. 20: a build order has a start, printed once,
 /// before its round; every scoop bites; top speed is thrust over weight; heavy plate is
 /// two thick. 21: dock pads and the energy ball, a scoop uses 2 power, the rocks' four
-/// layouts, and a king that keeps out of reach of the guns that outweigh it.)
-pub const PROTO: u32 = 24;
+/// layouts, and a king that keeps out of reach of the guns that outweigh it. 22: the stasis
+/// lattice. 23: the slipstream. 24: the vacuum. 25: a lattice reaches 4 px for each pixel of
+/// its width plus its height, and a ship with one flies for its field and not for its guns.
+/// 26: a lattice sets only once its ship has stopped where it means to stay, a ship with
+/// the enemy in its lattice's reach stays there, and a ship sent after a friend stops
+/// beside it. 27: a sent lattice ship stops for an enemy that comes into its reach, and a
+/// pad's ship that flies stays where it is while its pad has work. 28: a seeded design that
+/// flies takes the stance, a factory that flies isn't pushed by the ship it's printing, and
+/// a ship is at its spot as near as its burns let it stop. 29: a ship grown from a seed
+/// holds the place it grew in, and one too heavy to burn off its top speed in four seconds
+/// picks no course. 30: nothing pushes friends apart. 31: the phase ring. 32: what a ring
+/// takes is cargo. 33: a lost ship spills what it carried.)
+pub const PROTO: u32 = 33;
 /// The port a host listens on unless told another.
 pub const PORT: u16 = 7777;
 /// Ticks between hash checks: one a second.

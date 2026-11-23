@@ -39,6 +39,25 @@ use super::*;
 
 /// How far ahead a ship plays its own motion, in ticks: four seconds.
 const AHEAD: usize = 60;
+
+/// Whether a ship's own next four seconds are worth its weighing: whether its strongest
+/// engines can burn off its top speed inside them. One that can't has no way to fly that
+/// shows any gain in the time it looks ahead (a stop it began now would still be going on
+/// when the four seconds were up), so whatever speed it had once taken up it kept: it flies
+/// as its plan says instead, like a ship with no guns.
+///
+/// (Every card the game ships with can: the slowest to is the SWARM's WASP, at 48 ticks,
+/// and a ship whose top speed is above the least there is takes about 24. Henry's own MAUL
+/// of 2026-11-22 is far under that least speed's weight for four engines and takes 115: on
+/// guard under fire it was on a course of its own for thousands of ticks, as far as the
+/// edge of the map. The wider blind spot, a ship that needs longer than four seconds to
+/// turn about and stop, is NC3's and is as it was.)
+pub(super) fn weighs(st: &Stats) -> bool {
+    match *st.push.iter().max().unwrap() {
+        0 => true,
+        top => (st.vmax * PUSH_PER_WEIGHT * st.mass.max(1) / top) as usize <= AHEAD,
+    }
+}
 /// A ship picks a course every this many ticks. Ships take turns, by their place in the list.
 const EVERY: u32 = 4;
 /// Guns, its own and the enemy's, are reckoned at every this many ticks of the way.
@@ -231,8 +250,9 @@ impl Flyer {
         // fighter, 14 for a frigate with none), it stays.
         // (A ship asked to place itself finer than that, as a miner is at the rock, stays only
         // when it's that near.)
+        // (Nor finer than its burns let it: `burn_px`.)
         let fine = s.fine > 0 && s.fine < near_enough(st);
-        let (near, stopped, off) = (if fine { s.fine } else { near_enough(st) }, (s.vx, s.vy) == (0, 0), cheb(s.x, s.y, gx, gy));
+        let (near, stopped, off) = (if fine { s.fine.max(2 + burn_px(st)) } else { near_enough(st) }, (s.vx, s.vy) == (0, 0), cheb(s.x, s.y, gx, gy));
         if off <= 2 || (off <= near && stopped) {
             return (0, 0);
         }

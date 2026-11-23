@@ -129,8 +129,27 @@ fn axis_face(dx: i32, dy: i32) -> Option<u8> {
 /// for 3 or 4 px, the starter fighter for 6, a frigate with none for 14. (Coming in from far
 /// off it usually stops within a pixel or two; this is how far out it has to be before it
 /// goes round again.)
+///
+/// And it can't place itself finer than it's carried while it burns off the slowest speed
+/// there is (`burn_px`): nothing, for most ships.
 pub fn near_enough(st: &Stats) -> i32 {
-    3 + st.quarter / 4
+    3 + st.quarter / 4 + burn_px(st)
+}
+
+/// How far (px) a ship is carried while its strongest engines change its speed by the least
+/// there is, a quarter of a pixel a tick: the ticks that takes, at half that speed on
+/// average. Under a pixel for most ships. A heavy one with few engines can't stop on a spot
+/// any finer than this, however carefully it comes in.
+///
+/// (Until 2026-11-22 this counted for nothing. Henry's MAUL of that day is 691 of weight
+/// on four engines, 57 ticks to a step of speed: 7 px. Sent to a spot, it had to stop
+/// within 3 px of it like any sent ship, came to rest 5 px past it one way and then the
+/// other, backed off and came in again, and was still at it four minutes on.)
+pub fn burn_px(st: &Stats) -> i32 {
+    match *st.push.iter().max().unwrap() {
+        0 => 0,
+        top => PUSH_PER_WEIGHT * st.mass.max(1) / top / 8,
+    }
 }
 
 /// The ticks a shot fired this tick takes to be `far` px down its line, counted from the end
@@ -291,6 +310,8 @@ pub enum Doing {
     Sent,
     /// A collector on its way to where its side's miners are at work, or standing there.
     Collect,
+    /// A ship with a phase ring on its way to a rock, or at rest by one with its ring on it.
+    Charge,
 }
 
 impl Doing {
@@ -309,6 +330,7 @@ impl Doing {
             Doing::Dodge => "DODGING A BEAM",
             Doing::Sent => "SENT TO A PLACE",
             Doing::Collect => "WITH THE MINERS",
+            Doing::Charge => "PHASING ROCK",
         }
     }
 }
@@ -364,6 +386,13 @@ pub struct Vac {
 /// A ship with a vacuum goes for a heap of loose pixels: what lies in one square of the map
 /// this many pixels across.
 pub const HEAP: i32 = 32;
+
+/// How much further than a lattice's reach counts as in it for a ship deciding where to stop:
+/// as far as that enemy flies while a field sets, at the speed it's making. A field takes
+/// `STASIS_RISE` ticks to come up once its ship has stopped.
+fn stasis_lead(e: &Snap) -> i32 {
+    isqrt(e.vx * e.vx + e.vy * e.vy) * STASIS_RISE / 4
+}
 
 /// How far apart two boxes are, squared (0: they touch or overlap).
 pub fn box_gap2((l, t, r, b): (i32, i32, i32, i32), (ol, ot, or, ob): (i32, i32, i32, i32)) -> i32 {
@@ -460,8 +489,12 @@ pub struct Ship {
     /// The pad that has hold of it, while one has.
     pub berth: Option<Berth>,
     /// How many ticks it has been still, up to `STASIS_RISE`: a stasis lattice works while its
-    /// ship is.
+    /// ship is. Still is at rest with nowhere it's making for (`Arena::step`).
     pub still: i32,
+    /// A ship with a stasis lattice that's been sent somewhere and isn't yet clear of the
+    /// enemy it was sent away from: it flies on, where otherwise it would stop for an enemy in
+    /// its reach (`Arena::lattice_stays`).
+    pub leaving: bool,
     /// It's in another ship's stasis field this tick: its pilot and its guns get one tick in
     /// `STASIS_SLOW`, and it covers one tick's ground over all of them.
     pub slowed: bool,
@@ -480,6 +513,12 @@ pub struct Ship {
     pub spot: Option<(i32, i32)>,
     /// Where a collector has chosen to stand.
     pub stand: Option<(i32, i32)>,
+    /// The rock its phase ring is at work on this tick, by its place in the match's list of
+    /// rocks (match only). None: it has no closed ring, it isn't at rest, or no rock is in
+    /// its ring's reach.
+    pub charging: Option<usize>,
+    /// The last rock its ring took: the tick, and how many pixels came with it.
+    pub took: Option<(u32, i32)>,
     pub last_hit: u32,
     pub target: Option<usize>,
     pub goal: Option<(i32, i32)>,
@@ -621,9 +660,10 @@ impl Ship {
         self.commandable(team) || self.rallies(team)
     }
 
-    /// A miner: a ship with a scoop or a vacuum whose card has it harvesting.
+    /// A miner: a ship with a scoop or a vacuum whose card has it harvesting. (And one with
+    /// a phase ring: it goes to the rocks as a miner does, and isn't one of the fleet.)
     pub fn miner(&self) -> bool {
-        self.st.gathers() && self.order == Order::Harvest
+        (self.st.gathers() || self.st.ring > 0) && self.order == Order::Harvest
     }
 
     /// A ship that works and doesn't fight: a miner, or a collector.
@@ -654,6 +694,19 @@ impl Ship {
             (self.vx / STASIS_SLOW, self.vy / STASIS_SLOW)
         } else {
             (self.vx, self.vy)
+        }
+    }
+    /// Whether its cell `c` is a dock pad pixel that's resting after a miner unloaded on it.
+    pub fn pad_resting(&self, c: usize) -> bool {
+        self.hp[c] > 0 && self.cool[c] > 0 && self.shape.cells[c] == Some(Part::DockPad)
+    }
+    /// The middle of the box its phase ring pixels lie in, on the map: where the dot that
+    /// runs to its rock sets out from. (Its own middle, with none standing.)
+    pub fn ring_mid(&self) -> (i32, i32) {
+        let at: Vec<(i32, i32)> = (0..self.hp.len()).filter(|&c| self.hp[c] > 0 && self.shape.cells[c] == Some(Part::PhaseRing)).map(|c| self.cell_xy(c)).collect();
+        match (at.iter().map(|p| p.0).min(), at.iter().map(|p| p.0).max(), at.iter().map(|p| p.1).min(), at.iter().map(|p| p.1).max()) {
+            (Some(l), Some(r), Some(t), Some(b)) => ((l + r) / 2, (t + b) / 2),
+            _ => (self.x, self.y),
         }
     }
     /// Whether a stasis field holds this ship: any finished ship but a king. (A king moves
@@ -799,6 +852,7 @@ impl Ship {
             pulled: None,
             berth: None,
             still: 0,
+            leaving: false,
             slowed: false,
             slow_rem: (0, 0),
             sped: false,
@@ -806,6 +860,8 @@ impl Ship {
             spot: None,
             worked: None,
             stand: None,
+            charging: None,
+            took: None,
             last_hit: tick,
             target: None,
             goal: None,
@@ -992,10 +1048,6 @@ struct Snap {
     half: i32,
     /// Pixels as built: its size class, which damage doesn't change.
     full: i32,
-    /// Whether it was a miner at work last tick: after a rock pixel, or taking a full load home.
-    /// It's part of the snapshot so that every ship gets the same answer, whatever order they
-    /// think in.
-    working: bool,
     /// What SAB goes for: a ship with a scoop or a factory pixel still on it, or anything planted.
     /// Never a king.
     worker: bool,
@@ -1132,7 +1184,7 @@ impl Arena {
     }
 
     /// An empty map.
-    fn blank(w: i32, h: i32, seed: u64) -> Arena {
+    pub(crate) fn blank(w: i32, h: i32, seed: u64) -> Arena {
         Arena {
             tick: 0,
             ships: Vec::new(),
@@ -1228,7 +1280,10 @@ impl Arena {
         let n = shape.cells.len();
         let hp = shape.cells.iter().map(|c| (c.is_some() && !empty) as u8).collect();
         // Stagger the guns so a broadside ripples instead of firing as one. A shield starts full.
-        let cool = (0..n).map(|i| if shape.cells[i] == Some(Part::Shield) { 0 } else { (i as i32 * 7) % FLAK_PERIOD }).collect();
+        // (Guns start out of step with each other. A dock pad pixel's count is its rest, and
+        // a new pad is ready: until 2026-11-22 it started with a gun's, so a pad just built
+        // rested for up to a second.)
+        let cool = (0..n).map(|i| if matches!(shape.cells[i], Some(Part::Shield | Part::DockPad)) { 0 } else { (i as i32 * 7) % FLAK_PERIOD }).collect();
         let charge = shape.cells.iter().map(|c| if *c == Some(Part::Shield) { SHIELD_CHARGES } else { 0 }).collect();
         let turrets = shape
             .turrets
@@ -1279,6 +1334,7 @@ impl Arena {
             pulled: None,
             berth: None,
             still: 0,
+            leaving: false,
             slowed: false,
             slow_rem: (0, 0),
             sped: false,
@@ -1286,6 +1342,8 @@ impl Arena {
             spot: None,
             worked: None,
             stand: None,
+            charging: None,
+            took: None,
             last_hit: 0,
             target: None,
             goal: None,
@@ -1365,8 +1423,18 @@ impl Arena {
         }
         self.tick += 1;
         for s in &mut self.ships {
-            // Still: where it was a tick ago, and not under way. (Turning on the spot is still.)
-            let moved = (s.pose0.0, s.pose0.1) != (s.x, s.y) || (s.vx, s.vy) != (0, 0);
+            // Still: where it was a tick ago, not under way, and with nowhere it's making for.
+            // A ship turning at the place it means to stay is still. One that has stopped to
+            // turn on its way somewhere isn't: it will be gone again when the turn is done.
+            // (`want` is the speed its pilot is making for: none, once it's where it's going.)
+            //
+            // (Until 2026-11-22 any turn on the spot was still. A SNARE has engines ahead and
+            // astern and none to the side, so it stops and turns for each leg of a flight,
+            // and a quarter turn takes it longer than a field takes to set. On its way to its
+            // post, or to a spot it was sent to, its field came up at a turn with an enemy in
+            // reach and dropped when it flew on. Henry: "the SNARE still moves when its field
+            // is active. it should basically never do that".)
+            let moved = (s.pose0.0, s.pose0.1) != (s.x, s.y) || (s.vx, s.vy) != (0, 0) || s.want != (0, 0);
             s.still = if moved || !s.alive { 0 } else { (s.still + 1).min(STASIS_RISE) };
             s.pose0 = (s.x, s.y, s.facing);
         }
@@ -1384,7 +1452,7 @@ impl Arena {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.alive && s.warp == 0)
-            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.going().0, vy: s.going().1, half: s.half(), full: s.px_full(), working: matches!(s.doing, Doing::Mine | Doing::Haul), worker: s.role == Role::Ship && (s.st.gathers() || s.st.factory > 0 || s.st.tractor > 0 || s.rooted) })
+            .map(|(idx, s)| Snap { idx, team: s.team, x: s.x, y: s.y, vx: s.going().0, vy: s.going().1, half: s.half(), full: s.px_full(), worker: s.role == Role::Ship && (s.st.gathers() || s.st.factory > 0 || s.st.tractor > 0 || s.st.ring > 0 || s.rooted) })
             .collect();
         let n = self.ships.len();
         // How close each armed ship that can move is to its nearest enemy, before and after
@@ -1413,12 +1481,21 @@ impl Arena {
                 // map's edge, 184 px on. Armed ships that turn as slowly still weigh their
                 // four seconds the same way: see MATCH.md, "No guns, no course".)
                 //
-                // Nor does a stasis lattice that has been sent somewhere, guns or no: it only
-                // works while it's still, so it stops where it was sent and steps aside for
-                // nothing.
+                // Nor does a ship with a stasis lattice, guns or no, sent or not: a lattice
+                // only works while its ship is still, so it flies for its field and not for
+                // its guns, and where its plan stops it, it stays (`lattice_plan`).
+                //
+                // (Until 2026-11-21 one with guns that hadn't been sent picked courses like
+                // any gunship, so it was under way whenever an enemy was near and its field
+                // was never up when it was wanted. Henry, of the SNARE: "I built stasis field
+                // units a few times in my playtests but I never got to see it work".)
+                //
+                // Nor a ship too heavy for its engines to burn off its own top speed inside
+                // the four seconds a course is weighed over (`pilot::weighs`): nothing it
+                // could begin would show in what it weighs.
                 let unarmed = !self.ships[i].st.armed();
-                let anchored = self.ships[i].st.stasis > 0 && self.ships[i].sent.is_some();
-                let plan = if !self.plain[self.ships[i].team] && self.ships[i].role != Role::Seed && !unarmed && !anchored {
+                let anchored = self.ships[i].st.stasis > 0;
+                let plan = if !self.plain[self.ships[i].team] && self.ships[i].role != Role::Seed && !unarmed && !anchored && pilot::weighs(&self.ships[i].st) {
                     self.on_course(i, plan, &snap)
                 } else {
                     // (A ship whose last gun has just been shot off drops the course it was on.)
@@ -1607,11 +1684,10 @@ impl Arena {
                 }
             }
             Order::Hunt | Order::Sab => {
-                if !armed {
-                    match self.anchor(i, snap) {
-                        Some(p) => p,
-                        None => self.with_group(i, snap),
-                    }
+                if st.stasis > 0 {
+                    self.lattice_plan(i, snap, home)
+                } else if !armed {
+                    self.with_group(i, snap)
                 } else {
                     // On SAB it's miners and factories first. With none left, it hunts.
                     let found = if order == Order::Sab { pick(i32::MAX / 4, (x, y), true) } else { None };
@@ -1624,12 +1700,14 @@ impl Arena {
                     }
                 }
             }
+            // (A ship with a stasis lattice keeps its post, whatever comes and whatever hits
+            // it: where it stands is where its field is.)
             Order::Guard => match pick(GUARD_RADIUS, home, false) {
-                Some(e) if armed && cheb(x, y, home.0, home.1) <= GUARD_RADIUS + 50 => {
+                Some(e) if armed && st.stasis == 0 && cheb(x, y, home.0, home.1) <= GUARD_RADIUS + 50 => {
                     chosen = Some(e.idx);
                     self.engage(i, &e, snap)
                 }
-                _ if !armed && hurt => self.flee(i),
+                _ if !armed && hurt && st.stasis == 0 => self.flee(i),
                 _ => self.go(i, home, Doing::Guard),
             },
             // With its king: it fights what comes near the king while it's near the king itself,
@@ -1637,16 +1715,14 @@ impl Arena {
             // arena), it hunts.
             Order::Escort => match self.escort_spot(i) {
                 Some((king, spot)) => match pick(ESCORT_RADIUS, king, false) {
-                    Some(e) if armed && cheb(x, y, king.0, king.1) <= ESCORT_RADIUS + 50 => {
+                    Some(e) if armed && st.stasis == 0 && cheb(x, y, king.0, king.1) <= ESCORT_RADIUS + 50 => {
                         chosen = Some(e.idx);
                         self.engage(i, &e, snap)
                     }
                     _ => self.go(i, spot, Doing::WithKing),
                 },
-                None if !armed => match self.anchor(i, snap) {
-                    Some(p) => p,
-                    None => self.with_group(i, snap),
-                },
+                None if st.stasis > 0 => self.lattice_plan(i, snap, home),
+                None if !armed => self.with_group(i, snap),
                 None => match pick(i32::MAX / 4, (x, y), false) {
                     Some(e) => {
                         chosen = Some(e.idx);
@@ -1655,8 +1731,10 @@ impl Arena {
                     None => self.go(i, home, Doing::Idle),
                 },
             },
+            // (A ship with a closed phase ring keeps to its rock, shot at or not: its charge
+            // is what it's there for, and it builds only while the ship is at rest.)
             Order::Harvest => {
-                if !armed && hurt {
+                if !armed && hurt && st.ring_hole == 0 {
                     self.flee(i)
                 } else {
                     self.harvest(i)
@@ -1678,7 +1756,12 @@ impl Arena {
         self.ships[i].prey = chosen;
         // A built ship sent home with nothing to do waits at its post instead: its own place in
         // the rings round what built it.
-        let posted = st.thrust > 0 && self.ships[i].ring0 > 0 && plan.goal == Some(home) && matches!(plan.doing, Doing::Guard | Doing::Idle | Doing::Hold);
+        // (In a match a ship with no rings round anything is one that grew from a seed: its
+        // post is where it grew, and it holds that as a built ship holds its place in the
+        // rings. Until 2026-11-22 it had no post, so every friend that came near pushed it
+        // off, the ships it had printed among them: Henry's MAULs, planted by his PORTs,
+        // were up to 886 px from where they grew.)
+        let posted = st.thrust > 0 && (self.ships[i].ring0 > 0 || self.eco.is_some()) && plan.goal == Some(home) && matches!(plan.doing, Doing::Guard | Doing::Idle | Doing::Hold);
         if posted {
             let spot = self.clear_post(i, self.post(i), snap);
             let mut p = self.go(i, spot, plan.doing);
@@ -1697,30 +1780,42 @@ impl Arena {
         }
         self.ships[i].posted = posted;
         // (A collector at its place among the miners is parked too: it has a spot of its own.)
-        let parked = matches!(plan.doing, Doing::Sent | Doing::Collect);
+        // (And a ship with a phase ring at its rock.)
+        let parked = matches!(plan.doing, Doing::Sent | Doing::Collect | Doing::Charge);
         self.ships[i].parked = parked;
-        // Friends keep a pixel or two apart instead of stacking into one sprite. A miner at work
-        // takes no part in that, either way. After a rock pixel it goes to that pixel, whether its
-        // own factory stands over it or a fleet is parked there (pushed off, it never gets its
-        // bite), and with a full load it goes straight home (pushed back, it never unloads). Nor
-        // does it push anyone: miners working one rock face sit on top of each other and give
-        // way to nothing, so their pushes added up to a wall that nothing of their own side
-        // could cross, a full miner on the far side of it least of all. A ship at its post is
-        // the other exception: it has a place of its own and holds it, and whatever flies by
-        // goes round. (Pushed off and pulled back, it never sat still.) So is a ship sent to a
-        // spot, there or on its way with nothing to fight: pushed, the last to arrive never got
-        // through the ranks already standing, and a group sent to one point never settled.
-        if st.thrust > 0 && !matches!(plan.doing, Doing::Mine | Doing::Haul) && !posted && !parked {
-            let h = self.ships[i].half();
-            for f in snap.iter().filter(|f| f.team == team && f.idx != i && !f.working && cheb(f.x, f.y, x, y) < f.half + h + 2) {
-                let (ax, ay) = if (f.x, f.y) == (x, y) { (if i < f.idx { -4 } else { 4 }, 0) } else { toward(f.x, f.y, x, y, 4) };
-                plan.dv.0 += ax;
-                plan.dv.1 += ay;
-            }
+        // Nothing pushes friends apart. Where a ship stops is chosen clear of its friends, once:
+        // its post (`clear_post`), the spot it was sent to, its place in a firing line
+        // (`stand_off`). On the way, and in a fight, friends fly through one another.
+        //
+        // (Until 2026-11-22 a ship whose box was within 2 px of a friend's added 15 px/s away
+        // from that friend to the speed its pilot made for, every tick they touched, and flew
+        // that with its own engines: so it gathered speed, and had to stop and come back.
+        // Miners at work, ships at a post, ships sent to a spot and a lattice holding its
+        // field had each been let off it in turn, as each was found being shoved about. It
+        // sent Henry's MAULs hundreds of pixels from where they grew. Henry: "it doesn't seem
+        // like the destacking push should be a physics push, it should be more just a
+        // hand-of-god one-time convenience intervention". Measured in three matches played
+        // by two AIs, ships in a fight sat on top of a friend as often without it as with
+        // it: MATCH.md, "The push itself". "Yes, take it out.")
+        //
+        // A lattice ship with the enemy on it stays exactly where it is, whatever its plan
+        // says (`lattice_stays`): its post has shifted because a guard built before it was
+        // lost, something is being printed on the spot it was sent to, the stance has
+        // changed, a beam is warming. The field is what it's there for, and it drops the tick
+        // the ship moves.
+        if self.ships[i].leaving && !self.lattice_near(i, snap, false, stasis_lead) {
+            // Clear of whatever it was sent away from: from here it stops for the next enemy.
+            self.ships[i].leaving = false;
+        }
+        let fixed = st.stasis > 0 && st.thrust > 0 && self.lattice_stays(i, snap, self.ships[i].leaving, plan.doing == Doing::StandOff);
+        if fixed {
+            let doing = plan.doing;
+            plan = self.go(i, (x, y), doing);
+            plan.face = None;
         }
         // Whatever it was doing, a ship that can get off the line of a warming beam does, and
         // stays off it until the beam has cut.
-        if let Some(dv) = self.dodge(i, plan.dv) {
+        if let Some(dv) = self.dodge(i, plan.dv).filter(|_| !fixed) {
             plan.dv = dv;
             plan.doing = Doing::Dodge;
         }
@@ -1805,6 +1900,10 @@ impl Arena {
     /// the guards.
     fn post(&self, i: usize) -> (i32, i32) {
         let s = &self.ships[i];
+        // (Nothing built it: it grew from a seed, and its post is where it grew.)
+        if s.ring0 == 0 {
+            return s.home;
+        }
         let same = |o: &Ship| o.alive && o.team == s.team && o.home == s.home && o.ring0 > 0 && o.role == Role::Ship && o.grow.is_none() && o.warp == 0 && o.st.thrust > 0;
         let guards = |v: &[Ship]| v.iter().filter(|o| same(o) && o.order == Order::Guard).count() as i32;
         let mut rank = if s.order == Order::Guard {
@@ -1832,6 +1931,15 @@ impl Arena {
     /// further from home. Where they stand doesn't change from tick to tick, so neither does that
     /// point: the ship flies there and stops.
     ///
+    /// A ship sent after a friend is sent to where that friend is, so it gives way to the
+    /// friend, whichever was built first: it stops beside it, clear of it, and the friend
+    /// has nothing in its place to give way to.
+    ///
+    /// (Until 2026-11-22 a ship sent after a friend built later than itself took the friend's
+    /// own place, and the friend gave way to it, and it followed: for good. A MAUL sent
+    /// after a SNARE at its post kept the SNARE off its post for 1783 ticks of 1800, and its
+    /// lattice was set on one of them.)
+    ///
     /// (It used to step out of one thing at a time, through its nearer side. Between two things
     /// standing close together that stepped it out of each into the other, and it came to rest
     /// inside one of them.)
@@ -1844,7 +1952,7 @@ impl Arena {
             .filter(|f| f.team == s.team && f.idx != i)
             .filter_map(|f| {
                 let o = &self.ships[f.idx];
-                let at = if o.st.thrust == 0 || o.grow.is_some() || o.role == Role::King {
+                let at = if o.st.thrust == 0 || o.grow.is_some() || o.role == Role::King || s.chase == Some(f.idx) {
                     (f.x, f.y)
                 } else if f.idx < i && (o.posted || o.parked) {
                     o.goal?
@@ -1925,10 +2033,21 @@ impl Arena {
         p
     }
 
-    /// Where a hunter with a stasis lattice and no guns goes: to the nearest enemy its field
-    /// can hold, until that's well inside its lattice's reach. With anything it can hold in
-    /// reach it stops and stays, since its lattice only works while it's still. (None: it has
-    /// no lattice, or there's nothing to hold.)
+    /// What a ship with a stasis lattice does on the attack, whatever guns it has: it takes
+    /// itself to the enemy (`anchor`). With nothing on the map for its field to hold, one with
+    /// guns goes home as any gunship does, and one with none stays with its group.
+    fn lattice_plan(&mut self, i: usize, snap: &[Snap], home: (i32, i32)) -> Plan {
+        match self.anchor(i, snap) {
+            Some(p) => p,
+            None if self.ships[i].st.armed() => self.go(i, home, Doing::Idle),
+            None => self.with_group(i, snap),
+        }
+    }
+
+    /// Where a hunter with a stasis lattice goes: to the nearest enemy its field can hold,
+    /// until that's well inside its lattice's reach. With anything it can hold in reach it
+    /// stops and stays, since its lattice only works while it's still. (None: it can't fly,
+    /// or there's nothing to hold.)
     fn anchor(&mut self, i: usize, snap: &[Snap]) -> Option<Plan> {
         let (team, x, y, st) = {
             let s = &self.ships[i];
@@ -1937,21 +2056,52 @@ impl Arena {
         if st.stasis == 0 || st.thrust == 0 {
             return None;
         }
-        let prey: Vec<Snap> = snap.iter().filter(|e| e.team != team && self.ships[e.idx].stasis_holds()).copied().collect();
-        let mine: Vec<Field> = self.stasis.iter().filter(|f| f.ship == i).copied().collect();
-        // (In reach, or near enough to be in it by the time the field is up, at the speed
-        // it's making: a field takes `STASIS_RISE` ticks to come up once its ship has stopped.)
-        let in_reach = prey.iter().any(|e| {
-            let (bb, lead) = (self.ships[e.idx].bbox(), isqrt(e.vx * e.vx + e.vy * e.vy) * STASIS_RISE / 4);
-            mine.iter().any(|f| box_gap2(bb, f.bbox) <= (f.reach + lead) * (f.reach + lead))
-        });
-        if in_reach {
+        if self.lattice_near(i, snap, false, stasis_lead) {
             let mut p = self.go(i, (x, y), Doing::StandOff);
             p.face = None;
             return Some(p);
         }
-        let e = *prey.iter().min_by_key(|e| dist2(e.x, e.y, x, y))?;
+        let e = *snap.iter().filter(|e| e.team != team && self.ships[e.idx].stasis_holds()).min_by_key(|e| dist2(e.x, e.y, x, y))?;
         Some(self.engage(i, &e, snap))
+    }
+
+    /// Whether anything ship `i`'s lattices can hold is within their reach and `more` px
+    /// besides (a figure for each such thing), counted as a field counts it: box to box.
+    /// `set`: only its lattices that are set count.
+    fn lattice_near(&self, i: usize, snap: &[Snap], set: bool, more: impl Fn(&Snap) -> i32) -> bool {
+        let team = self.ships[i].team;
+        snap.iter().filter(|e| e.team != team && self.ships[e.idx].stasis_holds()).any(|e| {
+            let (bb, more) = (self.ships[e.idx].bbox(), more(e));
+            self.stasis.iter().filter(|f| f.ship == i && (f.set || !set)).any(|f| box_gap2(bb, f.bbox) <= (f.reach + more) * (f.reach + more))
+        })
+    }
+
+    /// Whether ship `i`, which has a stasis lattice and can fly, stays exactly where it is
+    /// this tick, whatever its plan says. A lattice only works while its ship is still, and
+    /// a field takes two seconds to come back, so with the enemy on it, it doesn't move:
+    ///
+    /// - An enemy is in its reach (or will be by the time a field has set, `stasis_lead`).
+    ///   On its way to its post, to a spot it was sent to, back from a place it was let go
+    ///   at, or after an enemy on the attack, it stops where it is: there's something to hold
+    ///   here. (`leaving`: not one that has just been sent somewhere, until it's clear of the
+    ///   enemy it was sent away from. Being sent is how its player gets it out of a fight.)
+    /// - Its lattice is set and an enemy is within `STASIS_KEEP` px of its reach: in it, so
+    ///   that its field is up, or only just stepped out. Its post may have shifted, or the
+    ///   spot it was sent to may have filled: it stays until the enemy has gone. (`closing`:
+    ///   on the attack its plan is to close on an enemy that's out of reach, so it goes.)
+    ///
+    /// Only being sent somewhere moves it sooner (`Cmd::Send`, `Cmd::Follow`): that lets its
+    /// field go, and it leaves.
+    ///
+    /// (Until 2026-11-22 a lattice ship stayed for an enemy in reach only on the attack. On
+    /// guard it flew to its post whatever was in reach, its post shifted whenever a guard
+    /// built before it was lost, and its field came up wherever it stopped to turn on the
+    /// way. Henry: "the SNARE still moves when its field is active. it should basically
+    /// never do that". For some hours after that a ship that had been sent stopped for nothing on
+    /// its way, like any sent ship. Asked whether it should stop for an enemy that comes
+    /// into its reach, Henry, 2026-11-22: "Yes, stop.")
+    fn lattice_stays(&self, i: usize, snap: &[Snap], leaving: bool, closing: bool) -> bool {
+        (!leaving && self.lattice_near(i, snap, false, stasis_lead)) || (!closing && self.lattice_near(i, snap, true, |_| STASIS_KEEP))
     }
 
     /// Arrive at a point: the speed to make for now, so as to stop on it (`pilot::Flyer::arrive`).
@@ -1999,8 +2149,9 @@ impl Arena {
     /// from the target's edge.
     fn gun_reach(&self, i: usize, e: &Snap) -> i32 {
         let st = &self.ships[i].st;
-        // A lattice with no guns holds where its target is well inside its field.
-        if !st.armed() && st.stasis > 0 {
+        // A ship with a lattice holds where its target is well inside its field, whatever guns
+        // it has.
+        if st.stasis > 0 {
             return st.stasis_reach() * 2 / 3 + e.half;
         }
         let gun = if st.aims() {
@@ -2063,12 +2214,62 @@ impl Arena {
             None
         };
         let point = lined_up.unwrap_or_else(|| {
+            if st.stasis == 0 {
+                return self.range_place(i, e, pref);
+            }
+            // (A lattice comes at the enemy along its own line: see `range_place`.)
             let (ux, uy) = toward(e.x, e.y, x, y, 64);
             let (ux, uy) = if (ux, uy) == (0, 0) { (-64, 0) } else { (ux, uy) };
             ((e.x + ux * pref / 64).clamp(h + 2, self.w - 3 - h), (e.y + uy * pref / 64).clamp(h + 2, self.h - 3 - h))
         });
         let dv = self.arrive(i, point.0, point.1);
         Plan { dv, face: axis_face(e.x - x, e.y - y), doing: Doing::StandOff, target: Some(e.idx), goal: Some(point) }
+    }
+
+    /// Where a ship with no gun to line up stands for target `e`: a place of its own on the
+    /// circle `pref` px round the target's middle. There are sixteen places, one out each of
+    /// the bearings the game reckons a target's open sides by (`open_sides`). It takes the
+    /// nearest one round from the place it has (or, with none yet, from where it is) that no
+    /// friend built before it has taken for the same target, and of those, one on a side its
+    /// guns can break something from if there is one. So a group comes to rest in an arc on
+    /// the side it came from, each ship on a place of its own, and ships facing armour their
+    /// guns can't break go round to where they can. It's chosen once and kept: a ship leaves
+    /// its place only when a friend built before it takes it, or that side shuts.
+    ///
+    /// (A ship with a stasis lattice isn't taking a place to fire from: it comes at the
+    /// enemy along its own line until that's well inside its field, and stops. `stand_off`.)
+    ///
+    /// (Until 2026-11-22 it stood at its range on the line from the target to itself,
+    /// whoever else stood there, and friends that touched pushed each other apart every
+    /// tick they did. That push is gone: see `brain`. Without it six ARROWS sent at one
+    /// target came to rest on one pixel, where one shell took them all; and in front of a
+    /// plated shell they stayed there, every shot bouncing, where the jostling had carried
+    /// them round to its stern in twenty fights of twenty.)
+    fn range_place(&self, i: usize, e: &Snap, pref: i32) -> (i32, i32) {
+        let s = &self.ships[i];
+        let h = s.half();
+        // What its guns pierce, at the best: a place counts as open if that breaks something
+        // from there.
+        let flak = (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && s.shape.cells[c] == Some(Part::Flak)).map(|c| rounds(FLAK_PIERCE, FLAK_SPEED, s.heavy_rounds(&[c])).0).max().unwrap_or(0);
+        let own = |n: i32, pierce: i32| if n > 0 { pierce } else { 0 };
+        let pierce = [flak, own(s.st.cannon, CANNON_PIERCE), own(s.st.missile, MISSILE_PIERCE), own(s.st.tracker, TRACKER_PIERCE), own(s.st.ball, BALL_PIERCE)].into_iter().max().unwrap().max(1);
+        let open = |b: i32| pierce > 2 || self.sides.get(e.idx).map_or(true, |side| side.2[(pierce - 1) as usize] >> b & 1 == 1);
+        let at = |b: i32| {
+            let (ux, uy) = dir64(b * 4);
+            ((e.x + ux * pref / 1024).clamp(h + 2, self.w - 3 - h), (e.y + uy * pref / 1024).clamp(h + 2, self.h - 3 - h))
+        };
+        // The places friends built before it have for this target.
+        let theirs: Vec<((i32, i32), i32)> = self.ships[..i].iter().filter(|f| f.alive && f.team == s.team && f.target == Some(e.idx) && f.doing == Doing::StandOff).filter_map(|f| f.goal.map(|g| (g, f.half() + h + 2))).collect();
+        let taken = |p: (i32, i32)| theirs.iter().any(|&(g, r)| cheb(g.0, g.1, p.0, p.1) < r);
+        // Round from the place it has, or from where it is.
+        let from = s.goal.filter(|_| s.target == Some(e.idx) && s.doing == Doing::StandOff).unwrap_or((s.x, s.y));
+        let b0 = if from == (e.x, e.y) { 12 } else { (angle_of(from.0 - e.x, from.1 - e.y) + 2) / 4 % 16 };
+        let b = (0..16)
+            .map(|k: i32| (b0 + if k % 2 == 1 { (k + 1) / 2 } else { -(k / 2) }).rem_euclid(16))
+            .enumerate()
+            .min_by_key(|&(k, b)| (taken(at(b)), !open(b), k))
+            .map_or(b0, |(_, b)| b);
+        at(b)
     }
 
     // ----- Lances: a gun that fires like a rook on a ship that flies freely -----
@@ -2152,6 +2353,25 @@ impl Arena {
             (s.team, s.x, s.y, s.carry, s.st.hold(), s.home)
         };
         if hold == 0 {
+            // A ship with a phase ring and no scoop (match only). What its ring took is cargo,
+            // and it takes that in before anything else, whatever has become of its ring: to
+            // a tractor, or a pad it fits on (`unload`). It places itself as finely as a ship
+            // sent to a spot does, so however slow it is to turn it stops where a pad can
+            // take hold of it. With nothing aboard and its ring closed, it goes to the rocks.
+            //
+            // (Only a ship whose ring has taken a rock, or that has a ring still: a miner
+            // with every scoop shot off goes home as it always did, load and all.)
+            if self.eco.is_some() && (self.ships[i].took.is_some() || self.ships[i].st.ring > 0) {
+                if carry > 0 {
+                    self.ships[i].hauling = true;
+                    self.ships[i].fine = SENT_NEAR;
+                    return self.unload(i);
+                }
+                (self.ships[i].hauling, self.ships[i].dock) = (false, None);
+                if self.ships[i].st.ring_hole > 0 {
+                    return self.ring_plan(i);
+                }
+            }
             return self.go(i, home, Doing::Idle);
         }
         // A ship with a vacuum goes where the loose pixels lie: the heap it's for, if there's
@@ -2289,6 +2509,103 @@ impl Arena {
                 self.go(i, home, Doing::Idle)
             }
         }
+    }
+
+    /// Where a ship with a closed phase ring and no scoop goes (match only): to the rock
+    /// nearest it, and there it stays. At rest with rock in its ring's reach it's where it
+    /// should be, wherever that is: its ring is on that rock (`phases`). Otherwise it makes
+    /// for the rock pixel nearest it and stops on it, as finely as a ship sent to a spot
+    /// does. It keeps to the pixel it chose while that's standing, and when its rock has
+    /// gone it chooses again from where it is. With no rock left anywhere it goes home.
+    fn ring_plan(&mut self, i: usize) -> Plan {
+        let (x, y, home, at_rest) = {
+            let s = &self.ships[i];
+            (s.x, s.y, s.home, (s.vx, s.vy) == (0, 0))
+        };
+        if at_rest && self.phase_rock(i).is_some() {
+            return self.go(i, (x, y), Doing::Charge);
+        }
+        if !self.ships[i].tpx.is_some_and(|(px, py)| self.rock_at(px, py)) {
+            self.ships[i].tpx = self.rock_px.iter().copied().filter(|&(px, py)| self.rock_at(px, py)).min_by_key(|&(px, py)| (dist2(px, py, x, y), py, px));
+        }
+        match self.ships[i].tpx {
+            Some(p) => {
+                self.ships[i].fine = SENT_NEAR;
+                self.go(i, p, Doing::Charge)
+            }
+            None => self.go(i, home, Doing::Idle),
+        }
+    }
+
+    /// The rock ship `i`'s phase ring would be at work on, were the ship at rest: the one
+    /// with the standing pixel nearest the ship's middle, inside its ring's reach (of two as
+    /// near, the upper, then the one further left). By its place in the match's list of
+    /// rocks. None: no rock in reach, no closed ring, or no match.
+    pub fn phase_rock(&self, i: usize) -> Option<usize> {
+        let e = self.eco.as_ref()?;
+        let s = &self.ships[i];
+        let reach = s.st.phase_reach(s.half());
+        if reach == 0 {
+            return None;
+        }
+        let mut best: Option<(i32, i32, i32)> = None;
+        for py in (s.y - reach).max(0)..=(s.y + reach).min(self.h - 1) {
+            for px in (s.x - reach).max(0)..=(s.x + reach).min(self.w - 1) {
+                if self.rock[(py * self.w + px) as usize] {
+                    let key = (dist2(px, py, s.x, s.y), py, px);
+                    if key.0 <= reach * reach && best.map_or(true, |b| key < b) {
+                        best = Some(key);
+                    }
+                }
+            }
+        }
+        let (_, py, px) = best?;
+        e.rocks.iter().position(|r| r.px.contains(&(px, py)))
+    }
+
+    /// Rock `r`'s charge: the side whose it is, how much, and what the rock has left. None:
+    /// it holds none.
+    pub fn phase_of(&self, r: usize) -> Option<(usize, i32, i32)> {
+        let e = self.eco.as_ref()?;
+        let ph = e.phase.get(r).filter(|ph| ph.charge > 0)?;
+        Some((ph.team, ph.charge, self.rock_left(&e.rocks[r])))
+    }
+
+    /// The charge on the rock that has, or had, a pixel at `p`.
+    pub fn phase_at(&self, p: (i32, i32)) -> Option<(usize, i32, i32)> {
+        let e = self.eco.as_ref()?;
+        self.phase_of(e.rocks.iter().position(|r| r.px.contains(&p))?)
+    }
+
+    /// What the inspector says of ship `i`'s phase ring: what it puts on a rock a second,
+    /// and how the rock it's on stands. None: it has no ring.
+    pub fn phase_line(&self, i: usize) -> Option<String> {
+        let s = &self.ships[i];
+        if s.st.ring == 0 {
+            return None;
+        }
+        if s.st.ring_hole == 0 {
+            return Some("PHASE RING: IT ENCLOSES NOTHING.".into());
+        }
+        let tenths = s.st.phase_rate() * 150 / PHASE_TICKS;
+        let per = format!("{}.{} PX/S", tenths / 10, tenths % 10);
+        // For five seconds after a rock has gone, it says so.
+        if let Some((_, got)) = s.took.filter(|t| self.tick.saturating_sub(t.0) < 75) {
+            return Some(format!("PHASE RING: {per}. IT TOOK A ROCK OF {got} PX."));
+        }
+        if self.eco.is_none() {
+            return Some(format!("PHASE RING: {per} ON A ROCK, IN A MATCH."));
+        }
+        if s.carry > 0 {
+            return Some(format!("PHASE RING: {per}. IT CHARGES NOTHING WITH A LOAD ABOARD."));
+        }
+        Some(match s.charging {
+            Some(r) => match self.phase_of(r) {
+                Some((team, charge, _)) if team != s.team => format!("PHASE RING: {per}. TAKING OFF THE ENEMY'S CHARGE: {charge} LEFT."),
+                got => format!("PHASE RING: {per}. CHARGED {} OF {}.", got.map_or(0, |g| g.1), self.eco.as_ref().map_or(0, |e| self.rock_left(&e.rocks[r]))),
+            },
+            None => format!("PHASE RING: {per}, AT REST BY A ROCK."),
+        })
     }
 
     /// Where a ship with a vacuum should be for the heap of loose pixels it goes for (None:
@@ -2506,12 +2823,24 @@ impl Arena {
 
     /// The ship a miner takes its load to: the one where it would be empty soonest. A tractor
     /// ship, by how long the flight is and how much is already waiting there (its own tractor,
-    /// if it has one, is no flight at all); a ship with a pad it fits, by the flight and how
+    /// if it has one, is no flight at all), and how long that tractor would take over what
+    /// it carries beyond its own hold, which is a rock a phase ring took; a ship with a pad it fits, by the flight and how
     /// many miners are bound there before it for each place the pad has. It keeps to the one
     /// it chose while that one works: chosen afresh every tick, it would turn about as the
     /// queues changed.
+    ///
+    /// (A ship's own load isn't counted against a tractor: one is reckoned to empty a miner
+    /// the moment it arrives. A ship with a phase ring carries a whole rock, and reckoned
+    /// so it passed a pad it fitted for its king's tractor, which was the shorter flight and
+    /// would be seven minutes about it. So a load beyond the ship's own hold is counted,
+    /// 2026-11-22. For an hour every ship's whole load was: that's the rule as it's written,
+    /// and it changed where every miner went, moved two older tests and made the suite's AI
+    /// matches run near three times as long. Nobody had asked for mining to change.)
     fn dock_for(&self, i: usize) -> Option<usize> {
         let s = &self.ships[i];
+        // (Only for a ship whose ring has taken a rock: a miner with scoops shot off under
+        // its load chooses as it always did.)
+        let over = if s.took.is_some() { (s.carry - s.st.hold()).max(0) } else { 0 };
         let serves = |j: usize| self.ships[j].team == s.team && (self.tractor_px(j) > 0 || self.pad_room(i, j) > 0);
         if let Some(j) = s.dock.filter(|&j| serves(j)) {
             return Some(j);
@@ -2523,10 +2852,28 @@ impl Arena {
                 let o = &self.ships[j];
                 let d = isqrt(dist2(s.x, s.y, o.x, o.y));
                 let others = || self.ships.iter().enumerate().filter(move |&(m, w)| m != i && w.alive && w.hauling && w.dock == Some(j));
-                let pulled = (self.tractor_px(j) > 0).then(|| (d - self.tractor_reach(j)).max(0) * 4 / speed + others().map(|(_, w)| w.carry).sum::<i32>() * TRACTOR_TICKS / self.tractor_px(j));
+                let pulled = (self.tractor_px(j) > 0).then(|| (d - self.tractor_reach(j)).max(0) * 4 / speed + (others().map(|(_, w)| w.carry).sum::<i32>() + over) * TRACTOR_TICKS / self.tractor_px(j));
                 let room = self.pad_room(i, j);
                 let landed = (room > 0).then(|| d * 4 / speed + others().count() as i32 * DOCK_TURN / room);
                 (pulled.into_iter().chain(landed).min().unwrap(), j)
+            })
+    }
+
+    /// Whether ship `j`'s pads have work: a miner in their hands, or a miner of its side
+    /// with a load that's bound for them and within `DOCK_HAIL` px of where a pad would take
+    /// hold of it. A pad takes hold of a miner only while its ship is at rest, and lets go of
+    /// one its ship turns under: so a ship that flies its pad about doesn't, while this is so.
+    ///
+    /// (Until 2026-11-22 a BARGE took up a new place whenever the miners' work had shifted
+    /// 16 px, whoever was beside it: 23 times in eight minutes with eight DIGGERs and two
+    /// GLEANERs on Henry's map, and their miners stood beside a BARGE that was under way
+    /// for 73 s of that, 6 s at the longest. Henry: "something about the barges didn't seem
+    /// right. people would wait for a while for them even though they were empty".)
+    pub(super) fn pad_busy(&self, j: usize) -> bool {
+        let o = &self.ships[j];
+        o.st.dock > 0
+            && self.ships.iter().enumerate().any(|(m, w)| {
+                w.alive && (w.berth.is_some_and(|b| b.ship == j) || (w.hauling && w.carry > 0 && w.dock == Some(j) && w.berth.is_none() && isqrt(dist2(w.x, w.y, o.x, o.y)) <= self.pad_wait(m, j) + DOCK_GRAB + DOCK_HAIL))
             })
     }
 
@@ -2578,6 +2925,12 @@ impl Arena {
     /// still be linked to its side's network. It thinks once a second, and keeps its place
     /// until a better one is more than a hop away.
     fn collect(&mut self, i: usize, snap: &[Snap]) -> Plan {
+        // One with a pad stays where it is while the pad has work (`pad_busy`), on its way to
+        // a new place or not: it takes that place up when the work is done.
+        if self.pad_busy(i) {
+            let (x, y) = (self.ships[i].x, self.ships[i].y);
+            return self.go(i, (x, y), Doing::Collect);
+        }
         if self.ships[i].stand.is_none() || (self.tick as usize + i) % 15 == 0 {
             let now = self.collector_spot(i);
             let keep = match (self.ships[i].stand, now) {
@@ -4152,6 +4505,20 @@ impl Arena {
             for (c, (px, py)) in cells {
                 let drift = 2 + self.roll(i, c, Roll::Drift).below(5) as i32;
                 self.debris.push(Debris { x: px, y: py, vx: (px - x).signum(), vy: (py - y).signum(), drift, taken: false });
+            }
+            // What it was carrying spills: loose pixels where it was, for whoever comes. No
+            // more than `SPILL_CAP` of them, as with what a broken node held, and the rest is
+            // lost. (Henry, 2026-11-22, asked whether a destroyed ship should spill its
+            // cargo: "Yes, spill it". Until then a ship's load was lost with it: a miner's
+            // dozen pixels, until a phase ring's ship could have a whole rock aboard.)
+            let (h, load) = (self.ships[i].half().max(2), self.ships[i].carry);
+            self.ships[i].carry = 0;
+            for k in 0..load.min(SPILL_CAP) {
+                // (Its own dice, clear of the ones a node's store is spilt with.)
+                let mut dice = self.roll(i, (SPILL_CAP + k) as usize, Roll::Spill);
+                let (dx, dy) = (dice.range(-h, h), dice.range(-h, h));
+                let drift = 2 + dice.below(6) as i32;
+                self.debris.push(Debris { x: (x + dx).clamp(0, self.w - 1), y: (y + dy).clamp(0, self.h - 1), vx: dx.signum(), vy: dy.signum(), drift, taken: false });
             }
         }
     }
@@ -5815,13 +6182,77 @@ mod tests {
     }
 
     #[test]
+    fn ships_with_no_gun_to_line_up_take_places_of_their_own_round_their_target() {
+        // Nothing pushes friends apart (Henry, 2026-11-22: "it doesn't seem like the
+        // destacking push should be a physics push, it should be more just a hand-of-god
+        // one-time convenience intervention", and of taking it out: "Yes, take it out").
+        // Where a ship stops is chosen clear of its friends, once. For a ship with no gun
+        // to line up that's a place of its own round its target.
+        //
+        // Six ARROWS sent at a block of plate their flak can't break, which holds where it
+        // is: so the fight goes on, and every side of it is as shut as another. They come to
+        // rest in an arc on the side they came from, each at its flak's distance and no two
+        // on one place; and ten seconds later each is where it was.
+        let lib = crate::pg::flight_library();
+        let block = Design::from_rows("BLOCK", &["ppppp", "ppcpp", "ppppp"]);
+        let mut a = Arena::blank(480, 360, 1);
+        a.plain = [true; 2];
+        for (team, slot, x, y) in crate::pg::block(0, 0, 6, 110, 180, 10) {
+            assert!(a.add(team, slot, &lib[slot], x, y));
+        }
+        assert!(a.add(1, 0, &block, 370, 180));
+        a.ships[6].order = Order::Hold;
+        for _ in 0..15 * 30 {
+            a.step();
+        }
+        assert!(a.over.is_none() && a.ships[6].px_now() == a.ships[6].px_full());
+        let at: Vec<(i32, i32)> = (0..6).map(|k| (a.ships[k].x, a.ships[k].y)).collect();
+        println!("the six ARROWS came to rest at {at:?}");
+        for k in 0..6 {
+            let s = &a.ships[k];
+            let far = isqrt(dist2(s.x, s.y, 370, 180));
+            let want = a.gun_reach(k, &Snap { idx: 6, team: 1, x: 370, y: 180, vx: 0, vy: 0, half: a.ships[6].half(), full: a.ships[6].px_full(), worker: false });
+            assert!((s.vx, s.vy) == (0, 0) && (far - want).abs() <= near_enough(&s.st) + 2 && s.x < 370 - 10, "ARROW {k} is at {},{} going {},{}, {far} px from the block (it's wanted at {want})", s.x, s.y, s.vx, s.vy);
+            for j in 0..k {
+                assert!(cheb(s.x, s.y, at[j].0, at[j].1) >= 4, "ARROWS {j} and {k} are at {:?} and {:?}", at[j], at[k]);
+            }
+        }
+        for _ in 0..15 * 10 {
+            a.step();
+        }
+        assert_eq!((0..6).map(|k| (a.ships[k].x, a.ships[k].y)).collect::<Vec<_>>(), at);
+        // And nothing pushes one off its way: two of the SCAVENGERS' MAULs (7.5 px/s) set
+        // off for one target, one 10 px behind the other. Neither ever makes for a speed
+        // away from it. (The one behind was pushed back at 15 px/s by the one in front,
+        // every tick they touched.)
+        let maul = crate::pg::teams::scavengers()[2].clone();
+        let mut a = Arena::blank(900, 360, 1);
+        a.plain = [true; 2];
+        assert!(a.add(0, 0, &maul, 200, 180) && a.add(0, 0, &maul, 210, 180) && a.add(1, 0, &block, 700, 180));
+        a.ships[2].order = Order::Hold;
+        assert!(cheb(200, 180, 210, 180) < a.ships[0].half() + a.ships[1].half() + 2);
+        for t in 0..15 * 20 {
+            a.step();
+            for k in 0..2 {
+                assert!(a.ships[k].want.0 >= 0 && a.ships[k].vx >= 0, "{t} ticks in MAUL {k} is going {},{} and making for {:?}", a.ships[k].vx, a.ships[k].vy, a.ships[k].want);
+            }
+        }
+        assert!(a.ships[0].x > 260 && a.ships[1].x > 260);
+    }
+
+    #[test]
     fn ships_whose_guns_cant_break_the_armour_in_front_of_them_fly_round_to_where_they_can() {
         // Six ARROWS in front of a plated shell that holds where it is, and six LANCETS in
-        // front of one in heavy plate, which turns a lance: twenty rolls of each. Picking
-        // their own courses the ARROWS go round to its stern and break it every time. On the
-        // plain pilot they stand in front of it at their flak's distance and every shot
-        // bounces. The LANCETS line up from astern on either pilot: a ship that lines a gun
-        // up is sent to a side its gun can do something from.
+        // front of one in heavy plate, which turns a lance: twenty rolls of each. The ARROWS
+        // go round to its stern and break it every time, on either pilot: a ship with no
+        // gun to line up takes a place round its target on a side its guns can break
+        // something from (`range_place`). The LANCETS line up from astern on either pilot: a
+        // ship that lines a gun up is sent to a side its gun can do something from.
+        //
+        // (Until 2026-11-22 the ARROWS' plan stood them in front of the shell, where every
+        // shot bounced, and it was said here that picking their own courses took them round.
+        // It was the push between friends that did: with that gone they came to rest on one
+        // pixel in front of it and broke nothing in twenty fights.)
         let lib = crate::pg::flight_library();
         let fight = |slot: usize, shell: &Design, seed: u64, plain: bool| {
             let mut a = Arena::blank(480, 360, 1);
@@ -5841,7 +6272,7 @@ mod tests {
         let (arrows, plain_arrows) = (tally(0, &shell(), false), tally(0, &shell(), true));
         let (lancets, plain_lancets) = (tally(3, &heavy_shell(), false), tally(3, &heavy_shell(), true));
         println!("shells broken in twenty fights, and pixels: ARROWS {arrows:?}, on the plain pilot {plain_arrows:?}; LANCETS {lancets:?}, on the plain pilot {plain_lancets:?}");
-        assert!(arrows.0 == 20 && plain_arrows == (0, 0), "ARROWS {arrows:?}, on the plain pilot {plain_arrows:?}");
+        assert!(arrows.0 == 20 && plain_arrows.0 == 20, "ARROWS {arrows:?}, on the plain pilot {plain_arrows:?}");
         assert!(lancets.0 >= 18 && plain_lancets.0 >= 10, "LANCETS {lancets:?}, on the plain pilot {plain_lancets:?}");
     }
 
@@ -5971,7 +6402,7 @@ mod tests {
         a.add(0, 0, &lancer, 150, 180);
         a.add(1, 0, &slab('h'), 230, 180);
         let line = |a: &Arena, vx: i32, dist: i32| {
-            let e = Snap { idx: 1, team: 1, x: 230, y: 180, vx, vy: 8, half: 4, full: 81, working: false, worker: false };
+            let e = Snap { idx: 1, team: 1, x: 230, y: 180, vx, vy: 8, half: 4, full: 81, worker: false };
             a.lance_line(0, &e, (0, 0), 1, dist) - 180
         };
         // Holding its distance, the shot takes 80 / 4 = 20 ticks, and the target is 40 px on.
@@ -6729,12 +7160,21 @@ mod tests {
         assert_eq!((a.ships[blue].carry, a.ships[red].carry, a.debris.len()), (2, 1, 0));
     }
 
-    /// A stasis post for the tests: a lattice 41 wide and 4 tall on three rows of hull. It
-    /// has no engines, so it's always still, and it reaches 90 px from the lattice's box.
+    /// A stasis post for the tests: a lattice 19 wide and 4 tall on three rows of hull. It
+    /// has no engines, so it's always still, and it reaches 92 px from the lattice's box.
     fn web() -> Design {
-        let (bar, hull) = ("x".repeat(41), "h".repeat(41));
-        let mast = format!("{}x{}", ".".repeat(20), ".".repeat(20));
-        let mid = format!("{}c{}", "h".repeat(20), "h".repeat(20));
+        web_of(9)
+    }
+
+    /// The same post with a lattice 41 wide, which reaches as far as a lattice can: 150 px.
+    fn web_wide() -> Design {
+        web_of(20)
+    }
+
+    fn web_of(half: usize) -> Design {
+        let (bar, hull) = ("x".repeat(2 * half + 1), "h".repeat(2 * half + 1));
+        let mast = format!("{}x{}", ".".repeat(half), ".".repeat(half));
+        let mid = format!("{}c{}", "h".repeat(half), "h".repeat(half));
         Design::from_rows("WEB", &[&bar, &mast, &mast, &mast, &hull, &mid, &hull])
     }
 
@@ -6752,64 +7192,71 @@ mod tests {
     /// The post in the middle of an empty map, stepped once so its field is worked out, and
     /// the box of its lattice.
     fn web_alone() -> (Arena, usize, (i32, i32, i32, i32)) {
+        post_alone(&web(), (92, 19))
+    }
+
+    /// A post of that drawing, likewise: `want` is how far it should reach and how wide its
+    /// lattice should be.
+    fn post_alone(d: &Design, want: (i32, i32)) -> (Arena, usize, (i32, i32, i32, i32)) {
         let mut a = Arena::blank(900, 700, 1);
         a.plain = [true; 2];
-        let post = a.spawn(0, 0, &web(), 450, 400, 0, false);
+        let post = a.spawn(0, 0, d, 450, 400, 0, false);
         a.step();
         assert_eq!(a.stasis.len(), 1);
         let f = a.stasis[0];
-        assert_eq!((f.ship, f.reach, f.bbox.2 - f.bbox.0 + 1, f.bbox.3 - f.bbox.1 + 1), (post, 90, 41, 4));
+        assert_eq!((f.ship, f.reach, f.bbox.2 - f.bbox.0 + 1, f.bbox.3 - f.bbox.1 + 1), (post, want.0, want.1, 4));
         (a, post, f.bbox)
     }
 
     #[test]
     fn a_stasis_lattice_reaches_by_how_far_it_spreads_and_a_cut_one_reaches_less() {
-        // Its reach is 2 px for each pixel of its width plus its height, 150 at most.
-        assert_eq!((stasis_reach(0), stasis_reach(2), stasis_reach(26), stasis_reach(45), stasis_reach(75), stasis_reach(200)), (0, 4, 52, 90, 150, 150));
+        // Its reach is 4 px for each pixel of its width plus its height, 150 at most. (It was
+        // 2 px until 2026-11-21: see `STASIS_REACH`.)
+        assert_eq!((stasis_reach(0), stasis_reach(2), stasis_reach(23), stasis_reach(26), stasis_reach(37), stasis_reach(38), stasis_reach(200)), (0, 8, 92, 104, 148, 150, 150));
         let st = web().stats();
-        assert_eq!((st.stasis, st.stasis_span, st.stasis_reach(), st.used, st.power_pct()), (44, 45, 90, 88, 100));
+        assert_eq!((st.stasis, st.stasis_span, st.stasis_reach(), st.used, st.power_pct()), (22, 23, 92, 44, 100));
         assert!(!st.armed(), "a lattice is no gun");
-        // Twenty-five pixels in a block reach 20 px. The same twenty-five as two arms of
-        // thirteen reach 52: it's drawn wide and thin.
+        // Twenty-five pixels in a block reach 40 px. The same twenty-five as two arms of
+        // thirteen reach 104: it's drawn wide and thin.
         let block = Design::from_rows("B", &["xxxxx", "xxxxx", "xxxxx", "xxxxx", "xxxxx", "hhchh", "hhhhh", "hhhhh", "hhhhh", "hhhhh", "hhhhh", "hhhhh", "hhhhh", "hhhhh", "hhhhh"]);
         let arm = "x............";
         let mut rows = vec!["xxxxxxxxxxxxx"];
         rows.extend([arm; 12]);
         rows.extend(["hhhhhhchhhhhh", "hhhhhhhhhhhhh", "hhhhhhhhhhhhh", "hhhhhhhhhhhhh"]);
         let ell = Design::from_rows("L", &rows);
-        assert_eq!((block.stats().stasis, block.stats().stasis_reach()), (25, 20));
-        assert_eq!((ell.stats().stasis, ell.stats().stasis_reach()), (25, 52));
+        assert_eq!((block.stats().stasis, block.stats().stasis_reach()), (25, 40));
+        assert_eq!((ell.stats().stasis, ell.stats().stasis_reach()), (25, 104));
         // Two lattices on one ship are two fields, and the ship's reach is the wider one's.
         let two = Design::from_rows("T", &["xxxxxxx.xxx", "hhhhhhhhhhh", "hhhhhchhhhh", "hhhhhhhhhhh"]);
         assert_eq!((lattices(11, &two.shape().cells).iter().map(|l| l.1).collect::<Vec<_>>(), two.stats().stasis_span), (vec![8, 4], 8));
         // Short of power it reaches less in proportion: 20 pixels use 40 and this hull makes 24.
         let starved = Design::from_rows("S", &["xxxxxxxxxxxxxxxxxxxx", "hhhhhhhhhhchhhhhhhhhh"]);
-        assert_eq!((starved.stats().made, starved.stats().used, starved.stats().stasis_reach()), (24, 40, 42 * 60 / 100));
+        assert_eq!((starved.stats().made, starved.stats().used, starved.stats().stasis_reach()), (24, 40, 84 * 60 / 100));
         // Shot through, it reaches as far as what's left of it spreads. The post's bar hangs
         // on the one pixel where its mast meets it: with that gone both halves of the bar
         // break away, as anything cut off from every core does, and the mast is all there is.
         let (mut a, post, _) = web_alone();
-        let cut = (0..a.ships[post].hp.len()).find(|&c| a.ships[post].shape.cells[c] == Some(Part::Stasis) && c as i32 % a.ships[post].shape.w == 20).unwrap();
+        let cut = (0..a.ships[post].hp.len()).find(|&c| a.ships[post].shape.cells[c] == Some(Part::Stasis) && c as i32 % a.ships[post].shape.w == 9).unwrap();
         a.ships[post].hp[cut] = 0;
         a.ships[post].dirty = true;
         a.step();
         a.step();
-        assert_eq!((a.stasis.iter().map(|f| f.reach).collect::<Vec<_>>(), a.ships[post].st.stasis, a.ships[post].st.stasis_reach()), (vec![8], 3, 8));
+        assert_eq!((a.stasis.iter().map(|f| f.reach).collect::<Vec<_>>(), a.ships[post].st.stasis, a.ships[post].st.stasis_reach()), (vec![16], 3, 16));
         // The ANCHOR's lattice is an H: two rails 21 long on a bar through the ship's middle.
         // Cut the bar and each rail keeps its half of it: two lattices, 10 wide and 21 tall,
-        // that reach 62 px each where the whole reached 84. Nothing breaks away, since the
-        // hull holds both halves.
+        // that reach 124 px each where the whole reached 150 (the most a lattice reaches; 21
+        // and 21 would be 168). Nothing breaks away, since the hull holds both halves.
         let anchor = part_examples().into_iter().find(|d| d.name == "ANCHOR").unwrap();
         let mut a = Arena::blank(900, 700, 1);
         let i = a.spawn(0, 0, &anchor, 450, 350, 0, false);
         let w = a.ships[i].shape.w as usize;
-        assert_eq!((w, a.ships[i].shape.cells[10 * w + 10], a.ships[i].st.stasis_reach()), (21, Some(Part::Stasis), 84));
+        assert_eq!((w, a.ships[i].shape.cells[10 * w + 10], a.ships[i].st.stasis_reach()), (21, Some(Part::Stasis), 150));
         a.ships[i].hp[10 * w + 10] = 0;
         a.ships[i].dirty = true;
         for _ in 0..STASIS_RISE + 2 {
             a.step();
         }
-        assert_eq!((a.stasis.iter().map(|f| (f.reach, f.set)).collect::<Vec<_>>(), a.ships[i].st.stasis, a.ships[i].px_now()), (vec![(62, true), (62, true)], 60, anchor.stats().count - 1));
+        assert_eq!((a.stasis.iter().map(|f| (f.reach, f.set)).collect::<Vec<_>>(), a.ships[i].st.stasis, a.ships[i].px_now()), (vec![(124, true), (124, true)], 60, anchor.stats().count - 1));
     }
 
     #[test]
@@ -6904,7 +7351,7 @@ mod tests {
             ],
         );
         let st = first.stats();
-        assert_eq!((st.push, st.quarter, st.stasis_reach()), ([10 * ENGINE_PUSH, 0, 0, 0], SLOWEST_TURN, 52));
+        assert_eq!((st.push, st.quarter, st.stasis_reach()), ([10 * ENGINE_PUSH, 0, 0, 0], SLOWEST_TURN, 104));
         let mut a = Arena::blank(900, 700, 1);
         let i = a.spawn(0, 0, &first, 340, 350, 1, false);
         a.ships[i].order = Order::Hunt;
@@ -6964,7 +7411,7 @@ mod tests {
             assert!(fired[k] * 4 <= fired[k + 2] + 12 && fired[k] * 4 >= fired[k + 2] - 20, "held, a fighter fired {} shots where a free one fired {}", fired[k], fired[k + 2]);
         }
         println!("shots in a minute: held {} and {}, free {} and {}", fired[0], fired[1], fired[2], fired[3]);
-        assert!(a.stasis[0].up && a.ships[post].st.stasis == 44, "the post's lattice should be whole and its field up");
+        assert!(a.stasis[0].up && a.ships[post].st.stasis == 22, "the post's lattice should be whole and its field up");
         assert!(a.ships.iter().all(|s| s.alive), "nothing should have been lost");
     }
 
@@ -6981,7 +7428,9 @@ mod tests {
         for d in fliers().iter().map(disarmed) {
             for (dx, dy) in [(-70, 0), (-40, -25), (30, -30), (-12, 0), (0, -9)] {
                 let run = |lattice: bool| {
-                    let (mut a, post, (l, top, r, _)) = web_alone();
+                    // (The widest post: a slow ship swings wide on its way to a spot 70 px
+                    // off, and has to stay in the field the whole way.)
+                    let (mut a, post, (l, top, r, _)) = post_alone(&web_wide(), (150, 41));
                     let i = a.spawn(1, 0, &d, (l + r) / 2, top - 30 - d.shape().h, 1, false);
                     a.ships[i].order = Order::Hold;
                     if !lattice {
@@ -7051,30 +7500,30 @@ mod tests {
             a.step();
         }
         assert!(a.stasis[0].set && !a.stasis[0].up && !a.ships[friend].slowed);
-        assert_eq!(a.stasis_line(post).as_deref(), Some("STASIS: 90 PX REACH, WAITING FOR AN ENEMY."));
+        assert_eq!(a.stasis_line(post).as_deref(), Some("STASIS: 92 PX REACH, WAITING FOR AN ENEMY."));
         assert_eq!(a.stasis_line(friend), None);
         // An enemy comes into its reach: it's up, and holds the friend as well.
         a.ships[enemy].y = top - 60;
         a.step();
         a.step();
         assert!(a.stasis[0].up && a.ships[friend].slowed && a.ships[enemy].slowed);
-        assert_eq!(a.stasis_line(post).as_deref(), Some("STASIS: 90 PX REACH, UP."));
+        assert_eq!(a.stasis_line(post).as_deref(), Some("STASIS: 92 PX REACH, UP."));
         // The enemy dies: it's down, and the friend is free.
         a.ships[enemy].alive = false;
         a.step();
         assert!(a.stasis[0].set && !a.stasis[0].up && !a.ships[friend].slowed);
 
         // A lattice on a ship that flies. Its field is set exactly when the ship has been
-        // where it is, at rest, for the last two seconds, and at no other time: read off the
-        // ship's own track, not off the count the game keeps.
+        // where it is, at rest and making for nowhere, for the last two seconds, and at no
+        // other time: read off the ship's own track, not off the count the game keeps.
         let anchor = part_examples().into_iter().find(|d| d.name == "ANCHOR").unwrap();
-        assert_eq!((anchor.stats().stasis, anchor.stats().stasis_reach(), anchor.stats().armed()), (61, 84, false));
+        assert_eq!((anchor.stats().stasis, anchor.stats().stasis_reach(), anchor.stats().armed()), (61, 150, false));
         let mut a = Arena::blank(900, 700, 1);
         a.plain = [true; 2];
         let i = a.spawn(0, 0, &anchor, 300, 350, 1, false);
         a.ships[i].order = Order::Hold;
         let rise = STASIS_RISE as usize;
-        let mut track: Vec<((i32, i32), (i32, i32))> = vec![((300, 350), (0, 0))];
+        let mut track: Vec<((i32, i32), (i32, i32), (i32, i32))> = vec![((300, 350), (0, 0), (0, 0))];
         let (mut ups, mut downs, mut flown) = (0, 0, 0);
         for t in 0..15 * 150u32 {
             if t == 15 * 5 {
@@ -7086,11 +7535,11 @@ mod tests {
             let was = a.stasis.iter().any(|f| f.ship == i && f.set);
             a.step();
             let s = &a.ships[i];
-            track.push(((s.x, s.y), (s.vx, s.vy)));
+            track.push(((s.x, s.y), (s.vx, s.vy), s.want));
             let n = track.len() - 1;
             // Set after this step: over each of the last `rise` steps before it, the ship
-            // ended where it began and wasn't under way.
-            let rested = n > rise && (n - rise..n).all(|j| track[j].0 == track[j - 1].0 && track[j].1 == (0, 0));
+            // ended where it began, wasn't under way, and wasn't making for any speed.
+            let rested = n > rise && (n - rise..n).all(|j| track[j].0 == track[j - 1].0 && track[j].1 == (0, 0) && track[j].2 == (0, 0));
             let set = a.stasis.iter().any(|f| f.ship == i && f.set);
             if n > rise {
                 assert_eq!(set, rested, "tick {}: its field is {} and its last moves were {:?}", a.tick, if set { "set" } else { "not set" }, &track[n - 3..]);
@@ -7103,9 +7552,612 @@ mod tests {
         // It was set at the start, dropped as it left, came up where it stopped, dropped as it
         // left again and came up again: up three times, down twice.
         assert_eq!((ups, downs), (3, 2), "it flew on {flown} ticks");
-        assert_eq!(a.stasis_line(i).as_deref(), Some("STASIS: 84 PX REACH, WAITING FOR AN ENEMY."));
+        assert_eq!(a.stasis_line(i).as_deref(), Some("STASIS: 150 PX REACH, WAITING FOR AN ENEMY."));
         let s = &a.ships[i];
         assert!(cheb(s.x, s.y, 420, 290) <= SENT_NEAR, "it's at {:?}", (s.x, s.y));
+    }
+
+    /// The SCAVENGERS' SNARE with six DARTs and a MAUL of its side, all left where they are on
+    /// guard or all on the attack, and red's starter fighters and lancers 460 px off, coming
+    /// for them. Both sides pick their courses, as in a match.
+    fn snare_fight(seed: u64, attack: bool, fighters: i32, lancers: i32) -> (Arena, usize) {
+        let team = crate::pg::teams::scavengers();
+        let card = |n: &str| team.iter().find(|d| d.name == n).unwrap().clone();
+        let start = starter_deck();
+        let mut a = Arena::blank(1100, 700, seed);
+        a.plain = [false; 2];
+        let snare = a.spawn(0, 3, &card("SNARE"), 300, 350, 1, false);
+        let mut blue = vec![snare];
+        for k in 0..6 {
+            blue.push(a.spawn(0, 0, &card("DART"), 270 + (k % 2) * 12, 310 + k * 16, 1, false));
+        }
+        blue.push(a.spawn(0, 2, &card("MAUL"), 300, 300, 1, false));
+        for &b in &blue {
+            a.ships[b].order = if attack { Order::Hunt } else { Order::Guard };
+            a.ships[b].home = (300, 350);
+        }
+        for k in 0..fighters {
+            let e = a.spawn(1, 0, &start[0], 760 + (k % 3) * 10, 290 + k * 10, 3, false);
+            a.ships[e].order = Order::Hunt;
+        }
+        for k in 0..lancers {
+            let e = a.spawn(1, 1, &start[1], 800 + (k % 3) * 10, 290 + k * 12, 3, false);
+            a.ships[e].order = Order::Hunt;
+        }
+        (a, snare)
+    }
+
+    /// Whether any living enemy of ship `i` has part of its box within `reach` of the box of
+    /// `i`'s living stasis pixels: worked out from the ships, not from the game's fields.
+    fn enemy_in_lattice_reach(a: &Arena, i: usize, reach: i32) -> bool {
+        let s = &a.ships[i];
+        let at: Vec<(i32, i32)> = (0..s.hp.len()).filter(|&c| s.hp[c] > 0 && s.shape.cells[c] == Some(Part::Stasis)).map(|c| s.cell_xy(c)).collect();
+        if at.is_empty() {
+            return false;
+        }
+        let bbox = (at.iter().map(|p| p.0).min().unwrap(), at.iter().map(|p| p.1).min().unwrap(), at.iter().map(|p| p.0).max().unwrap(), at.iter().map(|p| p.1).max().unwrap());
+        a.ships.iter().any(|e| e.alive && e.team != s.team && box_gap2(e.bbox(), bbox) <= reach * reach)
+    }
+
+    #[test]
+    fn a_lattice_ship_left_on_guard_keeps_its_post_and_its_field_is_up_when_the_enemy_comes() {
+        // Henry, 2026-11-21, of the SNAREs he had built in his matches: "I never got to see
+        // it work". A SNARE has a tracker, and until then a ship with a gun went after
+        // whatever came within its guard, picking its own courses: so it was under way for
+        // as long as an enemy was near, and a lattice only works while its ship is still.
+        // Left on guard in these same fights its field was up for no tick of any of them.
+        //
+        // Now it keeps its post. Every tick of every fight it's where it began, its field is
+        // set from two seconds in, and it's up on exactly the ticks an enemy is in its reach.
+        let (mut ups, mut held) = (Vec::new(), Vec::new());
+        for (fighters, lancers) in [(12, 0), (0, 10), (10, 8)] {
+            for seed in 1..=4 {
+                let (mut a, snare) = snare_fight(seed, false, fighters, lancers);
+                let at = (a.ships[snare].x, a.ships[snare].y);
+                let (mut up, mut held_e) = (0, 0);
+                while a.tick < 15 * 90 && a.over.is_none() && a.ships[snare].alive {
+                    let near = enemy_in_lattice_reach(&a, snare, a.ships[snare].st.stasis_reach());
+                    a.step();
+                    let s = &a.ships[snare];
+                    if !s.alive {
+                        break;
+                    }
+                    assert_eq!((s.x, s.y, s.course.is_none()), (at.0, at.1, true), "seed {seed}, {fighters} fighters and {lancers} lancers: at {} s the SNARE has left its post, {}", a.tick / 15, s.doing.name());
+                    let f: Vec<&Field> = a.stasis.iter().filter(|f| f.ship == snare).collect();
+                    if a.tick > STASIS_RISE as u32 {
+                        assert!(f.iter().all(|f| f.set), "seed {seed}: at tick {} its field isn't set", a.tick);
+                        // (A lattice that's been cut is two fields, each reaching less than
+                        // the ship's widest: with it whole, the field is up exactly when an
+                        // enemy was in reach as the tick began.)
+                        if f.len() == 1 {
+                            assert_eq!(f[0].up, near, "seed {seed}: at tick {} its field is {} with an enemy {} its reach", a.tick, if f[0].up { "up" } else { "down" }, if near { "in" } else { "out of" });
+                        }
+                    }
+                    up += f.iter().any(|f| f.up) as i32;
+                    held_e += a.ships.iter().filter(|e| e.alive && e.team == 1 && e.slowed).count() as i32;
+                }
+                ups.push(up);
+                held.push(held_e);
+            }
+        }
+        println!("ticks its field was up, fight by fight: {ups:?}; enemy ship-ticks held: {held:?}");
+        assert!(ups.iter().all(|&u| u >= 30) && held.iter().all(|&h| h >= 60), "up {ups:?}, held {held:?}");
+    }
+
+    /// The SCAVENGERS' SNARE with its guns turned to hull, alone at (300, 350) on an empty
+    /// map and on guard there, and red starter fighters (their guns turned to hull too) told
+    /// to hold at each of `reds`. Nothing here shoots, so the reds stand until a test takes
+    /// one off.
+    fn snare_and(reds: &[(i32, i32)]) -> (Arena, usize, Vec<usize>) {
+        let team = crate::pg::teams::scavengers();
+        let mut a = Arena::blank(1100, 700, 1);
+        let snare = a.spawn(0, 3, &disarmed(&team[3]), 300, 350, 1, false);
+        a.ships[snare].order = Order::Guard;
+        let plain = disarmed(&starter_deck()[0]);
+        let reds = reds
+            .iter()
+            .map(|&(x, y)| {
+                let e = a.spawn(1, 0, &plain, x, y, 3, false);
+                a.ships[e].order = Order::Hold;
+                e
+            })
+            .collect();
+        (a, snare, reds)
+    }
+
+    /// Where a red fighter stands to have its box `gap` px to the right of a lattice's box.
+    fn right_of(bbox: (i32, i32, i32, i32), gap: i32) -> (i32, i32) {
+        (bbox.2 + gap + 1, (bbox.1 + bbox.3) / 2)
+    }
+
+    /// Steps until ship `i` is at rest with nowhere it's making for, and says how many ticks
+    /// that took.
+    fn settle(a: &mut Arena, i: usize, within: u32) -> u32 {
+        for t in 1..=within {
+            a.step();
+            let s = &a.ships[i];
+            if (s.vx, s.vy) == (0, 0) && s.want == (0, 0) && s.still > 0 {
+                return t;
+            }
+        }
+        let s = &a.ships[i];
+        panic!("{} ticks on it's at {},{} going {},{} and making for {:?}: {}", within, s.x, s.y, s.vx, s.vy, s.want, s.doing.name());
+    }
+
+    #[test]
+    fn a_lattice_sets_only_once_its_ship_has_stopped_where_it_means_to_stay() {
+        // Henry, 2026-11-22: "the SNARE still moves when its field is active. it should
+        // basically never do that". A SNARE has engines ahead and astern and none to the
+        // side, so on its way anywhere it stops and turns, and a quarter turn takes it 3 s:
+        // longer than the 2 s a field takes to set. Any turn on the spot counted as still,
+        // so its field came up wherever it stopped to turn with an enemy in reach, and
+        // dropped when it flew on.
+        //
+        // A SNARE sent to a spot 120 px across from it and 100 px up, with an enemy 60 px
+        // from where it starts, in its reach there and at the spot too. Before it sets off it
+        // stands turning for longer than a field takes to set, with that enemy in its reach.
+        // Its lattice isn't set there, nor anywhere on the way: the first tick it's set, the
+        // ship is at the spot it was sent to.
+        // (Sent as an order sends it: it's leaving, whatever is in its reach.)
+        let (mut a, snare, _) = snare_and(&[(360, 350)]);
+        let to = (420, 250);
+        (a.ships[snare].sent, a.ships[snare].leaving) = (Some(to), true);
+        let (near, reach) = (near_enough(&a.ships[snare].st), a.ships[snare].st.stasis_reach());
+        assert!(a.ships[snare].st.quarter > STASIS_RISE && reach == 120);
+        let (mut rest, mut longest, mut arrived) = (0, 0, 0);
+        for t in 1..=15 * 120 {
+            let before = (a.ships[snare].x, a.ships[snare].y);
+            let in_reach = enemy_in_lattice_reach(&a, snare, reach);
+            a.step();
+            let (s, f) = (&a.ships[snare], a.stasis.iter().find(|f| f.ship == snare).unwrap());
+            if f.set {
+                assert!(cheb(s.x, s.y, to.0, to.1) <= near, "at tick {t} its lattice is set at {},{}, {} px from the spot it was sent to", s.x, s.y, cheb(s.x, s.y, to.0, to.1));
+                arrived = t;
+                break;
+            }
+            rest = if (s.x, s.y) == before && (s.vx, s.vy) == (0, 0) && in_reach { rest + 1 } else { 0 };
+            longest = longest.max(rest);
+        }
+        println!("its lattice was set at the spot after {} s; before that it stood at rest with the enemy in reach for {longest} ticks at the longest", arrived / 15);
+        assert!(arrived > 0, "two minutes on its lattice has never set");
+        assert!(longest > STASIS_RISE, "it never stood for longer than a field takes to set ({longest} ticks): the flight shows nothing");
+        // There its field is up (the enemy is in its reach), and it doesn't move again.
+        let at = (a.ships[snare].x, a.ships[snare].y);
+        for _ in 0..15 * 10 {
+            a.step();
+            let (s, f) = (&a.ships[snare], a.stasis.iter().find(|f| f.ship == snare).unwrap());
+            assert_eq!(((s.x, s.y), f.up), (at, true));
+        }
+        // Turning on the spot where it means to stay is still. The post has no engines and
+        // is still from the start; a SNARE at home on guard is set two seconds in.
+        let (a, _, _) = web_alone();
+        assert_eq!(a.ships[0].still, 1);
+        let (mut a, snare, _) = snare_and(&[]);
+        for _ in 0..STASIS_RISE {
+            a.step();
+        }
+        assert!(a.stasis.iter().any(|f| f.ship == snare && f.set));
+    }
+
+    #[test]
+    fn a_sent_lattice_ship_stops_on_its_way_for_an_enemy_that_comes_into_its_reach() {
+        // Asked whether a SNARE he has sent somewhere should stop on its way when an enemy
+        // comes into its reach, Henry, 2026-11-22: "Yes, stop." (Until then it stopped for
+        // nothing on its way, as any sent ship does.)
+        //
+        // A SNARE sent 400 px along, with nothing near it when it's sent, and an enemy
+        // standing 40 px off its way 250 px along. It stops when that enemy comes into its
+        // reach, well short of the spot; its field is up two seconds after; and it stays
+        // exactly there for as long as the enemy does. (A second enemy stands far off, so the
+        // fight isn't over when the first is gone.)
+        let (mut a, snare, reds) = snare_and(&[(550, 310), (1000, 650)]);
+        let to = (700, 350);
+        (a.ships[snare].sent, a.ships[snare].leaving) = (Some(to), true);
+        let reach = a.ships[snare].st.stasis_reach();
+        assert!(!enemy_in_lattice_reach(&a, snare, reach));
+        let (mut first, mut stopped) = (0, 0);
+        for t in 1..=15 * 90 {
+            if first == 0 && enemy_in_lattice_reach(&a, snare, reach) {
+                first = t;
+            }
+            a.step();
+            let s = &a.ships[snare];
+            // (With nothing in its reach when it was sent, it isn't leaving anything.)
+            assert!(!s.leaving && s.sent == Some(to));
+            if first > 0 && (s.vx, s.vy) == (0, 0) && s.want == (0, 0) {
+                stopped = t;
+                break;
+            }
+        }
+        let at = (a.ships[snare].x, a.ships[snare].y);
+        println!("the enemy was in its reach from tick {first}; it was stopped at tick {stopped}, at {at:?}, {} px from the spot it was sent to", cheb(at.0, at.1, to.0, to.1));
+        assert!(first > 15 && stopped > 0 && stopped - first <= 45, "in reach from {first}, stopped at {stopped}");
+        assert!(cheb(at.0, at.1, to.0, to.1) >= 150 && enemy_in_lattice_reach(&a, snare, reach));
+        for t in 1..=15 * 8 {
+            a.step();
+            let (s, f) = (&a.ships[snare], a.stasis.iter().find(|f| f.ship == snare).unwrap());
+            assert_eq!((s.x, s.y), at, "{t} ticks after it stopped it has moved: {}", s.doing.name());
+            assert!(f.up == (t > STASIS_RISE) || (t - STASIS_RISE).abs() <= 1, "{t} ticks after it stopped its field is {}", if f.up { "up" } else { "down" });
+        }
+        // The enemy gone, it goes on to the spot it was sent to, and its lattice sets there.
+        a.ships[reds[0]].alive = false;
+        a.step();
+        a.step();
+        assert!(a.ships[snare].want != (0, 0), "with nothing left in reach it should be on its way again");
+        let mut there = 0;
+        for t in 1..=15 * 120 {
+            a.step();
+            let (s, f) = (&a.ships[snare], a.stasis.iter().find(|f| f.ship == snare).unwrap());
+            if f.set {
+                assert!(cheb(s.x, s.y, to.0, to.1) <= near_enough(&s.st), "its lattice is set at {},{}", s.x, s.y);
+                there = t;
+                break;
+            }
+        }
+        assert!(there > 0, "two minutes on it's at {},{}", a.ships[snare].x, a.ships[snare].y);
+    }
+
+    #[test]
+    fn on_guard_a_lattice_ship_stops_where_it_is_when_an_enemy_comes_into_its_reach() {
+        // A SNARE on guard whose post is 340 px off, with an enemy standing on the post. It
+        // sets off for its post, and stops when the enemy comes into its reach: well short
+        // of the post. Its field is up two seconds after it stops, and it stays exactly there
+        // for as long as the enemy does. (It used to fly on to its post whatever was in
+        // reach: on Henry's map, with the SWARM raiding, his SNAREs on guard were under way
+        // for 160 of the 1136 ticks an enemy was in their reach.)
+        // (A second enemy stands far off, so the fight isn't over when the first is gone.)
+        let (mut a, snare, reds) = snare_and(&[(640, 350), (1000, 650)]);
+        a.ships[snare].home = (640, 350);
+        let reach = a.ships[snare].st.stasis_reach();
+        let (mut first, mut stopped) = (0, 0);
+        for t in 1..=15 * 90 {
+            if first == 0 && enemy_in_lattice_reach(&a, snare, reach) {
+                first = t;
+            }
+            a.step();
+            let s = &a.ships[snare];
+            assert!(first > 0 || s.course.is_none());
+            if first > 0 && (s.vx, s.vy) == (0, 0) && s.want == (0, 0) {
+                stopped = t;
+                break;
+            }
+        }
+        let at = (a.ships[snare].x, a.ships[snare].y);
+        println!("the enemy was in its reach from tick {first}; it was stopped at tick {stopped}, at {at:?}, {} px from its post", cheb(at.0, at.1, 640, 350));
+        assert!(first > 15 && stopped > 0 && stopped - first <= 45, "in reach from {first}, stopped at {stopped}");
+        assert!(cheb(at.0, at.1, 640, 350) >= 100 && enemy_in_lattice_reach(&a, snare, reach));
+        for t in 1..=15 * 8 {
+            a.step();
+            let (s, f) = (&a.ships[snare], a.stasis.iter().find(|f| f.ship == snare).unwrap());
+            assert_eq!((s.x, s.y), at, "{t} ticks after it stopped it has moved: {}", s.doing.name());
+            assert!(f.up == (t > STASIS_RISE) || (t - STASIS_RISE).abs() <= 1, "{t} ticks after it stopped its field is {}", if f.up { "up" } else { "down" });
+        }
+        // The enemy gone, it goes on to its post.
+        a.ships[reds[0]].alive = false;
+        a.step();
+        a.step();
+        assert!(a.ships[snare].want != (0, 0), "with nothing left in reach it should be on its way to its post");
+        settle(&mut a, snare, 15 * 120);
+        let s = &a.ships[snare];
+        assert!(cheb(s.x, s.y, 640, 350) <= near_enough(&s.st), "it stopped at {},{}", s.x, s.y);
+    }
+
+    #[test]
+    fn a_lattice_ship_that_has_set_keeps_its_place_while_an_enemy_is_about() {
+        // Ships built at one place keep posts in the rings round it, and close up when one
+        // built before them is lost: in a fight that's every few seconds, and for a SNARE
+        // each move is a flight at 7.5 px/s, with a 3 s turn or two, and then 2 s for its
+        // field to set again. So one that has set stays where it is while an enemy is in its
+        // reach or within `STASIS_KEEP` px of it, and takes up its new post afterwards.
+        //
+        // A DART and a SNARE built at one place, both at their posts. Three enemies stand to
+        // the SNARE's right: one in its reach, one 20 px outside it and one 60 px outside it.
+        // It keeps its place for an enemy within 40 px of its reach.
+        assert_eq!(STASIS_KEEP, 40);
+        let team = crate::pg::teams::scavengers();
+        let mut a = Arena::blank(1100, 700, 1);
+        let dart = a.spawn(0, 0, &disarmed(&team[0]), 300, 300, 1, false);
+        let snare = a.spawn(0, 3, &disarmed(&team[3]), 300, 350, 1, false);
+        for i in [dart, snare] {
+            (a.ships[i].home, a.ships[i].ring0, a.ships[i].order) = ((300, 350), 30, Order::Guard);
+        }
+        settle(&mut a, snare, 15 * 120);
+        for _ in 0..STASIS_RISE + 2 {
+            a.step();
+        }
+        let (at, f) = ((a.ships[snare].x, a.ships[snare].y), *a.stasis.iter().find(|f| f.ship == snare).unwrap());
+        assert!(f.set && !f.up && a.ships[snare].posted && f.reach == 120, "{f:?}, posted {}, at {at:?}, {}, still {}, want {:?}", a.ships[snare].posted, a.ships[snare].doing.name(), a.ships[snare].still, a.ships[snare].want);
+        let plain = disarmed(&starter_deck()[0]);
+        let reds: Vec<usize> = [60, f.reach + 20, f.reach + 60]
+            .iter()
+            .map(|&gap| {
+                let p = right_of(f.bbox, gap);
+                let e = a.spawn(1, 0, &plain, p.0, p.1, 3, false);
+                a.ships[e].order = Order::Hold;
+                e
+            })
+            .collect();
+        a.step();
+        a.step();
+        assert!(a.stasis.iter().any(|f| f.ship == snare && f.up));
+        // The DART is lost, and the SNARE's post is another place now, further off than it
+        // would count as there.
+        a.ships[dart].alive = false;
+        let post = a.post(snare);
+        assert!(cheb(post.0, post.1, at.0, at.1) > near_enough(&a.ships[snare].st) + 2, "its post has only moved from {at:?} to {post:?}");
+        let stays = |a: &mut Arena, up: bool, what: &str| {
+            for t in 1..=15 * 5 {
+                a.step();
+                let (s, f) = (&a.ships[snare], a.stasis.iter().find(|f| f.ship == snare).unwrap());
+                assert_eq!(((s.x, s.y), s.want, f.set, f.up), (at, (0, 0), true, up), "{what}: {t} ticks on, {}", s.doing.name());
+            }
+        };
+        stays(&mut a, true, "with an enemy in its reach");
+        // The enemy in its reach gone, the nearest is 20 px outside it: its field is down,
+        // and it stays.
+        a.ships[reds[0]].alive = false;
+        stays(&mut a, false, "with an enemy 20 px outside its reach");
+        // That one gone too, the nearest is 60 px outside its reach: it takes up its post.
+        a.ships[reds[1]].alive = false;
+        a.step();
+        a.step();
+        assert!(a.ships[snare].want != (0, 0), "with the nearest enemy 60 px outside its reach it should be on its way to its new post");
+        settle(&mut a, snare, 15 * 120);
+        let s = &a.ships[snare];
+        assert!(cheb(s.x, s.y, post.0, post.1) <= near_enough(&s.st) && a.ships[reds[2]].alive, "it stopped at {},{}; its post is {post:?}", s.x, s.y);
+        // On the attack its plan is the enemy, so one that's set closes on an enemy 20 px
+        // outside its reach: staying would never bring that one in.
+        let (mut a, snare, _) = snare_and(&[]);
+        a.ships[snare].order = Order::Hunt;
+        for _ in 0..STASIS_RISE + 2 {
+            a.step();
+        }
+        let f = *a.stasis.iter().find(|f| f.ship == snare).unwrap();
+        assert!(f.set && a.ships[snare].want == (0, 0));
+        let p = right_of(f.bbox, f.reach + 20);
+        let e = a.spawn(1, 0, &plain, p.0, p.1, 3, false);
+        a.ships[e].order = Order::Hold;
+        a.step();
+        a.step();
+        assert!(a.ships[snare].want.0 > 0, "on the attack it should be closing on the enemy outside its reach: {:?}, {}", a.ships[snare].want, a.ships[snare].doing.name());
+        let t = settle(&mut a, snare, 15 * 60);
+        for _ in 0..STASIS_RISE + 2 {
+            a.step();
+        }
+        assert!(a.stasis.iter().any(|f| f.ship == snare && f.up), "it stopped after {t} ticks with its field down");
+    }
+
+    #[test]
+    fn a_lattice_ship_with_an_enemy_in_its_reach_stays_on_a_warming_beams_line() {
+        // The nimble frame of the beam's own test, with one stasis pixel in its nose: a
+        // lattice that reaches 8 px. On the gun's line 12 px from the muzzle, with the gun's
+        // ship out of that reach, it gets off the line like any ship that can, and the beam
+        // cuts nothing. 8 px from the muzzle the gun's ship is in its reach: it stays where
+        // it is, since its field is what it's there for, and it's cut.
+        let frame = Design::from_rows("FRAME", &["hxh", "ycy", "hhh", ".e."]);
+        for (off, in_reach) in [(12, false), (8, true)] {
+            let (mut a, (mx, my)) = turret_ready();
+            a.add(1, 0, &frame, mx + off, my);
+            let (full, at) = (a.ships[1].px_now(), (a.ships[1].x, a.ships[1].y));
+            let (mut dodged, mut left) = (false, false);
+            for t in 0..BEAM_WARM + 1 {
+                a.step();
+                if t == 0 {
+                    let f = a.stasis.iter().find(|f| f.ship == 1).unwrap();
+                    assert_eq!((f.reach, box_gap2(a.ships[0].bbox(), f.bbox) <= f.reach * f.reach), (8, in_reach), "{off} px from the muzzle");
+                }
+                dodged |= a.ships[1].doing == Doing::Dodge;
+                left |= (a.ships[1].x, a.ships[1].y) != at;
+            }
+            assert_eq!(a.cuts.len(), 1, "the beam should have fired");
+            assert_eq!((dodged, left, a.ships[1].px_now() == full), (!in_reach, !in_reach, !in_reach), "{off} px from the muzzle, the gun's ship {} its reach", if in_reach { "in" } else { "out of" });
+        }
+    }
+
+    #[test]
+    fn a_ship_sent_after_a_friend_stops_beside_it_and_the_friend_keeps_its_place() {
+        // Henry, 2026-11-22, sent a ship after one of his SNAREs. A ship sent after a thing
+        // is sent to where the thing is, and a waiting ship gives way to one built before it
+        // that's waiting too: so a MAUL sent after a SNARE built later than itself took the
+        // SNARE's own place, the SNARE gave way, and the MAUL followed it, for good.
+        //
+        // A MAUL and then a SNARE built at one place, both at their posts on guard, and the
+        // MAUL sent after the SNARE. The SNARE never leaves its post and its lattice stays
+        // set, and the MAUL comes to rest beside it: clear of it, and no further off than a
+        // waiting ship stands from what it gives way to.
+        for (first, name) in [(2, "a MAUL built before it"), (0, "a DART built before it")] {
+            let team = crate::pg::teams::scavengers();
+            let mut a = Arena::blank(1100, 700, 1);
+            let friend = a.spawn(0, first, &disarmed(&team[first]), 300, 300, 1, false);
+            let snare = a.spawn(0, 3, &disarmed(&team[3]), 300, 350, 1, false);
+            // (An enemy far off, so there's a fight to be had and the clock runs.)
+            let far = a.spawn(1, 0, &disarmed(&starter_deck()[0]), 1000, 650, 3, false);
+            a.ships[far].order = Order::Hold;
+            for i in [friend, snare] {
+                (a.ships[i].home, a.ships[i].ring0, a.ships[i].order) = ((300, 350), 30, Order::Guard);
+            }
+            settle(&mut a, snare, 15 * 120);
+            for _ in 0..STASIS_RISE + 30 {
+                a.step();
+            }
+            let at = (a.ships[snare].x, a.ships[snare].y);
+            assert!(a.stasis.iter().any(|f| f.ship == snare && f.set) && a.ships[snare].posted);
+            (a.ships[friend].sent, a.ships[friend].chase) = (Some(at), Some(snare));
+            for t in 0..15 * 90 {
+                a.step();
+                let s = &a.ships[snare];
+                assert!((s.x, s.y) == at && a.stasis.iter().any(|f| f.ship == snare && f.set), "{name}, sent after it: {t} ticks on the SNARE is at {},{} (its post is {at:?}) and making for {:?}", s.x, s.y, s.want);
+            }
+            let (f, s) = (&a.ships[friend], &a.ships[snare]);
+            let (gap, clear) = (cheb(f.x, f.y, s.x, s.y), f.half() + s.half() + 3);
+            println!("{name}: it stopped {gap} px from the SNARE's middle; clear of it is {clear}");
+            assert!((f.vx, f.vy) == (0, 0) && f.want == (0, 0), "{name} hasn't come to rest: it's going {},{} and making for {:?}", f.vx, f.vy, f.want);
+            assert!(gap >= clear - SENT_NEAR && gap <= clear + SENT_NEAR + 2, "{name} stopped {gap} px from the SNARE's middle; clear of it is {clear}");
+        }
+        // It works the other way round too, as it did: a ship sent after a friend built
+        // before it stops beside that friend.
+        let team = crate::pg::teams::scavengers();
+        let mut a = Arena::blank(1100, 700, 1);
+        let snare = a.spawn(0, 3, &disarmed(&team[3]), 300, 350, 1, false);
+        let dart = a.spawn(0, 0, &disarmed(&team[0]), 420, 300, 1, false);
+        let far = a.spawn(1, 0, &disarmed(&starter_deck()[0]), 1000, 650, 3, false);
+        a.ships[far].order = Order::Hold;
+        a.ships[snare].order = Order::Guard;
+        (a.ships[dart].sent, a.ships[dart].chase) = (Some((300, 350)), Some(snare));
+        for _ in 0..15 * 60 {
+            a.step();
+        }
+        let (f, s) = (&a.ships[dart], &a.ships[snare]);
+        let (gap, clear) = (cheb(f.x, f.y, s.x, s.y), f.half() + s.half() + 3);
+        assert!((s.x, s.y) == (300, 350) && (f.vx, f.vy) == (0, 0) && gap >= clear - SENT_NEAR && gap <= clear + SENT_NEAR + 2, "the DART stopped {gap} px from the SNARE's middle; clear of it is {clear}");
+    }
+
+    #[test]
+    fn a_lattice_ship_with_guns_on_the_attack_stops_with_the_enemy_in_reach_and_its_field_comes_up() {
+        // On the attack a SNARE goes to the enemy as a lattice with no guns does, and stops
+        // when one is in its reach. It has engines turned astern, so it stops without
+        // turning about: its field is up within five seconds of the first enemy coming into
+        // reach, two of which are the field's own. (As first drawn all its engines pushed
+        // ahead and it took 3 s to a quarter turn: it was 4.7 s stopping, and a fight with
+        // fighters is over in ten.) Once it's up the SNARE stays where it is for as long as
+        // anything is in reach.
+        let mut ups = Vec::new();
+        for seed in 1..=4 {
+            let (mut a, snare) = snare_fight(seed, true, 12, 0);
+            assert!(a.ships[snare].st.push[2] > 0 && a.ships[snare].st.armed());
+            let (mut first, mut came_up, mut up, mut stood) = (None, None, 0, None);
+            // (How long an enemy has been in its reach without a break, and whether its field
+            // has been up in that time.)
+            let (mut run, mut up_in_run, mut longest) = (0, false, 0);
+            while a.tick < 15 * 90 && a.over.is_none() && a.ships[snare].alive {
+                a.step();
+                let s = &a.ships[snare];
+                assert!(s.course.is_none(), "seed {seed}: at {} s the SNARE is on a course of its own", a.tick / 15);
+                let near = enemy_in_lattice_reach(&a, snare, s.st.stasis_reach());
+                let is_up = a.stasis.iter().any(|f| f.ship == snare && f.up);
+                if near && first.is_none() {
+                    first = Some(a.tick);
+                }
+                if is_up && came_up.is_none() {
+                    came_up = Some(a.tick);
+                }
+                up += is_up as i32;
+                (run, up_in_run) = if near { (run + 1, up_in_run || is_up) } else { (0, false) };
+                longest = longest.max(run);
+                assert!(run < 15 * 5 || up_in_run, "seed {seed}: at tick {} an enemy has been in its reach for five seconds and its field hasn't been up", a.tick);
+                match stood {
+                    Some(at) if near => assert_eq!((s.x, s.y), at, "seed {seed}: at tick {} it moved with an enemy in its reach and its field up", a.tick),
+                    Some(_) => stood = None,
+                    None if is_up => stood = Some((s.x, s.y)),
+                    None => {}
+                }
+            }
+            let (first, came_up) = (first.expect("no enemy ever came into its reach"), came_up.unwrap_or(u32::MAX));
+            println!("seed {seed}: an enemy in its reach from tick {first}, for {longest} ticks running at the longest; its field up from {}, for {up} ticks; the fight {} at tick {}", if came_up == u32::MAX { "never".to_string() } else { came_up.to_string() }, if a.over.is_some() { "was over" } else { "was still on" }, a.tick);
+            ups.push((up, longest));
+        }
+        // (Its DARTs and MAUL take places round a target now and aren't pushed off them, and
+        // some of these fights are won before any enemy has been in the SNARE's reach for
+        // long: in those there's no field to ask for. In at least two of the four one has
+        // been, and its field was up for four seconds or more.)
+        println!("ticks its field was up, and the longest an enemy was in its reach, seed by seed: {ups:?}");
+        assert!(ups.iter().filter(|u| u.0 >= 60).count() >= 2, "{ups:?}");
+    }
+
+    #[test]
+    fn a_lancer_cant_shoot_a_snare_from_outside_its_field() {
+        // A lance shot flies 112 px, and the gun fires at whatever the shot will reach. The
+        // SNARE's lattice is 15 across and 15 down, and reaches 120 px from its box, which is
+        // a pixel inside the ship's plate and two inside its engines: so a lancer near
+        // enough to hit any part of the ship is in its field already. (At 2 px for each
+        // pixel of its width plus its height, as the rule was until 2026-11-21, this lattice
+        // would reach 60, as the SNARE's first one did: a lancer stands 75 px from what it
+        // shoots, outside that, and was never held.)
+        //
+        // So every shot the lancer fires at a SNARE whose lattice is whole, it fires held.
+        // Its shots cut the lattice, though: a lance punches through six pixels, and the
+        // lattice is a pixel thick. Once enough of it is gone the lancer stands outside
+        // what's left, and that's the way to bring a SNARE down. (The SNARE here has hull for
+        // its guns, so that the lancer lives to be counted.)
+        let team = crate::pg::teams::scavengers();
+        let snare_card = team.iter().find(|d| d.name == "SNARE").unwrap();
+        let st = snare_card.stats();
+        assert_eq!((st.stasis, st.stasis_span, st.stasis_reach()), (29, 30, 120));
+        assert!(st.stasis_reach() > LANCE_LIFE + 2);
+        let mut a = Arena::blank(900, 700, 1);
+        a.plain = [false; 2];
+        let snare = a.spawn(0, 3, &disarmed(snare_card), 300, 350, 1, false);
+        a.ships[snare].order = Order::Guard;
+        assert_eq!((a.ships[snare].st.stasis_reach(), a.ships[snare].st.armed()), (120, false));
+        let lancer = a.spawn(1, 1, &starter_deck()[1], 620, 350, 3, false);
+        a.ships[lancer].order = Order::Hunt;
+        let (mut whole_shots, mut whole_free, mut later, mut reaches) = (0, 0, 0, Vec::new());
+        for _ in 0..15 * 60 {
+            a.step();
+            if !a.ships[snare].alive {
+                break;
+            }
+            assert!(a.ships[lancer].alive);
+            let fired = a.shots.iter().filter(|sh| sh.born == a.tick && sh.from == Some(lancer)).count();
+            if fired > 0 {
+                reaches.push(a.ships[snare].st.stasis_reach());
+                if a.ships[snare].st.stasis == 29 {
+                    whole_shots += fired;
+                    whole_free += if a.ships[lancer].slowed { 0 } else { fired };
+                } else {
+                    later += fired;
+                }
+            }
+        }
+        println!("the lancer fired {whole_shots} shots at the whole lattice, {whole_free} of them free, and {later} after; the SNARE's reach as each volley was fired: {reaches:?}");
+        assert!(whole_shots >= 2 && whole_free == 0, "{whole_shots} shots at the whole lattice, {whole_free} of them from outside its field");
+    }
+
+    #[test]
+    fn the_snares_lattice_is_inside_its_plate_and_flak_doesnt_cut_it() {
+        // Henry, 2026-11-21: "it should maybe be 1. better protected in the unit design".
+        // The SNARE's first lattice was an H whose two rails stood clear of the hull: the
+        // first pixels any shot met. This one is a cross inside the hull, and the hull has a
+        // whole skin of plate, which flak doesn't break: no stasis pixel has an open side,
+        // and every pixel that has one is plate or an engine.
+        let team = crate::pg::teams::scavengers();
+        let d = team.iter().find(|d| d.name == "SNARE").unwrap();
+        let sh = d.shape();
+        let at = |x: i32, y: i32| if x < 0 || y < 0 || x >= sh.w || y >= sh.h { None } else { sh.cells[(y * sh.w + x) as usize] };
+        let (mut lattice, mut skin) = (0, 0);
+        for y in 0..sh.h {
+            for x in 0..sh.w {
+                let Some(part) = at(x, y) else { continue };
+                let open = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| at(x + dx, y + dy).is_none());
+                lattice += (part == Part::Stasis) as i32;
+                skin += open as i32;
+                assert!(!(open && part == Part::Stasis), "the stasis pixel at ({x}, {y}) has an open side");
+                assert!(!open || part == Part::Plate || part.pushes().is_some(), "the pixel at ({x}, {y}) is on the outside and is {part:?}");
+            }
+        }
+        assert_eq!((lattice, d.stats().stasis, d.check().ok()), (29, 29, true));
+        assert!(skin >= 50);
+        // Twelve starter fighters (flak and nothing else) at it for 40 s, and nothing with it:
+        // its lattice is whole, it reaches as far as ever, and its field has been up.
+        let mut a = Arena::blank(900, 700, 3);
+        a.plain = [false; 2];
+        let snare = a.spawn(0, 3, d, 300, 350, 1, false);
+        a.ships[snare].order = Order::Guard;
+        for k in 0..12 {
+            let e = a.spawn(1, 0, &starter_deck()[0], 520 + (k % 3) * 10, 290 + k * 10, 3, false);
+            a.ships[e].order = Order::Hunt;
+        }
+        let (mut up, mut hits) = (0, 0);
+        for _ in 0..15 * 40 {
+            let before = a.score[1].hits;
+            a.step();
+            hits += a.score[1].hits - before;
+            up += a.stasis.iter().any(|f| f.ship == snare && f.up) as i32;
+        }
+        let s = &a.ships[snare];
+        println!("field up {up} ticks; red landed {hits} shots; {} of {} px standing", s.px_now(), s.px_full());
+        assert!(s.alive && s.st.stasis == 29 && s.st.stasis_reach() == 120 && up >= 15 * 10, "lattice {}, reach {}, up {up} ticks", s.st.stasis, s.st.stasis_reach());
+        assert!(hits >= 20, "red's fighters landed only {hits} shots on it: this proves nothing");
     }
 
     #[test]
@@ -8061,7 +9113,7 @@ mod tests {
         let s = &a.ships[0];
         let cell = s.turrets[0].cell;
         let g = s.cell_xy(cell);
-        let e = Snap { idx: 1, team: 1, x: 200, y: 110, vx: 8, vy: 0, half: 2, full: 5, working: false, worker: false };
+        let e = Snap { idx: 1, team: 1, x: 200, y: 110, vx: 8, vy: 0, half: 2, full: 5, worker: false };
         a.ships[1].x += 2;
         let travel = isqrt(dist2(200, 110, g.0, g.1)) / TRACKER_SPEED;
         let want = (200 + 8 * travel / 4, 110);
