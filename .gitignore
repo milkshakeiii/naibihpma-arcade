@@ -19,3 +19,6 @@
 *.aac
 *.opus
 *.wma
+
+# Built WebAssembly for the browser build (manyworlds/web/build.sh makes it)
+manyworlds/web/www/*.wasm

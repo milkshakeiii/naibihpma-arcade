@@ -5,6 +5,8 @@ Look-and-feel rules for small Rust games on a 400x300 VGA renderer, kept faithfu
 - [`AGENTS.md`](AGENTS.md): the rules every project follows (integer-only grid, exact `Nx` scaling, indexed palette, 15 FPS ticks, hardware mouse pointer).
 - [`visual_and_rendering_principles.md`](visual_and_rendering_principles.md): the longer rationale and implementation notes behind those rules.
 - [`music_listening_notes.md`](music_listening_notes.md): a catalog of the five mastered albums (`s1`–`s5`) used for game music.
+- [`DESIGN.md`](DESIGN.md): the design for Many Worlds Line, a game that plays all 43 tracks of *Many Worlds*, with its bot results and the phase 1 build.
+- [`manyworlds/`](manyworlds/): that game so far: its rules as a simulation, bots that test them, and leg 1 playable in the browser.
 
 The prototypes that used to live here (Interstellar Forager, Star Pond, Chuteworks, Mise en Space, and the roguelike lab) were removed on 2026-11-07. They remain in this repository's history up to b9303e8, and the `chuteworks-prototype` and `starpond-underbrush-prototype` branches still carry their own copies.
 
