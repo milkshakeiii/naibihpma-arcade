@@ -7,6 +7,8 @@ Look-and-feel rules for small Rust games on a 400x300 VGA renderer, kept faithfu
 - [`music_listening_notes.md`](music_listening_notes.md): a catalog of the five mastered albums (`s1`–`s5`) used for game music.
 - [`DESIGN.md`](DESIGN.md): the design for Many Worlds Line, a game that plays all 43 tracks of *Many Worlds*, with its bot results and the phase 1 build.
 - [`manyworlds/`](manyworlds/): that game so far: its rules as a simulation, bots that test them, and leg 1 playable in the browser.
+- [`hold/`](hold/): Naibihpma Hold v1, a Majesty-like village of amphibians in *The Enchanted Forest of Naibihpma*, built from the five design documents in `hold/design/`, with the album as its soundtrack. The first five-minute demo is kept in `hold/demo-v0/`.
+- [`.claude/skills/game-design/`](.claude/skills/game-design/): the process Claude follows to design games for Henry and show them to him, with its tests.
 
 The prototypes that used to live here (Interstellar Forager, Star Pond, Chuteworks, Mise en Space, and the roguelike lab) were removed on 2026-11-07. They remain in this repository's history up to b9303e8, and the `chuteworks-prototype` and `starpond-underbrush-prototype` branches still carry their own copies.
 

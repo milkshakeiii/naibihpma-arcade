@@ -1,0 +1,7 @@
+[package]
+name = "artlab"
+version = "0.1.0"
+edition = "2021"
+description = "A sandbox for Naibihpma Hold v1's art. src/art.rs here becomes hold/src/art.rs."
+
+[dependencies]

@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "manyworlds/web/www"],
       "port": 8765
+    },
+    {
+      "name": "hold",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-I", ".claude/skills/game-design/scripts/demo_server.py", "--dir", "hold/web/www", "--port", "8766", "--feedback", "hold/feedback.jsonl"],
+      "port": 8766
     }
   ]
 }

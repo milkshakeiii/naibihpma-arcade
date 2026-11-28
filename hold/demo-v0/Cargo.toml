@@ -1,0 +1,10 @@
+[package]
+name = "hold"
+version = "0.1.0"
+edition = "2021"
+description = "Naibihpma Hold: a five-minute demo of a Majesty-like village sim in the Enchanted Forest of Naibihpma."
+
+[dependencies]
+
+[profile.release]
+lto = true

@@ -22,3 +22,11 @@
 
 # Built WebAssembly for the browser build (manyworlds/web/build.sh makes it)
 manyworlds/web/www/*.wasm
+
+# Naibihpma Hold: built WebAssembly, and the feedback Henry leaves while playing
+hold/web/www/*.wasm
+hold/feedback.jsonl
+
+# The kept demo's built WebAssembly
+hold/demo-v0/www/*.wasm
+__pycache__/

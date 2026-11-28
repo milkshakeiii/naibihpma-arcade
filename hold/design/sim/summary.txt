@@ -1,0 +1,25 @@
+first slingshot bought            1:16    1:16 to  1:16   10/10
+first iron spear bought          20:10    8:30 to 32:40   10/10
+Ironcap Cave built                4:52    4:22 to  5:29   10/10
+first cap ingot picked            7:44    6:39 to  8:02   10/10
+Fairy Ring built                  8:44    7:45 to 10:06   10/10
+first spotted cap picked         21:20   18:23 to 23:42   10/10
+Star Pond built                  10:04    9:23 to 11:32   10/10
+first axolotl                    21:54   21:43 to 22:32   10/10
+first dew bead bought            22:14   22:03 to 23:12   10/10
+first chanfron bought            39:37   37:17 to 41:08   10/10
+first venomwood spear bought     28:13   22:43 to 34:11   10/10
+Spawning Pool built              25:03   21:54 to 26:25   10/10
+first bullfrog                   25:52   22:47 to 27:18   10/10
+Daot's Grotto built              22:17   18:51 to 24:13   10/10
+first glow charm bought          30:38   29:05 to 32:01   10/10
+first star pearl bought          43:16   42:06 to 44:14   10/10
+first venomiron spear bought     42:20   38:49 to 44:33   3/10
+Olm's Cave built                 29:47   29:32 to 30:29   10/10
+first olm                        36:03   35:52 to 39:08   10/10
+first iron shovel made           10:26    8:18 to 14:32   10/10
+first peytral made               30:51   28:35 to 35:16   10/10
+first star pearl made            23:43   23:24 to 25:16   10/10
+dew into the Hall per minute, by 5-minute block: [20, 27, 28, 32, 37, 55, 86, 68, 72]
+dew held in the Hall every 5 minutes (median): [60, 72, 105, 161, 212, 66, 171, 560, 802]
+share of time idle: {'tree frog': '79%', 'newt': '45%', 'caecilian': '13%', 'salamander': '73%', 'daot': '98%'}

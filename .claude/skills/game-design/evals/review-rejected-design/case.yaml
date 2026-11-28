@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: review-rejected-design
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  Henry rejected this design after playing it, for four reasons: real-time pressure
+  on what is really a deliberate track-drawing activity, a theme that doesn't match
+  the music (the song is only a clock), no immersion, and rules the tutorial never
+  made clear. A good review names those problems prominently and recommends
+  rethinking the core concept rather than patching it, offering an alternative.
+  Caveat: the skill's checks were written from this failure, so this case tests that
+  the skill applies its checks, not that it generalizes.

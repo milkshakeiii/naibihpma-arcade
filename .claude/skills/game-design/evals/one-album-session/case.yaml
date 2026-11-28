@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: one-album-session
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  Two or three one-sentence pitches and short questions only. Each uses Stellar
+  Cartography's tracks as the stages of one sitting, in album order, themed on each
+  track's subject (from distant objects inward to Vesta and Earth), with a calm,
+  self-paced feel to match the album and no rule that depends on hearing the music.
